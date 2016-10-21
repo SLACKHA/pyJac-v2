@@ -84,7 +84,7 @@ setup(
     package_dir={'pyjac': 'pyjac'},
     install_requires=install_requires,
     package_data={
-        'pyjac.core' : ['*.sympy'],
+        'pyjac.sympy' : ['*.sympy'],
         'pyjac.pywrap': ['*.pyx', '*.c', '*.h', '*.cu', '*.cuh', '*.in'],
         'pyjac.functional_tester' : ['*.yaml'],
         'pyjac.performance_tester' : ['*.pyx', '*.c', '*.h', '*.cu',
