@@ -150,6 +150,8 @@ void init(cl_uint problem_size, cl_uint num_devices${input_initialized_args_defn
     //get the device to compile for
     check_err(clGetDeviceIDs(pid, device_type, num_devices, device_ids, &ret_num_devices));
 
+    cassert(ret_num_devices > 0, "No devices found!");
+
     //now we need to create subdevices for the CPU
     if (device_type == CL_DEVICE_TYPE_CPU)
     {
@@ -176,15 +178,17 @@ void init(cl_uint problem_size, cl_uint num_devices${input_initialized_args_defn
         cl_device_id sub_device_ids;
         // Create the subdevices for the device_id device
         check_err(clCreateSubDevices(device_ids[0], properties, num_sub_devices, &sub_device_ids, &ret_num_devices));
+        cassert(ret_num_devices > 0, "No sub-devices could be created!");
         //and assign to the device_ids
         device_ids[0] = sub_device_ids;
+        num_devices = num_sub_devices;
     }
 
     //for the moment, limit to one device
-    cassert(ret_num_devices == 1, "Currently limited to a single device");
+    cassert(num_devices == 1, "Currently limited to a single device");
 
     //create context
-    context = clCreateContext(NULL, ret_num_devices, &device_ids[0], NULL, NULL, &return_code);
+    context = clCreateContext(NULL, num_devices, &device_ids[0], NULL, NULL, &return_code);
     check_err(return_code);
 
     //create queue
@@ -193,12 +197,12 @@ void init(cl_uint problem_size, cl_uint num_devices${input_initialized_args_defn
 
     /* Create Kernel program from the read in source binary */
     cl_int bin_status;
-    program = clCreateProgramWithBinary(context, ret_num_devices, &device_ids[0], source_sizes, (const unsigned char**)source_bins, &bin_status, &return_code);
+    program = clCreateProgramWithBinary(context, num_devices, &device_ids[0], source_sizes, (const unsigned char**)source_bins, &bin_status, &return_code);
     check_err(bin_status);
     check_err(return_code);
 
     /* Build Program */
-    return_code = clBuildProgram(program, ret_num_devices, &device_ids[0], build_options, NULL, NULL);
+    return_code = clBuildProgram(program, num_devices, &device_ids[0], build_options, NULL, NULL);
     if (return_code != CL_SUCCESS)
     {
           fprintf(stderr, "OpenCL failed to build the program...\n");
