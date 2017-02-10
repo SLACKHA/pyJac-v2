@@ -87,7 +87,7 @@ void compiler()
           printf("OpenCL failed to build the program...\n");
           size_t len;
           char *buffer;
-          check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(char*), NULL, &len));
+          check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &len));
           buffer = calloc(len, sizeof(char));
           check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, len * sizeof(char), buffer, NULL));
           printf("%s\n", buffer);
