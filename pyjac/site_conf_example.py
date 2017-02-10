@@ -1,26 +1,31 @@
 import os
 def get_paths():
     path = os.path.join('/etc', 'OpenCL', 'vendors')
-    vendors = [f for f in os.path.listdir(path) if os.path.isfile(
+    vendors = [f for f in os.listdir(path) if os.path.isfile(
                     os.path.join(path, f))]
 
     def __get_vendor_name(vendor):
         if 'intel' in vendor.lower():
-            return 'Intel'
+            return 'intel'
         elif 'amd' in vendor.lower():
-            return 'AMD'
+            return 'amd'
         elif 'nvidia' in vendor.lower():
-            return 'NVIDIA'
+            return 'nvidia'
 
     paths = {}
     #now scan vendors, and get lib paths
     for v in vendors:
         with open(os.path.join(path, v), 'r') as file:
             vendor = file.read()
-        paths[__get_vendor_name(v)] = os.path.dirname(os.path.readpath(vendor))
+        path = os.path.dirname(os.path.realpath(vendor))
+        if path != os.getcwd():
+            #found a real path
+            paths[__get_vendor_name(v)] = path
+    return paths
 
-CL_INC_DIR = ['/path/to/cl/headers']
+CL_INC_DIR = ['/opt/opencl-headers/']
 CL_LIBNAME = ['OpenCL']
 CL_VERSION = '1.2'
-CC_FLAGS = ['-mtune=native', '-03', '-std=c99']
+CL_FLAGS = []
+CC_FLAGS = []
 CL_PATHS = get_paths()
