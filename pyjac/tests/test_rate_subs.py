@@ -893,8 +893,6 @@ class SubTest(TestClass):
                 os.remove(os.path.join(lib_dir, 'test.py'))
             except:
                 assert False, 'Species rates error'
-            finally:
-                __cleanup()
 
             #test species rates
             #pywrap.species_rates(np.uint32(self.store.test_size),
