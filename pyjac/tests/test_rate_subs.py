@@ -839,7 +839,7 @@ class SubTest(TestClass):
 
             #generate wrapper
             generate_wrapper(opts.lang, build_dir, build_dir=obj_dir,
-                         out_dir=lib_dir, platform='intel')
+                         out_dir=lib_dir, platform=str(opts.platform))
 
             #get arrays
             concs = (self.store.concs.copy() if opts.order == 'F' else
