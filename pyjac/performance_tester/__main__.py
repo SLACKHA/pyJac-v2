@@ -15,17 +15,9 @@ def main(args=None):
                             default='performance',
                             help='Directory storing the mechanisms / data.'
                             )
-        parser.add_argument('-uoo', '--use_old_opt',
-                            action='store_true',
-                            default=False,
-                            required=False,
-                            help='If True, allows performance_tester to use '
-                                 'any old optimization files found'
-                            )
         args = parser.parse_args()
         pt.performance_tester(os.path.dirname(os.path.abspath(pt.__file__)),
-                              args.working_directory,
-                              args.use_old_opt)
+                              args.working_directory)
 
 if __name__ == '__main__':
     sys.exit(main())
