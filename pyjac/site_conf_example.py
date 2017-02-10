@@ -17,10 +17,10 @@ def get_paths():
     for v in vendors:
         with open(os.path.join(path, v), 'r') as file:
             vendor = file.read()
-        path = os.path.dirname(os.path.realpath(vendor))
-        if path != os.getcwd():
+        p = os.path.dirname(os.path.realpath(vendor))
+        if p != os.getcwd():
             #found a real path
-            paths[__get_vendor_name(v)] = path
+            paths[__get_vendor_name(v)] = p
     return paths
 
 CL_INC_DIR = ['/opt/opencl-headers/']
