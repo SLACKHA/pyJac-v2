@@ -13,6 +13,7 @@ import numpy as np
 
 #modules
 import loopy as lp
+from loopy.types import to_loopy_type
 
 __all__ = ['line_start', 'comment', 'langs', 'file_ext',
            'header_ext', 'line_end', 'exp_10_fun', 'array_chars',
@@ -329,8 +330,8 @@ def check_lang(lang):
     if not lang in langs:
         raise NotImplementedError('Language {} not supported'.format(lang))
 
-type_map = {lp.types.to_loopy_type(np.float64) : 'double',
-            lp.types.to_loopy_type(np.int32) : 'int'}
+type_map = {to_loopy_type(np.float64) : 'double',
+            to_loopy_type(np.int32) : 'int'}
 
 def get_global_declaration(lang, variable):
     """
