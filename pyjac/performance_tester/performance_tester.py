@@ -68,9 +68,6 @@ def check_step_file(filename, steplist):
     runs = {}
     for step in steplist:
         runs[step] = 0
-    if not 'cuda' in filename:
-        raise Exception(filename)
-
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]

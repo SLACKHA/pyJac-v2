@@ -2,7 +2,7 @@ import numpy as np
 import os
 from argparse import ArgumentParser
 
-def main(directory, cut=None, order='F'):
+def write(directory, cut=None, order='F'):
     assert order in ['C', 'F']
     num_conditions = 0
     npy_files = [os.path.join(directory, f) for f in os.listdir(directory)
@@ -15,10 +15,6 @@ def main(directory, cut=None, order='F'):
         # and save to binary C file
         for npy in sorted(npy_files):
             state_data = np.load(npy)
-            state_data = state_data.reshape(state_data.shape[0] *
-                                state_data.shape[1],
-                                state_data.shape[2]
-                                )
             if data is None:
                 data = state_data
             else:
@@ -30,8 +26,8 @@ def main(directory, cut=None, order='F'):
             return 0
         if cut is not None:
             data = data[cut:, :]
-        if data.order == 'C':
-            #the input ordering of the npy files is 'F'
+        if order == 'F':
+            #the input ordering of the npy files is 'C'
             #, i.e. column-major order
             #therefore we flip
             data = data.T.copy()
