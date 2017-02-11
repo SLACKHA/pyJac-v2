@@ -123,8 +123,8 @@ class loopy_options(object):
             self.device = self.platform.get_devices(device_type=self.device_type)
             if not self.device:
                 raise Exception('Cannot find devices of type {} on platform {}'.format(self.device_type, self.platform))
-            self.device_type = self.device.get_info(cl.device_info.TYPE)
             self.device = self.device[0]
+            self.device_type = self.device.get_info(cl.device_info.TYPE)
         #finally a matching device
 
 def get_device_list():
