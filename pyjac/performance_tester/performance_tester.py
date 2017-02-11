@@ -37,9 +37,11 @@ except ImportError:
 from .. import utils
 from ..core.create_jacobian import create_jacobian
 from ..libgen import (generate_library, libs, compiler, file_struct,
-                      get_cuda_path, flags, lib_dirs
+                      get_cuda_path, flags
                       )
-from .. import site_config as site
+from .. import site_conf as site
+
+from . import data_bin_writer as dbw
 
 STATIC = False
 """bool: CUDA only works for static libraries"""
@@ -256,40 +258,7 @@ def performance_tester(home, work_dir):
         subprocess.check_call(['mkdir', '-p', build_dir])
         subprocess.check_call(['mkdir', '-p', test_dir])
 
-        num_conditions = 0
-        npy_files = [f for f in os.listdir(os.path.join(work_dir, mech_name))
-                        if f.endswith('.npy')
-                        and os.path.isfile(f)]
-        data = None
-        with open('data.bin', 'wb') as file:
-            #load PaSR data for different pressures/conditions,
-            # and save to binary C file
-            for npy in sorted(npy_files):
-                state_data = np.load(npy)
-                state_data = state_data.reshape(state_data.shape[0] *
-                                    state_data.shape[1],
-                                    state_data.shape[2]
-                                    )
-                num_conditions += state_data.shape[0]
-
-                use_data = state_data.T
-                out_data = np.zeros((gas.n_species + 2, state_data.shape[0]))
-                for i in range(state_data.shape[0]):
-                    #convert to T, P, C
-                    gas.TPY = use_data[i, 1], use_data[i, 2], use_data[i, 3:]
-                    out_data[i, 0] = gas.T
-                    out_data[i, 1] = gas.P
-                    out_data[i, 2] = gas.concentrations[:]
-
-                if data is None:
-                    data = state_data
-                else:
-                    data = np.vstack((data, state_data))
-                print(num_conditions, data.shape)
-            if num_conditions == 0:
-                print('No data found in folder {}, continuing...'.format(mech_name))
-                continue
-            data.tofile(file)
+        current_data_order = None
 
         #figure out gpu steps
         step_size = 1
@@ -306,6 +275,12 @@ def performance_tester(home, work_dir):
             lang = state['lang']
             vecsize = state['vecsize']
             order = state['order']
+
+            if order != current_data_order:
+                #rewrite data to file in correct order
+                num_conditions = dbw.main(os.path.join(work_dir, mech_name),
+                                            order=order)
+
             temp_lang = 'c'
 
             data_output = ('{}_{}_{}'.format(lang, vecsize, order) +
