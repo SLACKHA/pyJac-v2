@@ -928,7 +928,7 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
             rev_update_instructions = Template(
             """
             net_rate = net_rate - ${rop_rev_str} {id=rate_update_rev, dep=rate_update}
-            """).safe_substitute(,
+            """).safe_substitute(
                     rop_rev_str=rop_rev_str,
                     rev_map_str=rev_map_str)
             if rev_map_str:
