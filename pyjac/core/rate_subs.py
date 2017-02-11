@@ -2859,14 +2859,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
                 #if we need to iterate
                 if maxb > 1:
                     #add an extra iname, and the resulting iteraton loop
-                    info.extra_inames.append(('k', '0 <= maxb < {}'.format(maxb)))
+                    info.extra_inames.append(('k', '0 <= k < b_end'))
                     beta_iter = """
-                <> btest = abs(${b_name}[i])
+                <> b_end = abs(${b_name}[i])
                 for k
-                    <>inbounds = k < btest
-                    if inbounds
-                        kf_temp = kf_temp * T_val {id=a4, dep=a3}
-                    end
+                    kf_temp = kf_temp * T_val {id=a4, dep=a3}
                 end
                 ${kf_str} = kf_temp {dep=a4}
                 """
