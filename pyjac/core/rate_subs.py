@@ -2774,6 +2774,10 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
     i_a_only = k_gen.knl_info(name='a_only{}'.format(name_mod),
         instructions=kf_assign.safe_substitute(rate='${A_name}[i]'),
         **extra_args)
+
+    #the default is a single multiplication
+    #if needed, this will be expanded to a for-loop multiplier
+    beta_iter = "${kf_str} = kf_temp * T_val {id=a4, dep=a3}"
     i_beta_int = k_gen.knl_info(name='beta_int{}'.format(name_mod),
         pre_instructions=[k_gen.TINV_PREINST_KEY],
         instructions="""
@@ -2782,7 +2786,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
         if negval
             T_val = T_inv {id=a2, dep=a1}
         end
-        ${kf_str} = ${A_name}[i] * T_val {id=a3, dep=a2}
+        <>kf_temp = ${A_name}[i] {id=a3, dep=a2}
         ${beta_iter}
         """,
         **extra_args)
@@ -2845,7 +2849,6 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
             continue
 
         #check maxb / iteration
-        beta_iter = ''
         if (separated_kernels and (info.name == i_beta_int.name)) or \
             (not separated_kernels and not fixed):
             #find max b exponent
@@ -2856,15 +2859,17 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
                 #if we need to iterate
                 if maxb > 1:
                     #add an extra iname, and the resulting iteraton loop
-                    info.extra_inames.append(('k', '1 <= maxb < {}'.format(maxb)))
+                    info.extra_inames.append(('k', '0 <= maxb < {}'.format(maxb)))
                     beta_iter = """
                 <> btest = abs(${b_name}[i])
                 for k
                     <>inbounds = k < btest
                     if inbounds
-                        ${kf_str} = ${kf_str} * T_val {dep=a2}
+                        kf_temp = kf_temp * T_val {id=a4, dep=a3}
                     end
-                end"""
+                end
+                ${kf_str} = kf_temp {dep=a4}
+                """
 
         #check if we need an input map
         maps = {}
