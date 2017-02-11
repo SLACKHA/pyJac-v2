@@ -973,7 +973,7 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
 
         instructions = '\n'.join([x for x in instructions.split('\n') if x.strip()])
 
-        return k_gen.knl_info(name='rop_net',
+        return k_gen.knl_info(name='rop_net_fixed',
                            instructions=instructions,
                            var_name='i',
                            kernel_data=kernel_data['fwd'],
