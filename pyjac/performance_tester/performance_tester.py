@@ -13,7 +13,7 @@ import re
 from argparse import ArgumentParser
 import multiprocessing
 import shutil
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 from string import Template
 
@@ -37,7 +37,7 @@ except ImportError:
 from .. import utils
 from ..core.create_jacobian import create_jacobian
 from ..libgen import (generate_library, libs, compiler, file_struct,
-                      get_cuda_path, flags
+                      get_cuda_path, flags, get_file_list
                       )
 from .. import site_conf as site
 
@@ -102,13 +102,15 @@ def check_file(filename):
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
         num_completed = 0
-        to_find = 2
+        to_find = 4
         for line in lines:
             try:
                 vals = line.split(',')
                 if len(vals) == to_find:
                     i = int(vals[0])
                     f = float(vals[1])
+                    f2 = float(vals[2])
+                    f3 = float(vals[3])
                     num_completed += 1
             except:
                 pass
@@ -150,18 +152,21 @@ def cmd_link(lang, shared):
     return cmd
 
 
-def linker(lang, temp_lang, test_dir, filelist, lib=None, platform=''):
-    args = cmd_link(temp_lang, not STATIC)
-    args.extend(flags[lang])
+exceptions = ['-xc']
+def linker(lang, test_dir, filelist, platform=''):
+    args = cmd_link(lang, not STATIC)
+    args.extend([x for x in flags[lang] if x not in exceptions])
     args.extend([os.path.join(test_dir, getf(f) + '.o') for f in filelist])
     args.extend(['-o', os.path.join(test_dir, 'speedtest')])
     args.extend(libs[lang])
     rpath = ''
     if lang == 'opencl':
         rpath = next(x for x in site.CL_PATHS if
-            platform.lower() in x)
-        rpath = site.CL_PATHS[rpath]
-        libdirs.extend([rpath])
+            x in platform.lower())
+        if rpath:
+            rpath = site.CL_PATHS[rpath]
+            args.extend(['-Wl,-rpath', rpath])
+            args.extend(['-L', rpath])
 
     args.append('-lm')
 
@@ -240,9 +245,23 @@ def performance_tester(home, work_dir):
     #               }
     #tchem_params = {'lang' : 'tchem'}
     vec_widths = [4, 8, 16]
-    wide_ocl_params = {'lang' : 'opencl',
-                  'vecsize' : vec_widths,
-                  'order' : 'F'}
+    num_cores = []
+    nc = 1
+    while nc < multiprocessing.cpu_count() / 2:
+        num_cores.append(nc)
+        nc *= 2
+    platforms = ['intel']
+    rate_spec = ['fixed', 'hybrid']#, 'full']
+
+    ocl_params = [('lang', 'opencl'),
+                  ('vecsize', vec_widths),
+                  ('order', ['F', 'C']),
+                  ('wide', [True, False]),
+                  ('platform', platforms),
+                  ('rate_spec', rate_spec),
+                  ('split_kernels', [True, False]),
+                  ('num_cores', num_cores)
+                  ]
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
                                        key=lambda x:x[1]['ns']
@@ -251,64 +270,86 @@ def performance_tester(home, work_dir):
         gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
 
         #ensure directory structure is valid
-        os.chdir(os.path.join(work_dir, mech_name))
-        subprocess.check_call(['mkdir', '-p', build_dir])
-        subprocess.check_call(['mkdir', '-p', test_dir])
+        this_dir = os.path.join(work_dir, mech_name)
+        this_dir = os.path.abspath(this_dir)
+        os.chdir(this_dir)
+        my_build = os.path.join(this_dir, build_dir)
+        my_test = os.path.join(this_dir, test_dir)
+        subprocess.check_call(['mkdir', '-p', my_build])
+        subprocess.check_call(['mkdir', '-p', my_test])
 
         current_data_order = None
 
-        #figure out gpu steps
-        step_size = 1
-        steplist = []
-        while step_size < num_conditions:
-            steplist.append(step_size)
-            step_size *= vec_widths[-1]
-
         the_path = os.getcwd()
         first_run = True
-        op = OptionLoop(wide_ocl_params, false_factory)
+        op = OptionLoop(OrderedDict(ocl_params), false_factory)
 
-        for state in op:
+        for i, state in enumerate(op):
             lang = state['lang']
             vecsize = state['vecsize']
             order = state['order']
+            wide = state['wide']
+            deep = state['deep']
+            platform = state['platform']
+            rate_spec = state['rate_spec']
+            split_kernels = state['split_kernels']
+            num_cores = state['num_cores']
+
+            if rate_spec == 'fixed' and split_kernels:
+                continue #not a thing!
 
             if order != current_data_order:
                 #rewrite data to file in correct order
-                num_conditions = dbw.main(os.path.join(work_dir, mech_name),
+                num_conditions = dbw.write(os.path.join(work_dir, mech_name),
                                             order=order)
 
-            temp_lang = 'c'
+            #figure out the number of steps
+            step_size = vec_widths[-1]
+            while step_size < num_conditions:
+                if step_size * 2 >= num_conditions:
+                    break
+                step_size *= 2
 
-            data_output = ('{}_{}_{}'.format(lang, vecsize, order) +
+            temp_lang = 'c'
+            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
+                            'w' if wide else 'd' if deep else 'par',
+                            platform, rate_spec, 'split' if split_kernels else 'single',
+                            num_cores
+                            ) +
                            '_output.txt'
                            )
 
             data_output = os.path.join(the_path, data_output)
-            todo = check_step_file(data_output, steplist)
-            for x in todo:
-                todo[x] = repeats - todo[x]
+            num_completed = check_file(data_output)
+            todo = {num_conditions: repeats - num_completed}
             if not any(todo[x] > 0 for x in todo):
                 continue
 
-            if lang != 'tchem':
+            try:
                 create_jacobian(lang,
                     mech_name=mech_info['mech'],
-                    vector_size=vector_size,
-                    wide=True,
-                    build_path=build_dir,
+                    vector_size=vecsize,
+                    wide=wide,
+                    deep=deep,
+                    build_path=my_build,
                     skip_jac=True,
                     auto_diff=False,
-                    platform='intel',
-                    data_filename='data.bin'
+                    platform=platform,
+                    data_filename=os.path.join(work_dir, mech_name, 'data.bin'),
+                    split_rate_kernels=split_kernels,
+                    rate_specialization=rate_spec,
+                    split_rop_net_kernels=split_kernels
                     )
+            except:
+                print('generation failed...')
+                print(i, state)
 
 
             #get file lists
             i_dirs, files = get_file_list(build_dir, lang)
 
-            structs = [file_struct(lang, temp_lang, f, i_dirs,
-               [], build_dir, test_dir, not STATIC) for f in files]
+            structs = [file_struct(lang, lang, f, i_dirs,
+               [], my_build, my_test, not STATIC) for f in files]
 
             pool = multiprocessing.Pool()
             results = pool.map(compiler, structs)
@@ -317,7 +358,7 @@ def performance_tester(home, work_dir):
             if any(r == -1 for r in results):
                sys.exit(-1)
 
-            linker(lang, temp_lang, test_dir, files, lib)
+            linker(lang, my_test, files, platform)
 
             with open(data_output, 'a+') as file:
                 for stepsize in todo:
@@ -325,6 +366,6 @@ def performance_tester(home, work_dir):
                         print(i, "/", todo[stepsize])
                         subprocess.check_call(
                             [os.path.join(the_path,
-                            test_dir, 'speedtest'),
-                            str(stepsize), str(num_threads)], stdout=file
+                            my_test, 'speedtest'),
+                            str(stepsize), str(num_cores)], stdout=file
                             )
