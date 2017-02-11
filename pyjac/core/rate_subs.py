@@ -926,13 +926,21 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
         #reverse update
         if rate_info['rev']['num']:
             rev_update_instructions = Template(
-        """
-        if rev_ind >= 0
+            """
             net_rate = net_rate - ${rop_rev_str} {id=rate_update_rev, dep=rate_update}
-        end
-        """).safe_substitute(
-                rev_map_str=rev_map_str,
-                rop_rev_str=rop_rev_str)
+            """).safe_substitute(,
+                    rop_rev_str=rop_rev_str,
+                    rev_map_str=rev_map_str)
+            if rev_map_str:
+                # num rev != num rxns
+                rev_update_instructions = Template(
+            """
+            if rev_ind >= 0
+                ${cur_inst}
+            end
+            """).safe_substitute(cur_inst=rev_update_instructions)
+            else:
+
         else:
             rev_update_instructions = ''
 
@@ -940,13 +948,19 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
         if rate_info['thd']['num']:
             pmod_update_instructions = Template(
         """
-        if pres_ind >= 0
-            net_rate = net_rate * ${pres_mod_str} {id=rate_update_pmod, dep=rate_update${rev_dep}}
-        end
+        net_rate = net_rate * ${pres_mod_str} {id=rate_update_pmod, dep=rate_update${rev_dep}}
         """).safe_substitute(
                 rev_dep=':rate_update_rev' if rate_info['rev']['num'] else '',
                 pres_map_str=pres_map_str,
                 pres_mod_str=pres_mod_str)
+            if pres_map_str:
+                #num pmod != num rxns
+                pmod_update_instructions = Template(
+        """
+        if pres_ind >= 0
+            ${cur_inst}
+        end
+        """).safe_substitute(cur_inst=pmod_update_instructions)
         else:
             pmod_update_instructions = ''
 

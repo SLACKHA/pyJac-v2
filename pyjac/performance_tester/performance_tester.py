@@ -343,6 +343,9 @@ def performance_tester(home, work_dir):
             except:
                 print('generation failed...')
                 print(i, state)
+                print()
+                print()
+                continue
 
 
             #get file lists
