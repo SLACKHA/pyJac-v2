@@ -294,7 +294,7 @@ def performance_tester(home, work_dir):
             rate_spec = state['rate_spec']
             split_kernels = state['split_kernels']
             num_cores = state['num_cores']
-            if not deep and not wide and vecsize != vecsizes[0]:
+            if not deep and not wide and vecsize != vec_widths[0]:
                 continue #this is simple parallelization, don't need vector size
 
             if rate_spec == 'fixed' and split_kernels:
