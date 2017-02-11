@@ -321,7 +321,7 @@ def performance_tester(home, work_dir):
 
             data_output = os.path.join(the_path, data_output)
             num_completed = check_file(data_output)
-            todo = {num_conditions: repeats - num_completed}
+            todo = {step_size: repeats - num_completed}
             if not any(todo[x] > 0 for x in todo):
                 continue
 
