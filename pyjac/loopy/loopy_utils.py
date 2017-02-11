@@ -1,7 +1,7 @@
 from __future__ import print_function
 
 #package imports
-from enum import Enum
+from enum import IntEnum
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
 import numpy as np
@@ -20,7 +20,7 @@ logging.getLogger('loopy').setLevel(logging.WARNING)
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
     'loopy_edit_script.py')
 
-class RateSpecialization(Enum):
+class RateSpecialization(IntEnum):
     fixed = 0,
     hybrid = 1,
     full = 2

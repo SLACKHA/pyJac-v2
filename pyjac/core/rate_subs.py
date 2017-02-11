@@ -828,6 +828,11 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
 
     __add_data('fwd', rop_fwd_lp)
 
+    #define some conditional strings to be empty
+    #so we don't get yelled at later if they're not used
+    rev_map_str = ''
+    pres_map_str = ''
+
     if rate_info['Nr'] != rate_info['rev']['num'] and rate_info['rev']['num']:
         if not separated_kernels:
             #only have one kernel, so all maps / data go here
@@ -2998,7 +3003,7 @@ def write_specrates_kernel(eqs, reacs, specs,
     #check for reverse rates
     if rate_info['rev']['num']:
         #add the 'b' eval
-        __add_knl(polyfit_kernel_gen('b', eqs['conv'], specs, loopy_opts,
+        __add_knl(polyfit_kernel_gen('b', eqs['conp'], specs, loopy_opts,
                 test_size))
         #addd the 'b' eval to depnediencies
         depends_on.append(kernels[-1])

@@ -17,6 +17,7 @@ from . import chem_model as chem
 from . import mech_interpret as mech
 from . import rate_subs as rate
 from . import mech_auxiliary as aux
+from ..sympy import sympy_interpreter as sp_interp
 from ..loopy import loopy_utils as lp_utils
 
 
@@ -27,6 +28,8 @@ def create_jacobian(lang,
                     vector_size=None,
                     wide=False,
                     deep=False,
+                    ilp=False,
+                    unr=None,
                     build_path='./out/',
                     last_spec=None,
                     skip_jac=False,
@@ -60,6 +63,9 @@ def create_jacobian(lang,
         If true, use a 'wide' vectorization strategy. Cannot be specified along with 'deep'.
     deep : bool
         If true, use a 'deep' vectorization strategy.  Cannot be specified along with 'wide'.  Currently broken
+    unr : int
+        If supplied, unroll inner loops (i.e. those that would be affected by a deep vectorization).
+        Can be used in conjunction with deep or wide parallelism
     build_path : str, optional
         The output directory for the jacobian files
     last_spec : str, optional
@@ -69,7 +75,7 @@ def create_jacobian(lang,
         If ``True``, only the reaction rate subroutines will be generated
     auto_diff : bool, optional
         If ``True``, generate files for use with the Adept autodifferention library.
-     platform : {'CPU', 'GPU', or other vendor specific name}
+    platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be used
         *   If a vendor specific string, it will be passed to pyopencl to get the platform
@@ -143,7 +149,7 @@ def create_jacobian(lang,
         depth = vector_size
 
     rspec = ['fixed', 'hybrid', 'full']
-    rate_spec_val = next((i for i, x in rspec if rate_specialization.lower() == x), None)
+    rate_spec_val = next((i for i, x in enumerate(rspec) if rate_specialization.lower() == x), None)
     assert rate_spec_val is not None, 'Error: rate specialization value {} not recognized.\nNeeds to be one of: {}'.format(
             rate_specialization, ', '.join(rspec))
     rate_spec_val = lp_utils.RateSpecialization(rate_spec_val)
@@ -151,13 +157,17 @@ def create_jacobian(lang,
 
 
     #create the loopy options
-    loopy_opts = lp_utils.loopy_options(width=None, depth=None, ilp=False,
-                    unr=None, lang=lang, order=data_order,
-                    rate_spec=rate_spec_val,
-                    rate_spec_kernels=split_rate_kernels,
-                    rop_net_kernels=split_rop_net_kernels,
-                    spec_rates_sum_over_reac=spec_rates_sum_over_reac,
-                    platform=platform)
+    loopy_opts = lp_utils.loopy_options(width=width,
+                        depth=depth,
+                        ilp=False,
+                        unr=unr,
+                        lang=lang,
+                        order=data_order,
+                        rate_spec=rate_spec_val,
+                        rate_spec_kernels=split_rate_kernels,
+                        rop_net_kernels=split_rop_net_kernels,
+                        spec_rates_sum_over_reac=spec_rates_sum_over_reac,
+                        platform=platform)
 
     # create output directory if none exists
     utils.create_dir(build_path)
@@ -234,19 +244,19 @@ def create_jacobian(lang,
     specs[-1] = temp[last_spec]
     specs[last_spec] = temp[-1]
 
-    #reassign the reaction's product / reactant / third body list
-    # to integer indexes for speed
-    utils.reassign_species_lists(reacs, specs)
-
     #write header
-    write_mechanism_header(build_dir, loopy_opts.lang, specs, reacs)
+    aux.write_mechanism_header(build_path, loopy_opts.lang, specs, reacs)
+
+    eqs = {}
+    eqs['conp'] = sp_interp.load_equations(conp)[1]
+    eqs['conv'] = sp_interp.load_equations(not conp)[1]
 
     ## now begin writing subroutines
-    kgen = write_specrates_kernel(eqs, reacs, specs, opts,
+    kgen = rate.write_specrates_kernel(eqs, reacs, specs, loopy_opts,
                     conp=conp)
 
     #generate
-    kgen.generate(build_dir, data_filename=data_filename)
+    kgen.generate(build_path, data_filename=data_filename)
 
     if skip_jac == False:
         # write Jacobian subroutine

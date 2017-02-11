@@ -81,12 +81,12 @@ def load_equations(conp=True, check=False):
             raise Exception('Error parsing at line: {}\n{}'.format(i, lines[i]))
 
         if sym in eqn_list:
-            raise Exception('Sympy parsing error at line {},'.format(i) + 
+            raise Exception('Sympy parsing error at line {},'.format(i) +
                 'duplicate definition found')
 
         #bump to definition
         i += 1
-        
+
         #the next line is either an if statement
         conditional = None
         while True:
@@ -94,9 +94,9 @@ def load_equations(conp=True, check=False):
                 break
             match = re.search('^if (.+)$', lines[i])
             if match:
-                #check 
+                #check
                 if conditional == False:
-                    raise Exception('Sympy parsing error at line {},'.format(i) + 
+                    raise Exception('Sympy parsing error at line {},'.format(i) +
                         'conditional definition found in non-conditional block')
                 #map conditionals to enums
                 conditional = True
@@ -113,9 +113,9 @@ def load_equations(conp=True, check=False):
 
                 i += 2
             else:
-                #check 
+                #check
                 if conditional:
-                    raise Exception('Sympy parsing error at line {},'.format(i) + 
+                    raise Exception('Sympy parsing error at line {},'.format(i) +
                         'non-conditional definition found in conditional block')
                 conditional = False
                 #place sympified equation in eqn_list
