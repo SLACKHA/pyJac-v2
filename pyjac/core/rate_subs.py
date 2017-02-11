@@ -939,8 +939,6 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
                 ${cur_inst}
             end
             """).safe_substitute(cur_inst=rev_update_instructions)
-            else:
-
         else:
             rev_update_instructions = ''
 
