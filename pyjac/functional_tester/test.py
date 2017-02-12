@@ -74,7 +74,7 @@ def getf(x):
     return os.path.basename(x)
 
 
-def functional_tester(work_dir):
+def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
     """Runs performance testing for pyJac, TChem, and finite differences.
 
     Parameters
@@ -184,7 +184,6 @@ def functional_tester(work_dir):
             conp_temperature_rates[i, :] = (-np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:]))
             conv_temperature_rates[i, :] = (-np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:]))
 
-        import pdb; pdb.set_trace()
         current_data_order = None
 
         the_path = os.getcwd()
@@ -255,7 +254,7 @@ def functional_tester(work_dir):
             tests = []
             __saver(species_rates, 'wdot', tests)
 
-            outf = 'wdot_rate_err.npy'
+            outf = os.path.join(my_test, 'wdot_rate_err.npy')
             #write the module tester
             with open(os.path.join(my_test, 'test.py'), 'w') as file:
                 file.write(mod_test.safe_substitute(
@@ -298,17 +297,18 @@ def functional_tester(work_dir):
                 'python{}.{}'.format(sys.version_info[0], sys.version_info[1]),
                 os.path.join(my_test, 'test.py')])
 
-            #load err
-            err = np.load(os.path.join(my_test, outf))
+            #load output
+            outv = np.load(outf)
+            err = np.abs(outv - species_rates) / (atol + rtol * np.abs(species_rates))
             #reshape
             err = np.reshape(err, (num_conditions, gas.n_species + 1), order=order)
             #take err norm
-            err = np.linalg.norm(err, 'inf', axis=0)
+            err = np.linalg.norm(err, ord=np.inf, axis=0)
             #save to output
             with open(data_output, 'a') as file:
-                data_output.write(', '.join('%.15le'.format(x) for x in err))
+                file.write(', '.join('%.15le'.format(x) for x in err))
             #and print total max to screen
-            print(np.linalg.norm(err, 'inf'))
+            print(state, np.linalg.norm(err, np.inf))
 
             #cleanup
             for x in args + tests:
