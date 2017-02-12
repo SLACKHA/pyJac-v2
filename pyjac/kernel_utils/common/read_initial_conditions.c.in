@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-const char data_order = '${data_order}';
-
 void read_initial_conditions(const char* filename, unsigned int NUM, double* T_host, double* P_host,
     double* conc_host, const char order) {
     FILE *fp = fopen (filename, "rb");
@@ -14,37 +12,60 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
         fprintf(stderr, "Could not open file: %s\\\n", filename);
         exit(-1);
     }
-    double buffer[NN + 2];
 
-    // load temperature, pressure and concentrations for all (cells)
-    for (int i = 0; i < NUM; ++i)
+    if (order == 'C')
     {
-        // read line from data file
-        int count = fread(buffer, sizeof(double), NN + 2, fp);
-        if (count != (NN + 2))
+        double buffer[NSP + 2];
+        // load temperature, pressure and concentrations for all (cells)
+        for (int i = 0; i < NUM; ++i)
         {
-            fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NN + 1, count);
-            exit(-1);
-        }
-
-        //fill T_host, P_host
-        T_host[i] = buffer[0];
-        P_host[i] = buffer[1];
-
-        for (int j = 0; j < NS; j++)
-        {
-            if (order != data_order)
+            // read line from data file
+            int count = fread(buffer, sizeof(double), NSP + 2, fp);
+            if (count != (NSP + 2))
             {
-                //need to transpose for conc array
-                //instead of sequential value, these will go every NSP
-                conc_host[j * NS + i] = buffer[j + 2];
+                fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NSP + 2, count);
+                exit(-1);
             }
-            else
+
+            //fill T_host, P_host
+            T_host[i] = buffer[0];
+            P_host[i] = buffer[1];
+
+            for (int j = 0; j < NS; j++)
             {
                 conc_host[i * NS + j] = buffer[j + 2];
             }
-        }
 
+        }
+    }
+    else
+    {
+        double* buffer = (double*)malloc(NUM * sizeof(double));
+        // load temperature, pressure and concentrations for all (cells)
+        for (int i = 0; i < NSP + 2; ++i)
+        {
+            // read line from data file
+            int count = fread(buffer, sizeof(double), NUM, fp);
+            if (count != (NUM))
+            {
+                fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NUM, count);
+                exit(-1);
+            }
+
+            double* fill = NULL;
+            if (i == 0)
+                fill = T_host;
+            elif (i == 1)
+                fill = P_host;
+            else:
+                fill = &conc_host[i * NS];
+
+            for (int j = 0; j < NUM; j++)
+            {
+                fill[j] = buffer[j];
+            }
+
+        }
     }
     fclose (fp);
 }

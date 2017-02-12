@@ -74,7 +74,7 @@ def getf(x):
     return os.path.basename(x)
 
 
-def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
+def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
     """Runs performance testing for pyJac, TChem, and finite differences.
 
     Parameters
@@ -166,11 +166,9 @@ def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
         cv = np.zeros((gas.n_species))
         #now we must evaluate the species rates
         for i in range(num_conditions):
-            #set state
-            gas.concentrations = data[i, 2:]
             #it's actually more accurate to set the density (total concentration)
             #due to the cantera internals
-            gas.TD = T[i], P[i] / (ct.gas_constant * T[i])
+            gas.TDX = T[i], P[i] / (ct.gas_constant * T[i]), data[i, 2:]
             #now, since cantera normalizes these concentrations
             #let's read them back
             data[i, 2:] = gas.concentrations[:]
