@@ -277,6 +277,7 @@ def performance_tester(home, work_dir):
                     vector_size=vecsize,
                     wide=wide,
                     deep=deep,
+                    data_order=data_order,
                     build_path=my_build,
                     skip_jac=True,
                     auto_diff=False,

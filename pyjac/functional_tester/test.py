@@ -269,7 +269,7 @@ def functional_tester(work_dir):
                     vector_size=vecsize,
                     wide=wide,
                     deep=deep,
-                    order=order,
+                    data_order=order,
                     build_path=my_build,
                     skip_jac=True,
                     auto_diff=False,
