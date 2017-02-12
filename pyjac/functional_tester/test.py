@@ -308,7 +308,7 @@ def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
             err = np.linalg.norm(err, ord=np.inf, axis=0)
             #save to output
             with open(data_output, 'a') as file:
-                file.write(', '.join(['%.15e'.format(x) for x in err]))
+                file.write(', '.join(['{:.15e}'.format(x) for x in err]))
             #and print total max to screen
             print(state, np.linalg.norm(err, np.inf))
 
