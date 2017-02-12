@@ -1,4 +1,10 @@
-def get_test_matrix(home, work_dir):
+import os
+import multiprocessing
+import sys
+import cantera as ct
+from collections import OrderedDict
+
+def get_test_matrix(work_dir):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -27,7 +33,7 @@ def get_test_matrix(home, work_dir):
     mechanism_list = {}
     if not os.path.exists(work_dir):
         print ('Error: work directory {} for '.format(work_dir) +
-               'performance testing not found, exiting...')
+               'testing not found, exiting...')
         sys.exit(-1)
     for name in os.listdir(work_dir):
         if os.path.isdir(os.path.join(work_dir, name)):

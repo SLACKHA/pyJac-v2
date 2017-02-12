@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from . import functional_tester
+from .test import functional_tester
 from .. import utils
 import os
 
@@ -10,10 +10,8 @@ if __name__ == '__main__':
         )
     parser.add_argument('-w', '--working_directory',
                             type=str,
-                            default='performance',
+                            default='error_checking',
                             help='Directory storing the mechanisms / data.'
                             )
     args = parser.parse_args()
-    test.test(os.path.dirname(os.path.abspath(test.__file__)),
-                              args.working_directory
-              )
+    functional_tester(args.working_directory)
