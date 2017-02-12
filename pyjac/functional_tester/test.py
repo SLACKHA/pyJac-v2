@@ -166,9 +166,6 @@ def functional_tester(work_dir):
         cv = np.zeros((gas.n_species))
         #now we must evaluate the species rates
         for i in range(num_conditions):
-            #remove any old builds
-            __cleanup()
-
             #set state
             gas.concentrations = data[i, 2:]
             gas.TP = T[i], P[i]
@@ -192,6 +189,8 @@ def functional_tester(work_dir):
         op = OptionLoop(ocl_params, lambda: False)
 
         for i, state in enumerate(op):
+            #remove any old builds
+            __cleanup()
             lang = state['lang']
             vecsize = state['vecsize']
             order = state['order']
@@ -233,8 +232,8 @@ def functional_tester(work_dir):
                 namelist.append(myname)
 
             #get arrays
-            concs = (data[:, 2:].copy() if order == 'C' else
-                        data[:, 2:].T.copy()).flatten('K')
+            concs = (data[:num_conditions, 2:].copy() if order == 'C' else
+                        data[:num_conditions, 2:].T.copy()).flatten('K')
 
             #put together species rates
             species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
@@ -270,6 +269,7 @@ def functional_tester(work_dir):
                     vector_size=vecsize,
                     wide=wide,
                     deep=deep,
+                    order=order,
                     build_path=my_build,
                     skip_jac=True,
                     auto_diff=False,
