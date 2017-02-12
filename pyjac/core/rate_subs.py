@@ -677,12 +677,11 @@ def get_spec_rates(eqs, loopy_opts, rate_info, test_size=None):
         omega_ind = 'omega_ind'
         maplist.append(lp_utils.generate_map_instruction(var_name,
                                                          omega_ind,
-                                                         maps['${var_name}'],
-                                                         affine=' + 1'))
+                                                         maps['${var_name}']))
 
     #and finally the wdot
     omega_dot_lp, omega_dot_str, _ = lp_utils.get_loopy_arg('wdot',
-                    indicies=['${omega_ind}', 'j'],
+                    indicies=['${omega_ind} + 1', 'j'],
                     dimensions=[rate_info['Ns'] + 1, test_size],
                     order=loopy_opts.order)
 
@@ -699,7 +698,7 @@ def get_spec_rates(eqs, loopy_opts, rate_info, test_size=None):
         <>num_spec = ${num_spec_str}
         for ispec
             <> spec_map = offset + ispec
-            <> spec_ind = ${spec_str} + 1 # (offset by one for Tdot)
+            <> spec_ind = ${spec_str} # (offset handled in wdot str)
             <> nu = ${nu_str}
             ${omega_dot_str} = ${omega_dot_str} + nu * net_rate {dep=rate_update*}
         end
