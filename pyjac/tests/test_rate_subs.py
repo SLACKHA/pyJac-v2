@@ -779,6 +779,7 @@ class SubTest(TestClass):
             assert filecmp.cmp(os.path.join(self.store.build_dir, 'spec_rates_main.ocl'),
                             os.path.join(self.store.script_dir, 'blessed', 'spec_rates_{}_main.ocl'.format(postfix)))
 
+    @attr('long')
     def test_specrates(self):
         eqs, oploop = self.__get_eqs_and_oploop(True, True, True,
             use_platform_instead=True, do_conp=True)
