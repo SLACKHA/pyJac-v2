@@ -1843,7 +1843,8 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
     Nr = rate_info['Nr']
 
     indicies = k_gen.handle_indicies(indicies, reac_ind,
-                      out_map, kernel_data, inmap_name=outmap_name)
+                      out_map, kernel_data, inmap_name=outmap_name,
+                      force_zero=True)
 
     #get the proper kf indexing / array
     kf_arr, kf_str, map_result = lp_utils.get_loopy_arg('kf',
@@ -1851,8 +1852,9 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
                     dimensions=[Nr, test_size],
                     order=loopy_opts.order,
                     map_name=out_map)
-
-    maps = [map_result[reac_ind]]
+    maps = []
+    if reac_ind in map_result:
+        maps.append(map_result[reac_ind])
 
     #add to kernel data
     kernel_data.append(kf_arr)
