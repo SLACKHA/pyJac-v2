@@ -193,9 +193,7 @@ class wrapping_kernel_generator(object):
         lang_dir = os.path.join(script_dir, self.lang)
         self.__copy_deps(lang_dir, path, change_extension=False)
 
-    def _generate_common(self, path, data_order=None):
-        if data_order is None:
-            data_order = self.loopy_opts.order
+    def _generate_common(self, path):
 
         common_dir = os.path.join(script_dir, 'common')
         #get the initial condition reader
@@ -207,8 +205,7 @@ class wrapping_kernel_generator(object):
                 + utils.file_ext[self.lang]), self.lang,
                     use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
-                mechanism='mechanism' + utils.header_ext[self.lang],
-                data_order=data_order))
+                mechanism='mechanism' + utils.header_ext[self.lang]))
 
         #and any other deps
         self.__copy_deps(common_dir, path)
