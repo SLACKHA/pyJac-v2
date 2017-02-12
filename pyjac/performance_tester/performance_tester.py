@@ -42,6 +42,7 @@ from ..libgen import (generate_library, libs, compiler, file_struct,
 from .. import site_conf as site
 
 from . import data_bin_writer as dbw
+from .. get_test_matrix import get_test_matrix
 
 STATIC = False
 """bool: CUDA only works for static libraries"""
@@ -179,7 +180,7 @@ def linker(lang, test_dir, filelist, platform=''):
 
 
 def performance_tester(home, work_dir):
-    """Runs performance testing for pyJac, TChem, and finite differences.
+    """Runs performance testing for pyJac
 
     Parameters
     ----------
@@ -187,8 +188,6 @@ def performance_tester(home, work_dir):
         Directory of source code files
     work_dir : str
         Working directory with mechanisms and for data
-    use_old_opt : bool
-        If ``True``, use old optimization files found
 
     Returns
     -------
@@ -198,30 +197,7 @@ def performance_tester(home, work_dir):
     build_dir = 'out'
     test_dir = 'test'
 
-    work_dir = os.path.abspath(work_dir)
-
-    #find the mechanisms to test
-    mechanism_list = {}
-    if not os.path.exists(work_dir):
-        print ('Error: work directory {} for '.format(work_dir) +
-               'performance testing not found, exiting...')
-        sys.exit(-1)
-    for name in os.listdir(work_dir):
-        if os.path.isdir(os.path.join(work_dir, name)):
-            #check for cti
-            files = [f for f in os.listdir(os.path.join(work_dir, name)) if
-                        os.path.isfile(os.path.join(work_dir, name, f))]
-            for f in files:
-                if f.endswith('.cti'):
-                    mechanism_list[name] = {}
-                    mechanism_list[name]['mech'] = f
-                    mechanism_list[name]['chemkin'] = f.replace('.cti', '.dat')
-                    gas = ct.Solution(os.path.join(work_dir, name, f))
-                    mechanism_list[name]['ns'] = gas.n_species
-
-                    thermo = next((tf for tf in files if 'therm' in tf), None)
-                    if thermo is not None:
-                        mechanism_list[name]['thermo'] = thermo
+    mechanism_list, ocl_params, max_vec_width = get_test_matrix(work_dir)
 
     if len(mechanism_list) == 0:
         print('No mechanisms found for performance testing in '
@@ -230,38 +206,6 @@ def performance_tester(home, work_dir):
         sys.exit(-1)
 
     repeats = 10
-
-    def false_factory():
-        return False
-
-    #c_params = {'lang' : 'c',
-    #            'cache_opt' : [False, True],
-    #            'finite_diffs' : [False, True]
-    #            }
-    #cuda_params = {'lang' : 'cuda',
-    #               'cache_opt' : [False, True],
-    #               'shared' : [False, True],
-    #               'finite_diffs' : [False, True]
-    #               }
-    #tchem_params = {'lang' : 'tchem'}
-    vec_widths = [4, 8, 16]
-    num_cores = []
-    nc = 1
-    while nc < multiprocessing.cpu_count() / 2:
-        num_cores.append(nc)
-        nc *= 2
-    platforms = ['intel']
-    rate_spec = ['fixed', 'hybrid']#, 'full']
-
-    ocl_params = [('lang', 'opencl'),
-                  ('vecsize', vec_widths),
-                  ('order', ['F', 'C']),
-                  ('wide', [True, False]),
-                  ('platform', platforms),
-                  ('rate_spec', rate_spec),
-                  ('split_kernels', [True, False]),
-                  ('num_cores', num_cores)
-                  ]
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
                                        key=lambda x:x[1]['ns']
@@ -282,7 +226,7 @@ def performance_tester(home, work_dir):
 
         the_path = os.getcwd()
         first_run = True
-        op = OptionLoop(OrderedDict(ocl_params), false_factory)
+        op = OptionLoop(ocl_params)
 
         for i, state in enumerate(op):
             lang = state['lang']
@@ -306,7 +250,7 @@ def performance_tester(home, work_dir):
                                             order=order)
 
             #figure out the number of steps
-            step_size = vec_widths[-1]
+            step_size = max_vec_width
             while step_size < num_conditions:
                 if step_size * 2 >= num_conditions:
                     break

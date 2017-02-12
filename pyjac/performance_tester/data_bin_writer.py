@@ -2,25 +2,35 @@ import numpy as np
 import os
 from argparse import ArgumentParser
 
+def get_files(directory):
+    return [os.path.join(directory, f) for f in os.listdir(directory)
+                if f.endswith('.npy')
+                and os.path.isfile(os.path.join(directory, f))]
+
+def load(npy_files, directory=None):
+    if not npy_files and directory is not None:
+        npy_files = get_files(directory)
+    data = None
+    for npy in sorted(npy_files):
+        state_data = np.load(npy)
+        if data is None:
+            data = state_data
+        else:
+            data = np.vstack((data, state_data))
+        num_conditions += state_data.shape[0]
+        print(num_conditions, data.shape)
+    return num_conditions, data
+
 def write(directory, cut=None, order='F'):
     assert order in ['C', 'F']
     num_conditions = 0
-    npy_files = [os.path.join(directory, f) for f in os.listdir(directory)
-                    if f.endswith('.npy')
-                    and os.path.isfile(os.path.join(directory, f))]
+    npy_files = get_files(directory)
     data = None
     filename = 'data.bin' if cut is None else 'data_eqremoved.bin'
     with open(os.path.join(directory, filename), 'wb') as file:
         #load PaSR data for different pressures/conditions,
         # and save to binary C file
-        for npy in sorted(npy_files):
-            state_data = np.load(npy)
-            if data is None:
-                data = state_data
-            else:
-                data = np.vstack((data, state_data))
-            num_conditions += state_data.shape[0]
-            print(num_conditions, data.shape)
+        num_conditions, data = load(npy_files)
         if num_conditions == 0:
             print('No data found in folder {}, continuing...'.format(mech_name))
             return 0

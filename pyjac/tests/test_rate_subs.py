@@ -874,7 +874,8 @@ class SubTest(TestClass):
                     input_args=', '.join('"{}"'.format(x) for x in args),
                     test_arrays=', '.join('"{}"'.format(x) for x in tests),
                     non_array_args='{}, 12'.format(self.store.test_size),
-                    call_name='species_rates'))
+                    call_name='species_rates',
+                    output_files=''))
 
             out_arr = np.concatenate((np.reshape(T.copy(), (1, -1)),
                         np.reshape(P.copy(), (1, -1)), self.store.concs.copy()))
