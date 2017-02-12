@@ -198,51 +198,51 @@ def create_jacobian(lang,
         print('No reactions found in file: {}'.format(mech_name))
         sys.exit(3)
 
-    #check to see if the last_spec is specified
-    if last_spec is not None:
-        #find the index if possible
-        isp = next((i for i, sp in enumerate(specs)
-                   if sp.name.lower() == last_spec.lower().strip()),
-                   None
-                   )
-        if isp is None:
-            print('Warning: User specified last species {} '
-                  'not found in mechanism.'
-                  '  Attempting to find a default species.'.format(last_spec)
-                  )
-            last_spec = None
-        else:
-            last_spec = isp
-    else:
-        print('User specified last species not found or not specified.  '
-              'Attempting to find a default species')
-    if last_spec is None:
-        wt = chem.get_elem_wt()
-        #check for N2, Ar, He, etc.
-        candidates = [('N2', wt['n'] * 2.), ('Ar', wt['ar']),
-                        ('He', wt['he'])]
-        for sp in candidates:
-            match = next((isp for isp, spec in enumerate(specs)
-                          if sp[0].lower() == spec.name.lower() and
-                          sp[1] == spec.mw),
-                            None)
-            if match is not None:
-                last_spec = match
-                break
-        if last_spec is not None:
-            print('Default last species '
-                  '{} found.'.format(specs[last_spec].name)
-                  )
-    if last_spec is None:
-        print('Warning: Neither a user specified or default last species '
-              'could be found. Proceeding using the last species in the '
-              'base mechanism: {}'.format(specs[-1].name))
-        last_spec = len(specs) - 1
+    # #check to see if the last_spec is specified
+    # if last_spec is not None:
+    #     #find the index if possible
+    #     isp = next((i for i, sp in enumerate(specs)
+    #                if sp.name.lower() == last_spec.lower().strip()),
+    #                None
+    #                )
+    #     if isp is None:
+    #         print('Warning: User specified last species {} '
+    #               'not found in mechanism.'
+    #               '  Attempting to find a default species.'.format(last_spec)
+    #               )
+    #         last_spec = None
+    #     else:
+    #         last_spec = isp
+    # else:
+    #     print('User specified last species not found or not specified.  '
+    #           'Attempting to find a default species')
+    # if last_spec is None:
+    #     wt = chem.get_elem_wt()
+    #     #check for N2, Ar, He, etc.
+    #     candidates = [('N2', wt['n'] * 2.), ('Ar', wt['ar']),
+    #                     ('He', wt['he'])]
+    #     for sp in candidates:
+    #         match = next((isp for isp, spec in enumerate(specs)
+    #                       if sp[0].lower() == spec.name.lower() and
+    #                       sp[1] == spec.mw),
+    #                         None)
+    #         if match is not None:
+    #             last_spec = match
+    #             break
+    #     if last_spec is not None:
+    #         print('Default last species '
+    #               '{} found.'.format(specs[last_spec].name)
+    #               )
+    # if last_spec is None:
+    #     print('Warning: Neither a user specified or default last species '
+    #           'could be found. Proceeding using the last species in the '
+    #           'base mechanism: {}'.format(specs[-1].name))
+    #     last_spec = len(specs) - 1
 
-    #pick up the last_spec and drop it at the end
-    temp = specs[:]
-    specs[-1] = temp[last_spec]
-    specs[last_spec] = temp[-1]
+    # #pick up the last_spec and drop it at the end
+    # temp = specs[:]
+    # specs[-1] = temp[last_spec]
+    # specs[last_spec] = temp[-1]
 
     #write header
     aux.write_mechanism_header(build_path, loopy_opts.lang, specs, reacs)
