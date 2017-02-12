@@ -42,39 +42,32 @@ from ..performance_tester import data_bin_writer as dbw
 from .. get_test_matrix import get_test_matrix
 
 
-def check_file(filename):
+def check_file(filename, Ns, num_conditions):
     """Checks file for existing data, returns number of completed runs
 
     Parameters
     ----------
     filename : str
         Name of file with data
+    Ns : int
+        The number of species in the mech
 
     Returns
     -------
-    num_completed : int
-        Number of completed runs
+    completed : bool
+        True if the file has (Ns + 1) * num_conditions nums
 
     """
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
-        num_completed = 0
-        to_find = 4
-        for line in lines:
-            try:
-                vals = line.split(',')
-                if len(vals) == to_find:
-                    i = int(vals[0])
-                    f = float(vals[1])
-                    f2 = float(vals[2])
-                    f3 = float(vals[3])
-                    num_completed += 1
-            except:
-                pass
-        return num_completed
+        complete = len(lines) == 1
+        complete = complete and len(lines[0].split(',')) == (Ns + 1) * num_conditions
+        for x in lines[0].split(','):
+            float(x)
+        return complete
     except:
-        return 0
+        return False
 
 
 def getf(x):
@@ -225,7 +218,7 @@ def functional_tester(home, work_dir):
 
             #if already run, continue
             data_output = os.path.join(the_path, data_output)
-            if check_file(data_output):
+            if check_file(data_output, gas.n_species, num_conditions):
                 continue
 
             if order != current_data_order:

@@ -49,7 +49,7 @@ if __name__ == '__main__':
 	if output_files:
 		for i in range(len(output_args)):
 			err = (1e-10 + 1e-6 * np.abs(test_arrays[i])) / (np.abs(test_arrays[i] - output_args[i]))
-			with open(output_files[i], 'a') as file:
+			with open(output_files[i], 'w') as file:
 				np.save(file, err)
 
 	#check allclose
