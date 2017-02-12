@@ -156,7 +156,6 @@ def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
 
         #figure out the number of conditions to test
         num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
-        num_conditions = 16
 
         spec_rates = np.zeros((num_conditions, gas.n_species))
         conp_temperature_rates = np.zeros((num_conditions, 1))
@@ -172,6 +171,9 @@ def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
             #it's actually more accurate to set the density (total concentration)
             #due to the cantera internals
             gas.TD = T[i], P[i] / (ct.gas_constant * T[i])
+            #now, since cantera normalizes these concentrations
+            #let's read them back
+            data[i, 2:] = gas.concentrations[:]
             #get species rates
             spec_rates[i, :] = gas.net_production_rates[:]
             for j in range(gas.n_species):
@@ -181,8 +183,8 @@ def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
                 u[j] = hs - T[i] * ct.gas_constant
                 cp[j] = cps
                 cv[j] = cps - ct.gas_constant
-            conp_temperature_rates[i, :] = (-np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:]))
-            conv_temperature_rates[i, :] = (-np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:]))
+            conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
+            conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
 
         current_data_order = None
 
@@ -306,7 +308,7 @@ def functional_tester(work_dir, atol=1e-6, rtol=1e-6):
             err = np.linalg.norm(err, ord=np.inf, axis=0)
             #save to output
             with open(data_output, 'a') as file:
-                file.write(', '.join('%.15le'.format(x) for x in err))
+                file.write(', '.join(['%.15e'.format(x) for x in err]))
             #and print total max to screen
             print(state, np.linalg.norm(err, np.inf))
 

@@ -196,6 +196,7 @@ def performance_tester(home, work_dir):
     """
     build_dir = 'out'
     test_dir = 'test'
+    work_dir = os.path.abspath(work_dir)
 
     mechanism_list, ocl_params, max_vec_width = get_test_matrix(work_dir)
 
@@ -226,7 +227,7 @@ def performance_tester(home, work_dir):
 
         the_path = os.getcwd()
         first_run = True
-        op = OptionLoop(ocl_params)
+        op = OptionLoop(ocl_params, lambda: False)
 
         for i, state in enumerate(op):
             lang = state['lang']
@@ -238,7 +239,7 @@ def performance_tester(home, work_dir):
             rate_spec = state['rate_spec']
             split_kernels = state['split_kernels']
             num_cores = state['num_cores']
-            if not deep and not wide and vecsize != vec_widths[0]:
+            if not deep and not wide and vecsize != max_vec_width:
                 continue #this is simple parallelization, don't need vector size
 
             if rate_spec == 'fixed' and split_kernels:
@@ -277,7 +278,7 @@ def performance_tester(home, work_dir):
                     vector_size=vecsize,
                     wide=wide,
                     deep=deep,
-                    data_order=data_order,
+                    data_order=order,
                     build_path=my_build,
                     skip_jac=True,
                     auto_diff=False,
