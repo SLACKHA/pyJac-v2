@@ -145,6 +145,7 @@ def functional_tester(work_dir):
 
         #get the cantera object
         gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
+        gas.basis = 'molar'
 
         #first load data to get species rates, jacobian etc.
         num_conditions, data = dbw.load([], directory=os.path.join(work_dir, mech_name))
@@ -168,7 +169,9 @@ def functional_tester(work_dir):
         for i in range(num_conditions):
             #set state
             gas.concentrations = data[i, 2:]
-            gas.TP = T[i], P[i]
+            #it's actually more accurate to set the density (total concentration)
+            #due to the cantera internals
+            gas.TD = T[i], P[i] / (ct.gas_constant * T[i])
             #get species rates
             spec_rates[i, :] = gas.net_production_rates[:]
             for j in range(gas.n_species):
