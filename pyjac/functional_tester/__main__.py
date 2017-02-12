@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from . import test
+from . import functional_tester
 from .. import utils
 import os
 
