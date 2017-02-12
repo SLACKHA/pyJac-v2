@@ -57,7 +57,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
                 fill = T_host;
             elif (i == 1)
                 fill = P_host;
-            else:
+            else
                 fill = &conc_host[i * NS];
 
             for (int j = 0; j < NUM; j++)
