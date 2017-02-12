@@ -48,11 +48,10 @@ if __name__ == '__main__':
 	#if save err to file,
 	if output_files:
 		for i in range(len(output_args)):
-			err = (1e-10 + 1e-6 * np.abs(test_arrays[i])) / (np.abs(test_arrays[i] - output_args[i]))
-			np.save(output_files[i], err)
-
-	#check allclose
-	for i in range(len(output_args)):
-		if not np.allclose(output_args[i], test_arrays[i]):
-			#if not a match, exit
-			sys.exit(-1)
+			np.save(output_files[i], output_args[i])
+	else:
+		#check allclose
+		for i in range(len(output_args)):
+			if not np.allclose(output_args[i], test_arrays[i]):
+				#if not a match, exit
+				sys.exit(-1)
