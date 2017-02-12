@@ -4,13 +4,15 @@ from argparse import ArgumentParser
 
 def get_files(directory):
     return [os.path.join(directory, f) for f in os.listdir(directory)
-                if f.endswith('.npy')
+                if f.endswith('.npy') and
+                'pasr_out' in f
                 and os.path.isfile(os.path.join(directory, f))]
 
 def load(npy_files, directory=None):
     if not npy_files and directory is not None:
         npy_files = get_files(directory)
     data = None
+    num_conditions = 0
     for npy in sorted(npy_files):
         state_data = np.load(npy)
         if data is None:
@@ -23,7 +25,6 @@ def load(npy_files, directory=None):
 
 def write(directory, cut=None, order='F'):
     assert order in ['C', 'F']
-    num_conditions = 0
     npy_files = get_files(directory)
     data = None
     filename = 'data.bin' if cut is None else 'data_eqremoved.bin'

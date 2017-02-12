@@ -74,13 +74,11 @@ def getf(x):
     return os.path.basename(x)
 
 
-def functional_tester(home, work_dir):
+def functional_tester(work_dir):
     """Runs performance testing for pyJac, TChem, and finite differences.
 
     Parameters
     ----------
-    home : str
-        Directory of source code files
     work_dir : str
         Working directory with mechanisms and for data
 
@@ -93,6 +91,7 @@ def functional_tester(home, work_dir):
     build_dir = 'out'
     test_dir = 'test'
 
+    work_dir = os.path.abspath(work_dir)
     mechanism_list, ocl_params, max_vec_width = get_test_matrix(work_dir)
 
     if len(mechanism_list) == 0:
@@ -106,7 +105,7 @@ def functional_tester(home, work_dir):
 
     script_dir = os.path.abspath(os.path.dirname(__file__))
     #load the module tester template
-    with open(os.path.join(script_dir, os.par, 'tests', 'test_import.py.in'), 'r') as file:
+    with open(os.path.join(script_dir, os.pardir, 'tests', 'test_import.py.in'), 'r') as file:
         mod_test = Template(file.read())
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
@@ -134,11 +133,11 @@ def functional_tester(home, work_dir):
 
         def __cleanup():
             #remove library
-            __clean_dir(my_obj)
+            __clean_dir(my_obj, False)
             #remove build
-            __clean_dir(my_build)
+            __clean_dir(my_build, False)
             #clean sources
-            __clean_dir(my_test)
+            __clean_dir(my_test, False)
             #clean dummy builder
             dist_build = os.path.join(os.getcwd(), 'build')
             if os.path.exists(dist_build):
@@ -148,23 +147,23 @@ def functional_tester(home, work_dir):
         gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
 
         #first load data to get species rates, jacobian etc.
-        data = dbw.load([], directory=os.path.join(work_dir, mech_name))
-        num_conditions = data.shape[0]
+        num_conditions, data = dbw.load([], directory=os.path.join(work_dir, mech_name))
 
         #set T, P arrays
         T = data[:, 0].flatten()
         P = data[:, 1].flatten()
 
         #figure out the number of conditions to test
-        num_conditions = np.floor(num_conditions / max_vec_width) * num_conditions
+        num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
+        num_conditions = 16
 
         spec_rates = np.zeros((num_conditions, gas.n_species))
         conp_temperature_rates = np.zeros((num_conditions, 1))
         conv_temperature_rates = np.zeros((num_conditions, 1))
-        h = np.zeros((gas.n_species, 1))
-        u = np.zeros((gas.n_species, 1))
-        cp = np.zeros((gas.n_species, 1))
-        cp = np.zeros((gas.n_species, 1))
+        h = np.zeros((gas.n_species))
+        u = np.zeros((gas.n_species))
+        cp = np.zeros((gas.n_species))
+        cv = np.zeros((gas.n_species))
         #now we must evaluate the species rates
         for i in range(num_conditions):
             #remove any old builds
@@ -176,21 +175,21 @@ def functional_tester(home, work_dir):
             #get species rates
             spec_rates[i, :] = gas.net_production_rates[:]
             for j in range(gas.n_species):
-                cp = gas.species(j).thermo.cp(T[i])
-                s = gas.species(j).thermo.s(T[i])
-                h = gas.species(j).thermo.h(T[i])
-                h[j] = h
-                u[j] = h - T[i] * ct.gas_constant
-                cp[j] = cp
-                cv[j] = cp - ct.gas_constant
-            conp_temperature_rates[i] = (-np.dot(h[:], spec_rates[i, :]) / np.dot(cp[i], data[i, 2:]))
-            conv_temperature_rates[i] = (-np.dot(u[:], spec_rates[i, :]) / np.dot(cv[i], data[i, 2:]))
+                cps = gas.species(j).thermo.cp(T[i])
+                hs = gas.species(j).thermo.h(T[i])
+                h[j] = hs
+                u[j] = hs - T[i] * ct.gas_constant
+                cp[j] = cps
+                cv[j] = cps - ct.gas_constant
+            conp_temperature_rates[i, :] = (-np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:]))
+            conv_temperature_rates[i, :] = (-np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:]))
 
+        import pdb; pdb.set_trace()
         current_data_order = None
 
         the_path = os.getcwd()
         first_run = True
-        op = OptionLoop(ocl_params)
+        op = OptionLoop(ocl_params, lambda: False)
 
         for i, state in enumerate(op):
             lang = state['lang']
@@ -202,8 +201,9 @@ def functional_tester(home, work_dir):
             rate_spec = state['rate_spec']
             split_kernels = state['split_kernels']
             num_cores = state['num_cores']
-            if not deep and not wide and vecsize != vec_widths[0]:
+            if not deep and not wide and vecsize != max_vec_width:
                 continue #this is simple parallelization, don't need vector size
+                #simpy choose one and go
 
             if rate_spec == 'fixed' and split_kernels:
                 continue #not a thing!
@@ -234,18 +234,15 @@ def functional_tester(home, work_dir):
 
             #get arrays
             concs = (data[:, 2:].copy() if order == 'C' else
-                        data[:, 2:].copy().T.copy()).flatten('K')
+                        data[:, 2:].T.copy()).flatten('K')
 
             #put together species rates
-            spec_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
-                    spec_rates.copy()))
-            if opts.order == 'F':
-                spec_rates = spec_rates.T.copy()
+            species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
+                    spec_rates.copy()), axis=1)
+            if order == 'F':
+                species_rates = species_rates.T.copy()
             #and flatten in correct order
-            spec_rates = spec_rates.flatten(order='K')
-
-            wdot = np.concatenate((Tdot_conp.copy() if conp else Tdot_conv,
-                    self.store.species_rates.copy()))
+            species_rates = species_rates.flatten(order='K')
 
             args = []
             __saver(T, 'T', args)
@@ -254,7 +251,7 @@ def functional_tester(home, work_dir):
 
             #and now the test values
             tests = []
-            __saver(spec_rates, 'wdot', tests)
+            __saver(species_rates, 'wdot', tests)
 
             outf = 'wdot_rate_err.npy'
             #write the module tester
@@ -263,7 +260,7 @@ def functional_tester(home, work_dir):
                     package='pyjac_ocl',
                     input_args=', '.join('"{}"'.format(x) for x in args),
                     test_arrays=', '.join('"{}"'.format(x) for x in tests),
-                    non_array_args='{}, 12'.format(self.store.test_size),
+                    non_array_args='{}, 12'.format(num_conditions),
                     call_name='species_rates',
                     output_files='\'{}\''.format(outf)))
 
@@ -290,8 +287,8 @@ def functional_tester(home, work_dir):
                 continue
 
             #generate wrapper
-            generate_wrapper(opts.lang, my_build, build_dir=obj_dir,
-                         out_dir=my_test, platform=str(opts.platform))
+            generate_wrapper(lang, my_build, build_dir=obj_dir,
+                         out_dir=my_test, platform=str(platform))
 
             #call
             subprocess.check_call([
