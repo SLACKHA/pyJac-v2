@@ -292,6 +292,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             #put save outputs
             out_arrays = []
             output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+            comp_arrays = []
             species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
                     spec_rates.copy()), axis=1)
             ropf = rop_fwd_test.copy()
@@ -299,6 +300,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             ropp = pres_mod_test.copy()
             ropnet = rop_net_test.copy()
             out_arrays = [species_rates, ropf, ropr, ropp, ropnet]
+            comp_arrays = [x.copy() for x in out_arrays]
             for i in range(len(out_arrays)):
                 if order == 'F':
                     out_arrays[i] = out_arrays[i].T.copy()
@@ -356,38 +358,41 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 os.path.join(my_test, 'test.py')])
 
             def __get_test(name):
-                return out_arrays[output_names.index(name)]
+                return comp_arrays[output_names.index(name)]
 
             import pdb; pdb.set_trace()
+            out_check = outf[:]
             #load output arrays
             for i in range(len(outf)):
-                outf[i] = np.load(outf[i])
+                out_check[i] = np.load(outf[i])
+                #and reshape
+                out_check[i] = np.reshape(out_check[i], (num_conditions, -1),
+                    order=order)
 
             #multiply pressure rates
             pmod_ind = next(i for i, x in enumerate(output_names) if x == 'pres_mod')
             #fwd
-            outf[1][thd_map] *= outf[pmod_ind]
+            out_check[1][:, thd_map] *= out_check[pmod_ind]
             #rev
-            outf[2][rev_to_thd_map] *= outf[pmod_ind][thd_to_rev_map]
+            out_check[2][:, rev_to_thd_map] *= out_check[pmod_ind][:, thd_to_rev_map]
 
             #load output
-            for name, out in zip(*(output_names, outf)):
+            for name, out in zip(*(output_names, out_check)):
                 if name == 'pres_mod':
                     continue
                 check_arr = __get_test(name)
-                err = np.abs(outv - check_arr) / (atol + rtol * np.abs(check_arr))
-                #reshape
-                err = np.reshape(err, (num_conditions, check_arr.shape[1]), order=order)
+                #get err
+                err = np.abs(out - check_arr) / (atol + rtol * np.abs(check_arr))
                 #take err norm
                 err = np.linalg.norm(err, ord=np.inf, axis=0)
                 #save to output
                 with open(data_output, 'a') as file:
-                    file.write(', '.join(['{:.15e}'.format(x) for x in err]))
+                    file.write(name + ': ' + ', '.join(['{:.15e}'.format(x) for x in err]) + '\n')
                 #and print total max to screen
                 print(name, np.linalg.norm(err, np.inf))
 
             #cleanup
-            for x in args + tests:
+            for x in args + outf:
                 os.remove(x)
             os.remove(os.path.join(my_test, 'test.py'))
 
