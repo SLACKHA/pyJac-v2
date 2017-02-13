@@ -7,7 +7,7 @@ cdef extern from "species_rates_kernel.h":
                         double* T, double* P,
                         double* conc, double* wdot,
                         double* rop_fwd, double* rop_rev,
-                        double* pres_mod)
+                        double* rop_net, double* pres_mod)
     void finalize()
     void compiler()
 
@@ -22,13 +22,14 @@ def species_rates(np.uint_t problem_size,
             np.ndarray[np.float64_t] wdot,
             np.ndarray[np.float64_t] rop_fwd,
             np.ndarray[np.float64_t] rop_rev,
-            np.ndarray[np.float64_t] pres_mod):
+            np.ndarray[np.float64_t] pres_mod,
+            np.ndarray[np.float64_t] rop_net):
     global compiled
     if not compiled:
         compiler()
         compiled = True
     species_rates_kernel(problem_size, num_devices, &T[0], &P[0], &conc[0], &wdot[0],
-        &rop_fwd[0], &rop_rev[0], &pres_mod[0])
+        &rop_fwd[0], &rop_rev[0], &pres_mod[0], &rop_net[0])
     return None
 
 def __dealloc__(self):
