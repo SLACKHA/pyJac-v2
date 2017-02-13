@@ -195,10 +195,30 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         #hence we create it as a placeholder for the testing script
         pres_mod_test = np.zeros((num_conditions, thd_map.size))
 
+        #set decimal context
+        c = getcontext()
+        c.traps[InvalidOperation] = 0
+        setcontext(c)
+
+        #predefines
+        ln2 = Decimal('2').ln()
+        specs = gas.species()[:]
+        ns_range = np.array(range(gas.n_species), dtype=np.int32)
+
         #precision loss measurement
         precision_loss = np.zeros((num_conditions, gas.n_reactions))
-        #now we must evaluate the species rates
-        for i in range(num_conditions):
+
+        def __eval_cp(j, T):
+            return specs[j].thermo.cp(T)
+        def __eval_h(j, T):
+            return specs[j].thermo.h(T)
+        def __get_prec(x):
+            x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_FLOOR)
+            return c.power(Decimal('2'), -x)
+
+        def eval_state(i):
+            if not i % 10000:
+                print(i)
             #it's actually more accurate to set the density (total concentration)
             #due to the cantera internals
             gas.TDX = T[i], P[i] / (ct.gas_constant * T[i]), data[i, 2:]
@@ -210,30 +230,23 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
             rop_rev_test[i, :] = gas.reverse_rates_of_progress[:]
             rop_net_test[i, :] = gas.net_rates_of_progress[:]
-            #get fwd / rev rop
-            for j in range(gas.n_species):
-                cps = gas.species(j).thermo.cp(T[i])
-                hs = gas.species(j).thermo.h(T[i])
-                h[j] = hs
-                u[j] = hs - T[i] * ct.gas_constant
-                cp[j] = cps
-                cv[j] = cps - ct.gas_constant
+            cp[:] = np.vectorize(__eval_cp, cache=True)(ns_range, T[i])
+            h[:] = np.vectorize(__eval_h, cache=True)(ns_range, T[i])
+            cv[:] = cp - ct.gas_constant
+            u[:] = h - T[i] * ct.gas_constant
 
-            for j in range(gas.n_reactions):
-                #try to estimate the loss of precision
-                q = np.nan
-                try:
-                    ratio = (Decimal.from_float(gas.forward_rates_of_progress[j])
-                        / Decimal.from_float(gas.reverse_rates_of_progress[j]))
-                    mid = abs(Decimal('1') - ratio)
-                    q = (-mid.ln() / Decimal('2').ln()).to_integral_value(rounding=ROUND_FLOOR)
-                    precision_loss[i, j] = getcontext().power(Decimal('2'), -q)
-                except:
-                    precision_loss[i, j] = q
-                    pass
+            #create find precisions
+            fwd = np.array([Decimal.from_float(j) for j in gas.forward_rates_of_progress],
+                dtype=np.dtype(Decimal))
+            rev = np.array([Decimal.from_float(j) for j in gas.reverse_rates_of_progress],
+                dtype=np.dtype(Decimal))
+            ratio = fwd / rev
+            mid = np.abs(Decimal('1') - ratio)
+            precision_loss[i, :] = np.vectorize(__get_prec, cache=True)(mid)
 
             conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
             conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
+        np.vectorize(eval_state, cache=True)(np.arange(num_conditions))
 
         current_data_order = None
 
