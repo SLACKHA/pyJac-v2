@@ -42,7 +42,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
         {
             for (int j = 0; j < NN; j++)
             {
-                conc_host[j * NN + i] = buffer[j + 2];
+                conc_host[j * NUM + i] = buffer[j + 2];
             }
         }
 
