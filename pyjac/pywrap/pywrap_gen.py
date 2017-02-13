@@ -48,9 +48,9 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
         return ', '.join(["'{}'".format(x) for x in arr])
 
     wrapper = setupfile[:setupfile.rindex('_setup')]
-    if output_rop_full:
-        wrapper = wrapper +['_ropfull']
-    wrapper += '.pyx'
+    if output_full_rop:
+        wrapper = wrapper + '_ropfull'
+    wrapper += '_wrapper.pyx'
 
     file_data = {'homepath' : home_dir,
                  'buildpath' : build_dir,
@@ -163,7 +163,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
 
     generate_setup(os.path.join(home_dir, setupfile), home_dir, source_dir,
                    build_dir, lib, extra_include_dirs, libraries, libdirs,
-                   output_full_rop
+                   output_full_rop=output_full_rop
                    )
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])

@@ -3078,11 +3078,12 @@ def write_specrates_kernel(eqs, reacs, specs,
     input_arrays = ['T_arr', 'P_arr', 'conc', 'wdot']
     output_arrays = ['wdot']
     if output_full_rop:
-        output_arrays += ['rop_fwd', 'rop_net']
+        output_arrays += ['rop_fwd']
         if rate_info['rev']['num']:
             output_arrays += ['rop_rev']
         if rate_info['thd']['num']:
             output_arrays += ['pres_mod']
+        output_arrays += ['rop_net']
     return k_gen.wrapping_kernel_generator(
             loopy_opts=loopy_opts,
             name='species_rates_kernel',

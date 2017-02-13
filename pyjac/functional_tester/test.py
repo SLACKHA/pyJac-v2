@@ -179,6 +179,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         thd_map = np.array(thd_map)
         rop_fwd_test = np.zeros((num_conditions, fwd_map.size))
         rop_rev_test = np.zeros((num_conditions, rev_map.size))
+        rop_net_test = np.zeros((num_conditions, fwd_map.size))
         #need special maps for rev/thd
         rev_to_thd_map = np.where(np.in1d(rev_map, thd_map))[0]
         thd_to_rev_map = np.where(np.in1d(thd_map, rev_map))[0]
@@ -202,6 +203,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             spec_rates[i, :] = gas.net_production_rates[:]
             rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
             rop_rev_test[i, :] = gas.reverse_rates_of_progress[:]
+            rop_net_test[i, :] = gas.net_rates_of_progress[:]
             #get fwd / rev rop
             for j in range(gas.n_species):
                 cps = gas.species(j).thermo.cp(T[i])
@@ -272,50 +274,48 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 dbw.write(os.path.join(this_dir))
 
             #save args to dir
-            def __saver(arr, name, namelist):
+            def __saver(arr, name, namelist=None):
                 myname = os.path.join(my_test, name + '.npy')
                 np.save(myname, arr)
-                namelist.append(myname)
+                if namelist is not None:
+                    namelist.append(myname)
 
             #get arrays
             concs = (data[:num_conditions, 2:].copy() if order == 'C' else
                         data[:num_conditions, 2:].T.copy()).flatten('K')
-
-            #put together species rates
-            species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
-                    spec_rates.copy()), axis=1)
-            ropf = rop_fwd_test.copy()
-            ropr = rop_rev_test.copy()
-            ropp = pres_mod_test.copy()
-            if order == 'F':
-                species_rates = species_rates.T.copy()
-                ropf = rop_fwd_test.T.copy()
-                ropr = rop_rev_test.T.copy()
-                ropp = pres_mod_test.T.copy()
-            #and flatten in correct order
-            species_rates = species_rates.flatten(order='K')
 
             args = []
             __saver(T, 'T', args)
             __saver(P, 'P', args)
             __saver(concs, 'conc', args)
 
-            #and now the test values
-            tests = []
-            __saver(species_rates, 'wdot', tests)
-            __saver(ropf, 'rop_fwd', tests)
-            __saver(ropr, 'rop_rev', tests)
-            __saver(ropp, 'pres_mod', tests)
+            #put save outputs
+            out_arrays = []
+            output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+            species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
+                    spec_rates.copy()), axis=1)
+            ropf = rop_fwd_test.copy()
+            ropr = rop_rev_test.copy()
+            ropp = pres_mod_test.copy()
+            ropnet = rop_net_test.copy()
+            out_arrays = [species_rates, ropf, ropr, ropp, ropnet]
+            for i in range(len(out_arrays)):
+                if order == 'F':
+                    out_arrays[i] = out_arrays[i].T.copy()
+                #and flatten in correct order
+                out_arrays[i] = out_arrays[i].flatten(order='K')
+                __saver(out_arrays[i], output_names[i])
 
-            output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod']
             outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
+                for name in output_names]
+            test_f = [os.path.join(my_test, '{}.npy'.format(name))
                 for name in output_names]
             #write the module tester
             with open(os.path.join(my_test, 'test.py'), 'w') as file:
                 file.write(mod_test.safe_substitute(
                     package='pyjac_ocl',
                     input_args=', '.join('"{}"'.format(x) for x in args),
-                    test_arrays=', '.join('"{}"'.format(x) for x in tests),
+                    test_arrays=', '.join('"{}"'.format(x) for x in test_f),
                     non_array_args='{}, 12'.format(num_conditions),
                     call_name='species_rates',
                     output_files=', '.join('\'{}\''.format(x) for x in outf)))
@@ -345,8 +345,10 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 continue
 
             #generate wrapper
+            import pdb; pdb.set_trace()
             generate_wrapper(lang, my_build, build_dir=obj_dir,
-                         out_dir=my_test, platform=str(platform))
+                         out_dir=my_test, platform=str(platform),
+                         output_full_rop=True)
 
             #call
             subprocess.check_call([
@@ -354,27 +356,24 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 os.path.join(my_test, 'test.py')])
 
             def __get_test(name):
-                if name == 'wdot':
-                    return species_rates
-                elif name == 'rop_fwd':
-                    return rop_fwd_test
-                elif name == 'rop_rev':
-                    return rop_rev_test
-                else:
-                    return None
+                return out_arrays[output_names.index(name)]
 
+            import pdb; pdb.set_trace()
             #load output arrays
-            for i in range(outf):
+            for i in range(len(outf)):
                 outf[i] = np.load(outf[i])
 
             #multiply pressure rates
+            pmod_ind = next(i for i, x in enumerate(output_names) if x == 'pres_mod')
             #fwd
-            outf[1][thd_map] *= outf[-1]
+            outf[1][thd_map] *= outf[pmod_ind]
             #rev
-            outf[2][rev_to_thd_map] *= outf[-1][thd_to_rev_map]
+            outf[2][rev_to_thd_map] *= outf[pmod_ind][thd_to_rev_map]
 
             #load output
-            for name, out in zip(*(output_names, outf))[:-1]:
+            for name, out in zip(*(output_names, outf)):
+                if name == 'pres_mod':
+                    continue
                 check_arr = __get_test(name)
                 err = np.abs(outv - check_arr) / (atol + rtol * np.abs(check_arr))
                 #reshape
