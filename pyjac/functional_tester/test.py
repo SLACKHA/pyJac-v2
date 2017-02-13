@@ -67,9 +67,10 @@ def check_file(filename, Ns, Nr):
         complete = len(lines) == 6
         for line in lines:
             test = line[line.index(':' + 1):]
-            complete = complete and len(test.split(',')) == ((Ns + 1) if i == 0
+            filtered = [y.strip() for y in test.split(',') if y.strip()]
+            complete = complete and len(filtered) == ((Ns + 1) if i == 0
                 else Nr)
-            for x in [y.strip() in y test.split(',') if y.strip()]:
+            for x in filtered:
                 float(x)
         return complete
     except:
