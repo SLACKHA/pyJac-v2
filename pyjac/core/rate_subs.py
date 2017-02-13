@@ -2922,7 +2922,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
 
 def write_specrates_kernel(eqs, reacs, specs,
                             loopy_opts, conp=True,
-                            test_size=None, auto_diff=False):
+                            test_size=None, auto_diff=False,
+                            output_full_rop=False):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
@@ -2943,6 +2944,10 @@ def write_specrates_kernel(eqs, reacs, specs,
         If not None, this kernel is being used for testing.
     auto_diff : bool
         If ``True``, generate files for Adept autodifferention library.
+    output_full_rop : bool
+        If ``True``, output forward and reversse rates of progress
+        Useful in testing, as there are serious floating point errors for
+        net production rates near equilibrium, invalidating direct comparison to Cantera
 
     Returns
     -------
@@ -3070,14 +3075,22 @@ def write_specrates_kernel(eqs, reacs, specs,
         test_size=test_size
     )
 
+    input_arrays = ['T_arr', 'P_arr', 'conc', 'wdot']
+    output_arrays = ['wdot']
+    if output_full_rop:
+        output_arrays += ['rop_fwd', 'rop_net']
+        if rate_info['rev']['num']:
+            output_arrays += ['rop_rev']
+        if rate_info['thd']['num']:
+            output_arrays += ['pres_mod']
     return k_gen.wrapping_kernel_generator(
             loopy_opts=loopy_opts,
             name='species_rates_kernel',
             kernels=kernels,
             external_kernels=depends_on,
             depends_on=[thermo_wrap],
-            input_arrays=['T_arr', 'P_arr', 'conc', 'wdot'],
-            output_arrays=['wdot'],
+            input_arrays=input_arrays,
+            output_arrays=output_arrays,
             init_arrays={'wdot' : 0},
             auto_diff=auto_diff,
             test_size=test_size)

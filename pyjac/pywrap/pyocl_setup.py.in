@@ -7,7 +7,7 @@ import parallel_compiler as pcc
 import numpy
 import os
 
-sources = ['$homepath/pyocl_wrapper.pyx']
+sources = ['$homepath/${wrapper}']
 includes = ['$buildpath/', '$homepath/'] + [${extra_include_dirs}]
 includes = [x for x in includes if x.strip()]
 
