@@ -248,13 +248,8 @@ def performance_tester(home, work_dir):
             if order != current_data_order:
                 #rewrite data to file in 'C' order
                 num_conditions = dbw.write(os.path.join(work_dir, mech_name))
-
-            #figure out the number of steps
-            step_size = max_vec_width
-            while step_size < num_conditions:
-                if step_size * 2 >= num_conditions:
-                    break
-                step_size *= 2
+            #find max testable # of conditions
+            num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
 
             temp_lang = 'c'
             data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
