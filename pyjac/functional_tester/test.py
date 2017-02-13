@@ -198,6 +198,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         #set decimal context
         c = getcontext()
         c.traps[InvalidOperation] = 0
+        c.traps[DivisionByZero] = 0
         setcontext(c)
 
         #predefines
