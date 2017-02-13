@@ -246,9 +246,8 @@ def performance_tester(home, work_dir):
                 continue #not a thing!
 
             if order != current_data_order:
-                #rewrite data to file in correct order
-                num_conditions = dbw.write(os.path.join(work_dir, mech_name),
-                                            order=order)
+                #rewrite data to file in 'C' order
+                num_conditions = dbw.write(os.path.join(work_dir, mech_name))
 
             #figure out the number of steps
             step_size = max_vec_width
