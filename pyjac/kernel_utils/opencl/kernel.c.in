@@ -312,7 +312,7 @@ int main(int argc, char* argv[])
         compilation_time = GetTimer();
     }
 
-    ${input_allocs}
+    ${local_allocs}
 
     //init memory & program
     StartTimer();
@@ -330,7 +330,7 @@ int main(int argc, char* argv[])
     printf("%d,%.15le,%.15le,%.15le\n", problem_size, compilation_time,
                 setup_time, runtime);
 
-    ${input_frees}
+    ${local_frees}
 
     finalize();
 
