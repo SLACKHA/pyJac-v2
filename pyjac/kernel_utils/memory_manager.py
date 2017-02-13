@@ -89,7 +89,9 @@ class memory_manager(object):
 
     @property
     def host_arrays(self):
-        return self.in_arrays + self.out_arrays + self.host_inits
+        def _set_sort(arr):
+            return sorted(set(arr), key=lambda x:arr.index(x))
+        return _set_sort(self.in_arrays + self.out_arrays + self.host_inits)
 
     @property
     def host_lang(self):
@@ -129,14 +131,14 @@ class memory_manager(object):
         #return defn string
         return '\n'.join(sorted(set(defns)))
 
-    def get_mem_allocs(self, alloc_inputs=False):
+    def get_mem_allocs(self, alloc_locals=False):
         """
         Returns the allocation strings for this memory manager's arrays
 
         Parameters
         ----------
-        alloc_inputs : bool
-            If true, only define host arrays in self.in_arrays
+        alloc_locals : bool
+            If true, only define host arrays
 
         Returns
         alloc_str : str
@@ -146,7 +148,7 @@ class memory_manager(object):
         def __get_alloc(name, lang, prefix):
             #if we're allocating inputs, call them something different
             #than the input args from python
-            post_fix = '_local' if alloc_inputs else ''
+            post_fix = '_local' if alloc_locals else ''
 
             #if it's opencl, we need to declare the buffer type
             memflag = None
@@ -162,7 +164,7 @@ class memory_manager(object):
                 memflag=memflag,
                 buff_size=self._get_size(dev_arr))
 
-            if alloc_inputs:
+            if alloc_locals:
                 #add a type
                 alloc = self.memory_types[self.host_lang] + ' ' + alloc
 
@@ -176,41 +178,40 @@ class memory_manager(object):
             #return
             return '\n'.join([r + utils.line_end[lang] for r in return_list])
 
-        to_alloc = [next(x for x in self.arrays if x.name == y) for y in self.in_arrays] \
-                    if alloc_inputs else self.arrays
-        prefix = 'h_' if alloc_inputs else 'd_'
-        lang = self.lang if not alloc_inputs else self.host_lang
+        to_alloc = [next(x for x in self.arrays if x.name == y) for y in self.host_arrays] \
+                    if alloc_locals else self.arrays
+        prefix = 'h_' if alloc_locals else 'd_'
+        lang = self.lang if not alloc_locals else self.host_lang
         alloc_list = [__get_alloc(arr.name, lang, prefix) for arr in to_alloc]
 
         #do memsets where applicable
-        if not alloc_inputs:
+        if not alloc_locals:
             for arr in sorted(self.has_init):
                 assert arr in self.host_arrays, 'Cannot initialize device memory to a constant'
                 prefix = 'h_'
                 if arr not in self.in_arrays:
                     #needs to be alloced, since it isn't passed in
                     alloc_list.append(__get_alloc(arr, self.host_lang, prefix))
-                if not alloc_inputs:
-                    #find initial value
-                    init_v = self.has_init[arr]
-                    #find corresponding device array
-                    dev_arr = next(x for x in self.arrays if x.name == arr)
-                    if init_v == 0:
-                        alloc_list.append(Template('memset(${prefix}${name}, 0, '
-                                            '${buff_size} * sizeof(double))${end}').safe_substitute(
-                                            prefix=prefix,
-                                            name=arr,
-                                            buff_size=self._get_size(dev_arr),
-                                            end=utils.line_end[self.lang] + '\n'
-                                            ))
-                    else:
-                        alloc_list.append(Template('for(int i_setter = 0; i_setter < ${buff_size}; ++i_setter)\n'
-                                                   '    ${prefix}${name}[i_setter] = ${value}${end}').safe_substitute(
-                                                    prefix=prefix,
-                                                    name=arr,
-                                                    buff_size=self._get_size(dev_arr),
-                                                    value=init_v,
-                                                    end=utils.line_end[self.lang] + '\n'))
+                #find initial value
+                init_v = self.has_init[arr]
+                #find corresponding device array
+                dev_arr = next(x for x in self.arrays if x.name == arr)
+                if init_v == 0:
+                    alloc_list.append(Template('memset(${prefix}${name}, 0, '
+                                        '${buff_size} * sizeof(double))${end}').safe_substitute(
+                                        prefix=prefix,
+                                        name=arr,
+                                        buff_size=self._get_size(dev_arr),
+                                        end=utils.line_end[self.lang] + '\n'
+                                        ))
+                else:
+                    alloc_list.append(Template('for(int i_setter = 0; i_setter < ${buff_size}; ++i_setter)\n'
+                                               '    ${prefix}${name}[i_setter] = ${value}${end}').safe_substitute(
+                                                prefix=prefix,
+                                                name=arr,
+                                                buff_size=self._get_size(dev_arr),
+                                                value=init_v,
+                                                end=utils.line_end[self.lang] + '\n'))
 
         return '\n'.join(alloc_list)
 
@@ -272,14 +273,14 @@ class memory_manager(object):
 
         return self._mem_transfers(to_device=False)
 
-    def get_mem_frees(self, free_inputs=False):
+    def get_mem_frees(self, free_locals=False):
         """
         Returns code to free the allocated buffers
 
         Parameters
         ----------
-        free_inputs : bool
-            If true, we're freeing the local version of the input arrays
+        free_locals : bool
+            If true, we're freeing the local versions of the host arrays
 
         Returns
         -------
@@ -287,7 +288,7 @@ class memory_manager(object):
             The generated code
         """
 
-        if not free_inputs:
+        if not free_locals:
             #device memory
             frees = [self.get_check_err_call(self.free_template[self.lang].safe_substitute(
                 name='d_' + arr.name)) for arr in self.arrays]
@@ -298,6 +299,6 @@ class memory_manager(object):
                     name='h_' + arr) for arr in self.host_inits])
         else:
             frees = [self.free_template[self.host_lang].safe_substitute(
-                    name='h_' + arr + '_local') for arr in self.in_arrays]
+                    name='h_' + arr + '_local') for arr in self.host_arrays]
 
         return '\n'.join([x + utils.line_end[self.lang] for x in sorted(set(frees))])

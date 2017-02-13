@@ -228,7 +228,7 @@ class wrapping_kernel_generator(object):
             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
                 input_args=', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a))
-            for a in self.mem.in_arrays]),
+            for a in self.mem.host_arrays]),
                 knl_name=self.name))
 
     def _generate_calling_program(self, path, data_filename):
@@ -253,17 +253,20 @@ class wrapping_kernel_generator(object):
         #find definitions
         mem_declares = self.mem.get_defns()
 
+        def __set_sort(arr):
+            return sorted(set(arr), key=lambda x:arr.index(x))
+
         #and input args
 
         #these are the args in the kernel defn
         knl_args = ', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a))
-            for a in self.mem.in_arrays])
+            for a in self.mem.host_arrays])
         #these are the args passed to the kernel (exclude type)
         input_args = ', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a), False)
-            for a in self.mem.in_arrays])
+            for a in self.mem.host_arrays])
         #these are passed from the main method (exclude type, add _local postfix)
         local_input_args = ', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a), False,
-            '_local') for a in self.mem.in_arrays])
+            '_local') for a in self.mem.host_arrays])
         #create doc strings
         knl_args_doc = []
         knl_args_doc_template = Template(
@@ -320,7 +323,7 @@ ${name} : ${type}
         #memory allocations
         mem_allocs = self.mem.get_mem_allocs()
         #input allocs
-        input_allocs = self.mem.get_mem_allocs(True)
+        local_allocs = self.mem.get_mem_allocs(True)
         #read args are those that aren't initalized elsewhere
         read_args = ', '.join(['h_' + x + '_local' for x in self.mem.in_arrays
             if x in ['T_arr', 'P_arr', 'conc']])
@@ -329,7 +332,7 @@ ${name} : ${type}
         #memory frees
         mem_frees = self.mem.get_mem_frees()
         #input frees
-        input_frees = self.mem.get_mem_frees(True)
+        local_frees = self.mem.get_mem_frees(True)
         #kernel list
         kernel_paths = [self.bin_name] + [x.bin_name for x in self.depends_on]
         kernel_paths = ', '.join('"{}"'.format(x) for x in kernel_paths if x.strip())
@@ -360,13 +363,13 @@ ${name} : ${type}
                     mem_allocs=mem_allocs,
                     kernel_arg_set=kernel_arg_sets,
                     mem_frees=mem_frees,
-                    input_frees=input_frees,
                     read_args=read_args,
                     order=self.loopy_opts.order,
                     device_type=str(self.loopy_opts.device_type),
                     num_source=1, #only 1 program / binary is built
                     data_filename=data_filename,
-                    input_allocs=input_allocs
+                    local_allocs=local_allocs,
+                    local_frees=local_frees
                     ))
 
 
