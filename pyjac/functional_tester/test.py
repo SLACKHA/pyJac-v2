@@ -64,9 +64,9 @@ def check_file(filename, Ns, Nr):
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
-        complete = len(lines) == 6
-        for line in lines:
-            test = line[line.index(':' + 1):]
+        complete = len(lines) == 5
+        for i, line in enumerate(lines):
+            test = line[line.index(':') + 1:]
             filtered = [y.strip() for y in test.split(',') if y.strip()]
             complete = complete and len(filtered) == ((Ns + 1) if i == 0
                 else Nr)
@@ -217,6 +217,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_FLOOR)
             return c.power(Decimal('2'), -x)
 
+        evaled = False
         def eval_state(i):
             if not i % 10000:
                 print(i)
@@ -229,7 +230,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             #get species rates
             spec_rates[i, :] = gas.net_production_rates[:]
             rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
-            rop_rev_test[i, :] = gas.reverse_rates_of_progress[:]
+            rop_rev_test[i, :] = gas.reverse_rates_of_progress[:][rev_map]
             rop_net_test[i, :] = gas.net_rates_of_progress[:]
             cp[:] = np.vectorize(__eval_cp, cache=True)(ns_range, T[i])
             h[:] = np.vectorize(__eval_h, cache=True)(ns_range, T[i])
@@ -247,7 +248,6 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
             conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
             conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
-        np.vectorize(eval_state, cache=True)(np.arange(num_conditions))
 
         current_data_order = None
 
@@ -286,6 +286,10 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             data_output = os.path.join(the_path, data_output)
             if check_file(data_output, gas.n_species, gas.n_reactions):
                 continue
+
+            #eval if not done already
+            if not evaled:
+                np.vectorize(eval_state, cache=True)(np.arange(num_conditions))
 
             if order != current_data_order:
                 #rewrite data to file in 'C' order
