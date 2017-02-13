@@ -9,7 +9,8 @@ from ..libgen import generate_library
 from .. import site_conf as site
 
 def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
-    extra_include_dirs=[], libraries=[], libdirs=[]):
+    extra_include_dirs=[], libraries=[], libdirs=[],
+    output_full_rop=False):
     """Helper method to fill in the template .in files
 
     Parameters
@@ -30,6 +31,10 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
         Optional; if supplied extra libraries to use
     libdirs : Optional[list of str]
         Optional; if supplied, library directories
+    output_full_rop : bool
+        If ``True``, output forward and reversse rates of progress
+        Useful in testing, as there are serious floating point errors for
+        net production rates near equilibrium, invalidating direct comparison to Cantera
 
     Returns
     -------
@@ -42,13 +47,19 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
     def __arr_create(arr):
         return ', '.join(["'{}'".format(x) for x in arr])
 
+    wrapper = setupfile[:setupfile.rindex('_setup')]
+    if output_rop_full:
+        wrapper = wrapper +['_ropfull']
+    wrapper += '.pyx'
+
     file_data = {'homepath' : home_dir,
                  'buildpath' : build_dir,
                  'libname' : libname,
                  'outpath' : out_dir,
                  'extra_include_dirs' : __arr_create(extra_include_dirs),
                  'libs' : __arr_create(libraries),
-                 'libdirs' : __arr_create(libdirs)
+                 'libdirs' : __arr_create(libdirs),
+                 'wrapper' : wrapper
                  }
     src = src.safe_substitute(file_data)
     with open(setupfile[:setupfile.rindex('.in')], 'w') as file:
@@ -78,7 +89,7 @@ def distutils_dir_name(dname):
 
 
 def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=False,
-    platform=''):
+    platform='', output_full_rop=False):
     """Generates a Python wrapper for the given language and source files
 
     Parameters
@@ -95,6 +106,10 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         Optional; if ``True``, build autodifferentiation library
     platform : Optional[str]
         Optional; if specified, the platform for OpenCL execution
+    output_full_rop : bool
+        If ``True``, output forward and reversse rates of progress
+        Useful in testing, as there are serious floating point errors for
+        net production rates near equilibrium, invalidating direct comparison to Cantera
     Returns
     -------
     None
@@ -140,10 +155,6 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         setupfile = 'pyjacob_setup.py.in'
         if auto_diff:
             setupfile = 'adjacob_setup.py.in'
-    elif lang == 'cuda':
-        setupfile = 'pyjacob_cuda_setup.py.in'
-    elif lang == 'tchem':
-        setupfile = 'pytchem_setup.py.in'
     elif lang == 'opencl':
         setupfile = 'pyocl_setup.py.in'
     else:
@@ -151,7 +162,8 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         sys.exit(-1)
 
     generate_setup(os.path.join(home_dir, setupfile), home_dir, source_dir,
-                   build_dir, lib, extra_include_dirs, libraries, libdirs
+                   build_dir, lib, extra_include_dirs, libraries, libdirs,
+                   output_full_rop
                    )
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])

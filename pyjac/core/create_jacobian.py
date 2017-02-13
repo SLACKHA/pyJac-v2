@@ -41,7 +41,8 @@ def create_jacobian(lang,
                     split_rop_net_kernels=False,
                     spec_rates_sum_over_reac=True,
                     conp=True,
-                    data_filename='data.bin'
+                    data_filename='data.bin',
+                    output_full_rop=False
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -114,6 +115,10 @@ def create_jacobian(lang,
         If True, use the constant pressure assumption.  If False, use the constant volume assumption.
     data_filename : str
         If specified, the path to the data.bin file that will be used for kernel testing
+    output_full_rop : bool
+        If ``True``, output forward and reversse rates of progress
+        Useful in testing, as there are serious floating point errors for
+        net production rates near equilibrium, invalidating direct comparison to Cantera
     Returns
     -------
     None
@@ -253,7 +258,7 @@ def create_jacobian(lang,
 
     ## now begin writing subroutines
     kgen = rate.write_specrates_kernel(eqs, reacs, specs, loopy_opts,
-                    conp=conp)
+                    conp=conp, output_full_rop=output_full_rop)
 
     #generate
     kgen.generate(build_path, data_filename=data_filename)
