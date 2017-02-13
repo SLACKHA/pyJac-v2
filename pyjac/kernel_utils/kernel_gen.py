@@ -7,6 +7,7 @@ import textwrap
 import os
 import re
 from string import Template
+import logging
 
 import loopy as lp
 import pyopencl as cl
@@ -286,7 +287,7 @@ ${name} : ${type}
                     name=x, type='double*', desc='The array of species rates, in {}-order').format(
                     self.loopy_opts.order))
             else:
-                raise Exception('Argument documentation not found for arg {}'.format(x))
+                logging.warn('Argument documentation not found for arg {}'.format(x))
 
         knl_args_doc = '\n'.join(knl_args_doc)
         #these are args passed in (from main, or python)
@@ -322,7 +323,7 @@ ${name} : ${type}
         input_allocs = self.mem.get_mem_allocs(True)
         #read args are those that aren't initalized elsewhere
         read_args = ', '.join(['h_' + x + '_local' for x in self.mem.in_arrays
-            if x not in self.mem.has_init])
+            if x in ['T_arr', 'P_arr', 'conc']])
         #kernel arg setting
         kernel_arg_sets = self.get_kernel_arg_setting()
         #memory frees
