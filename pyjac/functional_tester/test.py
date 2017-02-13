@@ -64,11 +64,10 @@ def check_file(filename, Ns, Nr):
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
-        complete = len(lines) == 5
         for i, line in enumerate(lines):
             test = line[line.index(':') + 1:]
             filtered = [y.strip() for y in test.split(',') if y.strip()]
-            complete = complete and len(filtered) == ((Ns + 1) if i == 0
+            complete = complete and len(filtered) == ((Ns + 1) if i < 2
                 else Nr)
             for x in filtered:
                 float(x)
@@ -203,19 +202,24 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
         #predefines
         ln2 = Decimal('2').ln()
+        d2 = Decimal('2')
         specs = gas.species()[:]
         ns_range = np.array(range(gas.n_species), dtype=np.int32)
 
         #precision loss measurement
-        precision_loss = np.zeros((num_conditions, gas.n_reactions))
+        precision_loss_min = np.zeros((num_conditions, gas.n_reactions))
+        precision_loss_max = np.zeros((num_conditions, gas.n_reactions))
 
         def __eval_cp(j, T):
             return specs[j].thermo.cp(T)
         def __eval_h(j, T):
             return specs[j].thermo.h(T)
-        def __get_prec(x):
+        def __get_prec_max(x):
             x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_FLOOR)
-            return c.power(Decimal('2'), -x)
+            return c.power(d2, -x)
+        def __get_prec_min(x):
+            x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_CEILING)
+            return c.power(d2, -x)
 
         evaled = False
         def eval_state(i):
@@ -244,7 +248,8 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 dtype=np.dtype(Decimal))
             ratio = fwd / rev
             mid = np.abs(Decimal('1') - ratio)
-            precision_loss[i, :] = np.vectorize(__get_prec, cache=True)(mid)
+            precision_loss_min[i, :] = np.vectorize(__get_prec_min, cache=True)(mid)
+            precision_loss_max[i, :] = np.vectorize(__get_prec_max, cache=True)(mid)
 
             conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
             conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
@@ -407,17 +412,24 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 #get precision at each of these locs
                 err_locs = np.argmax(err, axis=0)
                 #take err norm
-                err = np.linalg.norm(err, ord=np.inf, axis=0)
+                err_inf = np.linalg.norm(err, ord=np.inf, axis=0)
+                err_l2 = np.linalg.norm(err, ord=2, axis=0)
                 #save to output
                 with open(data_output, 'a') as file:
-                    file.write(name + ': ' + ', '.join(['{:.15e}'.format(x) for x in err]) + '\n')
+                    file.write(name + ' - linf: ' + ', '.join(['{:.15e}'.format(x) for x in err_inf]) + '\n')
+                    file.write(name + ' - l2: ' + ', '.join(['{:.15e}'.format(x) for x in err_l2]) + '\n')
                     if name == 'rop_net':
+                        def __prec_percent(precision):
+                            precs = precision[err_locs, np.arange(err_inf.size)]
+                            return 100.0 * err_base[err_locs, np.arange(err_inf.size)] / precs
                         #get precision at each of these locs
-                        precs = precision_loss[err_locs, np.arange(err.size)]
-                        precs = 100 * precs / err_base[err_locs, np.arange(err.size)]
-                        file.write(name + '_prec : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
+                        precs = __prec_percent(precision_loss_min)
+                        file.write(name + '_precmin : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
+                        precs = __prec_percent(precision_loss_max)
+                        file.write(name + '_precmax : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
+
                 #and print total max to screen
-                print(name, np.linalg.norm(err, np.inf))
+                print(name, np.linalg.norm(err_inf, np.inf))
 
             #cleanup
             for x in args + outf:
