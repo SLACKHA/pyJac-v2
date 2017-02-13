@@ -212,18 +212,16 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 u[j] = hs - T[i] * ct.gas_constant
                 cp[j] = cps
                 cv[j] = cps - ct.gas_constant
-                q = np.nan
-
 
             for j in range(gas.n_reactions):
                 #try to estimate the loss of precision
+                q = np.nan
                 try:
                     ratio = (Decimal.from_float(gas.forward_rates_of_progress[j])
                         / Decimal.from_float(gas.reverse_rates_of_progress[j]))
                     mid = abs(Decimal('1') - ratio)
                     q = (-mid.ln() / Decimal('2').ln()).to_integral_value(rounding=ROUND_FLOOR)
-                    precision_loss[i, j] = getcontext().power(Decimal('2'), -q) / Decimal.from_float(
-                        gas.net_rates_of_progress[j]) * Decimal.from_float(100.0)
+                    precision_loss[i, j] = getcontext().power(Decimal('2'), -q)
                 except:
                     precision_loss[i, j] = q
                     pass
@@ -347,7 +345,6 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 continue
 
             #generate wrapper
-            import pdb; pdb.set_trace()
             generate_wrapper(lang, my_build, build_dir=obj_dir,
                          out_dir=my_test, platform=str(platform),
                          output_full_rop=True)
@@ -360,7 +357,6 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             def __get_test(name):
                 return comp_arrays[output_names.index(name)]
 
-            import pdb; pdb.set_trace()
             out_check = outf[:]
             #load output arrays
             for i in range(len(outf)):
@@ -382,12 +378,20 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     continue
                 check_arr = __get_test(name)
                 #get err
-                err = np.abs(out - check_arr) / (atol + rtol * np.abs(check_arr))
+                err_base = np.abs(out - check_arr)
+                err = err_base / (atol + rtol * np.abs(check_arr))
+                #get precision at each of these locs
+                err_locs = np.argmax(err, axis=0)
                 #take err norm
                 err = np.linalg.norm(err, ord=np.inf, axis=0)
                 #save to output
                 with open(data_output, 'a') as file:
                     file.write(name + ': ' + ', '.join(['{:.15e}'.format(x) for x in err]) + '\n')
+                    if name == 'rop_net':
+                        #get precision at each of these locs
+                        precs = precision_loss[err_locs, np.arange(err.size)]
+                        precs = 100 * err_base[err_locs, np.arange(err.size)] / precs
+                        file.write(name + '_prec : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
                 #and print total max to screen
                 print(name, np.linalg.norm(err, np.inf))
 
