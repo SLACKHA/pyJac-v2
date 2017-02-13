@@ -390,7 +390,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     if name == 'rop_net':
                         #get precision at each of these locs
                         precs = precision_loss[err_locs, np.arange(err.size)]
-                        precs = 100 * err_base[err_locs, np.arange(err.size)] / precs
+                        precs = 100 * precs / err_base[err_locs, np.arange(err.size)]
                         file.write(name + '_prec : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
                 #and print total max to screen
                 print(name, np.linalg.norm(err, np.inf))
