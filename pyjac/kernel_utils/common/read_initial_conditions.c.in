@@ -15,15 +15,15 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
 
     if (order == 'C')
     {
-        double buffer[NSP + 2];
+        double buffer[NN + 2];
         // load temperature, pressure and concentrations for all (cells)
         for (int i = 0; i < NUM; ++i)
         {
             // read line from data file
-            int count = fread(buffer, sizeof(double), NSP + 2, fp);
-            if (count != (NSP + 2))
+            int count = fread(buffer, sizeof(double), NN + 2, fp);
+            if (count != (NN + 2))
             {
-                fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NSP + 2, count);
+                fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NN + 2, count);
                 exit(-1);
             }
 
@@ -31,9 +31,9 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
             T_host[i] = buffer[0];
             P_host[i] = buffer[1];
 
-            for (int j = 0; j < NS; j++)
+            for (int j = 0; j < NN; j++)
             {
-                conc_host[i * NS + j] = buffer[j + 2];
+                conc_host[i * NN + j] = buffer[j + 2];
             }
 
         }
@@ -42,7 +42,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
     {
         double* buffer = (double*)malloc(NUM * sizeof(double));
         // load temperature, pressure and concentrations for all (cells)
-        for (int i = 0; i < NSP + 2; ++i)
+        for (int i = 0; i < NN + 2; ++i)
         {
             // read line from data file
             int count = fread(buffer, sizeof(double), NUM, fp);
@@ -58,7 +58,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* T_h
             else if (i == 1)
                 fill = P_host;
             else
-                fill = &conc_host[i * NS];
+                fill = &conc_host[(i - 2) * NUM];
 
             for (int j = 0; j < NUM; j++)
             {
