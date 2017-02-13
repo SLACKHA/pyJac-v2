@@ -23,8 +23,7 @@ def load(npy_files, directory=None):
         print(num_conditions, data.shape)
     return num_conditions, data
 
-def write(directory, cut=None, order='F'):
-    assert order in ['C', 'F']
+def write(directory, cut=None):
     npy_files = get_files(directory)
     data = None
     filename = 'data.bin' if cut is None else 'data_eqremoved.bin'
@@ -37,11 +36,6 @@ def write(directory, cut=None, order='F'):
             return 0
         if cut is not None:
             data = data[cut:, :]
-        if order == 'F':
-            #the input ordering of the npy files is 'C'
-            #, i.e. column-major order
-            #therefore we flip
-            data = data.T.copy()
         data.tofile(file)
     return num_conditions
 

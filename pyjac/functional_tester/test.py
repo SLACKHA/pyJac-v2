@@ -223,9 +223,8 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 continue
 
             if order != current_data_order:
-                #rewrite data to file in correct order
-                dbw.write(os.path.join(work_dir, mech_name),
-                                            order=order)
+                #rewrite data to file in 'C' order
+                dbw.write(os.path.join(this_dir))
 
             #save args to dir
             def __saver(arr, name, namelist):
@@ -276,7 +275,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     skip_jac=True,
                     auto_diff=False,
                     platform=platform,
-                    data_filename=os.path.join(work_dir, mech_name, 'data.bin'),
+                    data_filename=os.path.join(this_dir, 'data.bin'),
                     split_rate_kernels=split_kernels,
                     rate_specialization=rate_spec,
                     split_rop_net_kernels=split_kernels
