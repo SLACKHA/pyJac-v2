@@ -16,6 +16,7 @@ import shutil
 from collections import defaultdict, OrderedDict
 
 from string import Template
+from decimal import *
 
 # Related modules
 import numpy as np
@@ -164,6 +165,31 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         u = np.zeros((gas.n_species))
         cp = np.zeros((gas.n_species))
         cv = np.zeros((gas.n_species))
+
+        #get mappings
+        fwd_map = np.array(range(gas.n_reactions))
+        rev_map = np.array([x for x in range(gas.n_reactions) if gas.is_reversible(x)])
+        thd_map = []
+        for x in range(gas.n_reactions):
+            try:
+                eff = gas.reaction(x).efficiencies
+                thd_map.append(x)
+            except:
+                pass
+        thd_map = np.array(thd_map)
+        rop_fwd_test = np.zeros((num_conditions, fwd_map.size))
+        rop_rev_test = np.zeros((num_conditions, rev_map.size))
+        #need special maps for rev/thd
+        rev_to_thd_map = np.where(np.in1d(rev_map, thd_map))[0]
+        thd_to_rev_map = np.where(np.in1d(thd_map, rev_map))[0]
+        #it's a pain to actually calcuate this
+        #and we don't need it directly, since cantera computes
+        #pdep terms in the forward / reverse ROP automatically
+        #hence we create it as a placeholder for the testing script
+        pres_mod_test = np.zeros((num_conditions, thd_map.size))
+
+        #precision loss measurement
+        precision_loss = np.zeros((num_conditions, gas.n_reactions))
         #now we must evaluate the species rates
         for i in range(num_conditions):
             #it's actually more accurate to set the density (total concentration)
@@ -174,6 +200,9 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             data[i, 2:] = gas.concentrations[:]
             #get species rates
             spec_rates[i, :] = gas.net_production_rates[:]
+            rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
+            rop_rev_test[i, :] = gas.reverse_rates_of_progress[:]
+            #get fwd / rev rop
             for j in range(gas.n_species):
                 cps = gas.species(j).thermo.cp(T[i])
                 hs = gas.species(j).thermo.h(T[i])
@@ -181,6 +210,22 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 u[j] = hs - T[i] * ct.gas_constant
                 cp[j] = cps
                 cv[j] = cps - ct.gas_constant
+                q = np.nan
+
+
+            for j in range(gas.n_reactions):
+                #try to estimate the loss of precision
+                try:
+                    ratio = (Decimal.from_float(gas.forward_rates_of_progress[j])
+                        / Decimal.from_float(gas.reverse_rates_of_progress[j]))
+                    mid = abs(Decimal('1') - ratio)
+                    q = (-mid.ln() / Decimal('2').ln()).to_integral_value(rounding=ROUND_FLOOR)
+                    precision_loss[i, j] = getcontext().power(Decimal('2'), -q) / Decimal.from_float(
+                        gas.net_rates_of_progress[j]) * Decimal.from_float(100.0)
+                except:
+                    precision_loss[i, j] = q
+                    pass
+
             conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
             conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
 
@@ -239,8 +284,14 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             #put together species rates
             species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
                     spec_rates.copy()), axis=1)
+            ropf = rop_fwd_test.copy()
+            ropr = rop_rev_test.copy()
+            ropp = pres_mod_test.copy()
             if order == 'F':
                 species_rates = species_rates.T.copy()
+                ropf = rop_fwd_test.T.copy()
+                ropr = rop_rev_test.T.copy()
+                ropp = pres_mod_test.T.copy()
             #and flatten in correct order
             species_rates = species_rates.flatten(order='K')
 
@@ -252,8 +303,13 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             #and now the test values
             tests = []
             __saver(species_rates, 'wdot', tests)
+            __saver(ropf, 'rop_fwd', tests)
+            __saver(ropr, 'rop_rev', tests)
+            __saver(ropp, 'pres_mod', tests)
 
-            outf = os.path.join(my_test, 'wdot_rate_err.npy')
+            output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod']
+            outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
+                for name in output_names]
             #write the module tester
             with open(os.path.join(my_test, 'test.py'), 'w') as file:
                 file.write(mod_test.safe_substitute(
@@ -262,7 +318,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     test_arrays=', '.join('"{}"'.format(x) for x in tests),
                     non_array_args='{}, 12'.format(num_conditions),
                     call_name='species_rates',
-                    output_files='\'{}\''.format(outf)))
+                    output_files=', '.join('\'{}\''.format(x) for x in outf)))
 
             try:
                 create_jacobian(lang,
@@ -278,7 +334,8 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     data_filename=os.path.join(this_dir, 'data.bin'),
                     split_rate_kernels=split_kernels,
                     rate_specialization=rate_spec,
-                    split_rop_net_kernels=split_kernels
+                    split_rop_net_kernels=split_kernels,
+                    output_full_rop=True
                     )
             except:
                 print('generation failed...')
@@ -296,18 +353,39 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 'python{}.{}'.format(sys.version_info[0], sys.version_info[1]),
                 os.path.join(my_test, 'test.py')])
 
+            def __get_test(name):
+                if name == 'wdot':
+                    return species_rates
+                elif name == 'rop_fwd':
+                    return rop_fwd_test
+                elif name == 'rop_rev':
+                    return rop_rev_test
+                else:
+                    return None
+
+            #load output arrays
+            for i in range(outf):
+                outf[i] = np.load(outf[i])
+
+            #multiply pressure rates
+            #fwd
+            outf[1][thd_map] *= outf[-1]
+            #rev
+            outf[2][rev_to_thd_map] *= outf[-1][thd_to_rev_map]
+
             #load output
-            outv = np.load(outf)
-            err = np.abs(outv - species_rates) / (atol + rtol * np.abs(species_rates))
-            #reshape
-            err = np.reshape(err, (num_conditions, gas.n_species + 1), order=order)
-            #take err norm
-            err = np.linalg.norm(err, ord=np.inf, axis=0)
-            #save to output
-            with open(data_output, 'a') as file:
-                file.write(', '.join(['{:.15e}'.format(x) for x in err]))
-            #and print total max to screen
-            print(state, np.linalg.norm(err, np.inf))
+            for name, out in zip(*(output_names, outf))[:-1]:
+                check_arr = __get_test(name)
+                err = np.abs(outv - check_arr) / (atol + rtol * np.abs(check_arr))
+                #reshape
+                err = np.reshape(err, (num_conditions, check_arr.shape[1]), order=order)
+                #take err norm
+                err = np.linalg.norm(err, ord=np.inf, axis=0)
+                #save to output
+                with open(data_output, 'a') as file:
+                    file.write(', '.join(['{:.15e}'.format(x) for x in err]))
+                #and print total max to screen
+                print(name, np.linalg.norm(err, np.inf))
 
             #cleanup
             for x in args + tests:
