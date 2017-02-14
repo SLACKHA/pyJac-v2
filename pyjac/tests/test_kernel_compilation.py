@@ -15,6 +15,8 @@ import shutil
 from string import Template
 import sys
 import subprocess
+import numpy as np
+from .. import utils
 
 class SubTest(TestClass):
     def __get_spec_lib(self, state, eqs, opts):
@@ -73,18 +75,24 @@ class SubTest(TestClass):
         lib_dir = self.store.lib_dir
         import pdb; pdb.set_trace()
         setup = test_utils.get_read_ics_source()
-        ric = ric.safe_substitute()
+        utils.create_dir(build_dir)
+        utils.create_dir(obj_dir)
+        utils.create_dir(lib_dir)
+        home = os.getcwd()
         for order in ['C', 'F']:
-            test_utils.clean_dir(build_dir)
-            test_utils.clean_dir(obj_dir)
-            test_utils.clean_dir(lib_dir)
-            test_utils.clean_dir(os.path.join(os.path.getcwd(), 'build'))
+            os.chdir(home)
+            test_utils.clean_dir(build_dir, False)
+            test_utils.clean_dir(obj_dir, False)
+            test_utils.clean_dir(lib_dir, False)
+            if os.path.exists(os.path.join(os.getcwd(), 'build')):
+                shutil.rmtree(os.path.join(os.getcwd(), 'build'))
             #get source
-            with open(os.path.join(self.store.script_dir, os.pardir,
-                'kernel_utils', 'common', 'read_initial_conditions.c'), 'r') as file:
-                    ric = Template(file.read())
+            path = os.path.realpath(os.path.join(self.store.script_dir, os.pardir,
+                'kernel_utils', 'common', 'read_initial_conditions.c.in'))
+            with open(path, 'r') as file:
+                ric = Template(file.read())
             #subs
-            ric = ric.safe_substitute(mechanism=os.path.join(build_dir, 'mechanism.h'))
+            ric = ric.safe_substitute(mechanism='mechanism.h')
             #write
             with open(os.path.join(build_dir, 'read_initial_conditions.c'), 'w') as file:
                 file.write(ric)
@@ -98,29 +106,36 @@ class SubTest(TestClass):
             shutil.copyfile(os.path.join(self.store.script_dir, os.pardir,
                 'kernel_utils', 'common', 'read_initial_conditions.h'),
                 os.path.join(build_dir, 'read_initial_conditions.h'))
+            #copy wrapper
+            shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
+                'read_ic_wrapper.pyx'),
+                os.path.join(build_dir, 'read_ic_wrapper.pyx'))
             #setup
+            os.chdir(build_dir)
             python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
             call = [python_str, os.path.join(build_dir, 'setup.py'),
                            'build_ext', '--build-lib', lib_dir]
             subprocess.check_call(call)
             #copy in tester
-            shutil.copyfile(os.path.join(self.store.script_dir, 'utils',
+            shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
                     'ric_tester.py'),
                 os.path.join(lib_dir, 'ric_tester.py'))
+
             #save T, P, concs in correct order
-            np.tofile(os.path.join('lib_dir', 'T_test.npy'), self.store.T)
-            np.tofile(os.path.join('lib_dir', 'P_test.npy'), self.store.P)
+            self.store.T.tofile(os.path.join(lib_dir, 'T_test.npy'))
+            self.store.P.tofile(os.path.join(lib_dir, 'P_test.npy'))
             save_concs = (self.store.concs.copy() if order == 'F' else self.store.concs.T.copy()).flatten('K')
-            np.tofile(os.path.join('lib_dir', 'conc_test.npy'), save_concs)
+            save_concs.tofile(os.path.join(lib_dir, 'conc_test.npy'))
 
             #save bin file
-            out_file = np.concatenate(
-                    np.reshape(self.store.T_arr, (-1, 1)),
-                    np.reshape(self.store.P_arr, (-1, 1)),
-                    self.store.concs.T.copy()
+            out_file = np.concatenate((
+                    np.reshape(self.store.T, (-1, 1)),
+                    np.reshape(self.store.P, (-1, 1)),
+                    self.store.concs.T.copy()), axis=1
                 )
-            with open(os.path.join('lib_dir', 'data.bin'), 'wb') as file:
+            with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
                 out_file.tofile(file)
 
             #and run
-            subprocess.check_call([os.path.join(lib_dir, 'ric_tester.py'), order])
+            os.chdir(lib_dir)
+            subprocess.check_call([python_str, 'ric_tester.py', order])

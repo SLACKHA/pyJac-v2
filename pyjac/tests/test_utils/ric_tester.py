@@ -1,10 +1,12 @@
-import py_readics as read_ics
+import importlib
 import numpy as np
 import sys
 
-T_test = np.load('T_test.npy')
-P_test = np.load('P_test.npy')
-conc_test = np.load('conc_test.npy')
+read_ics = importlib.import_module('py_readics')
+
+T_test = np.fromfile('T_test.npy')
+P_test = np.fromfile('P_test.npy')
+conc_test = np.fromfile('conc_test.npy')
 
 order = sys.argv[1]
 assert order in ['C', 'F']
