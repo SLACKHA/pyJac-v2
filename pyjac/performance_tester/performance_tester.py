@@ -42,7 +42,7 @@ from ..libgen import (generate_library, libs, compiler, file_struct,
 from .. import site_conf as site
 
 from ..test.utils import data_bin_writer as dbw
-from ..test.utils.test_matrix import get_test_matrix
+from ..tests.utils import test_matrix as tm
 
 STATIC = False
 """bool: CUDA only works for static libraries"""
@@ -198,7 +198,7 @@ def performance_tester(home, work_dir):
     test_dir = 'test'
     work_dir = os.path.abspath(work_dir)
 
-    mechanism_list, ocl_params, max_vec_width = get_test_matrix(work_dir)
+    mechanism_list, ocl_params, max_vec_width = tm.get_test_matrix(work_dir)
 
     if len(mechanism_list) == 0:
         print('No mechanisms found for performance testing in '
