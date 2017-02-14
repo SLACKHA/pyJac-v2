@@ -39,8 +39,8 @@ from .. import utils
 from ..core.create_jacobian import create_jacobian
 from ..pywrap.pywrap_gen import generate_wrapper
 
-from ..test.utils import data_bin_writer as dbw
-from ..test.utils.test_matrix import get_test_matrix
+from ..tests.utils import data_bin_writer as dbw
+from ..tests.utils.test_matrix import get_test_matrix
 from ..tests import utils as test_utils
 
 
