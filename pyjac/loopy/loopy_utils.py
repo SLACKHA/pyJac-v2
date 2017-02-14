@@ -434,6 +434,8 @@ class kernel_call(object):
             else:
                 allclear = allclear and np.allclose(output_variables[i],
                                 self.transformed_ref_ans[i])
+        if not allclear:
+            import pdb; pdb.set_trace()
         return allclear
 
 
