@@ -445,7 +445,8 @@ class SubTest(TestClass):
         reacs = self.store.reacs
         masks = {
             'simple' : (
-                [np.array([i for i, x in enumerate(reacs) if x.match((reaction_type.elementary,))])],
+                [np.array([i for i, x in enumerate(reacs) if x.match((reaction_type.elementary,
+                    reaction_type.fall, reaction_type.chem))])],
                 get_simple_arrhenius_rates),
             'plog' : (
                 [np.array([i for i, x in enumerate(reacs) if x.match((reaction_type.plog,))])],
@@ -458,7 +459,14 @@ class SubTest(TestClass):
         if rtype != 'simple':
             args['P_arr'] =  P
 
+        def __simple_post(kc, out):
+            if kc.current_order == 'C':
+                out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod.T.copy()
+            else:
+                out[0][self.store.thd_inds, :] *= self.store.ref_pres_mod.copy()
+
         compare_mask, rate_func = masks[rtype]
+        post = None if rtype != 'simple' else __simple_post
 
         #see if mechanism has this type
         if not compare_mask:
@@ -466,7 +474,8 @@ class SubTest(TestClass):
 
         #create the kernel call
         kc = kernel_call(rtype,
-                            ref_const, compare_mask=compare_mask, **args)
+                            ref_const, compare_mask=compare_mask,
+                            post_process=post, **args)
 
         self.__generic_rate_tester(rate_func, kc, rtype == 'simple')
 
