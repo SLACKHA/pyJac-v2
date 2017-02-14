@@ -7,9 +7,14 @@ from ..libgen import generate_library
 from ..core.mech_auxiliary import write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
 from .. import site_conf as site
+from . import test_utils as test_utils
 from optionloop import OptionLoop
 from collections import OrderedDict
 import importlib
+import shutil
+from string import Template
+import sys
+import subprocess
 
 class SubTest(TestClass):
     def __get_spec_lib(self, state, eqs, opts):
@@ -63,14 +68,59 @@ class SubTest(TestClass):
             pywrap = importlib.import_module('pyjac_ocl')
 
     def test_read_initial_conditions(self):
-        opts, eqs, oploop = self.__get_objs()
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
-        for state in oploop:
-            self.__get_spec_lib(state, eqs, opts)
-            #test wrapper generation
-            generate_wrapper(opts.lang, build_dir,
-                         out_dir=lib_dir)
-            #test import
-            pywrap = importlib.import_module('pyjac_ocl')
+        import pdb; pdb.set_trace()
+        setup = test_utils.get_read_ics_source()
+        ric = ric.safe_substitute()
+        for order in ['C', 'F']:
+            test_utils.clean_dir(build_dir)
+            test_utils.clean_dir(obj_dir)
+            test_utils.clean_dir(lib_dir)
+            test_utils.clean_dir(os.path.join(os.path.getcwd(), 'build'))
+            #get source
+            with open(os.path.join(self.store.script_dir, os.pardir,
+                'kernel_utils', 'common', 'read_initial_conditions.c'), 'r') as file:
+                    ric = Template(file.read())
+            #subs
+            ric = ric.safe_substitute(mechanism=os.path.join(build_dir, 'mechanism.h'))
+            #write
+            with open(os.path.join(build_dir, 'read_initial_conditions.c'), 'w') as file:
+                file.write(ric)
+            #write header
+            write_mechanism_header(build_dir, 'c', self.store.specs, self.store.reacs)
+            #write setup
+            with open(os.path.join(build_dir, 'setup.py'), 'w') as file:
+                file.write(setup.safe_substitute(
+                    buildpath=build_dir))
+            #copy read ics header to final dest
+            shutil.copyfile(os.path.join(self.store.script_dir, os.pardir,
+                'kernel_utils', 'common', 'read_initial_conditions.h'),
+                os.path.join(build_dir, 'read_initial_conditions.h'))
+            #setup
+            python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
+            call = [python_str, os.path.join(build_dir, 'setup.py'),
+                           'build_ext', '--build-lib', lib_dir]
+            subprocess.check_call(call)
+            #copy in tester
+            shutil.copyfile(os.path.join(self.store.script_dir, 'utils',
+                    'ric_tester.py'),
+                os.path.join(lib_dir, 'ric_tester.py'))
+            #save T, P, concs in correct order
+            np.tofile(os.path.join('lib_dir', 'T_test.npy'), self.store.T)
+            np.tofile(os.path.join('lib_dir', 'P_test.npy'), self.store.P)
+            save_concs = (self.store.concs.copy() if order == 'F' else self.store.concs.T.copy()).flatten('K')
+            np.tofile(os.path.join('lib_dir', 'conc_test.npy'), save_concs)
+
+            #save bin file
+            out_file = np.concatenate(
+                    np.reshape(self.store.T_arr, (-1, 1)),
+                    np.reshape(self.store.P_arr, (-1, 1)),
+                    self.store.concs.T.copy()
+                )
+            with open(os.path.join('lib_dir', 'data.bin'), 'wb') as file:
+                out_file.tofile(file)
+
+            #and run
+            subprocess.check_call([os.path.join(lib_dir, 'ric_tester.py'), order])
