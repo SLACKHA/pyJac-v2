@@ -61,3 +61,16 @@ class SubTest(TestClass):
                          out_dir=lib_dir)
             #test import
             pywrap = importlib.import_module('pyjac_ocl')
+
+    def test_read_initial_conditions(self):
+        opts, eqs, oploop = self.__get_objs()
+        build_dir = self.store.build_dir
+        obj_dir = self.store.obj_dir
+        lib_dir = self.store.lib_dir
+        for state in oploop:
+            self.__get_spec_lib(state, eqs, opts)
+            #test wrapper generation
+            generate_wrapper(opts.lang, build_dir,
+                         out_dir=lib_dir)
+            #test import
+            pywrap = importlib.import_module('pyjac_ocl')

@@ -433,8 +433,6 @@ class kernel_call(object):
                     ref_answer = np.take(ref_answer,
                                 self.compare_mask[i], self.compare_axis).squeeze()
             allclear = allclear and np.allclose(outv, ref_answer)
-        if not allclear:
-            import pdb; pdb.set_trace()
         return allclear
 
 
