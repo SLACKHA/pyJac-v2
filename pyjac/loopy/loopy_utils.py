@@ -254,7 +254,7 @@ class kernel_call(object):
 
     def __init__(self, name, ref_answer, compare_axis=0, compare_mask=None,
                     out_mask=None, input_mask=[], strict_name_match=False,
-                    chain=None, check=True,
+                    chain=None, check=True, post_process=None,
                     **input_args):
         """
         The initializer for the :class:`kernel_call` object
@@ -287,6 +287,13 @@ class kernel_call(object):
                     ....
             is expected.  This function should take the output values from a previous kernel call,
             and place in the input args for this kernel call as necessary
+        post_process : function, optional
+            If not None, a function of signature similar to:
+                def fcn(self, out_values):
+                    ....
+            is expected.  This function should take the output values from this kernel call,
+            and process them as expected to compare to results.
+            Currently used only in comparison of reaction rates to Cantera (to deal w/ falloff etc.)
         check : bool
             If False, do not check result (useful when chaining to check only the last result)
             Default is True
@@ -317,7 +324,9 @@ class kernel_call(object):
         self.strict_name_match = strict_name_match
         self.kernel_args = None
         self.chain = chain
+        self.post_process = post_process
         self.check = check
+        self.current_order = None
 
     def is_my_kernel(self, knl):
         """
@@ -344,6 +353,7 @@ class kernel_call(object):
             The memory layout of the arrays, C (row major) or Fortran (column major)
         """
         self.compare_axis = 1 if order == 'C' else 0
+        self.current_order = order
 
         #filter out bad input
         args_copy = self.input_args.copy()
@@ -491,6 +501,9 @@ def populate(knl, kernel_calls, device='0'):
 
                 #run!
                 out = kc(test_knl, queue)
+
+                if kc.post_process:
+                    kc.post_process(kc, out)
 
                 #output mapping
                 if all(x is None for x in out_ref):
