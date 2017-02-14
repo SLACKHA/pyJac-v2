@@ -2823,9 +2823,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
             instruction_list = []
             inds = set()
             for i in specializations:
-                instruction_list.append('<>test_{0} = rtype{1}[i] == {0} {{id=d{0}}}'.format(i,
-                    name_mod))
-                instruction_list.append('if test_{0}'.format(i))
+                instruction_list.append('if rtype{1}[i] == {0}'.format(i, name_mod))
                 instruction_list.extend(['\t' + x for x in specializations[i].instructions.split('\n')])
                 instruction_list.append('end')
         #and combine them
@@ -2853,20 +2851,17 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
         if (separated_kernels and (info.name == i_beta_int.name)) or \
             (not separated_kernels and not fixed):
             #find max b exponent
-            maxb_test = rate_info[tag]['b'][
-                    np.where(rate_info[tag]['type'] == rtype)]
-            if maxb_test.size:
-                maxb = int(np.max(np.abs(maxb_test)))
-                #if we need to iterate
-                if maxb > 1:
-                    #add an extra iname, and the resulting iteraton loop
-                    info.extra_inames.append(('k', '0 <= k < b_end'))
-                    beta_iter = """
-                <> b_end = abs(${b_name}[i])
-                for k
-                    kf_temp = kf_temp * T_val {id=a4, dep=a3}
-                end
-                ${kf_str} = kf_temp {dep=a4}
+            maxb = np.max(np.abs(rate_info[tag]['b'][np.where(rate_info[tag]['type'] == 1)]))
+            #if we need to iterate
+            if maxb > 1:
+                #add an extra iname, and the resulting iteraton loop
+                info.extra_inames.append(('k', '0 <= k < b_end'))
+                beta_iter = """
+            <> b_end = abs(${b_name}[i])
+            for k
+                kf_temp = kf_temp * T_val {id=a4, dep=a3}
+            end
+            ${kf_str} = kf_temp {dep=a4}
                 """
 
         #check if we need an input map

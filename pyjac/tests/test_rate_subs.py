@@ -477,7 +477,7 @@ class SubTest(TestClass):
                             ref_const, compare_mask=compare_mask,
                             post_process=post, **args)
 
-        self.__generic_rate_tester(rate_func, kc, rtype == 'simple')
+        self.__generic_rate_tester(rate_func, kc, do_ratespec=rtype == 'simple')
 
 
     @attr('long')
