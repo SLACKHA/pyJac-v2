@@ -41,7 +41,7 @@ from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.utils import data_bin_writer as dbw
 from ..tests.utils import get_test_matrix as tm
-from ..tests import utils as test_utils
+from ..tests import test_utils
 
 
 def check_file(filename, Ns, Nr):
@@ -128,22 +128,13 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         subprocess.check_call(['mkdir', '-p', my_build])
         subprocess.check_call(['mkdir', '-p', my_test])
 
-        def __clean_dir(dirname, remove_dir=True):
-            if not os.path.exists(dirname):
-                return
-            for file in os.listdir(dirname):
-                if os.path.isfile(os.path.join(dirname, file)):
-                    os.remove(os.path.join(dirname, file))
-            if remove_dir:
-                os.rmdir(dirname)
-
         def __cleanup():
             #remove library
-            __clean_dir(my_obj, False)
+            test_utils.clean_dir(my_obj, False)
             #remove build
-            __clean_dir(my_build, False)
+            test_utils.clean_dir(my_build, False)
             #clean sources
-            __clean_dir(my_test, False)
+            test_utils.clean_dir(my_test, False)
             #clean dummy builder
             dist_build = os.path.join(os.getcwd(), 'build')
             if os.path.exists(dist_build):

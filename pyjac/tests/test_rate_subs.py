@@ -22,7 +22,7 @@ from ..kernel_utils import kernel_gen as k_gen
 from ..core.mech_auxiliary import write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
 from .. import site_conf as site
-from ..tests import utils as test_utils
+from ..tests import test_utils as test_utils
 
 #modules
 from optionloop import OptionLoop
@@ -820,22 +820,14 @@ class SubTest(TestClass):
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
-        def __clean_dir(dirname, remove_dir=True):
-            if not os.path.exists(dirname):
-                return
-            for file in os.listdir(dirname):
-                if os.path.isfile(os.path.join(dirname, file)):
-                    os.remove(os.path.join(dirname, file))
-            if remove_dir:
-                os.rmdir(dirname)
 
         def __cleanup():
             #remove library
-            __clean_dir(lib_dir)
+            test_utils.clean_dir(lib_dir)
             #remove build
-            __clean_dir(obj_dir)
+            test_utils.clean_dir(obj_dir)
             #clean sources
-            __clean_dir(build_dir)
+            test_utils.clean_dir(build_dir)
             #clean dummy builder
             dist_build = os.path.join(self.store.script_dir, 'build')
             if os.path.exists(dist_build):
