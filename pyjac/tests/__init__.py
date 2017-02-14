@@ -198,10 +198,13 @@ class TestClass(unittest.TestCase):
             conp_vars, conp_eqs = load_equations(True)
             conv_vars, conv_eqs = load_equations(False)
             self.dirpath = os.path.dirname(os.path.realpath(__file__))
+            gasname = os.path.join(self.dirpath, 'test.cti')
+            if 'GAS' in os.environ:
+                gasname = os.environ['GAS']
             #load the gas
-            gas = ct.Solution(os.path.join(self.dirpath, 'test.cti'))
+            gas = ct.Solution(gasname)
             #the mechanism
-            elems, specs, reacs = read_mech_ct(os.path.join(self.dirpath, 'test.cti'))
+            elems, specs, reacs = read_mech_ct(gasname)
             self.store = storage(conp_vars, conp_eqs, conv_vars,
                 conv_eqs, gas, specs, reacs)
             self.is_setup = True
