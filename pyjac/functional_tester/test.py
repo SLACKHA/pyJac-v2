@@ -39,8 +39,9 @@ from .. import utils
 from ..core.create_jacobian import create_jacobian
 from ..pywrap.pywrap_gen import generate_wrapper
 
-from ..performance_tester import data_bin_writer as dbw
-from .. get_test_matrix import get_test_matrix
+from ..test.utils import data_bin_writer as dbw
+from ..test.utils.test_matrix import get_test_matrix
+from ..tests import utils as test_utils
 
 
 def check_file(filename, Ns, Nr):
@@ -111,8 +112,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
     script_dir = os.path.abspath(os.path.dirname(__file__))
     #load the module tester template
-    with open(os.path.join(script_dir, os.pardir, 'tests', 'test_import.py.in'), 'r') as file:
-        mod_test = Template(file.read())
+    mod_test = test_utils.get_import_source()
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
                                        key=lambda x:x[1]['ns']

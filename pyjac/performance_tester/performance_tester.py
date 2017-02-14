@@ -41,8 +41,8 @@ from ..libgen import (generate_library, libs, compiler, file_struct,
                       )
 from .. import site_conf as site
 
-from . import data_bin_writer as dbw
-from .. get_test_matrix import get_test_matrix
+from ..test.utils import data_bin_writer as dbw
+from ..test.utils.test_matrix import get_test_matrix
 
 STATIC = False
 """bool: CUDA only works for static libraries"""
