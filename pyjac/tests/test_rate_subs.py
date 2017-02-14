@@ -149,10 +149,10 @@ class SubTest(TestClass):
             plog_inds = []
             cheb_inds = []
             if result['plog']['num']:
-                plog_inds, _ = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+                plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
                         if isinstance(x, ct.PlogReaction)])
             if result['cheb']['num']:
-                cheb_inds, _ = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+                cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
                     if isinstance(x, ct.ChebyshevReaction)])
 
             def rate_checker(our_params, ct_params, rate_forms, force_act_nonlog=False):
@@ -248,15 +248,17 @@ class SubTest(TestClass):
         __tester(result, RateSpecialization.full)
 
         #ALL BELOW HERE ARE INDEPENDENT OF SPECIALIZATIONS
-        cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
-            if isinstance(x, ct.ChebyshevReaction)])
-        assert result['cheb']['num'] == len(cheb_inds)
-        assert np.allclose(result['cheb']['map'], np.array(cheb_inds))
+        if result['cheb']['num']:
+            cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+                if isinstance(x, ct.ChebyshevReaction)])
+            assert result['cheb']['num'] == len(cheb_inds)
+            assert np.allclose(result['cheb']['map'], np.array(cheb_inds))
 
-        plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
-            if isinstance(x, ct.PlogReaction)])
-        assert result['plog']['num'] == len(plog_inds)
-        assert np.allclose(result['plog']['map'], np.array(plog_inds))
+        if result['plog']['num']:
+            plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+                if isinstance(x, ct.PlogReaction)])
+            assert result['plog']['num'] == len(plog_inds)
+            assert np.allclose(result['plog']['map'], np.array(plog_inds))
 
         #test the thd / falloff / chem assignments
         assert np.allclose(result['fall']['map'],
@@ -469,7 +471,7 @@ class SubTest(TestClass):
         post = None if rtype != 'simple' else __simple_post
 
         #see if mechanism has this type
-        if not compare_mask:
+        if not compare_mask[0]:
             return
 
         #create the kernel call
@@ -579,6 +581,8 @@ class SubTest(TestClass):
 
         #get SRI reaction mask
         sri_mask = np.where(np.in1d(self.store.fall_inds, self.store.sri_inds))[0]
+        if not sri_mask:
+            return
         #create the kernel call
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
                                     compare_mask=[sri_mask], **args)
@@ -596,6 +600,8 @@ class SubTest(TestClass):
 
         #get Troe reaction mask
         troe_mask = np.where(np.in1d(self.store.fall_inds, self.store.troe_inds))[0]
+        if not troe_mask:
+            return
         #create the kernel call
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
                                     compare_mask=[troe_mask], **args)
@@ -606,6 +612,8 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_Lind.copy()
         #get lindeman reaction mask
         lind_mask = np.where(np.in1d(self.store.fall_inds, self.store.lind_inds))[0]
+        if not lind_mask:
+            return
         #create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
                                     compare_mask=[lind_mask])
