@@ -1671,7 +1671,7 @@ def get_thd_body_concs(eqs, loopy_opts, rate_info, test_size=None):
 
     #generate instructions
     instructions = Template("""
-<> offset = ${offset}
+<> offset = ${offset} {id=offset}
 <> num_temp = ${num_spec_str} {id=num0}
 if ${type_str} == 1 # single species
     <> thd_temp = ${conc_spec} {id=thd0, dep=num0}
@@ -1692,7 +1692,8 @@ ${thd_str} = thd_temp {dep=thd*}
             offset=thd_offset_str,
             type_str=thd_type_str,
             conc_spec=concs_str.safe_substitute(
-                    species_ind=thd_spec_str),
+                species_ind=Template(thd_spec_str).safe_substitute(
+                    reac_ind='offset')),
             num_spec_str=thd_num_spec_str,
             thd_eff=Template(thd_eff_str).safe_substitute(reac_ind='offset + k'),
             conc_thd_spec=concs_str.safe_substitute(
