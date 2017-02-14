@@ -100,22 +100,22 @@ class SubTest(TestClass):
                     spec_nu[spec_ind].append(nu)
                     spec_to_reac[spec_ind].append(ireac)
 
-        assert np.allclose(fwd_specs, result['fwd']['specs'])
-        assert np.allclose(fwd_nu, result['fwd']['nu'])
-        assert np.allclose(rev_specs, result['rev']['specs'])
-        assert np.allclose(rev_nu, result['rev']['nu'])
-        assert np.allclose(nu_sum, result['net']['nu_sum'])
-        assert np.allclose(net_nu, result['net']['nu'])
-        assert np.allclose(net_num_specs, result['net']['num_spec'])
-        assert np.allclose(net_specs, result['net']['specs'])
+        assert np.array_equal(fwd_specs, result['fwd']['specs'])
+        assert np.array_equal(fwd_nu, result['fwd']['nu'])
+        assert np.array_equal(rev_specs, result['rev']['specs'])
+        assert np.array_equal(rev_nu, result['rev']['nu'])
+        assert np.array_equal(nu_sum, result['net']['nu_sum'])
+        assert np.array_equal(net_nu, result['net']['nu'])
+        assert np.array_equal(net_num_specs, result['net']['num_spec'])
+        assert np.array_equal(net_specs, result['net']['specs'])
         spec_inds = sorted(reac_count.keys())
-        assert np.allclose([reac_count[x] for x in spec_inds],
+        assert np.array_equal([reac_count[x] for x in spec_inds],
                                 result['net_per_spec']['reac_count'])
-        assert np.allclose([y for x in spec_inds for y in spec_nu[x]],
+        assert np.array_equal([y for x in spec_inds for y in spec_nu[x]],
                                 result['net_per_spec']['nu'])
-        assert np.allclose([y for x in spec_inds for y in spec_to_reac[x]],
+        assert np.array_equal([y for x in spec_inds for y in spec_to_reac[x]],
                                 result['net_per_spec']['reacs'])
-        assert np.allclose(spec_inds,
+        assert np.array_equal(spec_inds,
                                 result['net_per_spec']['map'])
 
         def __get_rate(reac, fall=False):
@@ -177,18 +177,19 @@ class SubTest(TestClass):
                 assert np.all(np.isclose(act_energy_ratios, act_energy_ratios[0]))
 
             #check rate values
-            assert np.array_equal(result['plog']['num_P'], [len(p.rates) for p in plog_reacs])
-            for i, reac_params in enumerate(result['plog']['params']):
-                for j, rates in enumerate(plog_reacs[i].rates):
-                    assert np.isclose(reac_params[j][0], rates[0])
-                #plog uses a weird form, so use force_act_nonlog
-                rate_checker([rp[1:] for rp in reac_params], [rate[1] for rate in plog_reacs[i].rates],
-                    [2 for rate in plog_reacs[i].rates], force_act_nonlog=True)
+            if plog_inds:
+                assert np.array_equal(result['plog']['num_P'], [len(p.rates) for p in plog_reacs])
+                for i, reac_params in enumerate(result['plog']['params']):
+                    for j, rates in enumerate(plog_reacs[i].rates):
+                        assert np.isclose(reac_params[j][0], rates[0])
+                    #plog uses a weird form, so use force_act_nonlog
+                    rate_checker([rp[1:] for rp in reac_params], [rate[1] for rate in plog_reacs[i].rates],
+                        [2 for rate in plog_reacs[i].rates], force_act_nonlog=True)
 
             simple_inds = sorted(list(set(range(gas.n_reactions)).difference(
                 set(plog_inds).union(set(cheb_inds)))))
             assert result['simple']['num'] == len(simple_inds)
-            assert np.allclose(result['simple']['map'], np.array(simple_inds))
+            assert np.array_equal(result['simple']['map'], np.array(simple_inds))
             #test the simple reaction rates
             simple_reacs = [gas.reaction(i) for i in simple_inds]
             rate_checker([(result['simple']['A'][i], result['simple']['b'][i],
@@ -232,18 +233,18 @@ class SubTest(TestClass):
             return rtypes
 
         #test rate type
-        assert np.allclose(result['simple']['type'],
+        assert np.array_equal(result['simple']['type'],
             test_assign(2, False))
-        assert np.allclose(result['fall']['type'],
+        assert np.array_equal(result['fall']['type'],
             test_assign(2, True))
         __tester(result, RateSpecialization.hybrid)
 
         result = assign_rates(reacs, specs, RateSpecialization.full)
 
         #test rate type
-        assert np.allclose(result['simple']['type'],
+        assert np.array_equal(result['simple']['type'],
             test_assign(5, False))
-        assert np.allclose(result['fall']['type'],
+        assert np.array_equal(result['fall']['type'],
             test_assign(5, True))
         __tester(result, RateSpecialization.full)
 
@@ -252,21 +253,21 @@ class SubTest(TestClass):
             cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
                 if isinstance(x, ct.ChebyshevReaction)])
             assert result['cheb']['num'] == len(cheb_inds)
-            assert np.allclose(result['cheb']['map'], np.array(cheb_inds))
+            assert np.array_equal(result['cheb']['map'], np.array(cheb_inds))
 
         if result['plog']['num']:
             plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
                 if isinstance(x, ct.PlogReaction)])
             assert result['plog']['num'] == len(plog_inds)
-            assert np.allclose(result['plog']['map'], np.array(plog_inds))
+            assert np.array_equal(result['plog']['map'], np.array(plog_inds))
 
         #test the thd / falloff / chem assignments
-        assert np.allclose(result['fall']['map'],
+        assert np.array_equal(result['fall']['map'],
             [i for i, x in enumerate(gas.reactions()) if (isinstance(x,
                 ct.FalloffReaction) or isinstance(x, ct.ChemicallyActivatedReaction))])
         fall_reacs = [gas.reaction(y) for y in result['fall']['map']]
         #test fall vs chemically activated
-        assert np.allclose(result['fall']['ftype'],
+        assert np.array_equal(result['fall']['ftype'],
             np.array([reaction_type.fall if (isinstance(x, ct.FalloffReaction) and not
                 isinstance(x, ct.ChemicallyActivatedReaction)) else reaction_type.chem for x in
                 fall_reacs], dtype=np.int32) - int(reaction_type.fall))
@@ -279,38 +280,45 @@ class SubTest(TestClass):
                 blend_types.append(falloff_form.sri)
             else:
                 blend_types.append(falloff_form.lind)
-        assert np.allclose(result['fall']['blend'], np.array(blend_types, dtype=np.int32))
+        assert np.array_equal(result['fall']['blend'], np.array(blend_types, dtype=np.int32))
         #test parameters
         #troe
-        troe_reacs = [x for x in fall_reacs if isinstance(x.falloff, ct.TroeFalloff)]
-        troe_par = [x.falloff.parameters for x in troe_reacs]
-        troe_a, troe_T3, troe_T1, troe_T2 = [np.array(x) for x in zip(*troe_par)]
-        assert np.allclose(result['fall']['troe']['a'], troe_a)
-        assert np.allclose(result['fall']['troe']['T3'], troe_T3)
-        assert np.allclose(result['fall']['troe']['T1'], troe_T1)
-        assert np.allclose(result['fall']['troe']['T2'], troe_T2)
-        #and map
-        assert np.allclose([fall_reacs.index(x) for x in troe_reacs],
-            result['fall']['troe']['map'])
+        if result['fall']['troe']['num']:
+            troe_reacs = [x for x in fall_reacs if isinstance(x.falloff, ct.TroeFalloff)]
+            troe_par = [x.falloff.parameters for x in troe_reacs]
+            troe_a, troe_T3, troe_T1, troe_T2 = [np.array(x) for x in zip(*troe_par)]
+            assert np.array_equal(result['fall']['troe']['a'], troe_a)
+            assert np.array_equal(result['fall']['troe']['T3'], troe_T3)
+            assert np.array_equal(result['fall']['troe']['T1'], troe_T1)
+            assert np.array_equal(result['fall']['troe']['T2'], troe_T2)
+            #and map
+            assert np.array_equal([fall_reacs.index(x) for x in troe_reacs],
+                result['fall']['troe']['map'])
         #sri
-        sri_reacs = [x for x in fall_reacs if isinstance(x.falloff, ct.SriFalloff)]
-        sri_par = [x.falloff.parameters for x in sri_reacs]
-        sri_a, sri_b, sri_c, sri_d, sri_e = [np.array(x) for x in zip(*sri_par)]
-        assert np.allclose(result['fall']['sri']['a'], sri_a)
-        assert np.allclose(result['fall']['sri']['b'], sri_b)
-        assert np.allclose(result['fall']['sri']['c'], sri_c)
-        assert np.allclose(result['fall']['sri']['d'], sri_d)
-        assert np.allclose(result['fall']['sri']['e'], sri_e)
-        #and map
-        assert np.allclose([fall_reacs.index(x) for x in sri_reacs],
-            result['fall']['sri']['map'])
+        if result['fall']['sri']['num']:
+            sri_reacs = [x for x in fall_reacs if isinstance(x.falloff, ct.SriFalloff)]
+            sri_par = [x.falloff.parameters for x in sri_reacs]
+            sri_a, sri_b, sri_c, sri_d, sri_e = [np.array(x) for x in zip(*sri_par)]
+            assert np.array_equal(result['fall']['sri']['a'], sri_a)
+            assert np.array_equal(result['fall']['sri']['b'], sri_b)
+            assert np.array_equal(result['fall']['sri']['c'], sri_c)
+            assert np.array_equal(result['fall']['sri']['d'], sri_d)
+            assert np.array_equal(result['fall']['sri']['e'], sri_e)
+            #and map
+            assert np.array_equal([fall_reacs.index(x) for x in sri_reacs],
+                result['fall']['sri']['map'])
+        #lindemann
+        if result['fall']['lind']['num']:
+            assert np.array_equal(result['fall']['lind']['map'],
+                [i for i, x in enumerate(fall_reacs) if not isinstance(x.falloff, ct.TroeFalloff)
+                    and not isinstance(x.falloff, ct.SriFalloff)])
 
         #and finally test the third body stuff
         #test map
         third_reac_inds = [i for i, x in enumerate(gas.reactions()) if (isinstance(x,
                 ct.FalloffReaction) or isinstance(x, ct.ChemicallyActivatedReaction)
                 or isinstance(x, ct.ThreeBodyReaction))]
-        assert np.allclose(result['thd']['map'], third_reac_inds)
+        assert np.array_equal(result['thd']['map'], third_reac_inds)
         #construct types, efficiencies, species, and species numbers
         thd_type = []
         thd_eff = []
@@ -331,10 +339,10 @@ class SubTest(TestClass):
                 thd_sp.append(gas.species_index(spec))
                 thd_eff.append(eff_dict[spec])
         #and test
-        assert np.allclose(result['thd']['type'], np.array(thd_type, dtype=np.int32))
-        assert np.allclose(result['thd']['eff'], thd_eff)
-        assert np.allclose(result['thd']['spec_num'], thd_sp_num)
-        assert np.allclose(result['thd']['spec'], thd_sp)
+        assert np.array_equal(result['thd']['type'], np.array(thd_type, dtype=np.int32))
+        assert np.array_equal(result['thd']['eff'], thd_eff)
+        assert np.array_equal(result['thd']['spec_num'], thd_sp_num)
+        assert np.array_equal(result['thd']['spec'], thd_sp)
 
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
