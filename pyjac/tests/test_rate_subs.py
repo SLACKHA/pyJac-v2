@@ -479,7 +479,7 @@ class SubTest(TestClass):
         post = None if rtype != 'simple' else __simple_post
 
         #see if mechanism has this type
-        if not compare_mask[0]:
+        if not compare_mask[0].size:
             return
 
         #create the kernel call
@@ -589,7 +589,7 @@ class SubTest(TestClass):
 
         #get SRI reaction mask
         sri_mask = np.where(np.in1d(self.store.fall_inds, self.store.sri_inds))[0]
-        if not sri_mask:
+        if not sri_mask.size:
             return
         #create the kernel call
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
@@ -608,7 +608,7 @@ class SubTest(TestClass):
 
         #get Troe reaction mask
         troe_mask = np.where(np.in1d(self.store.fall_inds, self.store.troe_inds))[0]
-        if not troe_mask:
+        if not troe_mask.size:
             return
         #create the kernel call
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
@@ -620,7 +620,7 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_Lind.copy()
         #get lindeman reaction mask
         lind_mask = np.where(np.in1d(self.store.fall_inds, self.store.lind_inds))[0]
-        if not lind_mask:
+        if not lind_mask.size:
             return
         #create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
