@@ -22,6 +22,7 @@ from ..kernel_utils import kernel_gen as k_gen
 from ..core.mech_auxiliary import write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
 from .. import site_conf as site
+from ..tests import utils as test_utils
 
 #modules
 from optionloop import OptionLoop
@@ -846,8 +847,7 @@ class SubTest(TestClass):
         exceptions = ['conp']
 
         #load the module tester template
-        with open(os.path.join(self.store.script_dir, 'test_import.py.in'), 'r') as file:
-            mod_test = Template(file.read())
+        mod_test = test_utils.get_import_source()
 
         #now start test
         for i, state in enumerate(oploop):
