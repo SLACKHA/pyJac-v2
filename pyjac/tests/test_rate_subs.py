@@ -146,10 +146,14 @@ class SubTest(TestClass):
             assert 'simple' in result and 'cheb' in result and 'plog' in result
 
             #test num, map
-            plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
-                    if isinstance(x, ct.PlogReaction)])
-            cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
-            if isinstance(x, ct.ChebyshevReaction)])
+            plog_inds = []
+            cheb_inds = []
+            if result['plog']['num']:
+                plog_inds, _ = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+                        if isinstance(x, ct.PlogReaction)])
+            if result['cheb']['num']:
+                cheb_inds, _ = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+                    if isinstance(x, ct.ChebyshevReaction)])
 
             def rate_checker(our_params, ct_params, rate_forms, force_act_nonlog=False):
                 act_energy_ratios = []
@@ -455,6 +459,10 @@ class SubTest(TestClass):
             args['P_arr'] =  P
 
         compare_mask, rate_func = masks[rtype]
+
+        #see if mechanism has this type
+        if not compare_mask:
+            return
 
         #create the kernel call
         kc = kernel_call(rtype,
