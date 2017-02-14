@@ -423,17 +423,16 @@ class kernel_call(object):
 
         allclear = True
         for i in range(len(output_variables)):
+            outv = output_variables[i].copy().squeeze()
+            ref_answer = self.transformed_ref_ans[i].copy().squeeze()
             if self.compare_mask[i] is not None:
                 outv = np.take(output_variables[i],
                         self.compare_mask[i], self.compare_axis).squeeze()
-                if outv.shape != self.transformed_ref_ans[i].squeeze().shape:
+                if outv.shape != ref_answer.shape:
                     #apply the same transformation to the answer
-                    allclear = allclear and np.allclose(outv,
-                        np.take(self.transformed_ref_ans[i],
-                                self.compare_mask[i], self.compare_axis))
-            else:
-                allclear = allclear and np.allclose(output_variables[i],
-                                self.transformed_ref_ans[i])
+                    ref_answer = np.take(ref_answer,
+                                self.compare_mask[i], self.compare_axis).squeeze()
+            allclear = allclear and np.allclose(outv, ref_answer)
         if not allclear:
             import pdb; pdb.set_trace()
         return allclear
