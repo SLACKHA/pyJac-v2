@@ -40,7 +40,7 @@ from ..core.create_jacobian import create_jacobian
 from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.utils import data_bin_writer as dbw
-from ..tests.utils.test_matrix import get_test_matrix
+from ..tests.utils import test_matrix as tm
 from ..tests import utils as test_utils
 
 
@@ -99,7 +99,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
     test_dir = 'test'
 
     work_dir = os.path.abspath(work_dir)
-    mechanism_list, ocl_params, max_vec_width = get_test_matrix(work_dir)
+    mechanism_list, ocl_params, max_vec_width = tm.get_test_matrix(work_dir)
 
     if len(mechanism_list) == 0:
         print('No mechanisms found for performance testing in '
