@@ -295,6 +295,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             #eval if not done already
             if not evaled:
                 np.vectorize(eval_state, cache=True)(np.arange(num_conditions))
+                evaled = True
 
             if order != current_data_order:
                 #rewrite data to file in 'C' order
