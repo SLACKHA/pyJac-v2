@@ -73,7 +73,6 @@ class SubTest(TestClass):
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
-        import pdb; pdb.set_trace()
         setup = test_utils.get_read_ics_source()
         utils.create_dir(build_dir)
         utils.create_dir(obj_dir)
@@ -138,4 +137,4 @@ class SubTest(TestClass):
 
             #and run
             os.chdir(lib_dir)
-            subprocess.check_call([python_str, 'ric_tester.py', order])
+            subprocess.check_call([python_str, 'ric_tester.py', order, str(self.store.test_size)])
