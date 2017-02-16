@@ -252,7 +252,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
             #create find precisions
             fwd = decimalize_fn(gas.forward_rates_of_progress)
-            rev[:] = decimalize_fn(gas.forward_rates_of_progress)(gas.reverse_rates_of_progress)
+            rev[:] = decimalize_fn(gas.reverse_rates_of_progress)
             #divide fwd / rev and place in ratio
             np.divide(fwd, rev, ratio)
             #subtract d1 - ratio and place in ratio
