@@ -259,8 +259,8 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             np.subtract(d1, ratio, ratio)
             #finally, put |ratio| into mid
             np.absolute(ratio, mid)
-            precision_loss_min[i, :] = np.vectorize(__get_prec_min, cache=True)(mid)
-            precision_loss_max[i, :] = np.vectorize(__get_prec_max, cache=True)(mid)
+            precision_loss_min[i, :] = prec_min_fn(mid)
+            precision_loss_max[i, :] = prec_max_fn(mid)
 
             conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
             conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
