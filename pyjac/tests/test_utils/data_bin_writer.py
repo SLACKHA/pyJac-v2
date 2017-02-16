@@ -37,6 +37,7 @@ def write(directory, cut=None):
         if cut is not None:
             data = data[cut:, :]
         data.tofile(file)
+        del data
     return num_conditions
 
 if __name__ == '__main__':

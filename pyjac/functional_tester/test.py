@@ -13,6 +13,7 @@ import re
 from argparse import ArgumentParser
 import multiprocessing
 import shutil
+import gc
 from collections import defaultdict, OrderedDict
 
 from string import Template
@@ -162,6 +163,12 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         cp = np.zeros((gas.n_species))
         cv = np.zeros((gas.n_species))
 
+        #decimal arrays
+        fwd = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
+        rev = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
+        ratio = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
+        mid = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
+
         #get mappings
         fwd_map = np.array(range(gas.n_reactions))
         rev_map = np.array([x for x in range(gas.n_reactions) if gas.is_reversible(x)])
@@ -194,6 +201,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         #predefines
         ln2 = Decimal('2').ln()
         d2 = Decimal('2')
+        d1 = Decimal('1')
         specs = gas.species()[:]
         ns_range = np.array(range(gas.n_species), dtype=np.int32)
 
@@ -203,19 +211,29 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
         def __eval_cp(j, T):
             return specs[j].thermo.cp(T)
+        cp_fn = np.vectorize(__eval_cp, cache=True)
         def __eval_h(j, T):
             return specs[j].thermo.h(T)
+        h_fn = np.vectorize(__eval_h, cache=True)
         def __get_prec_max(x):
             x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_FLOOR)
-            return c.power(d2, -x)
+            r = c.power(d2, -x)
+            del x
+            return r
+        prec_max_fn = np.vectorize(__get_prec_max, cache=True)
         def __get_prec_min(x):
             x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_CEILING)
-            return c.power(d2, -x)
+            r = c.power(d2, -x)
+            del x
+            return r
+        prec_min_fn = np.vectorize(__get_prec_min, cache=True)
+        decimalize_fn = np.vectorize(Decimal.from_float, cache=True)
 
         evaled = False
         def eval_state(i):
             if not i % 10000:
                 print(i)
+                gc.collect()
             #it's actually more accurate to set the density (total concentration)
             #due to the cantera internals
             gas.TDX = T[i], P[i] / (ct.gas_constant * T[i]), data[i, 2:]
@@ -227,22 +245,22 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
             rop_rev_test[i, :] = gas.reverse_rates_of_progress[:][rev_map]
             rop_net_test[i, :] = gas.net_rates_of_progress[:]
-            cp[:] = np.vectorize(__eval_cp, cache=True)(ns_range, T[i])
-            h[:] = np.vectorize(__eval_h, cache=True)(ns_range, T[i])
+            cp[:] = cp_fn(ns_range, T[i])
+            h[:] = h_fn(ns_range, T[i])
             cv[:] = cp - ct.gas_constant
             u[:] = h - T[i] * ct.gas_constant
 
             #create find precisions
-            fwd = np.array([Decimal.from_float(j) for j in gas.forward_rates_of_progress],
-                dtype=np.dtype(Decimal))
-            rev = np.array([Decimal.from_float(j) for j in gas.reverse_rates_of_progress],
-                dtype=np.dtype(Decimal))
-            ratio = fwd / rev
-            mid = np.abs(Decimal('1') - ratio)
+            fwd = decimalize_fn(gas.forward_rates_of_progress)
+            rev[:] = decimalize_fn(gas.forward_rates_of_progress)(gas.reverse_rates_of_progress)
+            #divide fwd / rev and place in ratio
+            np.divide(fwd, rev, ratio)
+            #subtract d1 - ratio and place in ratio
+            np.subtract(d1, ratio, ratio)
+            #finally, put |ratio| into mid
+            np.absolute(ratio, mid)
             precision_loss_min[i, :] = np.vectorize(__get_prec_min, cache=True)(mid)
             precision_loss_max[i, :] = np.vectorize(__get_prec_max, cache=True)(mid)
-            del fwd
-            del rev
 
             conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
             conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
