@@ -40,8 +40,8 @@ from .. import utils
 from ..core.create_jacobian import create_jacobian
 from ..pywrap.pywrap_gen import generate_wrapper
 
-from ..tests.utils import data_bin_writer as dbw
-from ..tests.utils import get_test_matrix as tm
+from ..tests.test_utils import data_bin_writer as dbw
+from ..tests.test_utils import get_test_matrix as tm
 from ..tests import test_utils
 
 
