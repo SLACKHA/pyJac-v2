@@ -17,7 +17,6 @@ import gc
 from collections import defaultdict, OrderedDict
 
 from string import Template
-from decimal import *
 
 # Related modules
 import numpy as np
@@ -152,6 +151,9 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         T = data[:, 0].flatten()
         P = data[:, 1].flatten()
 
+        #resize data
+        data = data[:num_conditions, 2:]
+
         #figure out the number of conditions to test
         num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
 
@@ -162,12 +164,6 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         u = np.zeros((gas.n_species))
         cp = np.zeros((gas.n_species))
         cv = np.zeros((gas.n_species))
-
-        #decimal arrays
-        fwd = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
-        rev = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
-        ratio = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
-        mid = np.empty(gas.n_reactions, dtype=np.dtype(Decimal))
 
         #get mappings
         fwd_map = np.array(range(gas.n_reactions))
@@ -192,18 +188,10 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         #hence we create it as a placeholder for the testing script
         pres_mod_test = np.zeros((num_conditions, thd_map.size))
 
-        #set decimal context
-        c = getcontext()
-        c.traps[InvalidOperation] = 0
-        c.traps[DivisionByZero] = 0
-        setcontext(c)
-
         #predefines
-        ln2 = Decimal('2').ln()
-        d2 = Decimal('2')
-        d1 = Decimal('1')
         specs = gas.species()[:]
-        ns_range = np.array(range(gas.n_species), dtype=np.int32)
+        d1 = np.longdouble(1)
+        d2 = np.longdouble(2)
 
         #precision loss measurement
         precision_loss_min = np.zeros((num_conditions, gas.n_reactions))
@@ -211,59 +199,58 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
         def __eval_cp(j, T):
             return specs[j].thermo.cp(T)
-        cp_fn = np.vectorize(__eval_cp, cache=True)
         def __eval_h(j, T):
             return specs[j].thermo.h(T)
-        h_fn = np.vectorize(__eval_h, cache=True)
-        def __get_prec_max(x):
-            x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_FLOOR)
-            r = c.power(d2, -x)
-            del x
-            return r
-        prec_max_fn = np.vectorize(__get_prec_max, cache=True)
-        def __get_prec_min(x):
-            x = (-x.ln() / ln2).to_integral_value(rounding=ROUND_CEILING)
-            r = c.power(d2, -x)
-            del x
-            return r
-        prec_min_fn = np.vectorize(__get_prec_min, cache=True)
-        decimalize_fn = np.vectorize(Decimal.from_float, cache=True)
+        def __get_prec_max(x, out):
+            np.power(d2, np.floor(-np.log2(x, out=out), out=out), out=out)
+        def __get_prec_min(x, out):
+            np.power(d2, np.ceil(-np.log2(x, out=out), out=out), out=out)
 
         evaled = False
-        def eval_state(i):
-            if not i % 10000:
-                print(i)
-                gc.collect()
-            #it's actually more accurate to set the density (total concentration)
-            #due to the cantera internals
-            gas.TDX = T[i], P[i] / (ct.gas_constant * T[i]), data[i, 2:]
-            #now, since cantera normalizes these concentrations
-            #let's read them back
-            data[i, 2:] = gas.concentrations[:]
-            #get species rates
-            spec_rates[i, :] = gas.net_production_rates[:]
-            rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
-            rop_rev_test[i, :] = gas.reverse_rates_of_progress[:][rev_map]
-            rop_net_test[i, :] = gas.net_rates_of_progress[:]
-            cp[:] = cp_fn(ns_range, T[i])
-            h[:] = h_fn(ns_range, T[i])
-            cv[:] = cp - ct.gas_constant
-            u[:] = h - T[i] * ct.gas_constant
+        def eval_state():
+            with np.errstate(divide='ignore', invalid='ignore'):
+                def __get_prec():
+                    #create find precisions
+                    fwd = np.array(gas.forward_rates_of_progress[:], dtype=np.longdouble)
+                    rev = np.array(gas.reverse_rates_of_progress[:], dtype=np.longdouble)
+                    #divide fwd / rev and place in ratio
+                    ratio = np.divide(fwd, rev)
+                    #subtract d1 - ratio and place in ratio
+                    np.subtract(d1, ratio, out=ratio)
+                    #finally, put |ratio| into mid
+                    np.absolute(ratio, out=ratio)
 
-            #create find precisions
-            fwd[:] = decimalize_fn(gas.forward_rates_of_progress)
-            rev[:] = decimalize_fn(gas.reverse_rates_of_progress)
-            #divide fwd / rev and place in ratio
-            np.divide(fwd, rev, ratio)
-            #subtract d1 - ratio and place in ratio
-            np.subtract(d1, ratio, ratio)
-            #finally, put |ratio| into mid
-            np.absolute(ratio, mid)
-            precision_loss_min[i, :] = prec_min_fn(mid)
-            precision_loss_max[i, :] = prec_max_fn(mid)
+                    #get min
+                    __get_prec_min(ratio, precision_loss_min[i, :])
+                    __get_prec_max(ratio, precision_loss_max[i, :])
+                    del fwd
+                    del rev
+                    del ratio
 
-            conp_temperature_rates[i, :] = -np.dot(h[:], spec_rates[i, :]) / np.dot(cp[:], data[i, 2:])
-            conv_temperature_rates[i, :] = -np.dot(u[:], spec_rates[i, :]) / np.dot(cv[:], data[i, 2:])
+                for i in range(num_conditions):
+                    if not i % 100:
+                        print(i)
+                    #it's actually more accurate to set the density (total concentration)
+                    #due to the cantera internals
+                    gas.TDX = T[i], P[i] / (ct.gas_constant * T[i]), data[i, :]
+                    #now, since cantera normalizes these concentrations
+                    #let's read them back
+                    data[i, :] = gas.concentrations[:]
+                    #get species rates
+                    spec_rates[i, :] = gas.net_production_rates[:]
+                    rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
+                    rop_rev_test[i, :] = gas.reverse_rates_of_progress[:][rev_map]
+                    rop_net_test[i, :] = gas.net_rates_of_progress[:]
+                    for j in range(gas.n_species):
+                        cp[j] = __eval_cp(j, T[i])
+                        h[j] = __eval_h(j, T[i])
+                        cv[j] = cp[j] - ct.gas_constant
+                        u[j] = h[j] - T[i] * ct.gas_constant
+
+                    __get_prec()
+
+                    np.divide(-np.dot(h[:], spec_rates[i, :]), np.dot(cp[:], data[i, :]), out=conp_temperature_rates[i, :])
+                    np.divide(-np.dot(u[:], spec_rates[i, :]), np.dot(cv[:], data[i, :]), out=conv_temperature_rates[i, :])
 
         current_data_order = None
 
@@ -305,8 +292,10 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
             #eval if not done already
             if not evaled:
-                np.vectorize(eval_state, cache=True)(np.arange(num_conditions))
+                eval_state()
                 evaled = True
+            #force garbage collection
+            gc.collect()
 
             if order != current_data_order:
                 #rewrite data to file in 'C' order
@@ -320,32 +309,25 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     namelist.append(myname)
 
             #get arrays
-            concs = (data[:num_conditions, 2:].copy() if order == 'C' else
-                        data[:num_conditions, 2:].T.copy()).flatten('K')
+            concs = data.flatten(order=order)
 
             args = []
-            __saver(T, 'T', args)
-            __saver(P, 'P', args)
+            __saver(T[:num_conditions], 'T', args)
+            __saver(P[:num_conditions], 'P', args)
             __saver(concs, 'conc', args)
+            del concs
 
             #put save outputs
-            out_arrays = []
             output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
-            comp_arrays = []
-            species_rates = np.concatenate((conp_temperature_rates.copy() if conp else conv_temperature_rates.copy(),
-                    spec_rates.copy()), axis=1)
-            ropf = rop_fwd_test.copy()
-            ropr = rop_rev_test.copy()
-            ropp = pres_mod_test.copy()
-            ropnet = rop_net_test.copy()
-            out_arrays = [species_rates, ropf, ropr, ropp, ropnet]
-            comp_arrays = [x.copy() for x in out_arrays]
+            species_rates = np.concatenate((conp_temperature_rates if conp else conv_temperature_rates,
+                    spec_rates), axis=1)
+            out_arrays = [species_rates, rop_fwd_test, rop_rev_test, pres_mod_test, rop_net_test]
             for i in range(len(out_arrays)):
-                if order == 'F':
-                    out_arrays[i] = out_arrays[i].T.copy()
+                out = out_arrays[i]
                 #and flatten in correct order
-                out_arrays[i] = out_arrays[i].flatten(order='K')
-                __saver(out_arrays[i], output_names[i])
+                out = out.flatten(order=order)
+                __saver(out, output_names[i])
+                del out
 
             outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
                 for name in output_names]
@@ -396,7 +378,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 os.path.join(my_test, 'test.py')])
 
             def __get_test(name):
-                return comp_arrays[output_names.index(name)]
+                return out_arrays[output_names.index(name)]
 
             out_check = outf[:]
             #load output arrays
@@ -442,6 +424,9 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
                 #and print total max to screen
                 print(name, np.linalg.norm(err_inf, np.inf))
+
+            for x in out_check:
+                del x
 
             #cleanup
             for x in args + outf:
