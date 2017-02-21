@@ -2426,10 +2426,10 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
         ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
     end
     ${Fcent_str} = ${Fcent_temp} {dep=Fcent_decl*}
-    <>Fcent_val = 1e-300 {id=Fcent_decl2}
+    <>Fcent_val = 1e-300 {id=Fcent_decl3}
     <>Pr_val = 1e-300 {id=Pr_decl}
     if ${Fcent_temp} > Fcent_val
-        Fcent_val = ${Fcent_temp} {id=Fcent_decl3, dep=Fcent_decl2}
+        Fcent_val = ${Fcent_temp} {id=Fcent_decl4, dep=Fcent_decl*}
     end
     if ${Pr_str} > Pr_val
         Pr_val = ${Pr_str} {id=Pr_decl2, dep=Pr_decl}
