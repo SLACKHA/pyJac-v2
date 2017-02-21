@@ -2425,19 +2425,19 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
     if ${troe_T2_str} != 0
         ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
     end
-    ${Fcent_str} = ${Fcent_temp} {dep=Fcent_decl*}
-    <>Fcent_val = 1e-300 {id=Fcent_decl3}
-    <>Pr_val = 1e-300 {id=Pr_decl}
-    if ${Fcent_temp} > Fcent_val
-        Fcent_val = ${Fcent_temp} {id=Fcent_decl4, dep=Fcent_decl*}
+    ${Fcent_str} = ${Fcent_temp} {id=Fcent_decl3, dep=Fcent_decl2}
+    <> Fcent_val = 1e-300 {id=Fcv}
+    if ${Fcent_temp} > 1e-300
+        Fcent_val = ${Fcent_temp} {id=Fcv2, dep=Fcent_decl*:Fcv}
     end
-    if ${Pr_str} > Pr_val
-        Pr_val = ${Pr_str} {id=Pr_decl2, dep=Pr_decl}
+    <>Pr_val = 1e-300 {id=Prv}
+    if ${Pr_str} > 1e-300
+        Pr_val = ${Pr_str} {id=Prv2, dep=Pr_decl:Prv}
     end
-    <>logFcent = log10(Fcent_val) {dep=Fcent_decl*:pr_decl*}
-    <>logPr = log10(Pr_val) {id=Pr_decl_log}
-    <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*:Pr_decl*}
-    <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*:Pr_decl*}
+    <>logFcent = log10(Fcent_val) {dep=Fcv2}
+    <>logPr = log10(Pr_val) {dep=Prv2}
+    <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*:Pr_decl}
+    <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*:Pr_decl}
     ${Atroe_str} = Atroe_temp #this must be a temporary to avoid a race on future assignments
     ${Btroe_str} = Btroe_temp #this must be a temporary to avoid a race on future assignments
     <>Atroe_squared = Atroe_temp * Atroe_temp
@@ -2585,11 +2585,11 @@ def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
     #create instruction set
     sri_instructions = Template(Template("""
 <>T = T_arr[j]
-<>Pr_val = 1e-300
-if ${pr_str} > Pr_val
-    Pr_val = ${pr_str}
+<>Pr_val = 1e-300 {id=Pri}
+if ${pr_str} > 1e-300
+    Pr_val = ${pr_str} {id=Prv, dep=Pri}
 end
-<>logPr = log10(Pr_val)
+<>logPr = log10(Pr_val) {dep=Prv}
 <>X_temp = ${Xeq} {id=X_decl} #this must be a temporary to avoid a race on Fi_temp assignment
 <>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
 if ${d_str} != 1.0
