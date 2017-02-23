@@ -202,9 +202,9 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
         def __eval_h(j, T):
             return specs[j].thermo.h(T)
         def __get_prec_max(x, out):
-            np.power(d2, np.floor(-np.log2(x, out=out), out=out), out=out)
+            np.power(d2, -np.floor(-np.log2(x, out=out), out=out), out=out)
         def __get_prec_min(x, out):
-            np.power(d2, np.ceil(-np.log2(x, out=out), out=out), out=out)
+            np.power(d2, -np.ceil(-np.log2(x, out=out), out=out), out=out)
 
         evaled = False
         def eval_state():
