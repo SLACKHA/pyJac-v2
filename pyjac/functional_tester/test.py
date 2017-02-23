@@ -65,6 +65,7 @@ def check_file(filename, Ns, Nr):
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
+        complete = True
         for i, line in enumerate(lines):
             test = line[line.index(':') + 1:]
             filtered = [y.strip() for y in test.split(',') if y.strip()]
