@@ -147,6 +147,11 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
         #first load data to get species rates, jacobian etc.
         num_conditions, data = dbw.load([], directory=os.path.join(work_dir, mech_name))
+        #figure out the number of conditions to test
+        num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
+        #find the number of conditions per run (needed to avoid memory issues with i-pentanol model)
+        max_per_run = 100000
+        cond_per_run = int(np.floor(max_per_run / max_vec_width) * max_vec_width)
 
         #set T, P arrays
         T = data[:, 0].flatten()
@@ -154,9 +159,6 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
 
         #resize data
         data = data[:num_conditions, 2:]
-
-        #figure out the number of conditions to test
-        num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
 
         spec_rates = np.zeros((num_conditions, gas.n_species))
         conp_temperature_rates = np.zeros((num_conditions, 1))
@@ -229,7 +231,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     del ratio
 
                 for i in range(num_conditions):
-                    if not i % 100:
+                    if not i % 10000:
                         print(i)
                     #it's actually more accurate to set the density (total concentration)
                     #due to the cantera internals
@@ -309,41 +311,6 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 if namelist is not None:
                     namelist.append(myname)
 
-            #get arrays
-            concs = data.flatten(order=order)
-
-            args = []
-            __saver(T[:num_conditions], 'T', args)
-            __saver(P[:num_conditions], 'P', args)
-            __saver(concs, 'conc', args)
-            del concs
-
-            #put save outputs
-            output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
-            species_rates = np.concatenate((conp_temperature_rates if conp else conv_temperature_rates,
-                    spec_rates), axis=1)
-            out_arrays = [species_rates, rop_fwd_test, rop_rev_test, pres_mod_test, rop_net_test]
-            for i in range(len(out_arrays)):
-                out = out_arrays[i]
-                #and flatten in correct order
-                out = out.flatten(order=order)
-                __saver(out, output_names[i])
-                del out
-
-            outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
-                for name in output_names]
-            test_f = [os.path.join(my_test, '{}.npy'.format(name))
-                for name in output_names]
-            #write the module tester
-            with open(os.path.join(my_test, 'test.py'), 'w') as file:
-                file.write(mod_test.safe_substitute(
-                    package='pyjac_ocl',
-                    input_args=', '.join('"{}"'.format(x) for x in args),
-                    test_arrays=', '.join('"{}"'.format(x) for x in test_f),
-                    non_array_args='{}, 12'.format(num_conditions),
-                    call_name='species_rates',
-                    output_files=', '.join('\'{}\''.format(x) for x in outf)))
-
             try:
                 create_jacobian(lang,
                     mech_name=mech_info['mech'],
@@ -373,66 +340,114 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                          out_dir=my_test, platform=str(platform),
                          output_full_rop=True)
 
-            #call
-            subprocess.check_call([
-                'python{}.{}'.format(sys.version_info[0], sys.version_info[1]),
-                os.path.join(my_test, 'test.py')])
+            #now generate the per run data
+            import pdb; pdb.set_trace()
+            offset = 0
+            #store the error dict
+            err_dict = {}
+            while offset < num_conditions:
+                #get arrays
+                concs = data[offset:offset + cond_per_run, :].flatten(order=order)
 
-            def __get_test(name):
-                return out_arrays[output_names.index(name)]
+                args = []
+                __saver(T[offset:offset + cond_per_run], 'T', args)
+                __saver(P[offset:offset + cond_per_run], 'P', args)
+                __saver(concs, 'conc', args)
+                del concs
 
-            out_check = outf[:]
-            #load output arrays
-            for i in range(len(outf)):
-                out_check[i] = np.load(outf[i])
-                assert not np.any(np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i])))
-                #and reshape
-                out_check[i] = np.reshape(out_check[i], (num_conditions, -1),
-                    order=order)
+                #put save outputs
+                output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+                species_rates = np.concatenate((conp_temperature_rates if conp else conv_temperature_rates,
+                        spec_rates), axis=1)
+                out_arrays = [species_rates, rop_fwd_test, rop_rev_test, pres_mod_test, rop_net_test]
+                for i in range(len(out_arrays)):
+                    out = out_arrays[i]
+                    #and flatten in correct order
+                    out = out.flatten(order=order)
+                    __saver(out, output_names[i])
+                    del out
 
-            #multiply pressure rates
-            pmod_ind = next(i for i, x in enumerate(output_names) if x == 'pres_mod')
-            #fwd
-            out_check[1][:, thd_map] *= out_check[pmod_ind]
-            #rev
-            out_check[2][:, rev_to_thd_map] *= out_check[pmod_ind][:, thd_to_rev_map]
+                outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
+                    for name in output_names]
+                test_f = [os.path.join(my_test, '{}.npy'.format(name))
+                    for name in output_names]
 
-            #load output
-            for name, out in zip(*(output_names, out_check)):
-                if name == 'pres_mod':
-                    continue
-                check_arr = __get_test(name)
-                #get err
-                err_base = np.abs(out - check_arr)
-                err = err_base / (atol + rtol * np.abs(check_arr))
-                #get precision at each of these locs
-                err_locs = np.argmax(err, axis=0)
-                #take err norm
-                err_inf = np.linalg.norm(err, ord=np.inf, axis=0)
-                err_l2 = np.linalg.norm(err, ord=2, axis=0)
-                #save to output
-                with open(data_output, 'a') as file:
-                    file.write(name + ' - linf: ' + ', '.join(['{:.15e}'.format(x) for x in err_inf]) + '\n')
-                    file.write(name + ' - l2: ' + ', '.join(['{:.15e}'.format(x) for x in err_l2]) + '\n')
-                    if name == 'rop_net':
-                        def __prec_percent(precision):
-                            precs = precision[err_locs, np.arange(err_inf.size)]
-                            return 100.0 * err_base[err_locs, np.arange(err_inf.size)] / precs
-                        #get precision at each of these locs
-                        precs = __prec_percent(precision_loss_min)
-                        file.write(name + '_precmin : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
-                        precs = __prec_percent(precision_loss_max)
-                        file.write(name + '_precmax : ' + ', '.join(['{:.15e}'.format(x) for x in precs]) + '\n')
+                #write the module tester
+                with open(os.path.join(my_test, 'test.py'), 'w') as file:
+                    file.write(mod_test.safe_substitute(
+                        package='pyjac_ocl',
+                        input_args=', '.join('"{}"'.format(x) for x in args),
+                        test_arrays=', '.join('"{}"'.format(x) for x in test_f),
+                        non_array_args='{}, 12'.format(num_conditions),
+                        call_name='species_rates',
+                        output_files=', '.join('\'{}\''.format(x) for x in outf)))
 
-                #and print total max to screen
-                print(name, np.linalg.norm(err_inf, np.inf))
+                #call
+                subprocess.check_call([
+                    'python{}.{}'.format(sys.version_info[0], sys.version_info[1]),
+                    os.path.join(my_test, 'test.py')])
 
-            for x in out_check:
-                del x
+                def __get_test(name):
+                    return out_arrays[output_names.index(name)][offset:offset+cond_per_run, :]
 
-            #cleanup
-            for x in args + outf:
-                os.remove(x)
-            os.remove(os.path.join(my_test, 'test.py'))
+                out_check = outf[:]
+                #load output arrays
+                for i in range(len(outf)):
+                    out_check[i] = np.load(outf[i])
+                    assert not np.any(np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i])))
+                    #and reshape
+                    out_check[i] = np.reshape(out_check[i], (cond_per_run, -1),
+                        order=order)
+
+                #multiply pressure rates
+                pmod_ind = next(i for i, x in enumerate(output_names) if x == 'pres_mod')
+                #fwd
+                out_check[1][:, thd_map] *= out_check[pmod_ind]
+                #rev
+                out_check[2][:, rev_to_thd_map] *= out_check[pmod_ind][:, thd_to_rev_map]
+
+                #load output
+                for name, out in zip(*(output_names, out_check)):
+                    if name == 'pres_mod':
+                        continue
+                    check_arr = __get_test(name)
+                    #get err
+                    err_base = np.abs(out - check_arr)
+                    err = err_base / (atol + rtol * np.abs(check_arr))
+                    #get precision at each of these locs
+                    err_locs = np.argmax(err, axis=0)
+                    #take err norm
+                    err_inf = np.linalg.norm(err, ord=np.inf, axis=0)
+                    def __prec_percent(precision):
+                        precs = precision[err_locs, np.arange(err_inf.size)]
+                        return 100.0 * err_base[err_locs, np.arange(err_inf.size)] / precs
+                    if name not in err_dict:
+                        #simply store the error
+                        err_dict[name] = err_inf
+                        if name == 'rop_net':
+                            err_dict[name + '_precmin'] = __prec_percent(precision_loss_min[offset:offset + cond_per_run, :])
+                            err_dict[name + '_precmax'] = __prec_percent(precision_loss_max[offset:offset + cond_per_run, :])
+                    else:
+                        #need to take max and update precision as necessary
+                        err_dict[name] = np.maximum(err_dict[name], err_inf)
+                        if name == 'rop_net':
+                            updated_locs = np.where(err_dict[name] == err_inf)
+                            err_dict[name + '_precmin'][updated_locs] = __prec_percent(precision_loss_min[offset:offset + cond_per_run, :])[updated_locs]
+                            err_dict[name + '_precmax'][updated_locs] = __prec_percent(precision_loss_max[offset:offset + cond_per_run, :])[updated_locs]
+
+                #cleanup
+                for x in args + outf:
+                    os.remove(x)
+                for x in out_check:
+                    del x
+                os.remove(os.path.join(my_test, 'test.py'))
+
+                #finally update the offset
+                offset += cond_per_run
+
+            #and write to file
+            with open(data_output, 'a') as file:
+                for name in sorted(err_dict):
+                    file.write(name + ' - linf: ' + ', '.join(['{:.15e}'.format(x) for x in err_dict[name]]) + '\n')
 
 
