@@ -384,7 +384,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
             #load output arrays
             for i in range(len(outf)):
                 out_check[i] = np.load(outf[i])
-                assert not np.any(np.logical_or(np.isnan(out_check[i]) or np.isinf(out_check[i])))
+                assert not np.any(np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i])))
                 #and reshape
                 out_check[i] = np.reshape(out_check[i], (num_conditions, -1),
                     order=order)
