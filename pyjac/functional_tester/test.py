@@ -341,25 +341,30 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                          output_full_rop=True)
 
             #now generate the per run data
-            import pdb; pdb.set_trace()
             offset = 0
             #store the error dict
             err_dict = {}
             while offset < num_conditions:
+                this_run = int(np.floor(np.minimum(cond_per_run, num_conditions - offset) / max_vec_width) * max_vec_width)
                 #get arrays
-                concs = data[offset:offset + cond_per_run, :].flatten(order=order)
+                concs = data[offset:offset + this_run, :].flatten(order=order)
 
                 args = []
-                __saver(T[offset:offset + cond_per_run], 'T', args)
-                __saver(P[offset:offset + cond_per_run], 'P', args)
+                __saver(T[offset:offset + this_run], 'T', args)
+                __saver(P[offset:offset + this_run], 'P', args)
                 __saver(concs, 'conc', args)
                 del concs
 
                 #put save outputs
                 output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
-                species_rates = np.concatenate((conp_temperature_rates if conp else conv_temperature_rates,
-                        spec_rates), axis=1)
-                out_arrays = [species_rates, rop_fwd_test, rop_rev_test, pres_mod_test, rop_net_test]
+                species_rates = np.concatenate((conp_temperature_rates[offset:offset + this_run, :] if conp
+                    else conv_temperature_rates[offset:offset + this_run, :],
+                        spec_rates[offset:offset + this_run, :]), axis=1)
+                out_arrays = [species_rates,
+                                rop_fwd_test[offset:offset + this_run, :],
+                                rop_rev_test[offset:offset + this_run, :],
+                                pres_mod_test[offset:offset + this_run, :],
+                                rop_net_test[offset:offset + this_run, :]]
                 for i in range(len(out_arrays)):
                     out = out_arrays[i]
                     #and flatten in correct order
@@ -378,7 +383,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                         package='pyjac_ocl',
                         input_args=', '.join('"{}"'.format(x) for x in args),
                         test_arrays=', '.join('"{}"'.format(x) for x in test_f),
-                        non_array_args='{}, 12'.format(num_conditions),
+                        non_array_args='{}, 12'.format(this_run),
                         call_name='species_rates',
                         output_files=', '.join('\'{}\''.format(x) for x in outf)))
 
@@ -388,7 +393,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     os.path.join(my_test, 'test.py')])
 
                 def __get_test(name):
-                    return out_arrays[output_names.index(name)][offset:offset+cond_per_run, :]
+                    return out_arrays[output_names.index(name)]
 
                 out_check = outf[:]
                 #load output arrays
@@ -396,7 +401,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                     out_check[i] = np.load(outf[i])
                     assert not np.any(np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i])))
                     #and reshape
-                    out_check[i] = np.reshape(out_check[i], (cond_per_run, -1),
+                    out_check[i] = np.reshape(out_check[i], (this_run, -1),
                         order=order)
 
                 #multiply pressure rates
@@ -425,15 +430,15 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                         #simply store the error
                         err_dict[name] = err_inf
                         if name == 'rop_net':
-                            err_dict[name + '_precmin'] = __prec_percent(precision_loss_min[offset:offset + cond_per_run, :])
-                            err_dict[name + '_precmax'] = __prec_percent(precision_loss_max[offset:offset + cond_per_run, :])
+                            err_dict[name + '_precmin'] = __prec_percent(precision_loss_min[offset:offset + this_run, :])
+                            err_dict[name + '_precmax'] = __prec_percent(precision_loss_max[offset:offset + this_run, :])
                     else:
                         #need to take max and update precision as necessary
                         err_dict[name] = np.maximum(err_dict[name], err_inf)
                         if name == 'rop_net':
                             updated_locs = np.where(err_dict[name] == err_inf)
-                            err_dict[name + '_precmin'][updated_locs] = __prec_percent(precision_loss_min[offset:offset + cond_per_run, :])[updated_locs]
-                            err_dict[name + '_precmax'][updated_locs] = __prec_percent(precision_loss_max[offset:offset + cond_per_run, :])[updated_locs]
+                            err_dict[name + '_precmin'][updated_locs] = __prec_percent(precision_loss_min[offset:offset + this_run, :])[updated_locs]
+                            err_dict[name + '_precmax'][updated_locs] = __prec_percent(precision_loss_max[offset:offset + this_run, :])[updated_locs]
 
                 #cleanup
                 for x in args + outf:
