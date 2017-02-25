@@ -461,7 +461,6 @@ def functional_tester(work_dir):
                 offset += cond_per_run
 
             #and write to file
-            with open(data_output, 'w') as file:
-                np.savez(file, **err_dict)
+            np.savez(data_output, **err_dict)
 
 
