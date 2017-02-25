@@ -62,6 +62,12 @@ def check_file(filename, Ns, Nr):
         True if the file is complete
 
     """
+    #new version
+    try:
+        np.load(filename)
+        return True
+    except:
+        return False
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
@@ -82,7 +88,7 @@ def getf(x):
     return os.path.basename(x)
 
 
-def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
+def functional_tester(work_dir):
     """Runs performance testing for pyJac, TChem, and finite differences.
 
     Parameters
@@ -285,7 +291,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                             platform, rate_spec, 'split' if split_kernels else 'single',
                             num_cores
                             ) +
-                           '_err.txt'
+                           '_err.npz'
                            )
 
             #if already run, continue
@@ -417,28 +423,32 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                         continue
                     check_arr = __get_test(name)
                     #get err
-                    err_base = np.abs(out - check_arr)
-                    err = err_base / (atol + rtol * np.abs(check_arr))
+                    err = np.abs(out - check_arr)
                     #get precision at each of these locs
                     err_locs = np.argmax(err, axis=0)
                     #take err norm
                     err_inf = np.linalg.norm(err, ord=np.inf, axis=0)
                     def __prec_percent(precision):
-                        precs = precision[err_locs, np.arange(err_inf.size)]
-                        return 100.0 * err_base[err_locs, np.arange(err_inf.size)] / precs
+                        return precision[err_locs, np.arange(err_inf.size)]
                     if name not in err_dict:
                         #simply store the error
                         err_dict[name] = err_inf
                         if name == 'rop_net':
                             err_dict[name + '_precmin'] = __prec_percent(precision_loss_min[offset:offset + this_run, :])
                             err_dict[name + '_precmax'] = __prec_percent(precision_loss_max[offset:offset + this_run, :])
+                        #store the actual values for normalization
+                        err_dict[name + '_value'] = check_arr[err_locs, np.arange(err_inf.size)]
                     else:
                         #need to take max and update precision as necessary
                         err_dict[name] = np.maximum(err_dict[name], err_inf)
+                        #get updated locations
+                        updated_locs = np.where(err_dict[name] == err_inf)
                         if name == 'rop_net':
-                            updated_locs = np.where(err_dict[name] == err_inf)
+                            #update the precisions
                             err_dict[name + '_precmin'][updated_locs] = __prec_percent(precision_loss_min[offset:offset + this_run, :])[updated_locs]
                             err_dict[name + '_precmax'][updated_locs] = __prec_percent(precision_loss_max[offset:offset + this_run, :])[updated_locs]
+                        #update the values for normalization
+                        err_dict[name + '_value'][updated_locs] = check_arr[err_locs, np.arange(err_inf.size)][updated_locs]
 
                 #cleanup
                 for x in args + outf:
@@ -451,8 +461,7 @@ def functional_tester(work_dir, atol=1e-10, rtol=1e-6):
                 offset += cond_per_run
 
             #and write to file
-            with open(data_output, 'a') as file:
-                for name in sorted(err_dict):
-                    file.write(name + ' - linf: ' + ', '.join(['{:.15e}'.format(x) for x in err_dict[name]]) + '\n')
+            with open(data_output, 'w') as file:
+                np.savez(file, **err_dict)
 
 
