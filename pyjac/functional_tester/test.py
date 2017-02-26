@@ -202,8 +202,11 @@ def functional_tester(work_dir):
 
         def __eval_cp(j, T):
             return specs[j].thermo.cp(T)
+        eval_cp = np.vectorize(__eval_cp, cache=True)
         def __eval_h(j, T):
             return specs[j].thermo.h(T)
+        eval_h = np.vectorize(__eval_h, cache=True)
+        ns_range = np.arange(gas.n_species)
 
         evaled = False
         def eval_state():
@@ -222,13 +225,10 @@ def functional_tester(work_dir):
                     rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
                     rop_rev_test[i, :] = gas.reverse_rates_of_progress[:][rev_map]
                     rop_net_test[i, :] = gas.net_rates_of_progress[:]
-                    for j in range(gas.n_species):
-                        cp[j] = __eval_cp(j, T[i])
-                        h[j] = __eval_h(j, T[i])
-                        cv[j] = cp[j] - ct.gas_constant
-                        u[j] = h[j] - T[i] * ct.gas_constant
-
-                    #__get_prec()
+                    cp[:] = eval_cp(ns_range, T[i])
+                    h[:] = eval_cp(ns_range, T[i])
+                    cv[:] = cp - ct.gas_constant
+                    u[:] = h - T[i] * ct.gas_constant
 
                     np.divide(-np.dot(h[:], spec_rates[i, :]), np.dot(cp[:], data[i, :]), out=conp_temperature_rates[i, :])
                     np.divide(-np.dot(u[:], spec_rates[i, :]), np.dot(cv[:], data[i, :]), out=conv_temperature_rates[i, :])
@@ -412,7 +412,7 @@ def functional_tester(work_dir):
                     if name not in err_dict:
                         #simply store the error
                         err_dict[name] = err_inf
-                        if name == 'rop_net'
+                        if name == 'rop_net':
                             err_dict['rop_component'] = rop_component_error
 
                         #store the actual values for normalization
@@ -422,7 +422,7 @@ def functional_tester(work_dir):
                         err_dict[name] = np.maximum(err_dict[name], err_inf)
                         #get updated locations
                         updated_locs = np.where(err_dict[name] == err_inf)
-                        if name == 'rop_net'
+                        if name == 'rop_net':
                             err_dict['rop_component'][updated_locs] = rop_component_error[updated_locs]
                         #update the values for normalization
                         err_dict[name + '_value'][updated_locs] = check_arr[err_locs, np.arange(err_inf.size)][updated_locs]
