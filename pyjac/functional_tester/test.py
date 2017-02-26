@@ -406,7 +406,9 @@ def functional_tester(work_dir):
                     if name == 'rop_net':
                         #need to find the fwd / rop error at the max locations here
                         rop_fwd_err = np.abs(out_check[fwd_ind][err_locs, np.arange(err_locs.size)] - out_arrays[fwd_ind][err_locs, np.arange(err_locs.size)])
-                        rop_rev_err = np.abs(out_check[rev_ind][err_locs, np.arange(err_locs.size)] - out_arrays[rev_ind][err_locs, np.arange(err_locs.size)])
+                        rop_rev_err = np.zeros(err_locs.size)
+                        rev_errs = err_locs[rev_map]
+                        rop_rev_err[rev_map] = np.abs(out_check[rev_ind][rev_errs, np.arange(rev_errs.size)] - out_arrays[rev_ind][rev_errs, np.arange(rev_errs.size)])
                         rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
 
                     if name not in err_dict:
