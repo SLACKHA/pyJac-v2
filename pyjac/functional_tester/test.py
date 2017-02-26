@@ -425,7 +425,7 @@ def functional_tester(work_dir):
                     else:
                         err_old_compare = err_dict[name] / (atol + rtol * err_dict[name + '_value'])
                         #get locations to update
-                        update_locs = np.where(err_compare > err_old_compare)
+                        update_locs = np.where(err_compare[err_locs, np.arange(err_locs.size)] > err_old_compare)
                         #and update
                         err_dict[name][update_locs] = err[update_locs]
                         #need to take max and update precision as necessary
