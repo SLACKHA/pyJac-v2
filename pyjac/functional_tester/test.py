@@ -199,43 +199,15 @@ def functional_tester(work_dir):
 
         #predefines
         specs = gas.species()[:]
-        d1 = np.longdouble(1)
-        d2 = np.longdouble(2)
-
-        #precision loss measurement
-        precision_loss_min = np.zeros((num_conditions, gas.n_reactions))
-        precision_loss_max = np.zeros((num_conditions, gas.n_reactions))
 
         def __eval_cp(j, T):
             return specs[j].thermo.cp(T)
         def __eval_h(j, T):
             return specs[j].thermo.h(T)
-        def __get_prec_max(x, out):
-            np.power(d2, -np.floor(-np.log2(x, out=out), out=out), out=out)
-        def __get_prec_min(x, out):
-            np.power(d2, -np.ceil(-np.log2(x, out=out), out=out), out=out)
 
         evaled = False
         def eval_state():
             with np.errstate(divide='ignore', invalid='ignore'):
-                def __get_prec():
-                    #create find precisions
-                    fwd = np.array(gas.forward_rates_of_progress[:], dtype=np.longdouble)
-                    rev = np.array(gas.reverse_rates_of_progress[:], dtype=np.longdouble)
-                    #divide fwd / rev and place in ratio
-                    ratio = np.divide(fwd, rev)
-                    #subtract d1 - ratio and place in ratio
-                    np.subtract(d1, ratio, out=ratio)
-                    #finally, put |ratio| into mid
-                    np.absolute(ratio, out=ratio)
-
-                    #get min
-                    __get_prec_min(ratio, precision_loss_min[i, :])
-                    __get_prec_max(ratio, precision_loss_max[i, :])
-                    del fwd
-                    del rev
-                    del ratio
-
                 for i in range(num_conditions):
                     if not i % 10000:
                         print(i)
@@ -256,7 +228,7 @@ def functional_tester(work_dir):
                         cv[j] = cp[j] - ct.gas_constant
                         u[j] = h[j] - T[i] * ct.gas_constant
 
-                    __get_prec()
+                    #__get_prec()
 
                     np.divide(-np.dot(h[:], spec_rates[i, :]), np.dot(cp[:], data[i, :]), out=conp_temperature_rates[i, :])
                     np.divide(-np.dot(u[:], spec_rates[i, :]), np.dot(cv[:], data[i, :]), out=conv_temperature_rates[i, :])
@@ -417,6 +389,9 @@ def functional_tester(work_dir):
                 #rev
                 out_check[2][:, rev_to_thd_map] *= out_check[pmod_ind][:, thd_to_rev_map]
 
+                fwd_ind = output_names.index('rop_fwd')
+                rev_ind = output_names.index('rop_rev')
+
                 #load output
                 for name, out in zip(*(output_names, out_check)):
                     if name == 'pres_mod':
@@ -428,14 +403,18 @@ def functional_tester(work_dir):
                     err_locs = np.argmax(err, axis=0)
                     #take err norm
                     err_inf = np.linalg.norm(err, ord=np.inf, axis=0)
-                    def __prec_percent(precision):
-                        return precision[err_locs, np.arange(err_inf.size)]
+                    if name == 'rop_net':
+                        #need to find the fwd / rop error at the max locations here
+                        rop_fwd_err = np.abs(out_check[fwd_ind][err_locs, np.arange(err_locs.size)] - check_arr[fwd_ind, np.arange(err_locs.size)])
+                        rop_rev_err = np.abs(out_check[rev_ind][err_locs, np.arange(err_locs.size)] - check_arr[rev_ind, np.arange(err_locs.size)])
+                        rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
+
                     if name not in err_dict:
                         #simply store the error
                         err_dict[name] = err_inf
-                        if name == 'rop_net':
-                            err_dict[name + '_precmin'] = __prec_percent(precision_loss_min[offset:offset + this_run, :])
-                            err_dict[name + '_precmax'] = __prec_percent(precision_loss_max[offset:offset + this_run, :])
+                        if name == 'rop_net'
+                            err_dict['rop_component'] = rop_component_error
+
                         #store the actual values for normalization
                         err_dict[name + '_value'] = check_arr[err_locs, np.arange(err_inf.size)]
                     else:
@@ -443,10 +422,8 @@ def functional_tester(work_dir):
                         err_dict[name] = np.maximum(err_dict[name], err_inf)
                         #get updated locations
                         updated_locs = np.where(err_dict[name] == err_inf)
-                        if name == 'rop_net':
-                            #update the precisions
-                            err_dict[name + '_precmin'][updated_locs] = __prec_percent(precision_loss_min[offset:offset + this_run, :])[updated_locs]
-                            err_dict[name + '_precmax'][updated_locs] = __prec_percent(precision_loss_max[offset:offset + this_run, :])[updated_locs]
+                        if name == 'rop_net'
+                            err_dict['rop_component'][updated_locs] = rop_component_error[updated_locs]
                         #update the values for normalization
                         err_dict[name + '_value'][updated_locs] = check_arr[err_locs, np.arange(err_inf.size)][updated_locs]
 
