@@ -226,7 +226,7 @@ def functional_tester(work_dir):
                     rop_rev_test[i, :] = gas.reverse_rates_of_progress[:][rev_map]
                     rop_net_test[i, :] = gas.net_rates_of_progress[:]
                     cp[:] = eval_cp(ns_range, T[i])
-                    h[:] = eval_cp(ns_range, T[i])
+                    h[:] = eval_h(ns_range, T[i])
                     cv[:] = cp - ct.gas_constant
                     u[:] = h - T[i] * ct.gas_constant
 
