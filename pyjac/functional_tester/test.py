@@ -405,7 +405,7 @@ def functional_tester(work_dir):
                     #get err
                     err = np.abs(out - check_arr)
                     err_compare = err / (atol + rtol * np.abs(check_arr))
-                    #get precision at each of these locs
+                    #get maximum relative error locations
                     err_locs = np.argmax(err_compare, axis=0)
                     #take err norm
                     err_comp_store = err_compare[err_locs, np.arange(err_locs.size)]
@@ -419,25 +419,21 @@ def functional_tester(work_dir):
                         rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
 
                     if name not in err_dict:
-                        #simply store the error
-                        err_dict[name] = err_inf
-                        err_dict[name + '_store'] = err_comp_store
+                        err_dict[name] = np.zeros_like(err_inf)
+                        err_dict[name + '_value'] = np.zeros_like(err_inf)
+                        err_dict[name + '_store'] = np.zeros_like(err_inf)
                         if name == 'rop_net':
-                            err_dict['rop_component'] = rop_component_error
-
-                        #store the actual values for normalization
-                        err_dict[name + '_value'] = check_arr[err_locs, np.arange(err_inf.size)]
-                    else:
-                        #get locations to update
-                        update_locs = np.where(err_compare[err_locs, np.arange(err_locs.size)] > err_dict[name + '_store'])
-                        #and update
-                        err_dict[name][update_locs] = err[update_locs]
-                        err_dict[name + '_store'][update_locs] = err_comp_store[update_locs]
-                        #need to take max and update precision as necessary
-                        if name == 'rop_net':
-                            err_dict['rop_component'][update_locs] = rop_component_error[update_locs]
-                        #update the values for normalization
-                        err_dict[name + '_value'][update_locs] = check_arr[err_locs, np.arange(err_inf.size)][update_locs]
+                            err_dict['rop_component'] = np.zeros_like(err_inf)
+                    #get locations to update
+                    update_locs = np.where(err_comp_store >= err_dict[name + '_store'])
+                    #and update
+                    err_dict[name][update_locs] = err_inf[update_locs]
+                    err_dict[name + '_store'][update_locs] = err_comp_store[update_locs]
+                    #need to take max and update precision as necessary
+                    if name == 'rop_net':
+                        err_dict['rop_component'][update_locs] = rop_component_error[update_locs]
+                    #update the values for normalization
+                    err_dict[name + '_value'][update_locs] = check_arr[err_locs, np.arange(err_inf.size)][update_locs]
 
                 #cleanup
                 for x in args + outf:
