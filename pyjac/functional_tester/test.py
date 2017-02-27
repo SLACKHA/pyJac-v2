@@ -371,7 +371,8 @@ def functional_tester(work_dir):
                 #call
                 subprocess.check_call([
                     'python{}.{}'.format(sys.version_info[0], sys.version_info[1]),
-                    os.path.join(my_test, 'test.py')])
+                    os.path.join(my_test, 'test.py'),
+                    '1' if offset != 0 else '0'])
 
                 def __get_test(name):
                     return out_arrays[output_names.index(name)]

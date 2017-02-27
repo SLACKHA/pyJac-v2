@@ -23,9 +23,10 @@ def species_rates(np.uint_t problem_size,
             np.ndarray[np.float64_t] rop_fwd,
             np.ndarray[np.float64_t] rop_rev,
             np.ndarray[np.float64_t] pres_mod,
-            np.ndarray[np.float64_t] rop_net):
+            np.ndarray[np.float64_t] rop_net,
+            np.uint_t force_no_compile = 0):
     global compiled
-    if not compiled:
+    if not compiled and not force_no_compile:
         compiler()
         compiled = True
     species_rates_kernel(problem_size, num_devices, &T[0], &P[0], &conc[0], &wdot[0],
