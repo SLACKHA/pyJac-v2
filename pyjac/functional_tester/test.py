@@ -258,6 +258,9 @@ def functional_tester(work_dir):
             if rate_spec == 'fixed' and split_kernels:
                 continue #not a thing!
 
+            if num_cores < 8: #temporary
+                continue
+
             data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
                             'w' if wide else 'd' if deep else 'par',
                             platform, rate_spec, 'split' if split_kernels else 'single',
@@ -405,6 +408,7 @@ def functional_tester(work_dir):
                     #get precision at each of these locs
                     err_locs = np.argmax(err_compare, axis=0)
                     #take err norm
+                    err_comp_store = err_compare[err_locs, np.arange(err_locs.size)]
                     err_inf = err[err_locs, np.arange(err_locs.size)]
                     if name == 'rop_net':
                         #need to find the fwd / rop error at the max locations here
@@ -417,17 +421,18 @@ def functional_tester(work_dir):
                     if name not in err_dict:
                         #simply store the error
                         err_dict[name] = err_inf
+                        err_dict[name + '_store'] = err_comp_store
                         if name == 'rop_net':
                             err_dict['rop_component'] = rop_component_error
 
                         #store the actual values for normalization
                         err_dict[name + '_value'] = check_arr[err_locs, np.arange(err_inf.size)]
                     else:
-                        err_old_compare = err_dict[name] / (atol + rtol * err_dict[name + '_value'])
                         #get locations to update
-                        update_locs = np.where(err_compare[err_locs, np.arange(err_locs.size)] > err_old_compare)
+                        update_locs = np.where(err_compare[err_locs, np.arange(err_locs.size)] > err_dict[name + '_store'])
                         #and update
                         err_dict[name][update_locs] = err[update_locs]
+                        err_dict[name + '_store'][update_locs] = err_comp_store[update_locs]
                         #need to take max and update precision as necessary
                         if name == 'rop_net':
                             err_dict['rop_component'][update_locs] = rop_component_error[update_locs]
