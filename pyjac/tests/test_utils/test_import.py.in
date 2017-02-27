@@ -38,6 +38,11 @@ if __name__ == '__main__':
 	#put all args together
 	args = non_array_args + input_args + output_args
 
+	if len(sys.argv) > 1:
+		#get compile arg
+		force_no_compile = int(sys.argv[1])
+		args += [force_no_compile]
+
 	#finally call
 	package.${call_name}(*args)
 
