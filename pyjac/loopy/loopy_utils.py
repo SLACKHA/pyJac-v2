@@ -512,7 +512,7 @@ def populate(knl, kernel_calls, device='0'):
                 for ind in range(len(out)):
                     #get compare indicies (or all if not specified)
                     copy_inds = np.arange(out_ref[ind].shape[kc.compare_axis])
-                    if kc.compare_mask is not None:
+                    if kc.compare_mask[ind] is not None:
                         copy_inds = kc.compare_mask[ind]
                     if kc.compare_axis == 0:
                         out_ref[ind][copy_inds, :] = np.take(out[ind], copy_inds, axis=kc.compare_axis)
