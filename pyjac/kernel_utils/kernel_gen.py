@@ -824,14 +824,12 @@ def apply_vectorization(loopy_opts, inner_ind, knl):
         j_tag += '_outer'
 
     #fix for variable too small for vectorization
-    clean = knl.copy()
-    def __ggs(insn_ids):
-        import pdb;pdb.set_trace()
+    def __ggs(insn_ids, ignore_auto=False):
         grid_size, lsize = clean.get_grid_sizes_for_insn_ids(
-            insn_ids)
+            insn_ids, ignore_auto=ignore_auto)
         lsize = local_size if vec_width is None else \
                     vec_width
-        return grid_size, vec_width
+        return grid_size, (lsize,)
 
     #if we're splitting
     #apply specified optimizations
@@ -841,7 +839,8 @@ def apply_vectorization(loopy_opts, inner_ind, knl):
         #and tag the 'j' variable as global
         knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
         #finally apply the fix above
-        knl = knl.copy(get_grid_sizes_for_insn_ids=__ggs)
+        clean = knl.copy()
+        knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=__ggs)
     else:
         #tag 'j' as g0, use simple parallelism
         knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
