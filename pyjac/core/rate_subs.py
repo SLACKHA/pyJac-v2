@@ -2105,7 +2105,7 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
         if not oor
             kf_temp = ${plog_eqn} {id=a_found, dep=a1:a2}
         end
-        ${kf_str} = exp(kf_temp) {id=kf, dep=aoor:a_found}
+        ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
 """).safe_substitute(loweq=k1_eq, hieq=k2_eq, plog_eqn=plog_eqn,
                     kf_str=kf_str,
                     pressure_lo=param_str.safe_substitute(m=0, param_ind=0),
