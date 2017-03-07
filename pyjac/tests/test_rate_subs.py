@@ -553,7 +553,8 @@ class SubTest(TestClass):
                     test_size=self.store.test_size
                     )
                 gen._make_kernels()
-                kc = kernel_call('kf_fall', [], **{'T_arr' : T})
+                kc = kernel_call('kf_fall', np.empty((self.store.test_size, self.store.fall_inds.size)),
+                    **{'T_arr' : T})
                 kc.set_state(loopy_opts.order)
                 kf_fall_vals[loopy_opts.order] = populate(gen.kernels, kc, device=device)[0][0]
 
@@ -567,7 +568,7 @@ class SubTest(TestClass):
                     test_size=self.store.test_size
                     )
                 gen._make_kernels()
-                kc = kernel_call('kf', [], **{'T_arr' : T})
+                kc = kernel_call('kf', np.empty((self.store.test_size, self.store.gas.n_reactions)), **{'T_arr' : T})
                 kc.set_state(loopy_opts.order)
                 kf_vals[loopy_opts.order] = populate(gen.kernels, kc, device=device)[0][0]
 
