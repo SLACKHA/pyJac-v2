@@ -700,7 +700,7 @@ def get_spec_rates(eqs, loopy_opts, rate_info, test_size=None):
             <> spec_map = offset + ispec
             <> spec_ind = ${spec_str} # (offset handled in wdot str)
             <> nu = ${nu_str}
-            ${omega_dot_str} = ${omega_dot_str} + nu * net_rate {dep=rate_update*}
+            ${omega_dot_str} = ${omega_dot_str} + nu * net_rate
         end
         """).safe_substitute(rop_net_str=rop_net_str,
                              spec_str=spec_str,
@@ -1254,7 +1254,7 @@ def get_rxn_pres_mod(eqs, loopy_opts, rate_info, test_size=None):
 
     thd_instructions = Template(
 """
-${pres_mod} = ${thd_conc} {dep=decl}
+${pres_mod} = ${thd_conc}
 
 """).safe_substitute(pres_mod=pres_mod_str,
                      thd_conc=thd_str)
@@ -2432,17 +2432,17 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
     end
     <>Pr_val = 1e-300 {id=Prv}
     if ${Pr_str} > 1e-300
-        Pr_val = ${Pr_str} {id=Prv2, dep=Pr_decl:Prv}
+        Pr_val = ${Pr_str} {id=Prv2, dep=Prv}
     end
     <>logFcent = log10(Fcent_val) {dep=Fcv2}
     <>logPr = log10(Pr_val) {dep=Prv2}
-    <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*:Pr_decl}
-    <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*:Pr_decl}
+    <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*}
+    <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*}
     ${Atroe_str} = Atroe_temp #this must be a temporary to avoid a race on future assignments
     ${Btroe_str} = Btroe_temp #this must be a temporary to avoid a race on future assignments
     <>Atroe_squared = Atroe_temp * Atroe_temp
     <>Btroe_squared = Btroe_temp * Btroe_temp
-    ${Fi_str} = ${Fi_base_eq}**(${Fi_pow_eq}) {dep=Fcent_decl*:Pr_decl}
+    ${Fi_str} = ${Fi_base_eq}**(${Fi_pow_eq}) {dep=Fcent_decl*}
     """
     ).safe_substitute(Fcent_temp=Fcent_temp_str,
                      Fcent_str=Fcent_str,
