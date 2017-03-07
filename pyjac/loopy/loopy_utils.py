@@ -516,12 +516,10 @@ def populate(knl, kernel_calls, device='0'):
                     copy_inds = np.arange(out_ref[ind].shape[kc.compare_axis])
                     if kc.compare_mask[ind] is not None:
                         copy_inds = kc.compare_mask[ind]
-                    if kc.compare_axis == 0:
-                        out_ref[ind][copy_inds, :] = np.take(out[ind], copy_inds, axis=kc.compare_axis)
-                    elif kc.compare_axis == 1:
-                        out_ref[ind][:, copy_inds] = np.take(out[ind], copy_inds, axis=kc.compare_axis)
-                    else:
-                        raise Exception
+                    idx = [slice(None)] * out_ref[ind].ndim
+                    idx[kc.compare_axis] = copy_inds
+                    out_ref[ind][tuple(idx)] = np.take(out[ind], copy_inds, axis=kc.compare_axis)
+
         output.append(out_ref)
         assert found, 'No kernels could be found to match kernel call {}'.format(kc.name)
     return output
