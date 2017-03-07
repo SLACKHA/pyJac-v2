@@ -145,8 +145,7 @@ def get_device_list():
         device_list.append(p.get_devices())
     #don't need multiple gpu's etc.
     for i in range(len(device_list)):
-        if len(device_list[i]) > 1:
-            device_list[i] = [device_list[i][0]]
+        device_list[i] = device_list[i][0]
 
     return device_list
 
@@ -173,7 +172,7 @@ def get_context(device='0'):
         os.environ['PYOPENCL_CTX'] = device
         ctx = cl.create_some_context(interactive=False)
     else:
-        ctx = cl.Context(devices=device)
+        ctx = cl.Context(devices=[device])
 
     lp.set_caching_enabled(False)
     queue = cl.CommandQueue(ctx)
