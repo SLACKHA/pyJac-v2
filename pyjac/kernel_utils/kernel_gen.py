@@ -130,10 +130,10 @@ class wrapping_kernel_generator(object):
                 continue
             #create kernel from k_gen.knl_info
             self.kernels[i] = self.make_kernel(info, target, self.test_size)
-            #apply vectorization if possible
-            if info.can_vectorize:
-                self.kernels[i] = apply_vectorization(self.loopy_opts,
-                    info.var_name, self.kernels[i], vecspec=info.vectorization_specializer)
+            #apply vectorization
+            self.kernels[i] = apply_vectorization(self.loopy_opts,
+                info.var_name, self.kernels[i], vecspec=info.vectorization_specializer,
+                forcevec=info.force_vectorize)
             #and add a mangler
             #func_manglers.append(create_function_mangler(kernels[i]))
             #set the editor
@@ -785,7 +785,7 @@ def handle_indicies(indicies, reac_ind, maps, kernel_data,
 
     return indicies
 
-def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None):
+def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None):
     """
     Applies wide / deep vectorization to a generic rateconst kernel
 
@@ -807,20 +807,29 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None):
         The transformed kernel
     """
 
-
     #before doing anything, find vec width
     #and split variable
     vec_width = None
     to_split = None
     i_tag = inner_ind
     j_tag = 'j'
-    if loopy_opts.depth:
+    depth = loopy_opts.depth
+    width = loopy_opts.width
+    if forcevec:
+        #fudge width / depth in order to get correct splitting
+        if forcevec == i_tag:
+            depth = width if depth is None else depth
+            width = None
+        elif forcevec == j_tag:
+            width = depth if width is None else width
+            depth = None
+    if depth:
         to_split = inner_ind
-        vec_width = loopy_opts.depth
+        vec_width = depth
         i_tag += '_outer'
-    elif loopy_opts.width:
+    elif width:
         to_split = 'j'
-        vec_width = loopy_opts.width
+        vec_width = width
         j_tag += '_outer'
 
     #if we're splitting
@@ -838,15 +847,15 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None):
     if vecspec:
         knl = vecspec(knl)
 
-    #fix for variable too small for vectorization
-    def __ggs(insn_ids, ignore_auto=False):
-        grid_size, lsize = clean.get_grid_sizes_for_insn_ids(
-            insn_ids, ignore_auto=ignore_auto)
-        lsize = local_size if vec_width is None else \
-                    vec_width
-        return grid_size, (lsize,)
+    if vec_width is not None:
+        def __ggs(insn_ids, ignore_auto=False):
+            #fix for variable too small for vectorization
+            grid_size, lsize = clean.get_grid_sizes_for_insn_ids(
+                insn_ids, ignore_auto=ignore_auto)
+            lsize = lsize if vec_width is None else \
+                        vec_width
+            return grid_size, (lsize,)
 
-    if loopy_opts.depth:
         #finally apply the fix above
         clean = knl.copy()
         knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=__ggs)
@@ -891,8 +900,8 @@ class knl_info(object):
         Dictionary of parameter values to fix in the loopy kernel
     extra subs : dict
         Dictionary of extra string substitutions to make in kernel generation
-    can_vectorize : bool
-        If true, can vectorize this kernel
+    force_vectorize : str
+        If specified, force vectorize along this variable
     vectorization_specializer : function
         If specified, use this specialization function to fix problems that would arise
         in vectorization
@@ -903,7 +912,7 @@ class knl_info(object):
             maps=[], extra_inames=[], indicies=[],
             assumptions=[], parameters={},
             extra_subs={},
-            can_vectorize=True,
+            force_vectorize=None,
             vectorization_specializer=None):
         self.name = name
         self.instructions = instructions
@@ -917,7 +926,7 @@ class knl_info(object):
         self.assumptions = assumptions[:]
         self.parameters = parameters.copy()
         self.extra_subs = extra_subs
-        self.can_vectorize = can_vectorize
+        self.force_vectorize = force_vectorize
         self.vectorization_specializer = vectorization_specializer
 
 class MangleGen(object):
