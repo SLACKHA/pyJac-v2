@@ -516,24 +516,27 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
     instructions = Template(instructions).safe_substitute(
         omega_ind=omega_ind)
 
+    forcevec = None
+    if loopy_opts.depth:
+        #parallel reductions over 'i' in this case are very hard
+        #and inefficient, so let's just use the wide reduction
+        forcevec = 'j'
     #finally do vectorization ability and specializer
-    can_vectorize = loopy_opts.depth is None
     vec_spec = None
     #we need to specialize if we're doing a wide vectorization
     #or no vectorization, as it also uses 'j' parallelism
-    if loopy_opts.depth is None:
-        def __vec_spec(knl):
-            name = 'sum_i_update'
-            #split the reduction
-            knl = lp.split_reduction_outward(knl, 'j_outer')
-            #and aremove the sum_0 barrier
-            knl = lp.preprocess_kernel(knl)
-            instruction_list = [insn if insn.id != 'sum_0'
-                else insn.copy(no_sync_with=
-                    insn.no_sync_with | frozenset([(name, 'any')]))
-                for insn in knl.instructions]
-            return knl.copy(instructions=instruction_list)
-        vec_spec = __vec_spec
+    def __vec_spec(knl):
+        name = 'sum_i_update'
+        #split the reduction
+        knl = lp.split_reduction_outward(knl, 'j_outer')
+        #and aremove the sum_0 barrier
+        knl = lp.preprocess_kernel(knl)
+        instruction_list = [insn if insn.id != 'sum_0'
+            else insn.copy(no_sync_with=
+                insn.no_sync_with | frozenset([(name, 'any')]))
+            for insn in knl.instructions]
+        return knl.copy(instructions=instruction_list)
+    vec_spec = __vec_spec
 
     return k_gen.knl_info(name='temperature_rate',
                            pre_instructions=[instructions],
@@ -542,7 +545,7 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
                            kernel_data=kernel_data,
                            indicies=indicies,
                            extra_subs = {'spec_ind' : 'ispec'},
-                           can_vectorize=can_vectorize,
+                           force_vectorize=forcevec,
                            vectorization_specializer=vec_spec)
 
 def get_spec_rates(eqs, loopy_opts, rate_info, test_size=None):
