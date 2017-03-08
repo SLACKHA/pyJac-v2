@@ -13,7 +13,6 @@ import numpy as np
 
 #modules
 import loopy as lp
-from loopy.types import to_loopy_type
 
 __all__ = ['line_start', 'comment', 'langs', 'file_ext',
            'header_ext', 'line_end', 'exp_10_fun', 'array_chars',
@@ -329,36 +328,6 @@ def check_lang(lang):
     """
     if not lang in langs:
         raise NotImplementedError('Language {} not supported'.format(lang))
-
-type_map = {to_loopy_type(np.float64) : 'double',
-            to_loopy_type(np.int32) : 'int'}
-
-def get_global_declaration(lang, variable):
-    """
-    Returns a global memory declaration for the
-    variable supplied
-
-    Parameters
-    ----------
-    variable : :class:`loopy.TemporaryVariable`
-        The variable to use
-    lang : str
-        The language to define for
-
-    Returns
-    -------
-    defn : str
-        The string declaration
-    """
-
-    assert variable.dtype in type_map, 'Missing type map for loopy type {}'.format(variable.dtype)
-    assert lang in decl_map, 'Missing declaration map for language {}'.format(lang)
-
-    return '{decl}{type}* {name}{end}'.format(
-            decl=decl_map[lang] + ' ',
-            type=type_map[variable.dtype],
-            name=variable.name,
-            end=line_end[lang])
 
 def get_parser():
     """

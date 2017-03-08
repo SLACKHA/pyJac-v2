@@ -83,6 +83,11 @@ class wrapping_kernel_generator(object):
         self.set_knl_arg_value_template = Template(self.mem.get_check_err_call('clSetKernelArg(kernel,'
                                         '${arg_index}, ${arg_size}, ${arg_value})'))
 
+        self.type_map = {}
+        from loopy.types import to_loopy_type
+        self.type_map[to_loopy_type(np.float64)] = 'double'
+        self.type_map[to_loopy_type(np.int32)] = 'int'
+
         self.filename = ''
         self.bin_name = ''
         self.header_name = ''
@@ -210,7 +215,7 @@ class wrapping_kernel_generator(object):
 
     def _get_pass(self, argv, include_type=True, postfix=''):
             return '{type}h_{name}'.format(
-                type=utils.type_map[argv.dtype] + '* ' if include_type else '',
+                type=self.type_map[argv.dtype] + '* ' if include_type else '',
                 name=argv.name  + postfix)
 
     def _generate_calling_header(self, path):
