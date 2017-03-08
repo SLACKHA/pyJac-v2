@@ -18,7 +18,7 @@ from . import file_writers as filew
 from .memory_manager import memory_manager
 from .. import site_conf as site
 from .. import utils
-from ..loopy import loopy_utils as lp_utils
+from ..loopy_utils import loopy_utils as lp_utils
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 TINV_PREINST_KEY = 'Tinv'
