@@ -512,13 +512,13 @@ def populate(knl, kernel_calls, device='0'):
                     out_ref = [np.zeros_like(x) for x in out]
 
                 for ind in range(len(out)):
-                    #get compare indicies (or all if not specified)
-                    copy_inds = np.arange(out_ref[ind].shape[kc.compare_axis])
-                    if kc.compare_mask[ind] is not None:
-                        copy_inds = kc.compare_mask[ind]
-                    idx = [slice(None)] * out_ref[ind].ndim
-                    idx[kc.compare_axis] = copy_inds
-                    out_ref[ind][tuple(idx)] = np.take(out[ind], copy_inds, axis=kc.compare_axis)
+                    #get indicies that are non-zero (already in there)
+                    #or non infinity/nan
+                    copy_inds = np.where(np.logical_not(
+                        np.logical_or(np.isinf(out[ind]),
+                            out[ind] == 0, np.isnan(out[ind]))),
+                        )
+                    out_ref[ind][copy_inds] = out[ind][copy_inds]
 
         output.append(out_ref)
         assert found, 'No kernels could be found to match kernel call {}'.format(kc.name)
