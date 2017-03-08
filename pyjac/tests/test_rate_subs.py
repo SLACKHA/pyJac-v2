@@ -13,7 +13,7 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn, assign_rates
     get_thd_body_concs, get_reduced_pressure_kernel, get_sri_kernel, get_troe_kernel,
     get_rev_rates, get_rxn_pres_mod, get_rop, get_rop_net, get_spec_rates, get_temperature_rate,
     write_chem_utils, get_lind_kernel)
-from ..loopy.loopy_utils import (auto_run, loopy_options, RateSpecialization, get_code,
+from ..loopy_utils.loopy_utils import (auto_run, loopy_options, RateSpecialization, get_code,
     get_target, get_device_list, populate, kernel_call, get_context)
 from .. import kernel_utils as k_utils
 from . import TestClass

@@ -8,7 +8,7 @@ from collections import OrderedDict
 
 #local imports
 from ..core.rate_subs import polyfit_kernel_gen, write_chem_utils
-from ..loopy.loopy_utils import auto_run, loopy_options, get_device_list, kernel_call
+from ..loopy_utils.loopy_utils import auto_run, loopy_options, get_device_list, kernel_call
 from ..utils import create_dir
 from ..kernel_utils import kernel_gen as k_gen
 from . import TestClass

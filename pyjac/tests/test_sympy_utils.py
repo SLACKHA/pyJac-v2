@@ -1,6 +1,6 @@
 #local imports
 from . import TestClass
-from ..sympy import sympy_utils as sp_util
+from ..sympy_utils import sympy_utils as sp_util
 
 #modules
 import sympy as sp

@@ -17,8 +17,8 @@ from . import chem_model as chem
 from . import mech_interpret as mech
 from . import rate_subs as rate
 from . import mech_auxiliary as aux
-from ..sympy import sympy_interpreter as sp_interp
-from ..loopy import loopy_utils as lp_utils
+from ..sympy_utils import sympy_interpreter as sp_interp
+from ..loopy_utils import loopy_utils as lp_utils
 
 
 def create_jacobian(lang,
