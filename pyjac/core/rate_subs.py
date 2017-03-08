@@ -523,7 +523,7 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
     #or no vectorization, as it also uses 'j' parallelism
     if loopy_opts.depth is None:
         def __vec_spec(knl):
-            name = 'sum_i_update' if not loopy_opts.unr else 'sum_i_outer_i_inner_update'
+            name = 'sum_i_update'
             #split the reduction
             knl = lp.split_reduction_outward(knl, 'j_outer')
             #and aremove the sum_0 barrier

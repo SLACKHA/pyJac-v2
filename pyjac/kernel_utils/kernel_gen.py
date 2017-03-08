@@ -133,10 +133,7 @@ class wrapping_kernel_generator(object):
             #apply vectorization if possible
             if info.can_vectorize:
                 self.kernels[i] = apply_vectorization(self.loopy_opts,
-                    info.var_name, self.kernels[i])
-            #apply any specializations if supplied
-            if info.vectorization_specializer:
-                self.kernels[i] = info.vectorization_specializer(self.kernels[i])
+                    info.var_name, self.kernels[i], vecspec=info.vectorization_specializer)
             #and add a mangler
             #func_manglers.append(create_function_mangler(kernels[i]))
             #set the editor
@@ -788,7 +785,7 @@ def handle_indicies(indicies, reac_ind, maps, kernel_data,
 
     return indicies
 
-def apply_vectorization(loopy_opts, inner_ind, knl):
+def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None):
     """
     Applies wide / deep vectorization to a generic rateconst kernel
 
@@ -800,6 +797,9 @@ def apply_vectorization(loopy_opts, inner_ind, knl):
         The inner loop index variable
     knl : :class:`loopy.LoopKernel`
         The kernel to transform
+    vecspec : :function:
+        An optional specialization function that is applied after vectorization
+        To fix hanging loopy issues
 
     Returns
     -------
@@ -823,6 +823,21 @@ def apply_vectorization(loopy_opts, inner_ind, knl):
         vec_width = loopy_opts.width
         j_tag += '_outer'
 
+    #if we're splitting
+    #apply specified optimizations
+    if to_split:
+        #and assign the l0 axis to the correct variable
+        knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
+        #and tag the 'j' variable as global
+        knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+    else:
+        #tag 'j' as g0, use simple parallelism
+        knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+
+    #if we have a specialization
+    if vecspec:
+        knl = vecspec(knl)
+
     #fix for variable too small for vectorization
     def __ggs(insn_ids, ignore_auto=False):
         grid_size, lsize = clean.get_grid_sizes_for_insn_ids(
@@ -831,19 +846,10 @@ def apply_vectorization(loopy_opts, inner_ind, knl):
                     vec_width
         return grid_size, (lsize,)
 
-    #if we're splitting
-    #apply specified optimizations
-    if to_split:
-        #and assign the l0 axis to the correct variable
-        knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
-        #and tag the 'j' variable as global
-        knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+    if loopy_opts.depth:
         #finally apply the fix above
         clean = knl.copy()
         knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=__ggs)
-    else:
-        #tag 'j' as g0, use simple parallelism
-        knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
 
     #now do unr / ilp
     if loopy_opts.unr is not None:
