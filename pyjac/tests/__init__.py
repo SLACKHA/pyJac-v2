@@ -8,7 +8,7 @@ import loopy as lp
 import os
 
 #local imports
-from ..sympy.sympy_interpreter import load_equations
+from ..sympy_utils.sympy_interpreter import load_equations
 from ..core.mech_interpret import read_mech_ct
 import logging
 
