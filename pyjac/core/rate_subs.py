@@ -29,7 +29,7 @@ from .. import utils
 from . import chem_model as chem
 from . import mech_interpret as mech
 from ..kernel_utils import kernel_gen as k_gen
-from ..sympy import sympy_utils as sp_utils
+from ..sympy_utils import sympy_utils as sp_utils
 from . reaction_types import reaction_type, falloff_form, thd_body_type, reversible_type
 
 def assign_rates(reacs, specs, rate_spec):
