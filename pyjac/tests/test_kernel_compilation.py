@@ -2,7 +2,7 @@ import os
 import filecmp
 from ..core.rate_subs import write_specrates_kernel, write_chem_utils
 from . import TestClass
-from ..loopy.loopy_utils import loopy_options
+from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library
 from ..core.mech_auxiliary import write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
