@@ -790,6 +790,30 @@ def handle_indicies(indicies, reac_ind, maps, kernel_data,
 
     return indicies
 
+class vecwith_fixer(object):
+    """
+    Simple utility class to force a constant vector width
+    even when the loop being vectorized is shorted than the desired width
+
+    clean : :class:`loopy.LoopyKernel`
+        The 'clean' version of the kernel, that will be used for
+        determination of the gridsize / vecwidth
+    vecwidth : int
+        The desired vector width
+    """
+    def __init__(self, clean, vecwidth):
+        self.clean = clean
+        self.vecwidth = vecwidth
+
+    def __call__(self, insn_ids, ignore_auto=False):
+        #fix for variable too small for vectorization
+        grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
+            insn_ids, ignore_auto=ignore_auto)
+        lsize = lsize if self.vecwidth is None else \
+                    self.vecwidth
+        return grid_size, (lsize,)
+
+
 def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None):
     """
     Applies wide / deep vectorization to a generic rateconst kernel
@@ -853,17 +877,9 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None)
         knl = vecspec(knl)
 
     if vec_width is not None:
-        def __ggs(insn_ids, ignore_auto=False):
-            #fix for variable too small for vectorization
-            grid_size, lsize = clean.get_grid_sizes_for_insn_ids(
-                insn_ids, ignore_auto=ignore_auto)
-            lsize = lsize if vec_width is None else \
-                        vec_width
-            return grid_size, (lsize,)
-
-        #finally apply the fix above
-        clean = knl.copy()
-        knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=__ggs)
+        #finally apply the vector width fix above
+        ggs = vecwith_fixer(knl.copy(), vec_width)
+        knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
     #now do unr / ilp
     if loopy_opts.unr is not None:

@@ -24,6 +24,8 @@ local_dict['IndexedFuncValue'] = sp_add.IndexedFunc.IndexedFuncValue
 enum_map = [reaction_type, thd_body_type, falloff_form, reversible_type]
 enum_map = {str(m.__name__) : m for m in enum_map}
 
+script_dir = os.path.abspath(os.path.dirname(__file__))
+
 def enum_from_str(condition):
     enum_class, enum_name = condition.split('.')
     if enum_class not in enum_map:
@@ -55,8 +57,6 @@ def load_equations(conp=True, check=False):
         If the variable is conditionally defined, eqn_list[variable] will be a sub-dictionary
         that contains definitions for sets of conditions of type `reaction_types`
     """
-
-    script_dir = os.path.abspath(os.path.dirname(__file__))
 
     var_list = []
     eqn_list = {}
