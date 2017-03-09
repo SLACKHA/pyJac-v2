@@ -50,7 +50,8 @@ class storage(object):
         self.P = np.random.uniform(0.5, 50, size=test_size) * ct.one_atm
         self.Y = np.random.uniform(0, 1, size=(self.gas.n_species, test_size))
         #randomly set some zeros for each species
-        self.Y[np.random.choice(self.Y.shape[0], size=gas.n_species), np.arange(gas.n_species)] = 0
+        self.Y[np.arange(gas.n_species),
+                np.random.choice(self.Y.shape[0], size=gas.n_species)] = 0
         self.concs = np.empty_like(self.Y)
         self.fwd_rate_constants = np.zeros((self.gas.n_reactions, test_size))
         self.fwd_rxn_rate = np.zeros((self.gas.n_reactions, test_size))

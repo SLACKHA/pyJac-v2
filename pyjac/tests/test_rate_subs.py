@@ -703,6 +703,10 @@ class SubTest(TestClass):
         rev_update_map = np.where(np.in1d(self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
         rev_removed = self.store.rev_rxn_rate.copy()
         rev_removed[rev_update_map, :] = rev_removed[rev_update_map, :] / self.store.ref_pres_mod[thd_in_rev, :]
+
+        #remove ref pres mod = 0 (this is a 0 rate)
+        fwd_removed[np.where(np.isnan(fwd_removed))] = 0
+        rev_removed[np.where(np.isnan(rev_removed))] = 0
         args={'rop_fwd' : lambda x: fwd_removed.copy() if x == 'F' else fwd_removed.T.copy(),
                 'rop_rev' : lambda x: rev_removed.copy() if x == 'F' else rev_removed.T.copy(),
                 'pres_mod' : lambda x: self.store.ref_pres_mod.copy() if x == 'F' else
