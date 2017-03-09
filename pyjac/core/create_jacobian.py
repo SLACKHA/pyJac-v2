@@ -132,9 +132,6 @@ def create_jacobian(lang,
         print('Error: autodifferention only supported for C')
         sys.exit(2)
 
-    if deep:
-        raise NotImplementedException()
-
     if auto_diff:
         skip_jac = True
 

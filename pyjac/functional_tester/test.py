@@ -15,6 +15,7 @@ import multiprocessing
 import shutil
 import gc
 from collections import defaultdict, OrderedDict
+import logging
 
 from string import Template
 
@@ -310,11 +311,10 @@ def functional_tester(work_dir):
                     split_rop_net_kernels=split_kernels,
                     output_full_rop=True
                     )
-            except:
-                print('generation failed...')
-                print(i, state)
-                print()
-                print()
+            except Exception as e:
+                logging.exception(e)
+                logging.warn('generation failed...')
+                logging.warn(i, state)
                 continue
 
             #generate wrapper
