@@ -65,6 +65,7 @@ def get_test_matrix(work_dir):
                   ('vecsize', vec_widths),
                   ('order', ['F', 'C']),
                   ('wide', [True, False]),
+                  ('deep', [True, False]),
                   ('platform', platforms),
                   ('rate_spec', rate_spec),
                   ('split_kernels', [True, False]),
