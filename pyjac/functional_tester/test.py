@@ -258,6 +258,10 @@ def functional_tester(work_dir):
             if rate_spec == 'fixed' and split_kernels:
                 continue #not a thing!
 
+            if deep and wide:
+                #can't do both simultaneously
+                continue
+
             data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
                             'w' if wide else 'd' if deep else 'par',
                             platform, rate_spec, 'split' if split_kernels else 'single',
