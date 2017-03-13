@@ -88,6 +88,7 @@ def distutils_dir_name(dname):
                     )
 
 
+home_dir = os.path.abspath(os.path.dirname(__file__))
 def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=False,
     platform='', output_full_rop=False):
     """Generates a Python wrapper for the given language and source files
@@ -117,7 +118,6 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
     """
 
     source_dir = os.path.normpath(source_dir)
-    home_dir = os.path.abspath(os.path.dirname(__file__))
 
     if out_dir is None:
         out_dir = os.getcwd()
