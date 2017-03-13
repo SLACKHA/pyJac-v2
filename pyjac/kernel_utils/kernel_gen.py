@@ -718,6 +718,9 @@ ${name} : ${type}
             knl = lp.fix_parameters(knl, **info.parameters)
         #prioritize and return
         knl = lp.prioritize_loops(knl, inames)
+        #check manglers
+        if info.manglers:
+            knl = lp.register_function_manglers(knl, info.manglers)
         return knl
 
 def handle_indicies(indicies, reac_ind, maps, kernel_data,
@@ -934,7 +937,8 @@ class knl_info(object):
             assumptions=[], parameters={},
             extra_subs={},
             force_vectorize=None,
-            vectorization_specializer=None):
+            vectorization_specializer=None,
+            manglers=[]):
         self.name = name
         self.instructions = instructions
         self.pre_instructions = pre_instructions[:]
@@ -949,6 +953,7 @@ class knl_info(object):
         self.extra_subs = extra_subs
         self.force_vectorize = force_vectorize
         self.vectorization_specializer = vectorization_specializer
+        self.manglers = []
 
 class MangleGen(object):
     def __init__(self, name, arg_dtypes, result_dtypes):

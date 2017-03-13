@@ -2430,16 +2430,10 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
         ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
     end
     ${Fcent_str} = ${Fcent_temp} {id=Fcent_decl3, dep=Fcent_decl2}
-    <> Fcent_val = 1e-300 {id=Fcv}
-    if ${Fcent_temp} > 1e-300
-        Fcent_val = ${Fcent_temp} {id=Fcv2, dep=Fcent_decl*:Fcv}
-    end
-    <>Pr_val = 1e-300 {id=Prv}
-    if ${Pr_str} > 1e-300
-        Pr_val = ${Pr_str} {id=Prv2, dep=Prv}
-    end
-    <>logFcent = log10(Fcent_val) {dep=Fcv2}
-    <>logPr = log10(Pr_val) {dep=Prv2}
+    <> Fcent_val = fmax(${Fcent_temp}, 1e-300) {id=Fcv}
+    <>Pr_val = fmax(${Pr_str}, 1e-300) {id=Prv}
+    <>logFcent = log10(Fcent_val) {dep=Fcv}
+    <>logPr = log10(Pr_val) {dep=Prv}
     <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*}
     <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*}
     ${Atroe_str} = Atroe_temp #this must be a temporary to avoid a race on future assignments
@@ -2469,7 +2463,10 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
                      kernel_data=kernel_data,
                      indicies=indicies,
                      maps=maps,
-                     extra_subs={'reac_ind' : reac_ind})]
+                     extra_subs={'reac_ind' : reac_ind},
+                     manglers=[
+                        k_gen.MangleGen('fmax', (np.float64, np.float64),
+                            np.float64)])]
 
 
 def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
