@@ -1308,7 +1308,8 @@ ${pres_mod} = ${thd_conc}
     #find the falloff -> thd map
     map_name = 'pres_mod_map'
     pres_mod_ind = 'pres_mod_ind'
-    pres_mod_map = np.where(np.in1d(rate_info['thd']['map'], rate_info['fall']['map']))[0]
+    pres_mod_map = np.array(
+        np.where(np.in1d(rate_info['thd']['map'], rate_info['fall']['map']))[0], dtype=np.int32)
     pres_mod_map, pres_mod_str = __1Dcreator(map_name, pres_mod_map, '${pres_mod_ind}')
     fall_maplist.append(lp_utils.generate_map_instruction(
                                         newname=pres_mod_ind,
