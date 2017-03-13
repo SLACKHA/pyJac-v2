@@ -953,13 +953,17 @@ class knl_info(object):
         self.extra_subs = extra_subs
         self.force_vectorize = force_vectorize
         self.vectorization_specializer = vectorization_specializer
-        self.manglers = []
+        self.manglers = manglers[:]
 
 class MangleGen(object):
     def __init__(self, name, arg_dtypes, result_dtypes):
         self.name = name
-        self.arg_dtypes = arg_dtypes
+        from loopy.types import to_loopy_type
+        self.arg_dtypes = tuple(to_loopy_type(x) for x in arg_dtypes)
         self.result_dtypes = result_dtypes
+        if not isinstance(self.result_dtypes, tuple):
+            self.result_dtypes = (self.result_dtypes,)
+        self.result_dtypes = tuple(to_loopy_type(x) for x in self.result_dtypes)
 
     def __call__(self, kernel, name, arg_dtypes):
         if name != self.name:

@@ -2430,8 +2430,8 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
         ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
     end
     ${Fcent_str} = ${Fcent_temp} {id=Fcent_decl3, dep=Fcent_decl2}
-    <> Fcent_val = fmax(${Fcent_temp}, 1e-300) {id=Fcv}
-    <>Pr_val = fmax(${Pr_str}, 1e-300) {id=Prv}
+    <> Fcent_val = fmax(${Fcent_temp}, 1e-300d) {id=Fcv, dep=Fcent_decl3}
+    <>Pr_val = fmax(${Pr_str}, 1e-300d) {id=Prv}
     <>logFcent = log10(Fcent_val) {dep=Fcv}
     <>logPr = log10(Pr_val) {dep=Prv}
     <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*}
