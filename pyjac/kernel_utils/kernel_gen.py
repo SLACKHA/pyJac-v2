@@ -956,24 +956,30 @@ class knl_info(object):
         self.manglers = manglers[:]
 
 class MangleGen(object):
+    def __tuple_gen(self, vals):
+        if isinstance(vals, tuple):
+            return vals
+        return (vals,)
+
     def __init__(self, name, arg_dtypes, result_dtypes):
         self.name = name
-        from loopy.types import to_loopy_type
-        self.arg_dtypes = tuple(to_loopy_type(x) for x in arg_dtypes)
-        self.result_dtypes = result_dtypes
-        if not isinstance(self.result_dtypes, tuple):
-            self.result_dtypes = (self.result_dtypes,)
-        self.result_dtypes = tuple(to_loopy_type(x) for x in self.result_dtypes)
+        self.arg_dtypes = self.__tuple_gen(arg_dtypes)
+        self.result_dtypes = self.__tuple_gen(result_dtypes)
 
     def __call__(self, kernel, name, arg_dtypes):
         if name != self.name:
             return None
-        assert arg_dtypes == self.arg_dtypes
+        from loopy.types import to_loopy_type
         from loopy.kernel.data import CallMangleInfo
+        #check types
+        assert tuple(to_loopy_type(x) for x in self.arg_dtypes) == arg_dtypes
+        #get target for creation
+        target = arg_dtypes[0].target
         return CallMangleInfo(
             target_name=self.name,
-            result_dtypes=self.result_dtypes,
-            arg_dtypes=self.arg_dtypes)
+            result_dtypes=tuple(to_loopy_type(x, target=target) for x in
+                self.result_dtypes),
+            arg_dtypes=arg_dtypes)
 
 
 def create_function_mangler(kernel, return_dtypes=()):
