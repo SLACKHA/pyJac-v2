@@ -221,7 +221,7 @@ def set_editor(knl):
 
     return edit_knl
 
-def get_code(knl):
+def get_code(knl, return_idi=False):
     """
     Returns the device code for a :class:`loopy.LoopKernel`
 
@@ -229,6 +229,8 @@ def get_code(knl):
     ----------
     knl : :class:`loopy.LoopKernel`
         The kernel to generate code for
+    return_idi : bool
+        If true, return implemented data info from loopy
 
     Returns
     -------
@@ -239,8 +241,11 @@ def get_code(knl):
     The kernel's Target and name should be set for proper functioning
     """
 
-    code, _ = lp.generate_code(knl)
-    return codefix('stdin', text_in=code)
+    code, idi = lp.generate_code(knl)
+    code = codefix('stdin', text_in=code)
+    if return_idi:
+        return code, idi
+    return code
 
 class kernel_call(object):
     """

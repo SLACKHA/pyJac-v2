@@ -507,6 +507,21 @@ ${name} : ${type}
             #now replace
             self.kernels[my_knl_ind] = knl
 
+        import pdb; pdb.set_trace()
+        #now find kernel data dependencies
+        codes, idis = zip(*[lp_utils.get_code(knl, True) for knl in self.kernels])
+        depend_list = []
+        for i in reversed(range(len(self.kernels))):
+            #find all non constant args here
+            written_args = [var for var in idis[i] if var.is_written]
+            #now scan for previous kernels where this arg is written
+            for j in reversed(range(i)):
+                overlap = [x for x in idis[j] if next(y for y in written_args if x.name == y.name) and x.is_written]
+                if overlap:
+                    for o in overlap:
+                        depend_list.append((o.name, j, i))
+
+
         #now scan through all our (and externel) kernels
         #and compile the args
         defines = [arg for knl in self.kernels for arg in knl.args if
