@@ -195,10 +195,7 @@ def get_header(knl):
     -----
     The kernel's Target and name should be set for proper functioning
     """
-    code, _ = lp.generate_code(knl)
-    header = next(line for line in code.split('\n') if
-        re.search(r'(?:__kernel(__)?)?\s*void', line))
-    return header
+    return lp.generate_header(knl)[0]
 
 def set_editor(knl):
     """
