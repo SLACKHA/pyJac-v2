@@ -501,9 +501,6 @@ ${name} : ${type}
             file_str = file.read()
             file_src = Template(file_str)
 
-        #Find the list of all arguements needed for this kernel
-        #this may change in the future
-
         kernel_data = []
         #need to find mapping of externel kernels to depends
         for x in self.external_kernels:
@@ -530,66 +527,16 @@ ${name} : ${type}
         import pdb; pdb.set_trace()
         knl = lp.fuse_kernels(self.kernels, data_flow=depend_list,
             duplicate_intialized=False, collapse_insns_ids=pre_inst.keys())
-
-        #now scan through all our (and externel) kernels
-        #and compile the args
-        defines = [arg for knl in self.kernels for arg in knl.args if
-                        not isinstance(arg, lp.TemporaryVariable)]
-        self.all_arrays = kernel_data[:]
-        self.mem.add_arrays(kernel_data)
-
-        #generate the kernel definition
-        self.vec_width = self.loopy_opts.depth
-        if self.vec_width is None:
-            self.vec_width = self.loopy_opts.width
-        if self.vec_width is None:
-            self.vec_width = 0
-        #create a dummy kernel to get the defn
-        knl = lp.make_kernel('{{[i, j]: 0 <= i,j < {}}}'.format(self.vec_width),
-            '<>temp = i',
-            kernel_data,
-            name=self.name,
-            target=lp_utils.get_target(self.lang, self.loopy_opts.device)
-            )
-        if self.vec_width:
-            knl = lp.tag_inames(knl, [('i', 'l.0')])
+        knl = knl.copy(name=self.name)
         defn_str = lp_utils.get_header(knl)
-
-        #next create the call instructions
-        def __gen_call(knl, idx, condition=None):
-            call = Template('${name}(${args})${end}').safe_substitute(
-                    name=knl.name,
-                    args=','.join([arg.name for arg in knl.args
-                            if not isinstance(arg, lp.TemporaryVariable)]),
-                    end=utils.line_end[self.lang]
-                    #dep='id=call_{}{}'.format(idx, ', dep=call_{}'.format(idx - 1) if idx > 0 else '')
-                )
-            if condition:
-                call = Template(
-    """
-    #ifdef ${cond}
-        ${call}
-    #endif
-    """            ).safe_substitute(cond=condition, call=call)
-            return call
-
-        instructions = '\n'.join(__gen_call(knl, i)
-            for i, knl in enumerate(self.kernels))
-
-        #and finally, generate the additional kernels [excluding additional knls]
-        additional_kernels = '\n'.join([lp_utils.get_code(k) for k in self.kernels
-            if not any(y.name == k.name for y in self.external_kernels)])
 
         self.filename = os.path.join(path,
                             self.file_prefix + self.name + utils.file_ext[self.lang])
         #create the file
         with filew.get_file(self.filename, self.lang, include_own_header=True) as file:
-            instructions = _find_indent(file_str, 'body', instructions)
             lines = file_src.safe_substitute(
                         defines='',
-                        func_define=defn_str,
-                        body=instructions,
-                        additional_kernels=additional_kernels).split('\n')
+                        knl=lp_utils.get_code(knl)).split('\n')
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
@@ -598,12 +545,11 @@ ${name} : ${type}
                 file.add_headers([x.name for x in self.depends_on])
 
         #and the header file
-        headers = [lp_utils.get_header(knl) + utils.line_end[self.lang]
-                        for knl in self.kernels] + [defn_str + utils.line_end[self.lang]]
+        headers = [defn_str]
         with filew.get_header_file(os.path.join(path, self.file_prefix + self.name
                                  + utils.header_ext[self.lang]), self.lang) as file:
 
-            lines = '\n'.join(headers).split('\n')
+            lines = headers
             if self.auto_diff:
                 file.add_headers('adept.h')
                 file.add_lines('using adept::adouble;\n')
