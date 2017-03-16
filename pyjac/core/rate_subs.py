@@ -536,7 +536,7 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
         #remove dummy sync of end accumulator on updates
         instruction_list = [insn if insn.id != 'sum_0'
             else insn.copy(no_sync_with=insn.no_sync_with |
-                frozenset([('sum_i_update', 'any')]))
+                frozenset([('sum_itemperature_rate_update', 'any')]))
             for insn in instruction_list]
         return knl.copy(instructions=instruction_list)
     vec_spec = __vec_spec

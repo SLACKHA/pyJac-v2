@@ -131,9 +131,6 @@ class wrapping_kernel_generator(object):
         None
         """
 
-        #TODO: need to update loopy to allow pointer args
-        #to functions, in the meantime use a OpenCL Template
-
         #now create the kernels!
         target = lp_utils.get_target(self.lang, self.loopy_opts.device)
         for i, info in enumerate(self.kernels):
@@ -141,6 +138,10 @@ class wrapping_kernel_generator(object):
                 continue
             #create kernel from k_gen.knl_info
             self.kernels[i] = self.make_kernel(info, target, self.test_size)
+            #rename inames for fusion
+            self.kernels[i] = lp.rename_iname(self.kernels[i],
+                info.var_name, info.var_name + self.kernels[i].name)
+            info.var_name += self.kernels[i].name
             #apply vectorization
             self.kernels[i] = apply_vectorization(self.loopy_opts,
                 info.var_name, self.kernels[i], vecspec=info.vectorization_specializer,
@@ -528,6 +529,8 @@ ${name} : ${type}
         knl = lp.fuse_kernels(self.kernels, data_flow=depend_list,
             duplicate_intialized=False, collapse_insns_ids=pre_inst.keys())
         knl = knl.copy(name=self.name)
+        knl = lp.prioritize_loops(knl, 'j' if not self.loopy_opts.width
+            else 'j_outer,j_inner')
         defn_str = lp_utils.get_header(knl)
 
         self.filename = os.path.join(path,
@@ -672,7 +675,7 @@ ${name} : ${type}
         if info.parameters:
             knl = lp.fix_parameters(knl, **info.parameters)
         #prioritize and return
-        knl = lp.prioritize_loops(knl, inames)
+        knl = lp.prioritize_loops(knl, 'j')
         #check manglers
         if info.manglers:
             knl = lp.register_function_manglers(knl, info.manglers)
