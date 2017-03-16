@@ -2767,15 +2767,6 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
     #the reaction index variable
     reac_ind = 'i'
 
-    #get rate equations
-    rate_eqn_pre = get_rate_eqn(eqs)
-    rate_eqn_pre = sp_utils.sanitize(rate_eqn_pre,
-                        symlist= {
-                            'A[i]' : A_name + '[i]',
-                            'Ta[i]' : Ta_name + '[i]',
-                            'beta[i]' : b_name + '[i]',
-                            })
-
     #put rateconst info args in dict for unpacking convenience
     extra_args = {'kernel_data' : simple_arrhenius_data,
                   'var_name' : reac_ind,
@@ -2787,37 +2778,67 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
     kf_assign = Template("${kf_str} = ${rate}")
     expkf_assign = Template("${kf_str} = exp(${rate})")
 
+    def get_instructions(rtype, index='i'):
+        #get rate equations
+        rate_eqn_pre = get_rate_eqn(eqs, index=index)
+        index_str = '[{}]'.format(index)
+        rate_eqn_pre = sp_utils.sanitize(rate_eqn_pre,
+                            symlist= {
+                                'A' + index_str : A_name + index_str,
+                                'Ta' + index_str : Ta_name + index_str,
+                                'beta' + index_str : b_name + index_str,
+                                })
+
+        #the simple formulation
+        if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
+            return expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
+
+        #otherwise check type and return appropriate
+        if rtype == 0:
+            return kf_assign.safe_substitute(rate=A_name + index_str)
+        elif rtype == 1:
+            return Template(
+                """
+                <> T_val = T_arr[j] {id=a1}
+                <> negval = ${b_name}[${index}] < 0
+                if negval
+                    T_val = T_inv {id=a2, dep=a1}
+                end
+                <>kf_temp = ${A_name}[${index}] {id=a3, dep=a2}
+                ${beta_iter}
+                """).safe_substitute(index=index, A_name=A_name,
+                b_name=b_name)
+        elif rtype == 2:
+            return expkf_assign.safe_substitute(
+                rate=str(rate_eqn_pre.subs(Ta_name + index_str, 0)))
+        elif rtype == 3:
+            return expkf_assign.safe_substitute(
+                rate=str(rate_eqn_pre.subs(b_name + index_str, 0)))
+
+
     #various specializations of the rate form
     specializations = {}
     i_a_only = k_gen.knl_info(name='a_only{}'.format(name_mod),
-        instructions=kf_assign.safe_substitute(rate='${A_name}[i]'),
+        instructions='',
         **extra_args)
 
     #the default is a single multiplication
     #if needed, this will be expanded to a for-loop multiplier
     beta_iter = "${kf_str} = kf_temp * T_val {id=a4, dep=a3}"
     i_beta_int = k_gen.knl_info(name='beta_int{}'.format(name_mod),
+        instructions='',
         pre_instructions=[k_gen.TINV_PREINST_KEY],
-        instructions="""
-        <> T_val = T_arr[j] {id=a1}
-        <> negval = ${b_name}[i] < 0
-        if negval
-            T_val = T_inv {id=a2, dep=a1}
-        end
-        <>kf_temp = ${A_name}[i] {id=a3, dep=a2}
-        ${beta_iter}
-        """,
         **extra_args)
     i_beta_exp = k_gen.knl_info('rateconst_beta_exp{}'.format(name_mod),
-        instructions=expkf_assign.safe_substitute(rate=str(rate_eqn_pre.subs(Ta_name + '[i]', 0))),
+        instructions='',
         pre_instructions=default_preinstructs,
         **extra_args)
     i_ta_exp = k_gen.knl_info('rateconst_ta_exp{}'.format(name_mod),
-        instructions=expkf_assign.safe_substitute(rate=str(rate_eqn_pre.subs(b_name + '[i]', 0))),
+        instructions='',
         pre_instructions=default_preinstructs,
         **extra_args)
     i_full = k_gen.knl_info('rateconst_full{}'.format(name_mod),
-        instructions=expkf_assign.safe_substitute(rate=str(rate_eqn_pre)),
+        instructions='',
         pre_instructions=default_preinstructs,
         **extra_args)
 
@@ -2841,7 +2862,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
             inds = set()
             for i in specializations:
                 instruction_list.append('if rtype{1}[i] == {0}'.format(i, name_mod))
-                instruction_list.extend(['\t' + x for x in specializations[i].instructions.split('\n')])
+                instruction_list.extend(['\t' + x for x in get_instructions(
+                    i).split('\n') if x.strip()])
                 instruction_list.append('end')
         #and combine them
         specializations = {-1 : k_gen.knl_info('rateconst_singlekernel{}'.format(name_mod),
@@ -2877,7 +2899,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
                     #add an extra iname, and the resulting iteraton loop
                     info.extra_inames.append(('k', '0 <= k < b_end'))
                     beta_iter = """
-                <> b_end = abs(${b_name}[i])
+                <> b_end = abs(${b_name}[${index}])
                 for k
                     kf_temp = kf_temp * T_val {id=a4, dep=a3}
                 end
@@ -2900,15 +2922,16 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
                       output_indicies=out_inds,
                       outmap_name=outmap_name)
 
-        kf_ind = info.var_name
+        index = info.var_name
         #handle input mapping info if needed
         if info.var_name in maps:
             info.maps.append(lp_utils.generate_map_instruction(
-                dummy_in_index, info.var_name, inmap_name))
+                info.var_name, dummy_in_index, inmap_name))
             #change the var_name
-            info.var_name = dummy_in_index
+            index = dummy_in_index
+        kf_ind = index
         #handle output mapping info if needed
-        if kf_ind + '_out' in maps:
+        if info.var_name + '_out' in maps:
             #need to map from the actual loop index
             info.maps.append(lp_utils.generate_map_instruction(
                 info.var_name, dummy_out_index, outmap_name))
@@ -2922,14 +2945,18 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
                         order=loopy_opts.order)
         info.kernel_data.append(kf_arr)
 
+        if rtype >= 0:
+            info.instructions = get_instructions(rtype, index=index)
+
         #substitute in whatever beta_iter / kf_str we found
-        info.instructions = Template(
-                        Template(info.instructions).safe_substitute(
-                            beta_iter=beta_iter)
-                    ).safe_substitute(kf_str=kf_str,
+        info.instructions = Template(info.instructions).safe_substitute(
+                                beta_iter=beta_iter)
+        info.instructions = Template(info.instructions).safe_substitute(
+                                      kf_str=kf_str,
                                       A_name=A_name,
                                       b_name=b_name,
-                                      Ta_name=Ta_name)
+                                      Ta_name=Ta_name,
+                                      index=index)
         out_specs[rtype] = info
 
     return list(out_specs.values())
