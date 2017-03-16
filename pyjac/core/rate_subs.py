@@ -501,14 +501,13 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
 
     upper, lower = separate(term)
 
-    pre_instructions = Template("""
-    ${omega_dot_str} = ${factor} * simul_reduce(sum, ${var_name}, ${upper_term}) / simul_reduce(sum, ${var_name}, ${lower_term}) {id=sum, dep=*}
-    """).safe_substitute(
+    pre_instructions = Template(
+    '${omega_dot_str} = ${factor} * simul_reduce(sum, ${var_name}, ${upper_term})'
+    ' / simul_reduce(sum, ${var_name}, ${lower_term}) {id=sum}'
+    ).safe_substitute(
         omega_dot_str=omega_dot_str,
         factor=factor)
     pre_instructions = Template(pre_instructions).safe_substitute(omega_ind=0)
-
-    instructions = ''
 
     instructions = Template(pre_instructions).safe_substitute(
         upper_term=upper,
@@ -526,15 +525,19 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
     #we need to specialize if we're doing a wide vectorization
     #or no vectorization, as it also uses 'j' parallelism
     def __vec_spec(knl):
-        name = 'sum_i_update'
         #split the reduction
         knl = lp.split_reduction_outward(knl, 'j_outer')
         #and aremove the sum_0 barrier
-        knl = lp.preprocess_kernel(knl)
-        instruction_list = [insn if insn.id != 'sum_0'
-            else insn.copy(no_sync_with=
-                insn.no_sync_with | frozenset([(name, 'any')]))
+        knl = lp.realize_reduction(knl)
+        #remove depends of update on end accumulator
+        instruction_list = [insn if 'update' not in insn.id
+            else insn.copy(depends_on_is_final=True)
             for insn in knl.instructions]
+        #remove dummy sync of end accumulator on updates
+        instruction_list = [insn if insn.id != 'sum_0'
+            else insn.copy(no_sync_with=insn.no_sync_with |
+                frozenset([('sum_i_update', 'any')]))
+            for insn in instruction_list]
         return knl.copy(instructions=instruction_list)
     vec_spec = __vec_spec
 
