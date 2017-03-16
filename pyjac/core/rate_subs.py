@@ -2424,7 +2424,6 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
     #make the instructions
     troe_instructions = Template(
     """
-    <>T = T_arr[j]
     <>${Fcent_temp} = ${Fcent_base_eq} {id=Fcent_decl} #this must be a temporary to avoid a race on future assignments
     if ${troe_T2_str} != 0
         ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
@@ -2466,7 +2465,8 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
                      extra_subs={'reac_ind' : reac_ind},
                      manglers=[
                         k_gen.MangleGen('fmax', (np.float64, np.float64),
-                            np.float64)])]
+                            np.float64)],
+                     pre_instructions=[k_gen.TASS_PREINST_KEY])]
 
 
 def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
@@ -2585,7 +2585,6 @@ def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
 
     #create instruction set
     sri_instructions = Template(Template("""
-<>T = T_arr[j]
 <>Pr_val = 1e-300 {id=Pri}
 if ${pr_str} > 1e-300
     Pr_val = ${pr_str} {id=Prv, dep=Pri}
@@ -2619,7 +2618,8 @@ ${X_str} = X_temp
                      kernel_data=kernel_data,
                      indicies=indicies,
                      maps=maps,
-                     extra_subs={'reac_ind' : reac_ind})]
+                     extra_subs={'reac_ind' : reac_ind},
+                     pre_instructions=[k_gen.TASS_PREINST_KEY])]
 
 def get_lind_kernel(eqs, loopy_opts, rate_info, test_size=None):
     """Generates instructions, kernel arguements, and data for the Lindeman
@@ -3217,7 +3217,7 @@ def polyfit_kernel_gen(nicename, eqs, specs,
         T_mid[ind] = spec.Trange[1]
 
     #get correctly ordered arrays / strings
-    indicies = ['k', '${param_val}']
+    indicies = ['i', '${param_val}']
     a_lo_lp = lp.TemporaryVariable('a_lo', shape=a_lo.shape, initializer=a_lo,
         scope=scopes.GLOBAL, read_only=True)
     a_hi_lp = lp.TemporaryVariable('a_hi', shape=a_hi.shape, initializer=a_hi,
@@ -3238,7 +3238,7 @@ def polyfit_kernel_gen(nicename, eqs, specs,
     #create the input arrays arrays
     T_lp = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
     out_lp, out_str, _ = lp_utils.get_loopy_arg(nicename,
-                    indicies=['k', 'j'],
+                    indicies=['i', 'j'],
                     dimensions=(Ns, test_size),
                     order=loopy_opts.order)
 
@@ -3249,9 +3249,8 @@ def polyfit_kernel_gen(nicename, eqs, specs,
 
     return k_gen.knl_info(instructions=Template("""
         for j
-            <> T = T_arr[j]
-            for k
-                if T < T_mid[k]
+            for i
+                if T < T_mid[i]
                     ${out_str} = ${lo_eq}
                 else
                     ${out_str} = ${hi_eq}
@@ -3262,8 +3261,9 @@ def polyfit_kernel_gen(nicename, eqs, specs,
         kernel_data=knl_data,
         name='eval_{}'.format(nicename),
         parameters={'R_u' : chem.RU},
-        var_name='k',
-        indicies=k_gen.handle_indicies(np.arange(Ns, dtype=np.int32), 'k', None, []))
+        var_name='i',
+        indicies=k_gen.handle_indicies(np.arange(Ns, dtype=np.int32), 'i', None, []),
+        pre_instructions=[k_gen.TASS_PREINST_KEY])
 
 
 def write_chem_utils(specs, eqs, loopy_opts,

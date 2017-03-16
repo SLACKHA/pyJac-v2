@@ -24,6 +24,12 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 TINV_PREINST_KEY = 'Tinv'
 TLOG_PREINST_KEY = 'logT'
 PLOG_PREINST_KEY = 'logP'
+TASS_PREINST_KEY = 'Tass'
+#precompute instructions
+pre_inst = {TINV_PREINST_KEY : '<> T_inv = 1 / T_arr[j] {{id = {}}}'.format(TINV_PREINST_KEY),
+            TLOG_PREINST_KEY : '<> logT = log(T_arr[j]) {{id = {}}}'.format(TLOG_PREINST_KEY),
+            PLOG_PREINST_KEY : '<> logP = log(P_arr[j]) {{id = {}}}'.format(PLOG_PREINST_KEY),
+            TASS_PREINST_KEY : '<> T = T_arr[j] {{id = {}}}'.format(TASS_PREINST_KEY)}
 
 class wrapping_kernel_generator(object):
     def __init__(self, loopy_opts, name, kernels,
@@ -507,7 +513,6 @@ ${name} : ${type}
             #now replace
             self.kernels[my_knl_ind] = knl
 
-        import pdb; pdb.set_trace()
         #now find kernel data dependencies
         codes, idis = zip(*[lp_utils.get_code(knl, True) for knl in self.kernels])
         depend_list = []
@@ -516,26 +521,20 @@ ${name} : ${type}
             written_args = [var for var in idis[i] if var.is_written]
             #now scan for previous kernels where this arg is written
             for j in reversed(range(i)):
-                overlap = [x for x in idis[j] if next(y for y in written_args if x.name == y.name) and x.is_written]
+                overlap = [x for x in idis[j] if next((y for y in written_args if x.name == y.name), None) and x.is_written]
                 if overlap:
                     for o in overlap:
                         depend_list.append((o.name, j, i))
 
+        #fuse kernels
+        import pdb; pdb.set_trace()
+        knl = lp.fuse_kernels(self.kernels, data_flow=depend_list,
+            duplicate_intialized=False, collapse_insns_ids=pre_inst.keys())
 
         #now scan through all our (and externel) kernels
         #and compile the args
         defines = [arg for knl in self.kernels for arg in knl.args if
                         not isinstance(arg, lp.TemporaryVariable)]
-        nameset = sorted(set(d.name for d in defines))
-        args = []
-        for name in nameset:
-            #check for dupes
-            same_name = [x for x in defines if x.name == name]
-            assert all(same_name[0] == y for y in same_name[1:])
-            same_name = same_name[0]
-            same_name.read_only = False
-            kernel_data.append(same_name)
-
         self.all_arrays = kernel_data[:]
         self.mem.add_arrays(kernel_data)
 
@@ -629,11 +628,6 @@ ${name} : ${type}
         knl : :class:`loopy.LoopKernel`
             The generated loopy kernel
         """
-
-        #various precomputes
-        pre_inst = {TINV_PREINST_KEY : '<> T_inv = 1 / T_arr[j]',
-                    TLOG_PREINST_KEY : '<> logT = log(T_arr[j])',
-                    PLOG_PREINST_KEY : '<> logP = log(P_arr[j])'}
 
         #and the skeleton kernel
         skeleton = """
