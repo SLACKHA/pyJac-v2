@@ -195,7 +195,7 @@ def get_header(knl):
     -----
     The kernel's Target and name should be set for proper functioning
     """
-    return lp.generate_header(knl)[0]
+    return str(lp.generate_header(knl)[0])
 
 def set_editor(knl):
     """
