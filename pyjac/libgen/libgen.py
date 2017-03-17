@@ -50,10 +50,6 @@ libs = dict(c=['-lm', '-fopenmp'],
             opencl=['-l' + x for x in site.CL_LIBNAME]
             )
 
-lib_dirs = dict(c=[],
-                cuda=get_cuda_path(),
-                opencl=site.CL_LIB_DIR)
-
 
 def which(file):
     """A substitute for the `which` command, searches the PATH for
@@ -63,6 +59,37 @@ def which(file):
                 return os.path.join(path, file)
 
     return None
+
+
+def get_cuda_path():
+    """Returns location of CUDA (nvcc) on the system.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    cuda_path : str
+        Path where CUDA (nvcc) is found on the system.
+
+    """
+    cuda_path = which('nvcc')
+    if cuda_path is None:
+        print('nvcc not found!')
+        sys.exit(-1)
+
+    sixtyfourbit = platform.architecture()[0] == '64bit'
+    cuda_path = os.path.dirname(os.path.dirname(cuda_path))
+    cuda_path = os.path.join(cuda_path,
+                             'lib{}'.format('64' if sixtyfourbit else '')
+                             )
+    return [cuda_path]
+
+
+lib_dirs = dict(c=[],
+                cuda=get_cuda_path(),
+                opencl=site.CL_LIB_DIR)
 
 
 def compiler(fstruct):
@@ -117,32 +144,6 @@ def compiler(fstruct):
               )
         return -1
     return 0
-
-
-def get_cuda_path():
-    """Returns location of CUDA (nvcc) on the system.
-
-    Parameters
-    ----------
-    None
-
-    Returns
-    -------
-    cuda_path : str
-        Path where CUDA (nvcc) is found on the system.
-
-    """
-    cuda_path = which('nvcc')
-    if cuda_path is None:
-        print('nvcc not found!')
-        sys.exit(-1)
-
-    sixtyfourbit = platform.architecture()[0] == '64bit'
-    cuda_path = os.path.dirname(os.path.dirname(cuda_path))
-    cuda_path = os.path.join(cuda_path,
-                             'lib{}'.format('64' if sixtyfourbit else '')
-                             )
-    return [cuda_path]
 
 
 def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):

@@ -86,7 +86,7 @@ class loopy_options(object):
                     rop_net_kernels=False,
                     spec_rates_sum_over_reac=True,
                     platform='',
-                    knl_type=None):
+                    knl_type='map'):
         self.width = width
         self.depth = depth
         self.ilp = ilp
