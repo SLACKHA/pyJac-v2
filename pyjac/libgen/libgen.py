@@ -52,7 +52,7 @@ libs = dict(c=['-lm', '-fopenmp'],
 
 lib_dirs = dict(c=[],
                 cuda=get_cuda_path(),
-                opencl=site.CL_PATHS)
+                opencl=site.CL_LIB_DIR)
 
 
 def which(file):
