@@ -42,7 +42,7 @@ class loopy_options(object):
         If not None, the unroll length to apply to the species loop. Cannot be specified along with ilp
     order : {'C', 'F'}
         The memory layout of the arrays, C (row major) or Fortran (column major)
-    lang : {'opencl', 'c', 'cuda'}
+    lang : ['opencl', 'c', 'cuda']
         One of the supported languages
     rate_spec : RateSpecialization
         Controls the level to which Arrenhius rate evaluations are specialized
@@ -72,6 +72,12 @@ class loopy_options(object):
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be used
         *   If a vendor specific string, it will be passed to pyopencl to get the platform
+    knl_type : ['mask', 'map']
+        The type of opencl kernels to create:
+        * A masked kernel loops over all available indicies (e.g. reactions) and uses a
+            mask to determine what to do.  Note: **Required for deep vectorization**
+        * A mapped kernel loops over only necessary indicies (e.g. plog reactions vs all)
+            This may be faster for a non-vectorized or wide-vectorization
     """
     def __init__(self, width=None, depth=None, ilp=False,
                     unr=None, lang='opencl', order='C',
@@ -79,7 +85,8 @@ class loopy_options(object):
                     rate_spec_kernels=False,
                     rop_net_kernels=False,
                     spec_rates_sum_over_reac=True,
-                    platform=''):
+                    platform='',
+                    knl_type=None):
         self.width = width
         self.depth = depth
         self.ilp = ilp
@@ -95,6 +102,8 @@ class loopy_options(object):
         self.platform = platform
         self.device_type = None
         self.device = None
+        assert knl_type in ['mask', 'map']
+        self.knl_type = knl_type
         #need to find the first platform that has the device of the correct
         #type
         if self.platform:
@@ -120,12 +129,12 @@ class loopy_options(object):
                     pass
             if not self.platform:
                 raise Exception('Cannot find matching platform for string: {}'.format(platform))
+            #finally a matching device
             self.device = self.platform.get_devices(device_type=self.device_type)
             if not self.device:
                 raise Exception('Cannot find devices of type {} on platform {}'.format(self.device_type, self.platform))
             self.device = self.device[0]
             self.device_type = self.device.get_info(cl.device_info.TYPE)
-        #finally a matching device
 
 def get_device_list():
     """
