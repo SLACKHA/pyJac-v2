@@ -34,7 +34,8 @@ class wrapping_kernel_generator(object):
         test_size=None,
         auto_diff=False,
         depends_on=[],
-        array_props={}):
+        array_props={},
+        barriers=[]):
         """
         Parameters
         ----------
@@ -63,6 +64,8 @@ class wrapping_kernel_generator(object):
             Mapping of various switches to array names:
                 doesnt_need_init
                     * Arrays in this list do not need initialization [defined for host arrays only]
+        barriers : list of tuples
+            List of global memory barriers needed, (knl1, knl2, barrier_type)
         """
 
         self.loopy_opts = loopy_opts
@@ -82,6 +85,10 @@ class wrapping_kernel_generator(object):
                                         '${arg_index}, ${arg_size}, ${arg_value})'))
         self.set_knl_arg_value_template = Template(self.mem.get_check_err_call('clSetKernelArg(kernel,'
                                         '${arg_index}, ${arg_size}, ${arg_value})'))
+        self.barrier_templates = {'opencl' : {
+            'global' : 'barrier(CLK_GLOBAL_MEM_FENCE)',
+            'local' : 'barrier(CLK_LOCAL_MEM_FENCE)'
+        }}
 
         self.type_map = {}
         from loopy.types import to_loopy_type
@@ -96,6 +103,7 @@ class wrapping_kernel_generator(object):
         self.depends_on = depends_on[:]
         self.array_props = array_props.copy()
         self.all_arrays = []
+        self.barriers = barriers[:]
 
     def add_depencencies(self, k_gens):
         """
@@ -539,6 +547,7 @@ ${name} : ${type}
             )
         if self.vec_width:
             knl = lp.tag_inames(knl, [('i', 'l.0')])
+        #get defn
         defn_str = lp_utils.get_header(knl)
 
         #next create the call instructions
@@ -559,8 +568,25 @@ ${name} : ${type}
     """            ).safe_substitute(cond=condition, call=call)
             return call
 
-        instructions = '\n'.join(__gen_call(knl, i)
-            for i, knl in enumerate(self.kernels))
+        instructions = [__gen_call(knl, i)
+            for i, knl in enumerate(self.kernels)]
+        #insert barriers if any
+        if self.barriers:
+            instructions = list(enumerate(instructions))
+            for barrier in self.barriers:
+                #find insert index (the second barrier ind)
+                index = next(ind for ind, inst in enumerate(instructions)
+                    if inst[0] == barrier[1])
+                #check that we're inserting between the required barriers
+                assert barrier[0] == instructions[index  - 1][0]
+                #and insert
+                instructions.insert(index, (-1, self.barrier_templates[
+                    self.lang][barrier[2]] + utils.line_end[self.lang]))
+            #and get rid of indicies
+            instructions = [inst[1] for inst in instructions]
+
+        #join to str
+        instructions = '\n'.join(instructions)
 
         #and finally, generate the additional kernels [excluding additional knls]
         additional_kernels = '\n'.join([lp_utils.get_code(k) for k in self.kernels
@@ -573,7 +599,7 @@ ${name} : ${type}
             instructions = _find_indent(file_str, 'body', instructions)
             lines = file_src.safe_substitute(
                         defines='',
-                        func_define=defn_str,
+                        func_define=defn_str[:defn_str.index(';')],
                         body=instructions,
                         additional_kernels=additional_kernels).split('\n')
 
