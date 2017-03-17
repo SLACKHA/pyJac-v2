@@ -51,6 +51,7 @@ libs = dict(c=['-lm', '-fopenmp'],
             )
 
 lib_dirs = dict(c=[],
+                cuda=get_cuda_path(),
                 opencl=site.CL_PATHS)
 
 
@@ -141,7 +142,7 @@ def get_cuda_path():
     cuda_path = os.path.join(cuda_path,
                              'lib{}'.format('64' if sixtyfourbit else '')
                              )
-    return cuda_path
+    return [cuda_path]
 
 
 def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
@@ -196,11 +197,7 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
         command += ['-o']
         command += [os.path.join(out_dir, libname)]
 
-        if lang == 'cuda':
-            command += ['-L{}'.format(get_cuda_path())]
-        #elif lang == 'opencl':
-            #assert vendor in lib_dirs
-            #command += ['-L{}'.format(path) for path in lib_dirs[vendor]]
+        command += ['-L{}'.format(path) for path in lib_dirs[lang]]
         command.extend(libs[lang])
 
     try:
