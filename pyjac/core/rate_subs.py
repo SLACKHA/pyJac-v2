@@ -3117,6 +3117,29 @@ def write_specrates_kernel(eqs, reacs, specs,
         test_size=test_size
     )
 
+    barriers = []
+    if loopy_opts.depth:
+        def __insert_at(name, before=True):
+            ind = next((i for i, knl in enumerate(kernels)
+                if knl.name == name), None)
+            if ind is not None:
+                if before:
+                    barriers.append((ind - 1, ind, 'global'))
+                else:
+                    barriers.append((ind, ind + 1, 'global'))
+        #need to add barriers
+        #first, find reduced pressure
+        __insert_at('red_pres', True)
+        __insert_at('red_pres', False)
+        #barrier before the falloff ci's for the Fi's
+        __insert_at('ci_fall', True)
+        if loopy_opts.rop_net_kernels:
+            #need sync after each rop_net
+            for x in ['rop_net_fwd', 'rop_net_rev', 'rop_net_pres_mod']:
+                __insert_at(x, True)
+        __insert_at('spec_rates', True)
+        __insert_at('temperature_rate', True)
+
     input_arrays = ['T_arr', 'P_arr', 'conc', 'wdot']
     output_arrays = ['wdot']
     if output_full_rop:
@@ -3136,7 +3159,8 @@ def write_specrates_kernel(eqs, reacs, specs,
             output_arrays=output_arrays,
             init_arrays={'wdot' : 0},
             auto_diff=auto_diff,
-            test_size=test_size)
+            test_size=test_size,
+            barriers=barriers)
 
 
 def get_rate_eqn(eqs, index='i'):
