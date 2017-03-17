@@ -160,14 +160,6 @@ def linker(lang, test_dir, filelist, platform=''):
     args.extend([os.path.join(test_dir, getf(f) + '.o') for f in filelist])
     args.extend(['-o', os.path.join(test_dir, 'speedtest')])
     args.extend(libs[lang])
-    rpath = ''
-    if lang == 'opencl':
-        rpath = next(x for x in site.CL_PATHS if
-            x in platform.lower())
-        if rpath:
-            rpath = site.CL_PATHS[rpath]
-            args.extend(['-Wl,-rpath', rpath])
-            args.extend(['-L', rpath])
 
     args.append('-lm')
 

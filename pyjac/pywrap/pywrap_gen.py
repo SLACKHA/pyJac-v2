@@ -144,11 +144,6 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
     if lang == 'opencl':
         extra_include_dirs.extend(site.CL_INC_DIR)
         libraries.extend(site.CL_LIBNAME)
-        rpath = next((x for x in site.CL_PATHS if
-            x in platform.lower()), None)
-        if rpath:
-            rpath = site.CL_PATHS[rpath]
-            libdirs.extend([rpath])
 
     setupfile = None
     if lang == 'c':
