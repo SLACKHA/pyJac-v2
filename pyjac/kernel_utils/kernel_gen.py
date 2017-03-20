@@ -146,7 +146,7 @@ class wrapping_kernel_generator(object):
             #apply vectorization
             self.kernels[i] = apply_vectorization(self.loopy_opts,
                 info.var_name, self.kernels[i], vecspec=info.vectorization_specializer,
-                forcevec=info.force_vectorize)
+                can_vectorize=info.can_vectorize)
             #and add a mangler
             #func_manglers.append(create_function_mangler(kernels[i]))
             #set the editor
@@ -843,7 +843,7 @@ class vecwith_fixer(object):
         return grid_size, (lsize,)
 
 
-def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None):
+def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, can_vectorize=True):
     """
     Applies wide / deep vectorization to a generic rateconst kernel
 
@@ -858,6 +858,9 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None)
     vecspec : :function:
         An optional specialization function that is applied after vectorization
         To fix hanging loopy issues
+    can_vectorize : bool
+        If False, cannot be vectorized in the normal manner, hence vecspec must
+        be used to vectorize.
 
     Returns
     -------
@@ -873,14 +876,6 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None)
     j_tag = 'j'
     depth = loopy_opts.depth
     width = loopy_opts.width
-    if forcevec:
-        #fudge width / depth in order to get correct splitting
-        if forcevec == i_tag:
-            depth = width if depth is None else depth
-            width = None
-        elif forcevec == j_tag:
-            width = depth if width is None else width
-            depth = None
     if depth:
         to_split = inner_ind
         vec_width = depth
@@ -889,17 +884,17 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, forcevec=None)
         to_split = 'j'
         vec_width = width
         j_tag += '_outer'
+    if not can_vectorize:
+        assert vecspec is not None, ('Cannot vectorize a non-vectorizable kernel'
+            '  {} without a specialized vectorization function'.format(knl.name))
 
     #if we're splitting
     #apply specified optimizations
-    if to_split:
+    if to_split and can_vectorize:
         #and assign the l0 axis to the correct variable
         knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
-        #and tag the 'j' variable as global
-        knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
-    else:
-        #tag 'j' as g0, use simple parallelism
-        knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+    #tag 'j' as g0, use simple parallelism
+    knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
 
     #if we have a specialization
     if vecspec:
@@ -950,8 +945,8 @@ class knl_info(object):
         Dictionary of parameter values to fix in the loopy kernel
     extra subs : dict
         Dictionary of extra string substitutions to make in kernel generation
-    force_vectorize : str
-        If specified, force vectorize along this variable
+    can_vectorize : bool
+        If False, the vectorization specializer must be used to vectorize this kernel
     vectorization_specializer : function
         If specified, use this specialization function to fix problems that would arise
         in vectorization
@@ -962,8 +957,8 @@ class knl_info(object):
             maps=[], extra_inames=[], indicies=[],
             assumptions=[], parameters={},
             extra_subs={},
-            force_vectorize=None,
             vectorization_specializer=None,
+            can_vectorize=True,
             manglers=[]):
         self.name = name
         self.instructions = instructions
@@ -977,7 +972,7 @@ class knl_info(object):
         self.assumptions = assumptions[:]
         self.parameters = parameters.copy()
         self.extra_subs = extra_subs
-        self.force_vectorize = force_vectorize
+        self.can_vectorize = can_vectorize
         self.vectorization_specializer = vectorization_specializer
         self.manglers = manglers[:]
 
