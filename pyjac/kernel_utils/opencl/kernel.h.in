@@ -11,6 +11,7 @@ Nicholas Curtis - 2017
 #define KERNEL_H
 
 #include "mechanism.oclh"
+#include "vectorization.oclh"
 #include "ocl_errorcheck.oclh"
 #include <stdlib.h>
 #include <stdio.h>

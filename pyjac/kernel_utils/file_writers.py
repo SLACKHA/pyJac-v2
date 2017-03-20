@@ -191,7 +191,9 @@ class FileWriter(object):
 
         if self.is_header and self.defines:
             lines.extend(['#define {name} ({value})'.format(
-                name=x[0], value=x[1]) for x in self.defines])
+                    name=x[0], value=x[1]) if x[1] is not None
+                else '#define {name}'.format(name=x[0])
+                    for x in self.defines])
 
         lines.extend(self.lines)
         if self.is_header:
@@ -205,7 +207,7 @@ class FileWriter(object):
         else:
             self.headers.append(headers)
 
-    def add_define(self, name, value):
+    def add_define(self, name, value=None):
         self.defines.append((name, value))
 
     def add_lines(self, lines):

@@ -3143,12 +3143,15 @@ def write_specrates_kernel(eqs, reacs, specs,
         #need to add barriers
         #first, find reduced pressure
         __insert_at('red_pres', True)
-        __insert_at('red_pres', False)
+        #barrier before fall_troe for Pr
+        __insert_at('fall_troe', True)
         #barrier before the falloff ci's for the Fi's
         __insert_at('ci_fall', True)
+        #barrier before Kc for b evals
+        __insert_at('rateconst_Kc', True)
         if loopy_opts.rop_net_kernels:
             #need sync after each rop_net
-            for x in ['rop_net_fwd', 'rop_net_rev', 'rop_net_pres_mod']:
+            for x in ['rop_net_rev', 'rop_net_pres_mod']:
                 __insert_at(x, True)
         __insert_at('spec_rates', True)
         __insert_at('temperature_rate', True)
