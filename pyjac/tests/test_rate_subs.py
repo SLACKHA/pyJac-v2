@@ -19,7 +19,7 @@ from .. import kernel_utils as k_utils
 from . import TestClass
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from ..kernel_utils import kernel_gen as k_gen
-from ..core.mech_auxiliary import write_mechanism_header
+from ..core.mech_auxiliary import write_aux
 from ..pywrap.pywrap_gen import generate_wrapper
 from .. import site_conf as site
 from ..tests import test_utils as test_utils
@@ -851,9 +851,6 @@ class SubTest(TestClass):
             __cleanup()
             if state['width'] is not None and state['depth'] is not None:
                 continue
-            #due to current issue interacting with loopy, can't generate deep
-            if state['depth'] is not None:
-                continue
             opts = loopy_options(**{x : state[x] for x in
                 state if x not in exceptions})
 
@@ -866,7 +863,7 @@ class SubTest(TestClass):
             #generate
             kgen.generate(build_dir, data_filename=os.path.join(os.getcwd(), 'data.bin'))
             #write header
-            write_mechanism_header(build_dir, opts.lang, self.store.specs, self.store.reacs)
+            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
             #generate wrapper
             generate_wrapper(opts.lang, build_dir, build_dir=obj_dir,

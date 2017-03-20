@@ -246,8 +246,8 @@ def create_jacobian(lang,
     # specs[-1] = temp[last_spec]
     # specs[last_spec] = temp[-1]
 
-    #write header
-    aux.write_mechanism_header(build_path, loopy_opts.lang, specs, reacs)
+    #write headers
+    aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     eqs = {}
     eqs['conp'] = sp_interp.load_equations(conp)[1]

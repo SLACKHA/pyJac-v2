@@ -4,7 +4,7 @@ from ..core.rate_subs import write_specrates_kernel, write_chem_utils
 from . import TestClass
 from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library
-from ..core.mech_auxiliary import write_mechanism_header
+from ..core.mech_auxiliary import write_aux, write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
 from .. import site_conf as site
 from . import test_utils as test_utils
@@ -30,7 +30,7 @@ class SubTest(TestClass):
         #generate
         kgen.generate(build_dir)
         #write header
-        write_mechanism_header(build_dir, opts.lang, self.store.specs, self.store.reacs)
+        write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
     def __get_objs(self):
         opts = loopy_options(lang='opencl',
