@@ -515,19 +515,12 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
     instructions = Template(instructions).safe_substitute(
         omega_ind=omega_ind)
 
-    forcevec = None
-    if loopy_opts.depth:
-        #parallel reductions over 'i' in this case are very hard
-        #and inefficient, so let's just use the wide reduction
-        forcevec = 'j'
+    can_vectorize = loopy_opts.depth is None
     #finally do vectorization ability and specializer
-    vec_spec = None
-    #we need to specialize if we're doing a wide vectorization
-    #or no vectorization, as it also uses 'j' parallelism
-    def __vec_spec(knl):
+    def __vec_spec_wide(knl):
         #split the reduction
         knl = lp.split_reduction_outward(knl, 'j_outer')
-        #and aremove the sum_0 barrier
+        #and remove the sum_0 barrier
         knl = lp.realize_reduction(knl)
         #remove depends of update on end accumulator
         instruction_list = [insn if 'update' not in insn.id
@@ -539,7 +532,27 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
                 frozenset([('sum_i_update', 'any')]))
             for insn in instruction_list]
         return knl.copy(instructions=instruction_list)
-    vec_spec = __vec_spec
+    def __vec_spec_deep(knl):
+        #do a dummy split
+        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+        #split outwards and expand reductions
+        knl = lp.split_reduction_outward(knl, 'i_inner')
+        knl = lp.realize_reduction(knl)
+        #abuse rename to fix 'two l.0 for sum_0'
+        knl = lp.rename_iname(knl, 'red_i_inner_0', 'red_i_inner', existing_ok=True)
+        #resolve dependencies and syncs
+        sum_0_insn = next(insn for insn in knl.instructions if insn.id == 'sum_0')
+        for insn in knl.instructions:
+            #fix sum_0 sync problems
+            if insn != sum_0_insn and 'sum_i' in insn.id:
+                sum_0_insn.no_sync_with |= frozenset([(insn.id, 'any')])
+            #check depends
+            if insn != sum_0_insn and 'wdot' in insn.read_dependency_names():
+                insn.depends_on_is_final=True
+        return knl.copy(instructions=knl.instructions[:])
+    vec_spec = __vec_spec_wide
+    if loopy_opts.depth:
+        vec_spec = __vec_spec_deep
 
     return k_gen.knl_info(name='temperature_rate',
                            pre_instructions=[instructions],
@@ -548,7 +561,7 @@ def get_temperature_rate(eqs, loopy_opts, rate_info, conp=True, test_size=None):
                            kernel_data=kernel_data,
                            indicies=indicies,
                            extra_subs = {'spec_ind' : 'ispec'},
-                           force_vectorize=forcevec,
+                           can_vectorize=can_vectorize,
                            vectorization_specializer=vec_spec)
 
 def get_spec_rates(eqs, loopy_opts, rate_info, test_size=None):
