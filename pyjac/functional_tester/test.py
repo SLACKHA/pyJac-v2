@@ -106,6 +106,10 @@ def functional_tester(work_dir):
     build_dir = 'out'
     test_dir = 'test'
 
+    #turn off cache
+    import loopy as lp
+    lp.set_caching_enabled(False)
+
     work_dir = os.path.abspath(work_dir)
     mechanism_list, ocl_params, max_vec_width = tm.get_test_matrix(work_dir)
 
