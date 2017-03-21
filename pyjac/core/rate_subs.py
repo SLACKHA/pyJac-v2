@@ -3153,6 +3153,10 @@ def write_specrates_kernel(eqs, reacs, specs,
             #need sync after each rop_net
             for x in ['rop_net_rev', 'rop_net_pres_mod']:
                 __insert_at(x, True)
+        elif rate_info['rev']['num'] or rate_info['thd']['num']:
+            #if it's a fixed rop net, and there are reverse
+            #or third body reactions
+            __insert_at('rop_net_fixed', True)
         __insert_at('spec_rates', True)
         __insert_at('temperature_rate', True)
 
