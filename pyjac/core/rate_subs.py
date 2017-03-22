@@ -325,14 +325,98 @@ def assign_rates(reacs, specs, rate_spec):
     thd_spec = np.array(thd_spec, dtype=np.int32)
     thd_eff = np.array(thd_eff, dtype=np.float64)
 
+    # post processing
+
+    # first, we must do some surgery to get _our_ form of the thd-body
+    # efficiencies
+    last_spec = len(specs) - 1
+    pp_thd_eff_ns = np.ones(num_thd)
+    pp_thd_num_specs = thd_spec_num.copy()
+    pp_thd_spec = thd_spec.copy()
+    pp_thd_eff = thd_eff.copy()
+    #go through the efficiency maps
+    for i in range(pp_thd_num_specs.size):
+        #get number of thd body species and offset
+        num = pp_thd_num_specs[i]
+        offset = np.sum(pp_thd_num_specs[:i])
+        #check if Ns has a non-default efficiency
+        if last_spec in pp_thd_spec[offset:offset+num]:
+            ind = np.where(pp_thd_spec[offset:offset+num] == last_spec)[0][0]
+            #set the efficiency
+            pp_thd_eff_ns[i] = pp_thd_eff[offset + ind]
+            #delete from the species list
+            pp_thd_spec = np.delete(pp_thd_spec, offset + ind)
+            #delete from effiency list
+            pp_thd_eff = np.delete(pp_thd_eff, offset + ind)
+            #subtract from species num
+            pp_thd_num_specs[i] -= 1
+        #and subtract from efficiencies
+        pp_thd_eff[offset:offset+pp_thd_num_specs[i]] -= pp_thd_eff_ns[i]
+        if pp_thd_eff_ns[i] != 1:
+            #we need to add all the other species :(
+            #get updated species list
+            to_add = np.array(range(Ns - 1), dtype=np.int32)
+            #set default efficiency
+            eff = np.array([1 - pp_thd_eff_ns[i] for spec in range(Ns - 1)])
+            #fill in existing efficiencies
+            eff[pp_thd_spec[offset:offset+pp_thd_num_specs[i]]] = \
+                pp_thd_eff[offset:offset+pp_thd_num_specs[i]]
+            #delete from the species list / efficiencies
+            pp_thd_spec = np.delete(pp_thd_spec,
+                range(offset, offset+pp_thd_num_specs[i]))
+            pp_thd_eff = np.delete(pp_thd_eff,
+                range(offset, offset+pp_thd_num_specs[i]))
+            #insert new lists
+            pp_thd_spec = np.insert(pp_thd_spec, offset, to_add)
+            pp_thd_eff = np.insert(pp_thd_eff, offset, eff)
+            #and update number of species
+            pp_thd_num_specs[i] = to_add.size
+
+    #chebyshev parameter reordering
+    pp_cheb_coeff = np.zeros((num_cheb, int(np.max(cheb_n_temp)),
+        int(np.max(cheb_n_pres))))
+    for i, p in enumerate(cheb_coeff):
+        pp_cheb_coeff[i, :num_T[i], :num_P[i]] = p[:, :]
+
+    # limits for cheby polys
+    pp_cheb_plim = np.log(np.array(cheb_plim, dtype=np.float64))
+    pp_cheb_tlim = 1. / np.array(cheb_tlim, dtype=np.float64)
+
+    #plog parameter reorder
+    # number of parameter sets per reaction
+    num_params = rate_info['plog']['num_P']
+    #max # of parameters for sizing
+    maxP = np.max(num_pressures)
+    #for simplicity, we're going to use a padded form
+    pp_plog_params = np.zeros((4, num_plog, maxP))
+    for m in range(4):
+        for i, numP in enumerate(num_pressures):
+            for j in range(numP):
+                pp_plog_params[m, i, j] = plog_params[i][j][m]
+
+    #take the log of P and A
+    hold = np.seterr(divide='ignore')
+    pp_plog_params[0, :, :] = np.log(pp_plog_params[0, :, :])
+    pp_plog_params[1, :, :] = np.log(pp_plog_params[1, :, :])
+    pp_plog_params[np.where(np.isinf(pp_plog_params))] = 0
+    np.seterr(**hold)
+
     return {'simple' : {'A' : A, 'b' : b, 'Ta' : Ta, 'type' : simple_rate_type,
                 'num' : num_simple, 'map' : simple_map},
             'plog' : {'map' : plog_map, 'num' : num_plog,
-            'num_P' : num_pressures, 'params' : plog_params},
+            'num_P' : num_pressures, 'params' : plog_params,
+            'post_process' : {
+                'params' : pp_plog_params
+            }},
             'cheb' : {'map' : cheb_map, 'num' : num_cheb,
                 'num_P' : cheb_n_pres, 'num_T' : cheb_n_temp,
                 'params' : cheb_coeff, 'Tlim' : cheb_tlim,
-                'Plim' : cheb_plim},
+                'Plim' : cheb_plim,
+                'post_process' : {
+                    'params' : pp_cheb_coeff,
+                    'Plim' : pp_cheb_plim,
+                    'Tlim' : pp_cheb_tlim
+                }},
             'fall' : {'map' : fall_map, 'num' : num_fall,
                 'ftype' : fall_types, 'blend' : blend_type,
                 'A' : fall_A, 'b' : fall_b, 'Ta' : fall_Ta,
@@ -360,15 +444,21 @@ def assign_rates(reacs, specs, rate_spec):
                 },
             'thd' : {'map' : thd_map, 'num' : num_thd,
                 'type' : thd_type, 'spec_num' : thd_spec_num,
-                'spec' : thd_spec, 'eff' : thd_eff},
+                'spec' : thd_spec, 'eff' : thd_eff,
+                'post_process' : {
+                    'eff_ns' : pp_thd_eff_ns,
+                    'spec_num' : pp_thd_num_specs
+                    'spec' : pp_thd_spec,
+                    'eff' : pp_thd_eff
+                }},
             'fwd' : {'map' : np.arange(len(reacs)), 'num' : len(reacs),
-                'num_spec' :  fwd_num_spec, 'specs' : fwd_spec,
+                'num_reac_to_spec' :  fwd_num_spec, 'reac_to_spec' : fwd_spec,
                 'nu' : fwd_nu, 'allint' : fwd_allnu_integer},
             'rev' : {'map' : rev_map, 'num' : num_rev,
-                'num_spec' :  rev_num_spec, 'specs' : rev_spec,
+                'num_reac_to_spec' :  rev_num_spec, 'reac_to_spec' : rev_spec,
                 'nu' : rev_nu, 'allint' : rev_allnu_integer},
-            'net' : {'num_spec' : net_num_spec, 'nu_sum' : nu_sum,
-                'nu' : net_nu, 'specs' : net_spec,
+            'net' : {'num_reac_to_spec' : net_num_spec, 'nu_sum' : nu_sum,
+                'nu' : net_nu, 'reac_to_spec' : net_spec,
                 'allint' : net_nu_integer},
             'net_per_spec' : {'reac_count' : spec_reac_count, 'nu' : spec_nu,
                 'reacs' : spec_to_reac, 'map' : spec_list,
@@ -610,20 +700,20 @@ def get_spec_rates(eqs, loopy_opts, rate_info, test_size=None):
 
         #create species rates kernel
         #all species in reaction
-        spec_lp, spec_str = __1Dcreator('reac_to_spec', rate_info['net']['specs'],
+        spec_lp, spec_str = __1Dcreator('reac_to_spec', rate_info['net']['reac_to_spec'],
                                                 '${spec_map}', scope=scopes.GLOBAL)
 
         #total # species in reaction
         num_spec_lp, num_spec_str, _ = lp_utils.get_loopy_arg('total_spec_per_reac',
                                                    ['${var_name}'],
-                                                   dimensions=rate_info['net']['num_spec'].shape,
+                                                   dimensions=rate_info['net']['num_reac_to_spec'].shape,
                                                    order=loopy_opts.order,
-                                                   initializer=rate_info['net']['num_spec'],
-                                                   dtype=rate_info['net']['num_spec'].dtype)
+                                                   initializer=rate_info['net']['num_reac_to_spec'],
+                                                   dtype=rate_info['net']['num_reac_to_spec'].dtype)
 
         #species offsets
         net_spec_offsets = np.array(
-            np.cumsum(rate_info['net']['num_spec']) - rate_info['net']['num_spec'], dtype=np.int32)
+            np.cumsum(rate_info['net']['num_reac_to_spec']) - rate_info['net']['num_reac_to_spec'], dtype=np.int32)
         num_spec_offsets_lp, num_spec_offsets_str, _ = lp_utils.get_loopy_arg('total_spec_per_reac_offset',
                                                    ['${var_name}'],
                                                    dimensions=net_spec_offsets.shape,
@@ -1070,7 +1160,7 @@ def get_rop(eqs, loopy_opts, rate_info, test_size=None):
         #we need species lists, nu lists, etc.
         #first create offsets for map
         net_spec_offsets = np.array(
-            np.cumsum(rate_info[direction]['num_spec']) - rate_info[direction]['num_spec'], dtype=np.int32)
+            np.cumsum(rate_info[direction]['num_reac_to_spec']) - rate_info[direction]['num_reac_to_spec'], dtype=np.int32)
         num_spec_offsets_lp, num_spec_offsets_str, map_result = lp_utils.get_loopy_arg('spec_offset_{}'.format(direction),
                                                        ['${reac_ind}'],
                                                        dimensions=net_spec_offsets.shape,
@@ -1093,18 +1183,18 @@ def get_rop(eqs, loopy_opts, rate_info, test_size=None):
         #species lists
         spec_lp, spec_str, _ = lp_utils.get_loopy_arg('spec_{}'.format(direction),
                                                 ['${spec_map}'],
-                                                dimensions=rate_info[direction]['specs'].shape,
-                                                initializer=rate_info[direction]['specs'],
-                                                dtype=rate_info[direction]['specs'].dtype,
+                                                dimensions=rate_info[direction]['reac_to_spec'].shape,
+                                                initializer=rate_info[direction]['reac_to_spec'],
+                                                dtype=rate_info[direction]['reac_to_spec'].dtype,
                                                 order=loopy_opts.order)
 
         #species counts
         num_spec_lp, num_spec_str, map_result = lp_utils.get_loopy_arg('num_spec_{}'.format(direction),
                                                        ['${reac_ind}'],
-                                                       dimensions=rate_info[direction]['num_spec'].shape,
+                                                       dimensions=rate_info[direction]['num_reac_to_spec'].shape,
                                                        order=loopy_opts.order,
-                                                       initializer=rate_info[direction]['num_spec'],
-                                                       dtype=rate_info[direction]['num_spec'].dtype,
+                                                       initializer=rate_info[direction]['num_reac_to_spec'],
+                                                       dtype=rate_info[direction]['num_reac_to_spec'].dtype,
                                                        map_result='${spec_offset}')
 
         #rate constants
@@ -1425,19 +1515,19 @@ def get_rev_rates(eqs, loopy_opts, rate_info, test_size=None):
     if '${reac_ind}' in map_result:
         maps.append(map_result['${reac_ind}'])
     #all species in reaction
-    spec_lp, spec_str = __1Dcreator('allspec_in_reac', rate_info['net']['specs'],
+    spec_lp, spec_str = __1Dcreator('allspec_in_reac', rate_info['net']['reac_to_spec'],
                                             '${spec_map}', scope=scopes.GLOBAL)
     #total # species in reaction
     num_spec_lp, num_spec_str, map_result = lp_utils.get_loopy_arg('total_spec_per_reac',
                                                    ['${reac_ind}'],
-                                                   dimensions=rate_info['net']['num_spec'].shape,
+                                                   dimensions=rate_info['net']['num_reac_to_spec'].shape,
                                                    order=loopy_opts.order,
-                                                   initializer=rate_info['net']['num_spec'],
-                                                   dtype=rate_info['net']['num_spec'].dtype,
+                                                   initializer=rate_info['net']['num_reac_to_spec'],
+                                                   dtype=rate_info['net']['num_reac_to_spec'].dtype,
                                                    map_name=rev_map)
     #species offsets
     net_spec_offsets = np.array(
-        np.cumsum(rate_info['net']['num_spec']) - rate_info['net']['num_spec'], dtype=np.int32)
+        np.cumsum(rate_info['net']['num_reac_to_spec']) - rate_info['net']['num_reac_to_spec'], dtype=np.int32)
     num_spec_offsets_lp, num_spec_offsets_str, map_result = lp_utils.get_loopy_arg('total_spec_per_reac_offset',
                                                    ['${reac_ind}'],
                                                    dimensions=net_spec_offsets.shape,
