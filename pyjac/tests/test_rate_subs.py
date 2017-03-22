@@ -79,7 +79,7 @@ class SubTest(TestClass):
                 fwd_specs.append(gas.species_index(spec))
                 fwd_nu.append(nu)
                 temp_nu_sum_dict[spec] -= nu
-            assert result['fwd']['num_spec'][ireac] == len(reac.reactants)
+            assert result['fwd']['num_reac_to_spec'][ireac] == len(reac.reactants)
             for spec, nu in sorted(reac.products.items(), key=lambda x: gas.species_index(x[0])):
                 if ireac in rev_inds:
                     rev_specs.append(gas.species_index(spec))
@@ -87,7 +87,7 @@ class SubTest(TestClass):
                 temp_nu_sum_dict[spec] += nu
             if ireac in rev_inds:
                 rev_ind = np.where(rev_inds == ireac)[0]
-                assert result['rev']['num_spec'][rev_ind] == len(reac.products)
+                assert result['rev']['num_reac_to_spec'][rev_ind] == len(reac.products)
             temp_specs, temp_nu_sum = zip(*[(gas.species_index(x[0]), x[1]) for x in
                 sorted(temp_nu_sum_dict.items(), key=lambda x: gas.species_index(x[0]))])
             net_specs.extend(temp_specs)
@@ -101,14 +101,14 @@ class SubTest(TestClass):
                     spec_nu[spec_ind].append(nu)
                     spec_to_reac[spec_ind].append(ireac)
 
-        assert np.array_equal(fwd_specs, result['fwd']['specs'])
+        assert np.array_equal(fwd_specs, result['fwd']['reac_to_spec'])
         assert np.array_equal(fwd_nu, result['fwd']['nu'])
-        assert np.array_equal(rev_specs, result['rev']['specs'])
+        assert np.array_equal(rev_specs, result['rev']['reac_to_spec'])
         assert np.array_equal(rev_nu, result['rev']['nu'])
         assert np.array_equal(nu_sum, result['net']['nu_sum'])
         assert np.array_equal(net_nu, result['net']['nu'])
-        assert np.array_equal(net_num_specs, result['net']['num_spec'])
-        assert np.array_equal(net_specs, result['net']['specs'])
+        assert np.array_equal(net_num_specs, result['net']['num_reac_to_spec'])
+        assert np.array_equal(net_specs, result['net']['reac_to_spec'])
         spec_inds = sorted(reac_count.keys())
         assert np.array_equal([reac_count[x] for x in spec_inds],
                                 result['net_per_spec']['reac_count'])
