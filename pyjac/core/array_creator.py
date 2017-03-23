@@ -34,8 +34,7 @@ class domain_transform(object):
         The updated 'iname'
     """
 
-    def __init__(self, iname, transform_insn, new_domain,
-            new_base, new_iname=''):
+    def __init__(self, iname, transform_insn, new_domain, new_iname):
         self.iname = iname
         self.transform_insn = transform_insn
         self.new_domain = new_domain
@@ -300,8 +299,46 @@ class MapStore(object):
             raise NotImplementedError
 
         if transform is not None:
-            # add this variable mapping
-            self.transformed_variables[variable] = transform
+            if isinstance(variable, list):
+                for var in variable:
+                    # add all variable mappings
+                    self.transformed_variables[var] = transform
+            else:
+                # add this variable mapping
+                self.transformed_variables[variable] = transform
+
+
+    def apply_maps(self, variable, *indicies):
+        """
+        Applies the developed iname mappings to the indicies supplied and
+        returns the created loopy Arg/Temporary and the string version
+
+        Parameters
+        ----------
+        variable : :class:`creator`
+            The NameStore variable(s) to work with
+        indices : list of str
+            The inames to map
+
+        Returns
+        -------
+        lp_var : :class:`loopy.GlobalArg` or :class:`loopy.TemporaryVariable`
+            The generated variable
+        lp_str : str
+            The string indexed variable
+        transform_str : str
+            The transform instruction string
+        """
+
+        if variable in self.transformed_variables:
+            indicies = tuple(x if x !=
+                    self.transformed_variables[variable].iname else
+                    self.transformed_variables[variable].new_iname
+                for x in indicies)
+            return (*variable(indicies), \
+                self.transformed_variables[variable].transform_insn)
+
+        return (*variable(*indicies), None)
 
 
     def generate_transform_instruction(self, oldname, newname, map_arr='',
@@ -384,6 +421,8 @@ class creator(object):
         self.shape = shape
         self.scope = scope
         self.initializer = initializer
+        self.fixed_indicies = None
+        self.num_indicies = len(shape)
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
         if initializer is not None:
@@ -430,12 +469,11 @@ class creator(object):
                     dtype=self.dtype,
                     **kwargs)
 
-
     def __call__(self, indicies, **kwargs):
         inds = self.__get_indicies(indicies)
         lp_arr = self.creator(**kwargs)
-        return self.lp_arr.name + '[{}]'.format(','.join(
-            str(x) for x in inds)), lp_arr
+        return (lp_arr, lp_arr.name + '[{}]'.format(','.join(
+            str(x) for x in inds)))
 
 
     def copy(self):
