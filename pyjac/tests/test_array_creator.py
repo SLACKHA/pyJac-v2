@@ -111,3 +111,23 @@ def test_offset_base():
 
     assert len(mstore.transformed_domains) == 2
     assert 'x' in mstore.transformed_variables
+
+def test_variable_creator():
+    lp_opt = __dummy_opts('map')
+    c = arc.creator('base', np.int32, (10,), 'C',
+        initializer=np.arange(3, 13, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    assert len(mstore.transformed_domains) == 0
+
+    #add a variable
+    var = arc.creator('var', np.int32, (10,), 'C')
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+        initializer=np.array(list(range(4)) + list(range(5, 11)),
+        dtype=np.int32))
+    mstore.check_and_add_transform(var, 'i', domain)
+    var, var_str, map_insn = mstore.apply_maps(var, 'i')
+
+    assert isinstance(var, lp.GlobalArg)
+    assert var_str == 'var[i_map_0]'
+    assert map_insn == '<>i_map_0 = domain[i]'
