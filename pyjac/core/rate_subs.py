@@ -447,7 +447,7 @@ def assign_rates(reacs, specs, rate_spec):
                 'spec' : thd_spec, 'eff' : thd_eff,
                 'post_process' : {
                     'eff_ns' : pp_thd_eff_ns,
-                    'spec_num' : pp_thd_num_specs
+                    'spec_num' : pp_thd_num_specs,
                     'spec' : pp_thd_spec,
                     'eff' : pp_thd_eff
                 }},
