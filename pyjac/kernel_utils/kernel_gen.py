@@ -1028,6 +1028,7 @@ def create_function_mangler(kernel, return_dtypes=()):
     mg = MangleGen(kernel.name, tuple(dtypes), return_dtypes)
     return mg.__call__
 
+
 def _find_indent(template_str, key, value):
     """
     Finds and returns a formatted value containing the appropriate
