@@ -436,6 +436,18 @@ class MapStore(object):
         """
 
         base = self._get_base_domain()
+        fmt_str = '{{[{ind}]: {start} <= {ind} <= {end}}}'
+
+        if self._is_map():
+            return (self.loop_index, fmt_str.format(
+                    ind=self.loop_index,
+                    start=base.initializer[0],
+                    end=base.initializer[-1]))
+        else:
+            return (self.loop_index, fmt_str.format(
+                    ind=self.loop_index,
+                    start=0,
+                    end=base.initializer.size - 1))
 
 
 class creator(object):

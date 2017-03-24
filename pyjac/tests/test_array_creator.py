@@ -224,6 +224,7 @@ def test_map_variable_creator(maptype):
     assert var_str == 'var[i_map]'
     assert map_insn == '<>i_map = domain[i]'
 
+
 @parameterized(['mask'])
 def test_mask_variable_creator(maptype):
     lp_opt = __dummy_opts(maptype)
@@ -245,3 +246,57 @@ def test_mask_variable_creator(maptype):
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_mask]'
     assert map_insn == '<>i_mask = domain[i]'
+
+
+@parameterized(['mask'])
+def test_mask_iname_domains(maptype):
+    lp_opt = __dummy_opts(maptype)
+    c = arc.creator('base', np.int32, (10,), 'C',
+        initializer=np.arange(10, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    #add a variable
+    mask = np.full((10,), -1, np.int32)
+    mask[0] = 2
+    var = arc.creator('var', np.int32, (10,), 'C')
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+        initializer=mask)
+    mstore.check_and_add_transform(var, 'i', domain)
+
+    assert mstore.get_iname_domain() == ('i', '{[i]: 0 <= i <= 9}')
+
+
+@parameterized(['map'])
+def test_map_iname_domains(maptype):
+    lp_opt = __dummy_opts(maptype)
+    c = arc.creator('base', np.int32, (10,), 'C',
+        initializer=np.arange(3, 13, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    assert mstore.get_iname_domain() == ('i', '{[i]: 3 <= i <= 12}')
+
+    #add an affine map
+    mapv = np.arange(10, dtype=np.int32)
+    var = arc.creator('var', np.int32, (10,), 'C')
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+        initializer=mapv)
+    mstore.check_and_add_transform(var, 'i', domain)
+
+    assert mstore.get_iname_domain() == ('i', '{[i]: 3 <= i <= 12}')
+
+    #add a non-affine map, domain should bounce to 0-based
+    mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=np.int32)
+    var = arc.creator('var2', np.int32, (10,), 'C')
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+        initializer=mapv)
+    mstore.check_and_add_transform(var, 'i', domain)
+    assert mstore.get_iname_domain() == ('i', '{[i]: 0 <= i <= 9}')
+
+    # check non-contigous
+    c = arc.creator('base', np.int32, (10,), 'C',
+        initializer=np.array(list(range(3)) + list(range(4, 11)),
+            dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    assert mstore.get_iname_domain() == ('i', '{[i]: 0 <= i <= 9}')
