@@ -73,18 +73,26 @@ class MapStore(object):
         self.knl_type = loopy_opts.knl_type
         self.map_domain = map_domain.copy()
         self.mask_domain = mask_domain.copy()
+        self._check_is_valid_domain(self.map_domain)
+        self._check_is_valid_domain(self.mask_domain)
         self.transformed_domains = []
         self.transformed_variables = {}
         from pytools import UniqueNameGenerator
         self.taken_transform_names = UniqueNameGenerator()
         self.loop_index = loop_index
         self.have_input_map = False
-        self._check_is_valid_domain(self.map_domain)
-        self._check_is_valid_domain(self.mask_domain)
 
         if not self._is_contiguous(self.map_domain):
             #need an input map
             self._add_input_map()
+
+
+    def _is_map(self):
+        """
+        Return true if map kernel
+        """
+
+        return self.knl_type == 'map'
 
 
     def _add_input_map(self):
@@ -101,20 +109,19 @@ class MapStore(object):
         new_map_domain.initializer = np.arange(self.map_domain.initializer.size,
             dtype=np.int32)
 
-        # finally add aa transform from new -> old
-        self._add_map(self.map_domain, self.loop_index)
         # and update
         self.map_domain = new_map_domain
 
 
-    def _add_map(self, map_domain, iname, affine=None):
+    def _add_transform(self, map_domain, iname, affine=None):
         """
         Convertes the map_domain (affine int or :class:`creator`)
         to a :class:`domain_transform` and adds it to this object
         """
 
         #add the transformed inames, instruction and map
-        new_iname = self._get_transform_iname(self.loop_index + '_map')
+        new_iname = self._get_transform_iname(self.loop_index +
+            ('_map' if self._is_map() else '_mask'))
 
         if affine is not None:
             transform_insn = self.generate_transform_instruction(
@@ -127,7 +134,6 @@ class MapStore(object):
         dt = domain_transform(
             iname, transform_insn, map_domain, new_iname)
         self.transformed_domains.append(dt)
-
         return dt
 
 
@@ -191,6 +197,14 @@ class MapStore(object):
         assert domain.initializer is not None, ('Cannot use ',
             'non-initialized creator {} as domain!'.format(domain.name))
 
+        if not self._is_map():
+            # need to check that the maximum value is smaller than the base
+            # mask domain size
+            assert np.max(domain.initializer) < \
+                self.mask_domain.initializer.size, ("Mask entries for domain "
+                    "{} cannot be outside of domain size {}".format(domain.name,
+                        self.mask_domain.initializer.size))
+
 
     def _is_contiguous(self, domain):
         """Returns true if domain can be expressed with a simple for loop"""
@@ -243,13 +257,41 @@ class MapStore(object):
                         return mapv
 
                 # need a new map, so add
-                return self._add_map(mapping, iname, affine=affine)
+                return self._add_transform(mapping, iname, affine=affine)
 
         return None
 
 
-    def _add_mask(self, variable, index, domain):
+    def _check_add_mask(self, iname, domain):
+        """
+        Checks and adds a mask if necessary
+
+        Parameters
+        ----------
+        iname : str
+            The index to map
+        domain : :class:`creator`
+            The domain to check
+
+        Returns
+        -------
+        transform : :class:`domain_transform`
+            The resulting transform, or None if not added
+        """
         base = self._get_base_domain()
+
+        #check if the masks match
+        if not np.array_equal(base.initializer, domain.initializer):
+            # check if we have an matching mask
+            maskv = self._get_transform_if_exists(iname, domain)
+
+            if not maskv:
+                # need to add a mask
+                maskv = self._add_transform(domain, iname)
+            return maskv
+
+        return None
+
 
 
     def _get_base_domain(self):
@@ -294,7 +336,7 @@ class MapStore(object):
         if self.knl_type == 'map':
             transform = self._check_add_map(iname, domain)
         elif self.knl_type == 'mask':
-            transform = self._add_mask(iname, domain)
+            transform = self._check_add_mask(iname, domain)
         else:
             raise NotImplementedError
 
@@ -381,6 +423,19 @@ class MapStore(object):
                 mapper=map_arr,
                 oldname=oldname,
                 affine=affine)
+
+
+    def get_iname_domain(self):
+        """
+        Get the final iname / domain for kernel generation
+
+        Returns
+        -------
+        iname_tup : tuple of ('iname', 'range')
+            The iname and range string to be fed to loopy
+        """
+
+        base = self._get_base_domain()
 
 
 class creator(object):
@@ -480,6 +535,16 @@ class creator(object):
         return copy.deepcopy(self)
 
 
+def _make_mask(map_arr, mask_size):
+    """
+    Create a mask array from the given map and total mask size
+    """
+
+    mask = np.full(mask_size, -1, dtype=np.int32)
+    mask[map_arr] = map_arr[:]
+    return mask
+
+
 class NameStore(object):
     """
     A convenience class that simplifies loopy array creation, indexing, mapping
@@ -535,15 +600,6 @@ class NameStore(object):
         return np.array(np.concatentate(
             (np.cumsum(arr), np.array([np.sum(arr) + arr[-1]]))),
         dtype=np.int32)
-
-    def __make_mask(self, map_arr, mask_size):
-        """
-        Create a mask array from the given map and total mask size
-        """
-
-        mask = np.full(mask_size, -1, dtype=np.int32)
-        mask[map_arr] = map_arr[:]
-        return mask
 
     def __add_arrays(self, test_size):
         """
@@ -617,7 +673,7 @@ class NameStore(object):
                     initializer=self.rate_info['rev']['map'].shape,
                     order=self.order)
 
-            mask = self.__make_mask(self.rate_info['rev']['map'],
+            mask = _make_mask(self.rate_info['rev']['map'],
                 self.rate_info['Nr'])
             self.rev_mask = creator('rev_mask',
                     dtype=np.int32,
@@ -637,7 +693,7 @@ class NameStore(object):
                     initializer=self.rate_info['thd']['map'].shape,
                     order=self.order)
 
-            mask = self.__make_mask(self.rate_info['thd']['map'],
+            mask = _make_mask(self.rate_info['thd']['map'],
                 self.rate_info['Nr'])
             self.thd_mask = creator('thd_mask',
                     dtype=np.int32,
@@ -689,7 +745,8 @@ class NameStore(object):
                     order=self.order)
 
         #simple mask
-        simple_mask = self.__make_mask(rate_info['simple']['rtype'])
+        simple_mask = _make_mask(rate_info['simple']['rtype'],
+            self.rate_info['Nr'])
         self.simple_mask = creator('simple_mask',
                     dtype=simple_mask.dtype,
                     shape=simple_mask.shape,
@@ -743,7 +800,7 @@ class NameStore(object):
                     initializer=mapv,
                     order=self.order)
 
-                mask = self.__make_mask(mapv)
+                mask = _make_mask(mapv, self.rate_info['Nr'])
                 self.thd_only_mask = creator('thd_only_mask',
                     dtype=np.int32,
                     shape=mask.shape,
@@ -809,7 +866,8 @@ class NameStore(object):
                         order=self.order)
 
             #simple mask
-            simple_mask = self.__make_mask(rate_info['fall']['rtype'])
+            simple_mask = _make_mask(rate_info['fall']['rtype'],
+                self.rate_info['Nr'])
             self.fall_mask = creator('fall_mask',
                         dtype=simple_mask.dtype,
                         shape=simple_mask.shape,
@@ -866,7 +924,8 @@ class NameStore(object):
                     shape=fall_to_thd_map.shape,
                     order=self.order)
 
-            fall_to_thd_mask = self.__make_mask(fall_to_thd_map)
+            fall_to_thd_mask = _make_mask(fall_to_thd_map,
+                self.rate_info['Nr'])
             self.fall_to_thd_mask = creator('fall_to_thd_mask',
                     dtype=np.int32,
                     initializer=fall_to_thd_mask,
@@ -921,7 +980,7 @@ class NameStore(object):
                         dtype=self.rate_info['fall']['troe']['map'].dtype,
                         initializer=self.rate_info['fall']['troe']['map'],
                         order=self.order)
-                troe_mask = self.__make_mask(troe_map)
+                troe_mask = _make_mask(troe_map, self.rate_info['Nr'])
                 self.troe_mask = self.creator('troe_mask',
                         shape=troe_mask.shape,
                         dtype=troe_mask.dtype,
@@ -969,7 +1028,7 @@ class NameStore(object):
                         dtype=self.rate_info['fall']['sri']['map'].dtype,
                         initializer=self.rate_info['fall']['sri']['map'],
                         order=self.order)
-                sri_mask = self.__make_mask(sri_map)
+                sri_mask = _make_mask(sri_map, self.rate_info['Nr'])
                 self.sri_mask = self.creator('sri_mask',
                         shape=sri_mask.shape,
                         dtype=sri_mask.dtype,
@@ -983,7 +1042,7 @@ class NameStore(object):
                         dtype=self.rate_info['fall']['lind']['map'].dtype,
                         initializer=self.rate_info['fall']['lind']['map'],
                         order=self.order)
-                lind_mask = self.__make_mask(lind_map)
+                lind_mask = _make_mask(lind_map, self.rate_info['Nr'])
                 self.lind_mask = self.creator('lind_mask',
                         shape=lind_mask.shape,
                         dtype=lind_mask.dtype,
@@ -1030,7 +1089,7 @@ class NameStore(object):
                 initializer=cheb_map,
                 shape=cheb_map.shape,
                 order=self.order)
-            cheb_mask = self.__make_mask(cheb_map)
+            cheb_mask = _make_mask(cheb_map, self.rate_info['Nr'])
             self.cheb_mask = creator('cheb_mask',
                 dtype=cheb_mask.dtype,
                 initializer=cheb_mask,
@@ -1060,7 +1119,7 @@ class NameStore(object):
                 initializer=plog_map,
                 shape=plog_map.shape,
                 order=self.order)
-            plog_mask = self.__make_mask(plog_map)
+            plog_mask = _make_mask(plog_map, self.rate_info['Nr'])
             self.plog_mask = creator('plog_mask',
                 dtype=plog_mask.dtype,
                 initializer=plog_mask,
