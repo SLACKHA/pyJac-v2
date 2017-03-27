@@ -34,6 +34,9 @@ from ..libgen import (libs, compiler, file_struct, flags, get_file_list,
 from ..tests.test_utils import data_bin_writer as dbw
 from ..tests.test_utils import get_test_matrix as tm
 
+import loopy as lp
+lp.set_caching_enabled(False)
+
 STATIC = False
 """bool: CUDA only works for static libraries"""
 
