@@ -267,6 +267,11 @@ def assign_rates(reacs, specs, rate_spec):
         cheb_coeff.append(cheb.cheb_par)
         cheb_plim.append(cheb.cheb_plim)
         cheb_tlim.append(cheb.cheb_tlim)
+    cheb_n_pres = np.array(cheb_n_pres, dtype=np.int32)
+    cheb_n_temp = np.array(cheb_n_temp, dtype=np.int32)
+    cheb_plim = np.array(cheb_plim)
+    cheb_tlim = np.array(cheb_tlim)
+    cheb_coeff = np.array(cheb_coeff)
 
     # find falloff types
     fall_reacs, fall_map, num_fall = __seperate(
