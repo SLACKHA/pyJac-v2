@@ -156,7 +156,8 @@ def linker(lang, test_dir, filelist, platform=''):
     args.append('-lm')
 
     if run_dirs[lang]:
-        args.extend(['-Wl,-rpath' + x for x in run_dirs[lang]])
+        for rd in run_dirs[lang]:
+            args.extend(['-Wl,-rpath', rd])
 
     try:
         print(' '.join(args))
