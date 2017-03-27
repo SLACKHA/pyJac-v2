@@ -141,6 +141,14 @@ def test_multiple_inputs(maptype):
                           np.arange(10, dtype=np.int32))
     assert 'x' in mstore.transformed_variables
 
+    # test different vaiable with same map
+    c4 = arc.creator('', np.int32, (10,), 'C',
+                     initializer=np.array(list(range(5)) + list(range(6, 11)),
+                                          dtype=np.int32))
+    mstore.check_and_add_transform('x3', c3, 'i')
+    assert len(mstore.transformed_domains) == 1
+    assert 'x3' in mstore.transformed_variables
+
     # add another mapped variable
     c4 = arc.creator('', np.int32, (10,), 'C',
                      initializer=np.array(list(range(4)) + list(range(5, 11)),
