@@ -539,22 +539,24 @@ ${name} : ${type}
                     ', '.join(['0'] * len(arr.shape)))
             return ''
 
-        #generate the kernel definition
+        # generate the kernel definition
         self.vec_width = self.loopy_opts.depth
         if self.vec_width is None:
             self.vec_width = self.loopy_opts.width
         if self.vec_width is None:
             self.vec_width = 0
-        #create a dummy kernel to get the defn
+        # create a dummy kernel to get the defn
         knl = lp.make_kernel('{{[i, j]: 0 <= i,j < {}}}'.format(self.vec_width),
             '\n'.join(_name_assign(arr) for arr in kernel_data),
             kernel_data,
             name=self.name,
             target=lp_utils.get_target(self.lang, self.loopy_opts.device)
             )
-        if self.vec_width:
-            knl = lp.tag_inames(knl, [('i', 'l.0')])
-        #get defn
+        # force vector width
+        if self.vec_width != 0:
+            ggs = vecwith_fixer(knl.copy(), self.vec_width)
+            knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
+        # get defn
         defn_str = lp_utils.get_header(knl)
 
         #next create the call instructions
