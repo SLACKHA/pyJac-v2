@@ -582,19 +582,19 @@ class NameStore(object):
         """
         Override of getattr such that NameStore.nonexistantkey -> None
         """
-        if hasattr(self, name):
+        try:
             return super(NameStore, self).__getattr__(self, name)
-        else:
+        except AttributeError:
             return None
 
     def __check(self, add_map=True):
         """ Ensures that maps are only added to map kernels etc. """
         if add_map:
-            assert self.loopy_opts.knl_type == 'map', ('Cannot '
-                                                       'add map to mask kernel')
+            assert self.loopy_opts.knl_type == 'map', ('Cannot add'
+                                                       ' map to mask kernel')
         else:
-            assert self.loopy_opts.knl_type == 'mask', ('Cannot '
-                                                        'add mask to map kernel')
+            assert self.loopy_opts.knl_type == 'mask', ('Cannot add'
+                                                        ' mask to map kernel')
 
     def __make_offset(self, arr):
         """
@@ -617,11 +617,11 @@ class NameStore(object):
         self.num_specs = creator('num_specs', shape=(rate_info['Ns'],),
                                  dtype=np.int32, order=self.order,
                                  initializer=np.arange(rate_info['Ns'],
-                                 dtype=np.int32))
+                                                       dtype=np.int32))
         self.num_reacs = creator('num_reacs', shape=(rate_info['Nr'],),
                                  dtype=np.int32, order=self.order,
                                  initializer=np.arange(rate_info['Nr'],
-                                 dtype=np.int32))
+                                                       dtype=np.int32))
         self.phi_spec_inds = creator('phi_spec_inds',
                                      shape=(rate_info['Ns'],),
                                      dtype=np.int32, order=self.order,
@@ -630,7 +630,8 @@ class NameStore(object):
                                                            dtype=np.int32))
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order, fixed_indicies=[(0, 0)])
+                             dtype=np.float64, order=self.order,
+                             fixed_indicies=[(0, 0)])
         self.P_arr = creator('P_arr', shape=(test_size,),
                              dtype=np.float64, order=self.order)
         self.conc_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
@@ -660,11 +661,13 @@ class NameStore(object):
                                             shape=len(rate_info['net']['reac_to_spec']), order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
         self.net_reac_to_spec_offsets = creator('net_reac_to_spec_offsets',
-                                                dtype=np.int32, shape=off.shape, initializer=off, order=self.order)
+                                                dtype=np.int32, shape=off.shape,
+                                                initializer=off, order=self.order)
         self.net_reac_to_spec_nu = creator('net_reac_to_spec_nu',
                                            dtype=np.int32, shape=rate_info[
                                                'net']['nu'].shape,
-                                           initializer=rate_info['net']['nu'], order=self.order)
+                                           initializer=rate_info['net']['nu'],
+                                           order=self.order)
 
         # per species
         self.net_spec_to_reac = creator('net_spec_to_reac', dtype=np.int32,
@@ -673,11 +676,13 @@ class NameStore(object):
                                         order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
         self.net_spec_to_reac_offsets = creator('net_reac_to_spec_offsets',
-                                                dtype=np.int32, shape=off.shape, initializer=off, order=self.order)
+                                                dtype=np.int32, shape=off.shape,
+                                                initializer=off, order=self.order)
         self.net_spec_to_reac_nu = creator('net_spec_to_reac_nu',
                                            dtype=np.int32, shape=rate_info[
                                                'net_per_spec']['nu'].shape,
-                                           initializer=rate_info['net_per_spec']['nu'], order=self.order)
+                                           initializer=rate_info['net_per_spec']['nu'],
+                                           order=self.order)
 
         # rop's and fwd / rev / thd maps
         self.rop_net = creator('rop_net',
@@ -990,156 +995,158 @@ class NameStore(object):
             if rate_info['fall']['troe']['num']:
                 # Fcent, Atroe, Btroe
                 self.Fcent = creator('Fcent',
-                                          shape=(test_size,
-                                                 rate_info['fall']['troe']['num']),
-                                          dtype=np.float64,
-                                          order=self.order)
+                                     shape=(test_size,
+                                            rate_info['fall']['troe']['num']),
+                                     dtype=np.float64,
+                                     order=self.order)
 
                 self.Atroe = creator('Atroe',
-                                          shape=(test_size,
-                                                 rate_info['fall']['troe']['num']),
-                                          dtype=np.float64,
-                                          order=self.order)
+                                     shape=(test_size,
+                                            rate_info['fall']['troe']['num']),
+                                     dtype=np.float64,
+                                     order=self.order)
 
                 self.Btroe = creator('Btroe',
-                                          shape=(test_size,
-                                                 rate_info['fall']['troe']['num']),
-                                          dtype=np.float64,
-                                          order=self.order)
+                                     shape=(test_size,
+                                            rate_info['fall']['troe']['num']),
+                                     dtype=np.float64,
+                                     order=self.order)
 
                 # troe parameters
                 self.troe_a = creator('troe_a',
-                                           shape=rate_info['fall'][
-                                               'troe']['a'].shape,
-                                           dtype=rate_info['fall'][
-                                               'troe']['a'].dtype,
-                                           initializer=rate_info[
-                                               'fall']['troe']['a'],
-                                           order=self.order)
+                                      shape=rate_info['fall'][
+                                          'troe']['a'].shape,
+                                      dtype=rate_info['fall'][
+                                          'troe']['a'].dtype,
+                                      initializer=rate_info[
+                                          'fall']['troe']['a'],
+                                      order=self.order)
                 self.troe_T1 = creator('troe_T1',
-                                            shape=rate_info['fall'][
-                                                'troe']['T1'].shape,
-                                            dtype=rate_info['fall'][
-                                                'troe']['T1'].dtype,
-                                            initializer=rate_info[
-                                                'fall']['troe']['T1'],
-                                            order=self.order)
+                                       shape=rate_info['fall'][
+                                           'troe']['T1'].shape,
+                                       dtype=rate_info['fall'][
+                                           'troe']['T1'].dtype,
+                                       initializer=rate_info[
+                                           'fall']['troe']['T1'],
+                                       order=self.order)
                 self.troe_T3 = creator('troe_T3',
-                                            shape=rate_info['fall'][
-                                                'troe']['T3'].shape,
-                                            dtype=rate_info['fall'][
-                                                'troe']['T3'].dtype,
-                                            initializer=rate_info[
-                                                'fall']['troe']['T3'],
-                                            order=self.order)
+                                       shape=rate_info['fall'][
+                                           'troe']['T3'].shape,
+                                       dtype=rate_info['fall'][
+                                           'troe']['T3'].dtype,
+                                       initializer=rate_info[
+                                           'fall']['troe']['T3'],
+                                       order=self.order)
                 self.troe_T2 = creator('troe_T2',
-                                            shape=rate_info['fall'][
-                                                'troe']['T2'].shape,
-                                            dtype=rate_info['fall'][
-                                                'troe']['T2'].dtype,
-                                            initializer=rate_info[
-                                                'fall']['troe']['T2'],
-                                            order=self.order)
+                                       shape=rate_info['fall'][
+                                           'troe']['T2'].shape,
+                                       dtype=rate_info['fall'][
+                                           'troe']['T2'].dtype,
+                                       initializer=rate_info[
+                                           'fall']['troe']['T2'],
+                                       order=self.order)
 
                 #map and mask
                 self.troe_map = creator('troe_map',
-                                             shape=rate_info['fall'][
-                                                 'troe']['map'].shape,
-                                             dtype=rate_info['fall'][
-                                                 'troe']['map'].dtype,
-                                             initializer=rate_info[
-                                                 'fall']['troe']['map'],
-                                             order=self.order)
+                                        shape=rate_info['fall'][
+                                            'troe']['map'].shape,
+                                        dtype=rate_info['fall'][
+                                            'troe']['map'].dtype,
+                                        initializer=rate_info[
+                                            'fall']['troe']['map'],
+                                        order=self.order)
                 troe_mask = _make_mask(rate_info['fall']['troe']['map'],
                                        rate_info['Nr'])
                 self.troe_mask = creator('troe_mask',
-                                              shape=troe_mask.shape,
-                                              dtype=troe_mask.dtype,
-                                              initializer=troe_mask,
-                                              order=self.order)
+                                         shape=troe_mask.shape,
+                                         dtype=troe_mask.dtype,
+                                         initializer=troe_mask,
+                                         order=self.order)
 
             if rate_info['fall']['sri']['num']:
                 # X_sri
                 self.X_sri = creator('X',
-                                          shape=(test_size,
-                                                 rate_info['fall']['sri']['num']),
-                                          dtype=np.float64,
-                                          order=self.order)
+                                     shape=(test_size,
+                                            rate_info['fall']['sri']['num']),
+                                     dtype=np.float64,
+                                     order=self.order)
 
                 # sri parameters
                 self.sri_a = creator('sri_a',
-                                          shape=rate_info['fall'][
-                                              'sri']['a'].shape,
-                                          dtype=rate_info['fall'][
-                                              'sri']['a'].dtype,
-                                          initializer=self.rate[
-                                              'fall']['sri']['a'],
-                                          order=self.order)
+                                     shape=rate_info['fall'][
+                                         'sri']['a'].shape,
+                                     dtype=rate_info['fall'][
+                                         'sri']['a'].dtype,
+                                     initializer=rate_info[
+                                         'fall']['sri']['a'],
+                                     order=self.order)
                 self.sri_b = creator('sri_b',
-                                          shape=rate_info['fall'][
-                                              'sri']['b'].shape,
-                                          dtype=rate_info['fall'][
-                                              'sri']['b'].dtype,
-                                          initializer=self.rate[
-                                              'fall']['sri']['b'],
-                                          order=self.order)
+                                     shape=rate_info['fall'][
+                                         'sri']['b'].shape,
+                                     dtype=rate_info['fall'][
+                                         'sri']['b'].dtype,
+                                     initializer=rate_info[
+                                         'fall']['sri']['b'],
+                                     order=self.order)
                 self.sri_c = creator('sri_c',
-                                          shape=rate_info['fall'][
-                                              'sri']['c'].shape,
-                                          dtype=rate_info['fall'][
-                                              'sri']['c'].dtype,
-                                          initializer=self.rate[
-                                              'fall']['sri']['c'],
-                                          order=self.order)
+                                     shape=rate_info['fall'][
+                                         'sri']['c'].shape,
+                                     dtype=rate_info['fall'][
+                                         'sri']['c'].dtype,
+                                     initializer=rate_info[
+                                         'fall']['sri']['c'],
+                                     order=self.order)
                 self.sri_d = creator('sri_d',
-                                          shape=rate_info['fall'][
-                                              'sri']['d'].shape,
-                                          dtype=rate_info['fall'][
-                                              'sri']['d'].dtype,
-                                          initializer=self.rate[
-                                              'fall']['sri']['d'],
-                                          order=self.order)
+                                     shape=rate_info['fall'][
+                                         'sri']['d'].shape,
+                                     dtype=rate_info['fall'][
+                                         'sri']['d'].dtype,
+                                     initializer=rate_info[
+                                         'fall']['sri']['d'],
+                                     order=self.order)
                 self.sri_e = creator('sri_e',
-                                          shape=rate_info['fall'][
-                                              'sri']['e'].shape,
-                                          dtype=rate_info['fall'][
-                                              'sri']['e'].dtype,
-                                          initializer=self.rate[
-                                              'fall']['sri']['e'],
-                                          order=self.order)
+                                     shape=rate_info['fall'][
+                                         'sri']['e'].shape,
+                                     dtype=rate_info['fall'][
+                                         'sri']['e'].dtype,
+                                     initializer=rate_info[
+                                         'fall']['sri']['e'],
+                                     order=self.order)
 
                 #map and mask
                 self.sri_map = creator('sri_map',
-                                            shape=rate_info['fall'][
-                                                'sri']['map'].shape,
-                                            dtype=rate_info['fall'][
-                                                'sri']['map'].dtype,
-                                            initializer=rate_info[
-                                                'fall']['sri']['map'],
-                                            order=self.order)
-                sri_mask = _make_mask(sri_map, rate_info['Nr'])
+                                       shape=rate_info['fall'][
+                                           'sri']['map'].shape,
+                                       dtype=rate_info['fall'][
+                                           'sri']['map'].dtype,
+                                       initializer=rate_info[
+                                           'fall']['sri']['map'],
+                                       order=self.order)
+                sri_mask = _make_mask(rate_info['fall']['sri']['map'],
+                                      rate_info['Nr'])
                 self.sri_mask = creator('sri_mask',
-                                             shape=sri_mask.shape,
-                                             dtype=sri_mask.dtype,
-                                             initializer=sri_mask,
-                                             order=self.order)
+                                        shape=sri_mask.shape,
+                                        dtype=sri_mask.dtype,
+                                        initializer=sri_mask,
+                                        order=self.order)
 
             if rate_info['fall']['lind']['num']:
                 # lind map / mask
                 self.lind_map = creator('lind_map',
-                                             shape=rate_info['fall'][
-                                                 'lind']['map'].shape,
-                                             dtype=rate_info['fall'][
-                                                 'lind']['map'].dtype,
-                                             initializer=rate_info[
-                                                 'fall']['lind']['map'],
-                                             order=self.order)
-                lind_mask = _make_mask(lind_map, rate_info['Nr'])
+                                        shape=rate_info['fall'][
+                                            'lind']['map'].shape,
+                                        dtype=rate_info['fall'][
+                                            'lind']['map'].dtype,
+                                        initializer=rate_info[
+                                            'fall']['lind']['map'],
+                                        order=self.order)
+                lind_mask = _make_mask(rate_info['fall']['lind']['map'],
+                                       rate_info['Nr'])
                 self.lind_mask = creator('lind_mask',
-                                              shape=lind_mask.shape,
-                                              dtype=lind_mask.dtype,
-                                              initializer=lind_mask,
-                                              order=self.order)
+                                         shape=lind_mask.shape,
+                                         dtype=lind_mask.dtype,
+                                         initializer=lind_mask,
+                                         order=self.order)
 
         # chebyshev
         if rate_info['cheb']['num']:
@@ -1175,16 +1182,21 @@ class NameStore(object):
             self.cheb_Plim = creator('cheb_Plim',
                                      dtype=rate_info['cheb'][
                                          'post_process']['Plim'].dtype,
-                                     initializer=Plim,
-                                     shape=Plim.shape,
+                                     initializer=rate_info['cheb'][
+                                         'post_process']['Plim'],
+                                     shape=rate_info['cheb'][
+                                         'post_process']['Plim'].shape,
                                      order=self.order)
             self.cheb_Tlim = creator('cheb_Tlim',
-                                     dtype=Tlim.dtype,
-                                     initializer=Tlim,
-                                     shape=Tlim.shape,
+                                     dtype=rate_info['cheb'][
+                                         'post_process']['Tlim'].dtype,
+                                     initializer=rate_info['cheb'][
+                                         'post_process']['Tlim'],
+                                     shape=rate_info['cheb'][
+                                         'post_process']['Tlim'].shape,
                                      order=self.order)
 
-            #mask and map
+            # mask and map
             cheb_map = rate_info['cheb']['map'].astype(dtype=np.int32)
             self.cheb_map = creator('cheb_map',
                                     dtype=cheb_map.dtype,
@@ -1217,7 +1229,7 @@ class NameStore(object):
                                            shape=plog_num_params.shape,
                                            order=self.order)
 
-            #mask and map
+            # mask and map
             plog_map = rate_info['plog']['map'].astype(dtype=np.int32)
             self.plog_map = creator('plog_map',
                                     dtype=plog_map.dtype,

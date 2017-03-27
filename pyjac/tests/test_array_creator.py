@@ -322,5 +322,4 @@ class SubTest(TestClass):
         from ..loopy_utils.loopy_utils import RateSpecialization
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
-        import pdb; pdb.set_trace()
         arc.NameStore(lp_opt, rate_info, self.store.test_size)
