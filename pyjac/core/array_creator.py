@@ -340,7 +340,7 @@ class MapStore(object):
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
 
-    def apply_maps(self, variable, *indicies, maps=None):
+    def apply_maps(self, variable, *indicies, maps=None, **kwargs):
         """
         Applies the developed iname mappings to the indicies supplied and
         returns the created loopy Arg/Temporary and the string version
@@ -374,7 +374,7 @@ class MapStore(object):
                 maps |= set([self.transformed_variables[
                              variable].transform_insn])
 
-        return variable(indicies)
+        return variable(*indicies, **kwargs)
 
     def generate_transform_instruction(self, oldname, newname, map_arr='',
                                        affine=''):
@@ -497,7 +497,7 @@ class creator(object):
         else:
             self.creator = self.__glob_arg_creator
 
-    def __get_indicies(self, indicies):
+    def __get_indicies(self, *indicies):
         if self.fixed_indicies:
             inds = [None for i in self.shape]
             for i, v in self.fixed_indicies:
@@ -531,8 +531,8 @@ class creator(object):
                             dtype=self.dtype,
                             **kwargs)
 
-    def __call__(self, indicies, **kwargs):
-        inds = self.__get_indicies(indicies)
+    def __call__(self, *indicies, **kwargs):
+        inds = self.__get_indicies(*indicies)
         lp_arr = self.creator(**kwargs)
         return (lp_arr, lp_arr.name + '[{}]'.format(', '.join(
             str(x) for x in inds)))
