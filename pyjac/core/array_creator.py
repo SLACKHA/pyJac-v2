@@ -715,7 +715,7 @@ class NameStore(object):
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(0, 0)])
+                             fixed_indicies=[(1, 0)])
         self.P_arr = creator('P_arr', shape=(test_size,),
                              dtype=np.float64, order=self.order)
         self.conc_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
@@ -724,7 +724,7 @@ class NameStore(object):
                                dtype=np.float64, order=self.order)
         self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(0, 0)])
+                             fixed_indicies=[(1, 0)])
 
         # thermo arrays
         self.h_arr = creator('h', shape=(test_size, rate_info['Ns']),
