@@ -674,16 +674,11 @@ ${name} : ${type}
 
         assumptions = info.assumptions[:]
 
-        #find the start index for 'i'
-        if isinstance(info.indicies, tuple):
-            i_start = info.indicies[0]
-            i_end = info.indicies[1]
-        else:
-            i_start = 0
-            i_end = info.indicies.size
+        # find the start index for 'i'
+        iname, iname_range = info.indicies
 
         #add to ranges
-        iname_range.append('{}<={}<{}'.format(i_start, info.var_name, i_end))
+        iname_range.append(iname_range)
         iname_range.append('{}<=j<{}'.format(0, test_size))
 
         if isinstance(test_size, str):
