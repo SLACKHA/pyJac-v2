@@ -9,20 +9,13 @@ from __future__ import print_function
 import os
 import sys
 import subprocess
-import re
-from argparse import ArgumentParser
 import multiprocessing
-import shutil
-from collections import defaultdict, OrderedDict
-
-from string import Template
 
 # Related modules
 import numpy as np
 
 try:
     import cantera as ct
-    from cantera import ck2cti
 except ImportError:
     print('Error: Cantera must be installed.')
     raise
@@ -34,18 +27,16 @@ except ImportError:
     raise
 
 # Local imports
-from .. import utils
 from ..core.create_jacobian import create_jacobian
-from ..libgen import (generate_library, libs, compiler, file_struct,
-                      get_cuda_path, flags, get_file_list
-                      )
-from .. import site_conf as site
+from ..libgen import (libs, compiler, file_struct, flags, get_file_list,
+                      run_dirs)
 
 from ..tests.test_utils import data_bin_writer as dbw
 from ..tests.test_utils import get_test_matrix as tm
 
 STATIC = False
 """bool: CUDA only works for static libraries"""
+
 
 def check_step_file(filename, steplist):
     """Checks file for existing data, returns number of runs left
@@ -63,9 +54,9 @@ def check_step_file(filename, steplist):
         Dictionary with number of runs left for each step
 
     """
-    #checks file for existing data
-    #and returns number of runs left to do
-    #for each # of does in steplist
+    # checks file for existing data
+    # and returns number of runs left to do
+    # for each # of does in steplist
     runs = {}
     for step in steplist:
         runs[step] = 0
@@ -108,10 +99,10 @@ def check_file(filename):
             try:
                 vals = line.split(',')
                 if len(vals) == to_find:
-                    i = int(vals[0])
-                    f = float(vals[1])
-                    f2 = float(vals[2])
-                    f3 = float(vals[3])
+                    int(vals[0])
+                    float(vals[1])
+                    float(vals[2])
+                    float(vals[3])
                     num_completed += 1
             except:
                 pass
@@ -154,14 +145,18 @@ def cmd_link(lang, shared):
 
 
 exceptions = ['-xc']
+
+
 def linker(lang, test_dir, filelist, platform=''):
     args = cmd_link(lang, not STATIC)
     args.extend([x for x in flags[lang] if x not in exceptions])
     args.extend([os.path.join(test_dir, getf(f) + '.o') for f in filelist])
     args.extend(['-o', os.path.join(test_dir, 'speedtest')])
     args.extend(libs[lang])
-
     args.append('-lm')
+
+    if run_dirs[lang]:
+        args.extend(['-Wl,-rpath' + x for x in run_dirs[lang]])
 
     try:
         print(' '.join(args))
