@@ -90,6 +90,9 @@ def get_cuda_path():
 lib_dirs = dict(c=[],
                 cuda=get_cuda_path(),
                 opencl=site.CL_LIB_DIR)
+run_dirs = dict(c=[],
+                cuda=get_cuda_path(),
+                opencl=site.CL_LIB_DIR)
 
 
 def compiler(fstruct):
