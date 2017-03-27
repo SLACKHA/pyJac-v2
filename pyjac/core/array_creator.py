@@ -69,6 +69,8 @@ class MapStore(object):
         The loop index to work with
     have_input_map : bool
         If true, the input map domain needs a map for expression
+    transform_insns : set
+        A set of transform instructions generated for this :class:`MapStore`
     """
 
     def __init__(self, loopy_opts, map_domain, mask_domain, loop_index='i'):
@@ -84,6 +86,7 @@ class MapStore(object):
         self.taken_transform_names = UniqueNameGenerator()
         self.loop_index = loop_index
         self.have_input_map = False
+        self.transform_insns = set()
 
         if not self._is_contiguous(self.map_domain):
             # need an input map
@@ -113,7 +116,8 @@ class MapStore(object):
         # and update
         self.map_domain = new_map_domain
 
-    def _add_transform(self, map_domain, iname, affine=None):
+    def _add_transform(self, map_domain, iname, affine=None,
+                       force_inline=False):
         """
         Convertes the map_domain (affine int or :class:`creator`)
         to a :class:`domain_transform` and adds it to this object
@@ -126,10 +130,22 @@ class MapStore(object):
 
         if affine is not None:
             transform_insn = self.generate_transform_instruction(
-                iname, new_iname, affine=affine)
+                iname, new_iname, affine=affine, force_inline=force_inline)
+        elif force_inline:
+            raise Exception("Can't force inline for a non-affine"
+                            " transformation.")
         else:
             transform_insn = self.generate_transform_instruction(
                 iname, new_iname, map_domain.name)
+
+        # update instruction list
+        if not force_inline:
+            self.transform_insns |= set([transform_insn])
+        else:
+            # directly place the transform in the new iname for inline access
+            new_iname = transform_insn
+            # and update transform insn
+            transform_insn = ''
 
         # and store
         dt = domain_transform(
@@ -141,6 +157,57 @@ class MapStore(object):
         """Returns a new iname"""
         return self.taken_transform_names(iname)
 
+    def _get_mask_transform(self, domain, new_domain):
+        """
+        Get the appropriate map transform between two given domains.
+        Most likely, this will be a numpy array, but it may be an affine
+        mapping
+
+        Parameters
+        ----------
+        domain : :class:`creator`
+            The domain to map
+        new_domain: :class:`creator`
+            The domain to map to
+
+        Returns
+        -------
+        None if domains are equivalent
+        Affine `str` map if an affine transform is possible
+        :class:`creator` if a more complex map is required
+        """
+
+        try:
+            dcheck = domain.initializer
+        except AttributeError:
+            dcheck = domain
+        try:
+            ncheck = new_domain.initializer
+        except AttributeError:
+            ncheck = new_domain
+
+        # check equal
+        if np.array_equal(dcheck, ncheck):
+            return None, None
+
+        # check for affine
+        dset = np.where(dcheck != -1)[0]
+        nset = np.where(ncheck != -1)[0]
+
+        # must be same size for affine
+        if dset.size == nset.size:
+            # in order to be an affine mask transform, the set values should be
+            # an affine transform
+            diffs = nset - dset
+            affine = diffs[0]
+            if np.all(diffs == affine):
+                # additionally, the affine mapped values should match the
+                # original ones
+                if np.array_equal(ncheck[nset], dcheck[dset]):
+                    return new_domain, affine
+
+        return new_domain, None
+
     def _get_map_transform(self, domain, new_domain):
         """
         Get the appropriate map transform between two given domains.
@@ -149,16 +216,16 @@ class MapStore(object):
 
         Parameters
         ----------
-        domain : :class:`numpy.ndarray` or :class:`creator`
+        domain : :class:`creator`
             The domain to map
-        new_domain: :class:`numpy.ndarray` or :class:`creator`
+        new_domain: :class:`creator`
             The domain to map to
 
         Returns
         -------
         None if domains are equivalent
         Affine `str` map if an affine transform is possible
-        :class:`np.ndarray` if a more complex map is required
+        :class:`creator` if a more complex map is required
         """
 
         try:
@@ -213,7 +280,7 @@ class MapStore(object):
                      np.array_equal(domain, x.new_domain) and
                      iname == x.iname), None)
 
-    def _check_add_map(self, iname, domain):
+    def _check_add_map(self, iname, domain, force_inline=False):
         """
         Checks and adds a map if necessary
 
@@ -223,6 +290,9 @@ class MapStore(object):
             The index to map
         domain : :class:`creator`
             The domain to check
+        force_inline : bool
+            If true, the resulting transform should be an inline, affine
+            transformation
 
         Returns
         -------
@@ -252,11 +322,12 @@ class MapStore(object):
                         return mapv
 
                 # need a new map, so add
-                return self._add_transform(mapping, iname, affine=affine)
+                return self._add_transform(mapping, iname, affine=affine,
+                                           force_inline=force_inline)
 
         return None
 
-    def _check_add_mask(self, iname, domain):
+    def _check_add_mask(self, iname, domain, force_inline=False):
         """
         Checks and adds a mask if necessary
 
@@ -266,6 +337,8 @@ class MapStore(object):
             The index to map
         domain : :class:`creator`
             The domain to check
+        force_inline : bool
+            If true
 
         Returns
         -------
@@ -274,14 +347,18 @@ class MapStore(object):
         """
         base = self._get_base_domain()
 
+        # get mask transform
+        masking, affine = self._get_mask_transform(base, domain)
+
         # check if the masks match
-        if not np.array_equal(base.initializer, domain.initializer):
+        if masking is not None:
             # check if we have an matching mask
             maskv = self._get_transform_if_exists(iname, domain)
 
             if not maskv:
                 # need to add a mask
-                maskv = self._add_transform(domain, iname)
+                maskv = self._add_transform(domain, iname, affine=affine,
+                                            force_inline=force_inline)
             return maskv
 
         return None
@@ -297,7 +374,8 @@ class MapStore(object):
         else:
             raise NotImplementedError
 
-    def check_and_add_transform(self, variable, domain, iname='i'):
+    def check_and_add_transform(self, variable, domain, iname='i',
+                                force_inline=False):
         """
         Check the domain of the variable given against the base domain of this
         kernel.  If not a match, a map / mask instruction will be generated
@@ -314,6 +392,10 @@ class MapStore(object):
             Note: this must be an initialized creator (i.e. temporary variable)
         iname : str
             The iname to transform
+        force_inline : str
+            If True, the developed transform (if any) must be expressed as an
+            inline transform.  If the transform is not affine, an exception
+            will be raised
 
         Returns
         -------
@@ -325,9 +407,11 @@ class MapStore(object):
 
         transform = None
         if self.knl_type == 'map':
-            transform = self._check_add_map(iname, domain)
+            transform = self._check_add_map(iname, domain,
+                                            force_inline=force_inline)
         elif self.knl_type == 'mask':
-            transform = self._check_add_mask(iname, domain)
+            transform = self._check_add_mask(iname, domain,
+                                             force_inline=force_inline)
         else:
             raise NotImplementedError
 
@@ -340,7 +424,7 @@ class MapStore(object):
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
 
-    def apply_maps(self, variable, *indicies, maps=None, **kwargs):
+    def apply_maps(self, variable, *indicies, **kwargs):
         """
         Applies the developed iname mappings to the indicies supplied and
         returns the created loopy Arg/Temporary and the string version
@@ -351,9 +435,6 @@ class MapStore(object):
             The NameStore variable(s) to work with
         indices : list of str
             The inames to map
-        maps : set
-            If specified, a list to add the (potential) resulting map
-            instruction to
 
         Returns
         -------
@@ -370,14 +451,12 @@ class MapStore(object):
                              self.transformed_variables[variable].iname else
                              self.transformed_variables[variable].new_iname
                              for x in indicies)
-            if maps is not None:
-                maps |= set([self.transformed_variables[
-                             variable].transform_insn])
 
         return variable(*indicies, **kwargs)
 
     def generate_transform_instruction(self, oldname, newname, map_arr='',
-                                       affine=''):
+                                       affine='',
+                                       force_inline=False):
         """
         Generates a loopy instruction that maps oldname -> newname via the
         mapping array
@@ -392,6 +471,9 @@ class MapStore(object):
             The array that holds the mappings
         affine : int, optional
             An optional affine mapping term that may be passed in
+        force_inline : bool, optional
+            If true, and affine simply return an inline transform rather than
+            a separate instruction
 
         Returns
         -------
@@ -402,6 +484,8 @@ class MapStore(object):
 
         try:
             affine = ' + ' + str(int(affine))
+            if force_inline:
+                return oldname + affine
         except:
             pass
 
@@ -428,7 +512,7 @@ class MapStore(object):
         """
 
         base = self._get_base_domain()
-        fmt_str = '{{[{ind}]: {start} <= {ind} <= {end}}}'
+        fmt_str = '{start} <= {ind} <= {end}'
 
         if self._is_map():
             return (self.loop_index, fmt_str.format(
@@ -636,7 +720,7 @@ class NameStore(object):
                              dtype=np.float64, order=self.order)
         self.conc_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                                 dtype=np.float64, order=self.order)
-        self.phi_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+        self.conc_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                                dtype=np.float64, order=self.order)
         self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,

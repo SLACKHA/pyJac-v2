@@ -222,12 +222,11 @@ def test_map_variable_creator(maptype):
                                               list(range(5, 11)),
                                               dtype=np.int32))
     mstore.check_and_add_transform(var, domain, 'i')
-    maps = set()
-    var, var_str = mstore.apply_maps(var, 'i', maps=maps)
+    var, var_str = mstore.apply_maps(var, 'i')
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_map]'
-    assert '<>i_map = domain[i]' in maps
+    assert '<>i_map = domain[i]' in mstore.transform_insns
 
 
 @parameterized(['mask'])
@@ -246,12 +245,11 @@ def test_mask_variable_creator(maptype):
     domain = arc.creator('domain', np.int32, (10,), 'C',
                          initializer=mask)
     mstore.check_and_add_transform(var, domain, 'i')
-    maps = set()
-    var, var_str = mstore.apply_maps(var, 'i', maps=maps)
+    var, var_str = mstore.apply_maps(var, 'i')
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_mask]'
-    assert '<>i_mask = domain[i]' in maps
+    assert '<>i_mask = domain[i]' in mstore.transform_insns
 
 
 @parameterized(['mask'])
@@ -270,7 +268,7 @@ def test_mask_iname_domains(maptype):
                          initializer=mask)
     mstore.check_and_add_transform(var, domain, 'i')
 
-    assert mstore.get_iname_domain() == ('i', '{[i]: 0 <= i <= 9}')
+    assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
 
 @parameterized(['map'])
@@ -280,7 +278,7 @@ def test_map_iname_domains(maptype):
                     initializer=np.arange(3, 13, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert mstore.get_iname_domain() == ('i', '{[i]: 3 <= i <= 12}')
+    assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add an affine map
     mapv = np.arange(10, dtype=np.int32)
@@ -289,7 +287,7 @@ def test_map_iname_domains(maptype):
                          initializer=mapv)
     mstore.check_and_add_transform(var, domain, 'i')
 
-    assert mstore.get_iname_domain() == ('i', '{[i]: 3 <= i <= 12}')
+    assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add a non-affine map, domain should bounce to 0-based
     mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=np.int32)
@@ -297,7 +295,7 @@ def test_map_iname_domains(maptype):
     domain = arc.creator('domain', np.int32, (10,), 'C',
                          initializer=mapv)
     mstore.check_and_add_transform(var, domain, 'i')
-    assert mstore.get_iname_domain() == ('i', '{[i]: 0 <= i <= 9}')
+    assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
     # check non-contigous
     c = arc.creator('base', np.int32, (10,), 'C',
@@ -305,13 +303,41 @@ def test_map_iname_domains(maptype):
                                          dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert mstore.get_iname_domain() == ('i', '{[i]: 0 <= i <= 9}')
+    assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
 
 def test_fixed_creator_indices():
     c = arc.creator('base', np.int32, ('isize', 'jsize'), 'C',
                     fixed_indicies=[(0, 1)])
     assert c('j')[1] == 'base[1, j]'
+
+
+@parameterized(['map', 'mask'])
+def test_force_inline(maptype):
+    lp_opt = _dummy_opts(maptype)
+    if maptype == 'map':
+        mapv = np.arange(0, 5, dtype=np.int32)
+    else:
+        mapv = np.full(11, -1, dtype=np.int32)
+        mapv[:10] = np.arange(10, dtype=np.int32)
+    c = arc.creator('base', np.int32, mapv.shape, 'C',
+                    initializer=mapv)
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    # add an affine map
+    if maptype == 'map':
+        mapv += 1
+    else:
+        mapv[0] = -1
+        mapv[1:] = np.arange(10, dtype=np.int32)
+    var = arc.creator('var', np.int32, mapv.shape, 'C')
+    domain = arc.creator('domain', np.int32, mapv.shape, 'C',
+                         initializer=mapv)
+    mstore.check_and_add_transform(var, domain, 'i', force_inline=True)
+    var, var_str = mstore.apply_maps(var, 'i')
+    assert var_str == 'var[i + 1]'.format(maptype)
+    assert len(mstore.transform_insns) == 0
 
 
 @attr('long')
