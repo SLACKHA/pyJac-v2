@@ -510,9 +510,9 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
     mapstore = arc.MapStore(loopy_opts,
                             namestore.num_specs,
                             namestore.num_specs)
-    maps = set()
 
-    default_inds = ('j', 'i')
+    var_name = 'i'
+    default_inds = ('j', var_name)
     fixed_inds = ('j')
 
     # here, the equation form _does_ matter
@@ -526,46 +526,50 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
         term = eqs['conv'][term]
 
     # first, create all arrays
-    kernel_data = []
+    kernel_data = set()
 
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
+        kernel_data.add(lp.ValueArg(test_size, dtype=np.int32))
+
+    # add / apply maps
+    mapstore.check_and_add_transform(namestore.conc_dot,
+                                     namestore.phi_spec_inds,
+                                     force_inline=True)
+    mapstore.check_and_add_transform(namestore.conc_arr,
+                                     namestore.phi_spec_inds,
+                                     force_inline=True)
 
     # add all non-mapped arrays
     if conp:
-        h_lp, h_str = namestore.h_arr(*default_inds)
-        cp_lp, cp_str = namestore.cp_arr(*default_inds)
-        kernel_data.extend([namestore.h_lp, cp_lp])
+        h_lp, h_str = mapstore.apply_maps(namestore.h_arr, *default_inds)
+        cp_lp, cp_str = mapstore.apply_maps(namestore.cp_arr, *default_inds)
+        kernel_data.update([h_lp, cp_lp])
     else:
-        u_lp, u_str = namestore.u_arr(*default_inds)
-        cv_lp, cv_str = namestore.cv_arr(*default_inds)
-        kernel_data.extend([namestore.u_lp, cv_lp])
+        u_lp, u_str = mapstore.apply_maps(namestore.u_arr, *default_inds)
+        cv_lp, cv_str = mapstore.apply_maps(namestore.cv_arr, *default_inds)
+        kernel_data.update([u_lp, cv_lp])
 
-    conc_lp, conc_str = namestore.conc_arr(*default_inds)
-    Tdot_lp, Tdot_str = namestore.T_dot(*fixed_inds)
+    conc_lp, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
+    Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, *fixed_inds)
 
-    kernel_data.extend([namestore.conc_lp, Tdot_lp])
+    kernel_data.update([conc_lp, Tdot_lp])
 
-    # phi_dot has a offset of 1 map
-    mapstore.check_and_add_transform(namestore.phi_dot,
-                                     namestore.phi_spec_inds)
-    phidot_lp, phidot_str, map_insn = namestore.apply_maps(
-        namestore.phi_dot,
-        *default_inds,
-        maps=maps)
+    conc_dot_lp, conc_dot_str = mapstore.apply_maps(namestore.conc_dot,
+                                                    *default_inds)
+    kernel_data.add(conc_dot_lp)
 
     # put together conv/conp terms
     if conp:
         term = sp_utils.sanitize(term, subs={
             'H[k]': h_str,
-            'dot{omega}[k]': phidot_str,
+            'dot{omega}[k]': conc_dot_str,
             '[C][k]': conc_str,
             '{C_p}[k]': cp_str
         })
     else:
         term = sp_utils.sanitize(term, subs={
             'U[k]': u_str,
-            'dot{omega}[k]': phidot_str,
+            'dot{omega}[k]': conc_dot_str,
             '[C][k]': conc_str,
             '{C_v}[k]': cv_str
         })
@@ -588,12 +592,12 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
         ' / simul_reduce(sum, ${var_name}, ${lower_term}) {id=sum}'
     ).safe_substitute(
         Tdot_str=Tdot_str,
-        factor=factor)
-    pre_instructions = Template(pre_instructions)
+        factor=factor,
+        var_name=var_name)
 
     instructions = Template(pre_instructions).safe_substitute(
-        upper_term=upper,
-        lower_term=lower)
+        upper_term=str(upper),
+        lower_term=str(lower))
 
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
@@ -643,7 +647,7 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
                           instructions='',
                           var_name='i',
                           kernel_data=kernel_data,
-                          map_instructs=maps,
+                          maps=mapstore.transform_insns,
                           indicies=mapstore.get_iname_domain(),
                           extra_subs={'spec_ind': 'ispec'},
                           can_vectorize=can_vectorize,
