@@ -532,6 +532,13 @@ ${name} : ${type}
         self.all_arrays = kernel_data[:]
         self.mem.add_arrays(kernel_data)
 
+        def _name_assign(arr):
+            if arr.name not in ['T_arr', 'P_arr', 'conc_arr'] and not \
+                    isinstance(arr, lp.ValueArg):
+                return arr.name + '[{ind}] = 0'.format(ind=
+                    ', '.join(['0'] * len(arr.shape)))
+            return ''
+
         #generate the kernel definition
         self.vec_width = self.loopy_opts.depth
         if self.vec_width is None:
@@ -540,7 +547,7 @@ ${name} : ${type}
             self.vec_width = 0
         #create a dummy kernel to get the defn
         knl = lp.make_kernel('{{[i, j]: 0 <= i,j < {}}}'.format(self.vec_width),
-            '<>temp = i',
+            '\n'.join(_name_assign(arr) for arr in kernel_data),
             kernel_data,
             name=self.name,
             target=lp_utils.get_target(self.lang, self.loopy_opts.device)
