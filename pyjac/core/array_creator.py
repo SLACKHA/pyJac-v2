@@ -324,6 +324,7 @@ class MapStore(object):
                 # need a new map, so add
                 return self._add_transform(mapping, iname, affine=affine,
                                            force_inline=force_inline)
+            return mapv
 
         return None
 
