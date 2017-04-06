@@ -569,6 +569,7 @@ class creator(object):
         self.initializer = initializer
         self.fixed_indicies = None
         self.num_indicies = len(shape)
+        self.order = order
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
         if initializer is not None:
@@ -608,12 +609,14 @@ class creator(object):
                                     scope=self.scope,
                                     read_only=True,
                                     dtype=self.dtype,
+                                    order=self.order,
                                     **kwargs)
 
     def __glob_arg_creator(self, **kwargs):
         return lp.GlobalArg(self.name,
                             shape=self.shape,
                             dtype=self.dtype,
+                            order=self.order,
                             **kwargs)
 
     def __call__(self, *indicies, **kwargs):
