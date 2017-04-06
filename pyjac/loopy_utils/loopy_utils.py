@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-#package imports
+# package imports
 from enum import IntEnum
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
@@ -9,16 +9,17 @@ import pyopencl as cl
 import re
 import os
 
-#local imports
+# local imports
 from ..utils import check_lang
 from .loopy_edit_script import substitute as codefix
 
-#make loopy's logging less verbose
+# make loopy's logging less verbose
 import logging
 logging.getLogger('loopy').setLevel(logging.WARNING)
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-    'loopy_edit_script.py')
+                           'loopy_edit_script.py')
+
 
 class RateSpecialization(IntEnum):
     fixed = 0,
@@ -27,6 +28,7 @@ class RateSpecialization(IntEnum):
 
 
 class loopy_options(object):
+
     """
     Loopy Objects class
 
@@ -79,14 +81,15 @@ class loopy_options(object):
         * A mapped kernel loops over only necessary indicies (e.g. plog reactions vs all)
             This may be faster for a non-vectorized or wide-vectorization
     """
+
     def __init__(self, width=None, depth=None, ilp=False,
-                    unr=None, lang='opencl', order='C',
-                    rate_spec=RateSpecialization.fixed,
-                    rate_spec_kernels=False,
-                    rop_net_kernels=False,
-                    spec_rates_sum_over_reac=True,
-                    platform='',
-                    knl_type='map'):
+                 unr=None, lang='opencl', order='C',
+                 rate_spec=RateSpecialization.fixed,
+                 rate_spec_kernels=False,
+                 rop_net_kernels=False,
+                 spec_rates_sum_over_reac=True,
+                 platform='',
+                 knl_type='map'):
         self.width = width
         self.depth = depth
         self.ilp = ilp
@@ -104,8 +107,8 @@ class loopy_options(object):
         self.device = None
         assert knl_type in ['mask', 'map']
         self.knl_type = knl_type
-        #need to find the first platform that has the device of the correct
-        #type
+        # need to find the first platform that has the device of the correct
+        # type
         if self.platform:
             self.device_type = cl.device_type.ALL
             check_name = None
@@ -120,21 +123,25 @@ class loopy_options(object):
             for p in platforms:
                 try:
                     ctx = cl.Context(
-                            dev_type=self.device_type,
-                            properties=[(cl.context_properties.PLATFORM, p)])
+                        dev_type=self.device_type,
+                        properties=[(cl.context_properties.PLATFORM, p)])
                     if not check_name or check_name.lower() in p.get_info(cl.platform_info.NAME).lower():
                         self.platform = p
                         break
                 except cl.cffi_cl.RuntimeError:
                     pass
             if not self.platform:
-                raise Exception('Cannot find matching platform for string: {}'.format(platform))
-            #finally a matching device
-            self.device = self.platform.get_devices(device_type=self.device_type)
+                raise Exception(
+                    'Cannot find matching platform for string: {}'.format(platform))
+            # finally a matching device
+            self.device = self.platform.get_devices(
+                device_type=self.device_type)
             if not self.device:
-                raise Exception('Cannot find devices of type {} on platform {}'.format(self.device_type, self.platform))
+                raise Exception('Cannot find devices of type {} on platform {}'.format(
+                    self.device_type, self.platform))
             self.device = self.device[0]
             self.device_type = self.device.get_info(cl.device_info.TYPE)
+
 
 def get_device_list():
     """
@@ -152,7 +159,7 @@ def get_device_list():
     device_list = []
     for p in cl.get_platforms():
         device_list.append(p.get_devices())
-    #don't need multiple gpu's etc.
+    # don't need multiple gpu's etc.
     for i in range(len(device_list)):
         device_list[i] = device_list[i][0]
 
@@ -187,6 +194,7 @@ def get_context(device='0'):
     queue = cl.CommandQueue(ctx)
     return ctx, queue
 
+
 def get_header(knl):
     """
     Returns header definition code for a :class:`loopy.LoopKernel`
@@ -206,6 +214,7 @@ def get_header(knl):
     """
     return str(lp.generate_header(knl)[0])
 
+
 def set_editor(knl):
     """
     Returns a copy of knl set up for various automated bug-fixes
@@ -221,14 +230,15 @@ def set_editor(knl):
         The kernel set up for editing
     """
 
-    #set the edit script as the 'editor'
+    # set the edit script as the 'editor'
     if not 'EDITOR' in os.environ:
         os.environ['EDITOR'] = edit_script
 
-    #turn on code editing
+    # turn on code editing
     edit_knl = lp.set_options(knl, edit_code=True)
 
     return edit_knl
+
 
 def get_code(knl):
     """
@@ -251,16 +261,18 @@ def get_code(knl):
     code, _ = lp.generate_code(knl)
     return codefix('stdin', text_in=code)
 
+
 class kernel_call(object):
+
     """
     A wrapper for the various parameters (e.g. args, masks, etc.)
     for calling / executing a loopy kernel
     """
 
     def __init__(self, name, ref_answer, compare_axis=0, compare_mask=None,
-                    out_mask=None, input_mask=[], strict_name_match=False,
-                    chain=None, check=True, post_process=None,
-                    **input_args):
+                 out_mask=None, input_mask=[], strict_name_match=False,
+                 chain=None, check=True, post_process=None,
+                 **input_args):
         """
         The initializer for the :class:`kernel_call` object
 
@@ -357,28 +369,27 @@ class kernel_call(object):
         order : {'C', 'F'}
             The memory layout of the arrays, C (row major) or Fortran (column major)
         """
-        self.compare_axis = 1 if order == 'C' else 0
+        self.compare_axis = 1  # always C order now (in numpy comparisons)
         self.current_order = order
 
-        #filter out bad input
+        # filter out bad input
         args_copy = self.input_args.copy()
         if self.input_mask is not None:
             if hasattr(self.input_mask, '__call__'):
-                args_copy = {x : args_copy[x] for x in args_copy
-                    if self.input_mask(self, x)}
+                args_copy = {x: args_copy[x] for x in args_copy
+                             if self.input_mask(self, x)}
             else:
-                args_copy = {x : args_copy[x] for x in args_copy
-                    if x not in self.input_mask}
+                args_copy = {x: args_copy[x] for x in args_copy
+                             if x not in self.input_mask}
 
         for key in args_copy:
             if hasattr(args_copy[key], '__call__'):
-                #it's a function
+                # it's a function
                 args_copy[key] = args_copy[key](order)
 
         self.kernel_args = args_copy
-        self.transformed_ref_ans = [ans.T.copy() if order == 'C' else ans.copy()
-            for ans in self.ref_answer]
-
+        self.transformed_ref_ans = [np.array(ans, order=order, copy=True)
+                                    for ans in self.ref_answer]
 
     def __call__(self, knl, queue):
         """
@@ -432,11 +443,11 @@ class kernel_call(object):
             ref_answer = self.transformed_ref_ans[i].copy().squeeze()
             if self.compare_mask[i] is not None:
                 outv = np.take(output_variables[i],
-                        self.compare_mask[i], self.compare_axis).squeeze()
+                               self.compare_mask[i], self.compare_axis).squeeze()
                 if outv.shape != ref_answer.shape:
-                    #apply the same transformation to the answer
+                    # apply the same transformation to the answer
                     ref_answer = np.take(ref_answer,
-                                self.compare_mask[i], self.compare_axis).squeeze()
+                                         self.compare_mask[i], self.compare_axis).squeeze()
             allclear = allclear and np.allclose(outv, ref_answer)
         return allclear
 
@@ -462,71 +473,74 @@ def populate(knl, kernel_calls, device='0'):
         The value(s) of the evaluated :class:`loopy.LoopKernel`
     """
 
-    #create context
+    # create context
     ctx, queue = get_context(device)
 
     output = []
     kc_ind = 0
     oob = False
     while not oob:
-        #handle weirdness between list / non-list input
+        # handle weirdness between list / non-list input
         try:
             kc = kernel_calls[kc_ind]
             kc_ind += 1
         except IndexError:
             oob = True
-            break #reached end of list
+            break  # reached end of list
         except TypeError:
-            #not a list
-            oob = True #break on next run
+            # not a list
+            oob = True  # break on next run
             kc = kernel_calls
 
-        #create the outputs
+        # create the outputs
         if kc.out_mask is not None:
             out_ref = [None for i in kc.out_mask]
         else:
             out_ref = [None]
 
         found = False
-        #run kernels
+        # run kernels
         for k in knl:
-            #test that we want to run this one
+            # test that we want to run this one
             if kc.is_my_kernel(k):
                 found = True
-                #set the editor to avoid intel bugs
+                # set the editor to avoid intel bugs
                 test_knl = set_editor(k)
                 if isinstance(test_knl.target, lp.PyOpenCLTarget):
-                    #recreate with device
-                    test_knl = test_knl.copy(target=lp.PyOpenCLTarget(device=device))
+                    # recreate with device
+                    test_knl = test_knl.copy(
+                        target=lp.PyOpenCLTarget(device=device))
 
-                #check for chaining
+                # check for chaining
                 if kc.chain:
                     kc.chain(kc, output)
 
-                #run!
+                # run!
                 out = kc(test_knl, queue)
 
                 if kc.post_process:
                     kc.post_process(kc, out)
 
-                #output mapping
+                # output mapping
                 if all(x is None for x in out_ref):
-                    #if the outputs are none, we init to zeros
-                    #and avoid copying zeros over later data!
+                    # if the outputs are none, we init to zeros
+                    # and avoid copying zeros over later data!
                     out_ref = [np.zeros_like(x) for x in out]
 
                 for ind in range(len(out)):
-                    #get indicies that are non-zero (already in there)
-                    #or non infinity/nan
+                    # get indicies that are non-zero (already in there)
+                    # or non infinity/nan
                     copy_inds = np.where(np.logical_not(
                         np.logical_or(np.isinf(out[ind]),
-                            out[ind] == 0, np.isnan(out[ind]))),
-                        )
+                                      out[ind] == 0, np.isnan(out[ind]))),
+                    )
                     out_ref[ind][copy_inds] = out[ind][copy_inds]
 
         output.append(out_ref)
-        assert found, 'No kernels could be found to match kernel call {}'.format(kc.name)
+        assert found, 'No kernels could be found to match kernel call {}'.format(
+            kc.name)
     return output
+
 
 def auto_run(knl, kernel_calls, device='0'):
     """
@@ -550,9 +564,9 @@ def auto_run(knl, kernel_calls, device='0'):
         True if all tests pass
     """
 
-    #run kernel
+    # run kernel
 
-    #check lists
+    # check lists
     if not isinstance(knl, list):
         knl = [knl]
 
@@ -565,6 +579,7 @@ def auto_run(knl, kernel_calls, device='0'):
         return result
     except:
         return kernel_calls.compare(out[0])
+
 
 def generate_map_instruction(oldname, newname, map_arr, affine=''):
     """
@@ -592,11 +607,12 @@ def generate_map_instruction(oldname, newname, map_arr, affine=''):
     if affine and not affine.startswith(' '):
         affine = ' ' + affine
 
-    return  '<>{newname} = {mapper}[{oldname}]{affine}'.format(
-            newname=newname,
-            mapper=map_arr,
-            oldname=oldname,
-            affine=affine)
+    return '<>{newname} = {mapper}[{oldname}]{affine}'.format(
+        newname=newname,
+        mapper=map_arr,
+        oldname=oldname,
+        affine=affine)
+
 
 def get_loopy_order(indicies, dimensions, order, numpy_arg=None):
     """
@@ -627,10 +643,11 @@ def get_loopy_order(indicies, dimensions, order, numpy_arg=None):
     """
 
     if order not in ['C', 'F']:
-        raise Exception('Parameter order passed with unknown value: {}'.format(order))
+        raise Exception(
+            'Parameter order passed with unknown value: {}'.format(order))
 
     if order != 'F':
-        #need to flip indicies / dimensions
+        # need to flip indicies / dimensions
         indicies = indicies[::-1]
         dimensions = dimensions[::-1]
         if numpy_arg is not None:
@@ -638,16 +655,15 @@ def get_loopy_order(indicies, dimensions, order, numpy_arg=None):
     return indicies, dimensions, numpy_arg
 
 
-
 def get_loopy_arg(arg_name, indicies, dimensions,
-                    order, map_name=None,
-                    initializer=None,
-                    scope=scopes.GLOBAL,
-                    dtype=np.float64,
-                    force_temporary=False,
-                    read_only=True,
-                    map_result='',
-                    **kwargs):
+                  order, map_name=None,
+                  initializer=None,
+                  scope=scopes.GLOBAL,
+                  dtype=np.float64,
+                  force_temporary=False,
+                  read_only=True,
+                  map_result='',
+                  **kwargs):
     """
     Convience method that generates a loopy GlobalArg with correct indicies
     and sizes.
@@ -696,50 +712,51 @@ def get_loopy_arg(arg_name, indicies, dimensions,
     if initializer is not None:
         assert initializer.dtype == dtype
 
-    #first do any reordering
+    # first do any reordering
     indicies, dimensions, initializer = get_loopy_order(indicies, dimensions, order,
-                                                numpy_arg=initializer)
+                                                        numpy_arg=initializer)
 
-    #next, figure out mappings
+    # next, figure out mappings
     string_inds = indicies[:]
     map_instructs = {}
     if map_name is not None:
         for imap in map_name:
-            #make a new name off the replaced iname
+            # make a new name off the replaced iname
             if map_result:
                 mapped_name = map_result
             else:
                 mapped_name = '{}_map'.format(imap)
             if map_name[imap].startswith('<>'):
-                #already an instruction
+                # already an instruction
                 map_instructs[imap] = map_name[imap]
                 continue
-            #add a mapping instruction
+            # add a mapping instruction
             map_instructs[imap] = generate_map_instruction(
-                                                newname=mapped_name,
-                                                map_arr=map_name[imap],
-                                                oldname=imap)
-            #and replace the index
+                newname=mapped_name,
+                map_arr=map_name[imap],
+                oldname=imap)
+            # and replace the index
             string_inds[string_inds.index(imap)] = mapped_name
 
-    #finally make the argument
+    # finally make the argument
     if initializer is None and not force_temporary:
         arg = lp.GlobalArg(arg_name, shape=tuple(dimensions), dtype=dtype,
-                            **kwargs)
+                           **kwargs)
     else:
         if initializer is not None:
             initializer = np.asarray(initializer, order=order, dtype=dtype)
         arg = lp.TemporaryVariable(arg_name,
-            shape=tuple(dimensions),
-            initializer=initializer,
-            scope=scope,
-            read_only=read_only,
-            dtype=dtype,
-            **kwargs)
+                                   shape=tuple(dimensions),
+                                   initializer=initializer,
+                                   scope=scope,
+                                   read_only=read_only,
+                                   dtype=dtype,
+                                   **kwargs)
 
-    #and return
+    # and return
     return arg, '{name}[{inds}]'.format(name=arg_name,
-                inds=','.join(string_inds)), map_instructs
+                                        inds=','.join(string_inds)), map_instructs
+
 
 def get_target(lang, device=None):
     """
@@ -758,7 +775,7 @@ def get_target(lang, device=None):
 
     check_lang(lang)
 
-    #set target
+    # set target
     if lang == 'opencl':
         return lp.PyOpenCLTarget(device=device)
     elif lang == 'c':

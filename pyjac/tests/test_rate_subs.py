@@ -787,25 +787,20 @@ class SubTest(TestClass):
     @attr('long')
     def test_temperature_rates(self):
         wdot = np.concatenate(
-            (np.zeros((1, self.store.test_size)), self.store.species_rates))
-        args = {'wdot': lambda x: wdot.copy() if x == 'F'
-                else wdot.T.copy(),
-                'conc': lambda x: self.store.concs.copy() if x == 'F'
-                else self.store.concs.T.copy(),
-                'cp': lambda x: self.store.spec_cp.copy() if x == 'F'
-                else self.store.spec_cp.T.copy(),
-                'h': lambda x: self.store.spec_h.copy() if x == 'F'
-                else self.store.spec_h.T.copy(),
-                'cv': lambda x: self.store.spec_cv.copy() if x == 'F'
-                else self.store.spec_cv.T.copy(),
-                'u': lambda x: self.store.spec_u.copy() if x == 'F'
-                else self.store.spec_u.T.copy()}
-        Tdot_cp = np.concatenate((self.store.conp_temperature_rates.reshape((1, -1)),
-                                  np.zeros((self.store.gas.n_species, self.store.test_size))),
-                                 axis=0)
-        Tdot_cv = np.concatenate((self.store.conv_temperature_rates.reshape((1, -1)),
-                                  np.zeros((self.store.gas.n_species, self.store.test_size))),
-                                 axis=0)
+            (np.zeros((self.store.test_size, 1)),
+                self.store.species_rates.copy()), axis=1)
+        args = {'dphi': lambda x: np.array(wdot, order=x, copy=True),
+                'phi': lambda x: np.array(self.store.phi, order=x, copy=True),
+                'cp': lambda x: np.array(self.store.spec_cp, order=x, copy=True),
+                'h': lambda x: np.array(self.store.spec_h, order=x, copy=True),
+                'cv': lambda x: np.array(self.store.spec_cv, order=x, copy=True),
+                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True),}
+        Tdot_cp = np.concatenate((self.store.conp_temperature_rates.reshape((-1, 1)),
+                                  np.zeros((self.store.test_size, self.store.gas.n_species))),
+                                  axis=1)
+        Tdot_cv = np.concatenate((self.store.conv_temperature_rates.reshape((-1, 1)),
+                                  np.zeros((self.store.test_size, self.store.gas.n_species))),
+                                  axis=1)
 
         kc = [kernel_call('temperature_rate', [Tdot_cp],
                           input_mask=['cv', 'u'],
