@@ -526,12 +526,12 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
         term = eqs['conv'][term]
 
     # first, create all arrays
-    kernel_data = set()
+    kernel_data = []
 
     if test_size == 'problem_size':
         kernel_data.add(lp.ValueArg(test_size, dtype=np.int32))
 
-    # add / apply maps
+    # add / apply mapsn
     mapstore.check_and_add_transform(namestore.conc_dot,
                                      namestore.phi_spec_inds,
                                      force_inline=True)
@@ -543,20 +543,20 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
     if conp:
         h_lp, h_str = mapstore.apply_maps(namestore.h_arr, *default_inds)
         cp_lp, cp_str = mapstore.apply_maps(namestore.cp_arr, *default_inds)
-        kernel_data.update([h_lp, cp_lp])
+        kernel_data.extend([h_lp, cp_lp])
     else:
         u_lp, u_str = mapstore.apply_maps(namestore.u_arr, *default_inds)
         cv_lp, cv_str = mapstore.apply_maps(namestore.cv_arr, *default_inds)
-        kernel_data.update([u_lp, cv_lp])
+        kernel_data.extend([u_lp, cv_lp])
 
     conc_lp, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
     Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, *fixed_inds)
 
-    kernel_data.update([conc_lp, Tdot_lp])
+    kernel_data.extend([conc_lp, Tdot_lp])
 
     conc_dot_lp, conc_dot_str = mapstore.apply_maps(namestore.conc_dot,
                                                     *default_inds)
-    kernel_data.add(conc_dot_lp)
+    #kernel_data.add(conc_dot_lp)
 
     # put together conv/conp terms
     if conp:
@@ -635,7 +635,8 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
             if insn != sum_0_insn and 'sum_i' in insn.id:
                 sum_0_insn.no_sync_with |= frozenset([(insn.id, 'any')])
             # check depends
-            if insn != sum_0_insn and 'wdot' in insn.read_dependency_names():
+            if insn != sum_0_insn and \
+                    namestore.T_dot.name in insn.read_dependency_names():
                 insn.depends_on_is_final = True
         return knl.copy(instructions=knl.instructions[:])
     vec_spec = __vec_spec_wide
