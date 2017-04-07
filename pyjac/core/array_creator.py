@@ -256,19 +256,22 @@ class MapStore(object):
 
     def _check_is_valid_domain(self, domain):
         """Makes sure the domain passed is a valid :class:`creator`"""
+        assert domain is not None, 'Invalide domain'
         assert isinstance(domain, creator), ('Domain'
                                              ' must be of type `creator`')
         assert domain.name is not None, ('Domain must have initialized name')
-        assert domain.initializer is not None, ('Cannot use ',
-                                                'non-initialized creator {} as domain!'.format(domain.name))
+        assert domain.initializer is not None, (
+            'Cannot use non-initialized creator {} as domain!'.format(
+                domain.name))
 
         if not self._is_map():
             # need to check that the maximum value is smaller than the base
             # mask domain size
             assert np.max(domain.initializer) < \
-                self.mask_domain.initializer.size, ("Mask entries for domain "
-                                                    "{} cannot be outside of domain size {}".format(domain.name,
-                                                                                                    self.mask_domain.initializer.size))
+                self.mask_domain.initializer.size, (
+                    "Mask entries for domain {} cannot be outside of "
+                    "domain size {}".format(domain.name,
+                                            self.mask_domain.initializer.size))
 
     def _is_contiguous(self, domain):
         """Returns true if domain can be expressed with a simple for loop"""
@@ -635,8 +638,10 @@ def _make_mask(map_arr, mask_size):
     Create a mask array from the given map and total mask size
     """
 
+    assert len(map_arr.shape) == 1, "Can't make mask from 2-D array"
+
     mask = np.full(mask_size, -1, dtype=np.int32)
-    mask[map_arr] = map_arr[:]
+    mask[map_arr] = np.arange(map_arr.size, dtype=np.int32)
     return mask
 
 
@@ -827,7 +832,7 @@ class NameStore(object):
                                     shape=(
                                         test_size, rate_info['thd']['num']),
                                     order=self.order)
-            self.rev_map = creator('thd_map',
+            self.thd_map = creator('thd_map',
                                    dtype=np.int32,
                                    shape=rate_info['thd']['map'].shape,
                                    initializer=rate_info[
