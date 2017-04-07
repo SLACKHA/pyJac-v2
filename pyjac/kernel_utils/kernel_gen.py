@@ -689,7 +689,7 @@ ${name} : ${type}
         inames = [info.var_name, 'j']
 
         # add map instructions
-        instructions = info.maps + instructions
+        instructions = list(info.mapstore.transform_insns) + instructions
 
         # look for extra inames, ranges
         iname_range = []
@@ -697,7 +697,7 @@ ${name} : ${type}
         assumptions = info.assumptions[:]
 
         # find the start index for 'i'
-        iname, iname_domain = info.indicies
+        iname, iname_domain = info.mapstore.get_iname_domain()
 
         # add to ranges
         iname_range.append(iname_domain)
@@ -708,7 +708,8 @@ ${name} : ${type}
             # get vector width
             vec_width = None
             if self.loopy_opts.depth or self.loopy_opts.width:
-                vec_width = self.loopy_opts.depth if self.loopy_opts.depth else self.loopy_opts.width
+                vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
+                            else self.loopy_opts.width
             if vec_width:
                 assumptions.append('{0} mod {1} = 0'.format(
                     test_size, vec_width))
@@ -748,10 +749,14 @@ ${name} : ${type}
                 irange=irange
             ))
 
+        # get extra mapping data
+        extra_kernel_data = [x.new_domain(x.iname)[0]
+                             for x in info.mapstore.transformed_domains]
+
         # make the kernel
         knl = lp.make_kernel(iname_arr,
                              kernel_str,
-                             kernel_data=info.kernel_data,
+                             kernel_data=info.kernel_data + extra_kernel_data,
                              name=info.name,
                              target=target,
                              assumptions=' and '.join(assumptions)
@@ -765,79 +770,6 @@ ${name} : ${type}
         if info.manglers:
             knl = lp.register_function_manglers(knl, info.manglers)
         return knl
-
-
-def handle_indicies(indicies, reac_ind, maps, kernel_data,
-                    inmap_name='in_map',
-                    output_indicies=None,
-                    outmap_name='out_map',
-                    force_zero=False, force_map=False, scope=scopes.PRIVATE):
-    """Consolidates the commonly used indicies mapping steps
-
-    Parameters
-    ----------
-    indicies: :class:`numpy.ndarray`
-        The list of indicies
-    reac_ind : str
-        The reaction index variable (used in mapping)
-    maps : dict
-        The dictionary to store the mapping result in (if any)
-    kernel_data : list of :class:`loopy.KernelArgument`
-        The data to pass to the kernel (may be added to)
-    inmap_name : str, optional
-        The name to use in mapping
-    output_indicies : :class:`numpy.ndarray`, optional
-        Output indicies to check against.  If supplied, and not matching input indicies
-        This will force mapping of both the input and output
-    outmap_name : str, optional
-        The name to use in mapping
-    force_zero : bool
-        If true, any indicies that don't start with zero require a map (e.g. for
-            smaller arrays)
-    force_map : bool
-        If true, forces use of a map
-    scope : :class:`loopy.temp_var_scope`
-        The scope of the temporary variable definition, if necessary
-    Returns
-    -------
-    indicies : :class:`numpy.ndarray` OR tuple of int
-        The transformed indicies
-    """
-
-    need_input_map = indicies[0] + indicies.size - 1 != indicies[-1] or \
-        (force_zero and indicies[0] != 0) or force_map
-    need_output_map = False
-    if output_indicies is not None:
-        need_output_map = not np.array_equal(indicies, output_indicies)
-        need_input_map = need_input_map or need_output_map
-
-    if not need_input_map:
-        # if the indicies are contiguous, we can get away with an
-        # simple for loop
-        indicies = (indicies[0], indicies[0] + indicies.size)
-    else:
-        # need an input map
-        maps[reac_ind] = inmap_name
-        # add to kernel data
-        inmap_lp = lp.TemporaryVariable(inmap_name,
-                                        shape=lp.auto,
-                                        initializer=indicies.astype(
-                                            dtype=np.int32),
-                                        read_only=True, scope=scope)
-        kernel_data.append(inmap_lp)
-
-    if need_output_map:
-        # add the output map
-        maps[reac_ind+'_out'] = outmap_name
-        # add to kernel data
-        outmap_lp = lp.TemporaryVariable(outmap_name,
-                                         shape=lp.auto,
-                                         initializer=output_indicies.astype(
-                                             dtype=np.int32),
-                                         read_only=True, scope=scope)
-        kernel_data.append(outmap_lp)
-
-    return indicies
 
 
 class vecwith_fixer(object):
@@ -909,7 +841,7 @@ def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, can_vectorize=
         j_tag += '_outer'
     if not can_vectorize:
         assert vecspec is not None, ('Cannot vectorize a non-vectorizable kernel'
-                                     '  {} without a specialized vectorization function'.format(knl.name))
+                                     ' {} without a specialized vectorization function'.format(knl.name))
 
     # if we're splitting
     # apply specified optimizations
@@ -947,6 +879,8 @@ class knl_info(object):
         The kernel name
     instructions : str or list of str
         The kernel instructions
+    mapstore : :class:`array_creator.MapStore`
+        The MapStore object containing map domains, indicies, etc.
     pre_instructions : list of str
         The instructions to execute before the inner loop
     post_instructions : list of str
@@ -956,13 +890,8 @@ class knl_info(object):
         The inner loop variable
     kernel_data : list of :class:`loopy.ArrayBase`
         The arguements / temporary variables for this kernel
-    maps : list of str
-        A list of variable mapping instructions
-        see :method:`loopy_utils.generate_mapping_instruction`
     extra_inames : list of tuple
         A list of (iname, domain) tuples the form the extra loops in this kernel
-    indicies : tuple of (iname, domain)
-        The iname domain, as provided by :class:`MapStore` to implement
     assumptions : list of str
         Assumptions to pass to the loopy kernel
     parameters : dict
@@ -976,10 +905,10 @@ class knl_info(object):
         in vectorization
     """
 
-    def __init__(self, name, instructions, pre_instructions=[],
+    def __init__(self, name, instructions, mapstore, pre_instructions=[],
                  post_instructions=[],
                  var_name='i', kernel_data=None,
-                 maps=[], extra_inames=[], indicies=[],
+                 extra_inames=[],
                  assumptions=[], parameters={},
                  extra_subs={},
                  vectorization_specializer=None,
@@ -987,17 +916,14 @@ class knl_info(object):
                  manglers=[]):
         self.name = name
         self.instructions = instructions
+        self.mapstore = mapstore
         self.pre_instructions = pre_instructions[:]
         self.post_instructions = post_instructions[:]
         self.var_name = var_name
         if isinstance(kernel_data, set):
             kernel_data = list(kernel_data)
         self.kernel_data = kernel_data[:]
-        if isinstance(maps, set):
-            maps = list(maps)
-        self.maps = maps[:]
         self.extra_inames = extra_inames[:]
-        self.indicies = indicies[:]
         self.assumptions = assumptions[:]
         self.parameters = parameters.copy()
         self.extra_subs = extra_subs
