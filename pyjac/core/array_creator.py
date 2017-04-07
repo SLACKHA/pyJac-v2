@@ -694,13 +694,17 @@ class NameStore(object):
         assert arr.dtype == np.int32, "Offset arrays should be integers!"
 
         return np.array(np.concatenate(
-            (np.cumsum(arr), np.array([np.sum(arr) + arr[-1]]))),
+            (np.cumsum(arr) - arr, np.array([np.sum(arr)]))),
             dtype=np.int32)
 
     def _add_arrays(self, rate_info, test_size):
         """
         Initialize the various arrays needed for the namestore
         """
+
+        # problem size
+        if isinstance(test_size, str):
+            self.problem_size = lp.ValueArg(test_size, dtype=np.int32)
 
         # generic ranges
         self.num_specs = creator('num_specs', shape=(rate_info['Ns'],),
@@ -726,7 +730,7 @@ class NameStore(object):
         self.conc_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                                 dtype=np.float64, order=self.order)
         self.conc_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
-                               dtype=np.float64, order=self.order)
+                                dtype=np.float64, order=self.order)
         self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 0)])
@@ -746,8 +750,11 @@ class NameStore(object):
         # net species rates data
 
         # per reaction
-        self.net_reac_to_spec_map = creator('net_reac_to_spec', dtype=np.int32,
-                                            shape=len(rate_info['net']['reac_to_spec']), order=self.order)
+        self.net_reac_to_spec_map = creator('net_reac_to_spec',
+                                            dtype=np.int32,
+                                            shape=rate_info['net']['reac_to_spec'].shape,
+                                            initializer=rate_info['net']['reac_to_spec'],
+                                            order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
         self.net_reac_to_spec_offsets = creator('net_reac_to_spec_offsets',
                                                 dtype=np.int32, shape=off.shape,
@@ -759,9 +766,18 @@ class NameStore(object):
                                            order=self.order)
 
         # per species
+        self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
+                                        shape=rate_info['net_per_spec']['map'].shape,
+                                        initializer=rate_info['net_per_spec']['map'],
+                                        order=self.order)
+        self.net_nonzero_phi = creator('net_nonzero_phi', dtype=np.int32,
+                                        shape=rate_info['net_per_spec']['map'].shape,
+                                        initializer=rate_info['net_per_spec']['map'] + 1,
+                                        order=self.order)
+
         self.net_spec_to_reac = creator('net_spec_to_reac', dtype=np.int32,
-                                        shape=len(
-                                            rate_info['net_per_spec']['reacs']),
+                                        shape=rate_info['net_per_spec']['reacs'].shape,
+                                        initializer=rate_info['net_per_spec']['reacs'],
                                         order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
         self.net_spec_to_reac_offsets = creator('net_reac_to_spec_offsets',
@@ -973,7 +989,7 @@ class NameStore(object):
                                     shape=spec_list.shape,
                                     initializer=spec_list,
                                     order=self.order)
-            thd_offset = self.__make_offset(thd_eff_ns)
+            thd_offset = self.__make_offset(num_specs)
             self.thd_offset = creator('thd_offset',
                                       dtype=thd_offset.dtype,
                                       shape=thd_offset.shape,
