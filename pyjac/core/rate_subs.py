@@ -824,18 +824,19 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                           extra_inames=extra_inames)
 
 
-def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
-    """Generates instructions, kernel arguements, and data for the net Rate of Progress
-    kernels
+def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for the net
+    Rate of Progress kernels
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -847,26 +848,24 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
     """
 
     # create net rop kernel
-    reac_ind = '${reac_ind}'
-    rev_ind = '${reac_ind}'
-    pres_ind = '${reac_ind}'
+    var_name = 'i'
+    global_ind = 'j'
 
-    kernel_data = {}
-    kernel_data['fwd'] = []
-    kernel_list = ['fwd']
-    maplist = {}
-    maps = {}
-    indicies = {}
+    default_inds = (global_ind, var_name)
+
+    kernel_data = OrderedDict([('fwd', [])])
+    maps = OrderedDict([('fwd',
+                         arc.MapStore(loopy_opts, namestore.num_reacs,
+                                      namestore.num_reacs))])
 
     separated_kernels = loopy_opts.rop_net_kernels
     if separated_kernels:
         kernel_data['rev'] = []
+        maps['rev'] = arc.MapStore(loopy_opts, namestore.rev_map,
+                                   namestore.rev_mask)
         kernel_data['pres_mod'] = []
-        kernel_list = ['fwd', 'rev', 'pres_mod']  # ordering matters
-
-    for x in kernel_list:
-        maps[x] = {}
-        maplist[x] = []
+        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.thd_map,
+                                        namestore.thd_mask)
 
     def __add_data(knl, data):
         if separated_kernels:
@@ -875,125 +874,83 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
             kernel_data['fwd'].append(data)
 
     def __add_to_all(data):
-        for kernel in kernel_list:
+        for kernel in kernel_data:
             __add_data(kernel, data)
 
-    if test_size == 'problem_size':
-        __add_to_all(lp.ValueArg('problem_size', dtype=np.int32))
+    def __get_map(knl):
+        if separated_kernels:
+            return maps[knl]
+        else:
+            return maps['fwd']
 
-    indicies['fwd'] = k_gen.handle_indicies(
-        np.arange(rate_info['Nr']), '', None, kernel_data)
-    if separated_kernels:
-        if rate_info['rev']['num']:
-            indicies['rev'] = k_gen.handle_indicies(np.arange(rate_info['rev']['num'], dtype=np.int32),
-                                                    '', None, kernel_data)
-        if rate_info['thd']['num']:
-            indicies['pres_mod'] = k_gen.handle_indicies(np.arange(rate_info['thd']['num'], dtype=np.int32),
-                                                         '', None, kernel_data)
+    if test_size == 'problem_size':
+        __add_to_all(namestore.problem_size)
 
     # create the fwd rop array / str
-    rop_fwd_lp, rop_fwd_str, _ = lp_utils.get_loopy_arg('rop_fwd',
-                                                        indicies=[
-                                                            '${reac_ind}', 'j'],
-                                                        dimensions=[
-                                                            rate_info['Nr'], test_size],
-                                                        order=loopy_opts.order)
+    # this never has a map / mask
+    rop_fwd_lp, rop_fwd_str = __get_map('fwd').\
+        apply_maps(namestore.rop_fwd, *default_inds)
 
     __add_data('fwd', rop_fwd_lp)
 
-    # define some conditional strings to be empty
-    # so we don't get yelled at later if they're not used
-    rev_map_str = ''
-    pres_map_str = ''
+    if namestore.rop_rev is not None:
+        # we have reversible reactions
 
-    if rate_info['Nr'] != rate_info['rev']['num'] and rate_info['rev']['num']:
+        # first check for map / mask
         if not separated_kernels:
-            # only have one kernel, so all maps / data go here
-            kernel = 'fwd'
-            rev_ind = 'rev_ind'
-            # if not all reversible
-            # create the reverse map
-            rev_map = np.arange(rate_info['Nr'], dtype=np.int32)
-            rev_map[
-                np.where(np.logical_not(np.in1d(rev_map, rate_info['rev']['map'])))[0]] = -1
-            rev_map[rate_info['rev']['map']] = np.arange(
-                rate_info['rev']['num'], dtype=np.int32)
-            rev_map_lp, rev_map_str = __1Dcreator(
-                'rev_map', rev_map, '${reac_ind}', scope=scopes.PRIVATE)
-            # and add map instruction
-            maplist[kernel].append(
-                lp_utils.generate_map_instruction('${reac_ind}', rev_ind, rev_map_lp.name))
-            __add_data(kernel, rev_map_lp)
-        else:
-            kernel = 'rev'
-            # need an output map
-            maps[kernel]['${reac_ind}'] = 'rev_ind'
-            rev_map_lp, rev_map_str = __1Dcreator('rev_map', rate_info['rev']['map'],
-                                                  '${reac_ind}', scope=scopes.PRIVATE)
-            maplist[kernel].append(lp_utils.generate_map_instruction('${reac_ind}', maps[kernel]['${reac_ind}'],
-                                                                     rev_map_lp.name))
-            __add_data(kernel, rev_map_lp)
+            # if a single kernel, add a mask for reversible reactions
+            __get_map('rev').check_and_add_transform(namestore.rop_rev,
+                                                     namestore.rev_mask)
+        # otherwise, no map needed as the seperate rev kernel loops over
+        # the rev indicies
 
-    if rate_info['rev']['num']:
-        # have reversible reaction
-        # create the rev rop array / str
-        rop_rev_lp, rop_rev_str, _ = lp_utils.get_loopy_arg('rop_rev',
-                                                            indicies=[
-                                                                rev_ind, 'j'],
-                                                            dimensions=[
-                                                                rate_info['rev']['num'], test_size],
-                                                            order=loopy_opts.order)
+        # apply the maps
+        rop_rev_lp, rop_rev_str = __get_map('rev').\
+            apply_maps(namestore.rop_rev, *default_inds)
+
+        # add data
         __add_data('rev', rop_rev_lp)
 
-    # create the pressure modification array
-    if rate_info['Nr'] != rate_info['thd']['num'] and rate_info['thd']['num']:
-        if not separated_kernels:
-            # only have one kernel, so all maps / data go here
-            kernel = 'fwd'
-            pres_ind = 'pres_ind'
-            # if have pdep reactions and not all reacs are pdep, create map
-            pres_map = np.arange(rate_info['Nr'], dtype=np.int32)
-            pres_map[
-                np.where(np.logical_not(np.in1d(pres_map, rate_info['thd']['map'])))[0]] = -1
-            pres_map[rate_info['thd']['map']] = np.arange(
-                rate_info['thd']['num'], dtype=np.int32)
-            pres_map_lp, pres_map_str = __1Dcreator(
-                'pres_map', pres_map, '${reac_ind}', scope=scopes.PRIVATE)
-            # and add map instruction
-            maplist[kernel].append(
-                lp_utils.generate_map_instruction('${reac_ind}', pres_ind, pres_map_lp.name))
-            __add_data(kernel, pres_map_lp)
-        else:
-            kernel = 'pres_mod'
-            # need an output map
-            maps[kernel]['${reac_ind}'] = 'pres_ind'
-            pres_map_lp, pres_map_str = __1Dcreator('thd_map', rate_info['thd']['map'],  # named thd_map as used elsewhere
-                                                    '${reac_ind}', scope=scopes.PRIVATE)
-            maplist[kernel].append(lp_utils.generate_map_instruction('${reac_ind}', maps[kernel]['${reac_ind}'],
-                                                                     pres_map_lp.name))
-            __add_data(kernel, pres_map_lp)
+    if namestore.pres_mod is not None:
+        # we have pres mod reactions
 
-    if rate_info['thd']['num']:
-        pres_mod_lp, pres_mod_str, _ = lp_utils.get_loopy_arg('pres_mod',
-                                                              [pres_ind, 'j'],
-                                                              dimensions=(
-                                                                  rate_info['thd']['num'], test_size),
-                                                              order=loopy_opts.order)
+        # first check for map / mask
+        if not separated_kernels:
+            # if a single kernel, add a mask for pmod reactions
+            __get_map('pres_mod').\
+                check_and_add_transform(namestore.pres_mod,
+                                        namestore.thd_mask)
+        # otherwise, no map needed as the seperate pmod kernel loops over
+        # the pmod indicies
+
+        # apply the maps
+        pres_mod_lp, pres_mod_str = __get_map('pres_mod').\
+            apply_maps(namestore.pres_mod, *default_inds)
+
+        # add data
         __add_data('pres_mod', pres_mod_lp)
 
     # add rop net to all kernels:
     rop_strs = {}
-    for name in kernel_list:
-        var_name = '${reac_ind}'
-        if var_name in maps[name]:
-            var_name = maps[name][var_name]
-        rop_net_lp, rop_net_str, _ = lp_utils.get_loopy_arg('rop_net',
-                                                            indicies=[
-                                                                var_name, 'j'],
-                                                            dimensions=[
-                                                                rate_info['Nr'], test_size],
-                                                            order=loopy_opts.order)
+    for name in kernel_data:
+        # check for map / mask
+        if separated_kernels and name != 'fwd':
+            # fwd kernel has no map or mask (guarenteed same indicies)
+            # other kernels may have a map, so check
+            mapval = namestore.rev_map if name == 'rev'\
+                else namestore.thd_map
+            __get_map(name).\
+                check_and_add_transform(namestore.rop_net,
+                                        mapval)
+
+        # apply map
+        rop_net_lp, rop_net_str = __get_map(name).\
+            apply_maps(namestore.rop_net, *default_inds)
+
+        # and add to data
         __add_data(name, rop_net_lp)
+
+        # store rop_net str for later
         rop_strs[name] = rop_net_str
 
     if not separated_kernels:
@@ -1008,52 +965,54 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
                              rop_net_str=rop_strs['fwd'])
 
         # reverse update
-        if rate_info['rev']['num']:
+        if namestore.rop_rev is not None:
             rev_update_instructions = Template(
                 """
             net_rate = net_rate - ${rop_rev_str} {id=rate_update_rev, dep=rate_update}
             """).safe_substitute(
-                rop_rev_str=rop_rev_str,
-                rev_map_str=rev_map_str)
-            if rev_map_str:
-                # num rev != num rxns
+                rop_rev_str=rop_rev_str)
+
+            # If there is a mask, we need to encase this in an if statement
+            if namestore.rop_rev in __get_map('rev').transformed_variables:
                 rev_update_instructions = Template(
                     """
-            if rev_ind >= 0
+            if ${rev_mask} >= 0
                 ${cur_inst}
             end
-            """).safe_substitute(cur_inst=rev_update_instructions)
+            """).safe_substitute(cur_inst=rev_update_instructions,
+                                 rev_mask=__get_map('rev').
+                                 transformed_variables[namestore.rop_rev]
+                                 .new_iname)
         else:
             rev_update_instructions = ''
 
         # pmod update
-        if rate_info['thd']['num']:
+        if namestore.pres_mod is not None:
             pmod_update_instructions = Template(
                 """
         net_rate = net_rate * ${pres_mod_str} {id=rate_update_pmod, dep=rate_update${rev_dep}}
         """).safe_substitute(
-                rev_dep=':rate_update_rev' if rate_info['rev']['num'] else '',
-                pres_map_str=pres_map_str,
+                rev_dep=':rate_update_rev' if namestore.rop_rev is not None
+                    else '',
                 pres_mod_str=pres_mod_str)
-            if pres_map_str:
+            if namestore.pres_mod in \
+                    __get_map('pres_mod').transformed_variables:
                 # num pmod != num rxns
                 pmod_update_instructions = Template(
                     """
-        if pres_ind >= 0
-            ${cur_inst}
-        end
-        """).safe_substitute(cur_inst=pmod_update_instructions)
+            if ${pres_mask} >= 0
+                ${cur_inst}
+            end
+            """).safe_substitute(cur_inst=pmod_update_instructions,
+                                 pres_mask=__get_map('pres_mod').
+                                 transformed_variables[namestore.pres_mod]
+                                 .new_iname)
         else:
             pmod_update_instructions = ''
 
         instructions = Template(instructions).safe_substitute(
             rev_update=rev_update_instructions,
             pmod_update=pmod_update_instructions)
-
-        instructions = Template(instructions).safe_substitute(
-            reac_ind='i',
-            rev_ind=rev_ind,
-            pres_ind=pres_ind)
 
         instructions = '\n'.join(
             [x for x in instructions.split('\n') if x.strip()])
@@ -1062,13 +1021,11 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
                               instructions=instructions,
                               var_name='i',
                               kernel_data=kernel_data['fwd'],
-                              maps=maplist['fwd'],
-                              indicies=indicies['fwd'],
-                              extra_subs={'reac_ind': 'i'})
+                              mapstore=maps['fwd'])
 
     else:
         infos = []
-        for kernel in kernel_list:
+        for kernel in kernel_data:
             if kernel == 'fwd':
                 instructions = Template(
                     """
@@ -1094,9 +1051,7 @@ def get_rop_net(eqs, loopy_opts, rate_info, test_size=None):
                                         instructions=instructions,
                                         var_name='i',
                                         kernel_data=kernel_data[kernel],
-                                        maps=maplist[kernel],
-                                        indicies=indicies[kernel],
-                                        extra_subs={'reac_ind': 'i'}))
+                                        mapstore=maps[kernel]))
         return infos
 
 
