@@ -88,7 +88,7 @@ class MapStore(object):
         self.have_input_map = False
         self.transform_insns = set()
 
-        if not self._is_contiguous(self.map_domain):
+        if self._is_map() and not self._is_contiguous(self.map_domain):
             # need an input map
             self._add_input_map()
 
@@ -108,12 +108,12 @@ class MapStore(object):
         new_creator_name = self.map_domain.name + '_map'
         new_map_domain = self.map_domain.copy()
 
-        # and update
+        # update new domain
         new_map_domain.name = new_creator_name
         new_map_domain.initializer = \
             np.arange(self.map_domain.initializer.size, dtype=np.int32)
 
-        # and update
+        # update
         self.map_domain = new_map_domain
 
     def _add_transform(self, map_domain, iname, affine=None,
@@ -339,7 +339,8 @@ class MapStore(object):
         domain : :class:`creator`
             The domain to check
         force_inline : bool
-            If true
+            If true, the resulting transform should be an inline, affine
+            transformation
 
         Returns
         -------
@@ -393,7 +394,7 @@ class MapStore(object):
             Note: this must be an initialized creator (i.e. temporary variable)
         iname : str
             The iname to transform
-        force_inline : str
+        force_inline : bool
             If True, the developed transform (if any) must be expressed as an
             inline transform.  If the transform is not affine, an exception
             will be raised
