@@ -728,27 +728,28 @@ class SubTest(TestClass):
     @attr('long')
     def test_rop_net(self):
         fwd_removed = self.store.fwd_rxn_rate.copy()
-        fwd_removed[self.store.thd_inds, :] = fwd_removed[
-            self.store.thd_inds, :] / self.store.ref_pres_mod
+        fwd_removed[:, self.store.thd_inds] = fwd_removed[
+            :, self.store.thd_inds] / self.store.ref_pres_mod
         thd_in_rev = np.where(
             np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
         rev_update_map = np.where(
             np.in1d(self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
         rev_removed = self.store.rev_rxn_rate.copy()
-        rev_removed[rev_update_map, :] = rev_removed[
-            rev_update_map, :] / self.store.ref_pres_mod[thd_in_rev, :]
+        rev_removed[:, rev_update_map] = rev_removed[
+            :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
 
         # remove ref pres mod = 0 (this is a 0 rate)
         fwd_removed[np.where(np.isnan(fwd_removed))] = 0
         rev_removed[np.where(np.isnan(rev_removed))] = 0
-        args = {'rop_fwd': lambda x: fwd_removed.copy() if x == 'F' else fwd_removed.T.copy(),
-                'rop_rev': lambda x: rev_removed.copy() if x == 'F' else rev_removed.T.copy(),
-                'pres_mod': lambda x: self.store.ref_pres_mod.copy() if x == 'F' else
-                self.store.ref_pres_mod.T.copy()}
+        args = {'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
+                'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
+                'pres_mod': lambda x: np.array(self.store.ref_pres_mod,
+                                               order=x, copy=True)
+                }
 
         # first test w/o the splitting
         kc = kernel_call('rop_net', [self.store.rxn_rates], **args)
-        #self.__generic_rate_tester(get_rop_net, kc)
+        self.__generic_rate_tester(get_rop_net, kc)
 
         def __input_mask(self, arg_name):
             names = ['fwd', 'rev', 'pres_mod']
