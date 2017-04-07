@@ -200,12 +200,10 @@ def performance_tester(home, work_dir):
     repeats = 10
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
-                                       key=lambda x:x[1]['ns']
+                                       key=lambda x: x[1]['ns']
                                        ):
-        #get the cantera object
-        gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
 
-        #ensure directory structure is valid
+        # ensure directory structure is valid
         this_dir = os.path.join(work_dir, mech_name)
         this_dir = os.path.abspath(this_dir)
         os.chdir(this_dir)
@@ -217,7 +215,6 @@ def performance_tester(home, work_dir):
         current_data_order = None
 
         the_path = os.getcwd()
-        first_run = True
         op = OptionLoop(ocl_params, lambda: False)
 
         for i, state in enumerate(op):
@@ -231,23 +228,24 @@ def performance_tester(home, work_dir):
             split_kernels = state['split_kernels']
             num_cores = state['num_cores']
             if not deep and not wide and vecsize != max_vec_width:
-                continue #this is simple parallelization, don't need vector size
+                # this is simple parallelization, don't need vector size
+                continue
 
             if rate_spec == 'fixed' and split_kernels:
-                continue #not a thing!
+                continue  # not a thing!
 
             if order != current_data_order:
-                #rewrite data to file in 'C' order
+                # rewrite data to file in 'C' order
                 num_conditions = dbw.write(os.path.join(work_dir, mech_name))
-            #find max testable # of conditions
-            num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
+            # find max testable # of conditions
+            num_conditions = int(
+                np.floor(num_conditions / max_vec_width) * max_vec_width)
 
-            temp_lang = 'c'
             data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
-                            'w' if wide else 'd' if deep else 'par',
-                            platform, rate_spec, 'split' if split_kernels else 'single',
-                            num_cores
-                            ) +
+                                                            'w' if wide else 'd' if deep else 'par',
+                                                            platform, rate_spec, 'split' if split_kernels else 'single',
+                                                            num_cores
+                                                            ) +
                            '_output.txt'
                            )
 
@@ -259,20 +257,21 @@ def performance_tester(home, work_dir):
 
             try:
                 create_jacobian(lang,
-                    mech_name=mech_info['mech'],
-                    vector_size=vecsize,
-                    wide=wide,
-                    deep=deep,
-                    data_order=order,
-                    build_path=my_build,
-                    skip_jac=True,
-                    auto_diff=False,
-                    platform=platform,
-                    data_filename=os.path.join(work_dir, mech_name, 'data.bin'),
-                    split_rate_kernels=split_kernels,
-                    rate_specialization=rate_spec,
-                    split_rop_net_kernels=split_kernels
-                    )
+                                mech_name=mech_info['mech'],
+                                vector_size=vecsize,
+                                wide=wide,
+                                deep=deep,
+                                data_order=order,
+                                build_path=my_build,
+                                skip_jac=True,
+                                auto_diff=False,
+                                platform=platform,
+                                data_filename=os.path.join(
+                                    work_dir, mech_name, 'data.bin'),
+                                split_rate_kernels=split_kernels,
+                                rate_specialization=rate_spec,
+                                split_rop_net_kernels=split_kernels
+                                )
             except:
                 print('generation failed...')
                 print(i, state)
@@ -280,19 +279,18 @@ def performance_tester(home, work_dir):
                 print()
                 continue
 
-
-            #get file lists
+            # get file lists
             i_dirs, files = get_file_list(build_dir, lang)
 
             structs = [file_struct(lang, lang, f, i_dirs,
-               [], my_build, my_test, not STATIC) for f in files]
+                                   [], my_build, my_test, not STATIC) for f in files]
 
             pool = multiprocessing.Pool()
             results = pool.map(compiler, structs)
             pool.close()
             pool.join()
             if any(r == -1 for r in results):
-               sys.exit(-1)
+                sys.exit(-1)
 
             linker(lang, my_test, files, platform)
 
@@ -302,6 +300,6 @@ def performance_tester(home, work_dir):
                         print(i, "/", todo[stepsize])
                         subprocess.check_call(
                             [os.path.join(the_path,
-                            my_test, 'speedtest'),
-                            str(stepsize), str(num_cores)], stdout=file
-                            )
+                                          my_test, 'speedtest'),
+                             str(stepsize), str(num_cores)], stdout=file
+                        )
