@@ -771,15 +771,16 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_spec_rates(self):
-        wdot_init = np.zeros(
-            (1 + self.store.gas.n_species, self.store.test_size))
-        args = {'rop_net': lambda x: self.store.rxn_rates.copy() if x == 'F' else
-                self.store.rxn_rates.T.copy(),
-                'wdot': lambda x: wdot_init.copy() if x == 'F' else wdot_init.T.copy()}
-        wdot = np.concatenate((np.zeros((1, self.store.test_size)),
-                               self.store.species_rates))
+        wdot_init = np.zeros((self.store.test_size,
+                              1 + self.store.gas.n_species))
+        args = {'rop_net': lambda x: np.array(self.store.rxn_rates, order=x,
+                                              copy=True),
+                'dphi': lambda x: np.array(wdot_init, order=x, copy=True)}
+        wdot = np.concatenate((np.zeros((self.store.test_size, 1)),
+                               self.store.species_rates), axis=1)
         kc = kernel_call('spec_rates', [wdot],
-                         compare_mask=[1 + np.arange(self.store.gas.n_species)], **args)
+                         compare_mask=[1 + np.arange(self.store.gas.n_species)],
+                         **args)
 
         # test regularly
         self.__generic_rate_tester(get_spec_rates, kc, do_spec_per_reac=True)
