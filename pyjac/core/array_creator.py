@@ -854,12 +854,38 @@ class NameStore(object):
                               initializer=rate_info['fwd']['nu'],
                               order=self.order)
 
+        off = self.__make_offset(rate_info['fwd']['num_reac_to_spec'])
+        self.fwd_reac_to_spec_offsets = creator('fwd_reac_to_spec_offset',
+                                                dtype=np.int32,
+                                                shape=off.shape,
+                                                initializer=off,
+                                                order=self.order)
+
+        self.fwd_reac_to_spec = creator('fwd_reac_to_spec',
+                                        dtype=np.int32,
+                                        shape=rate_info['fwd']['reac_to_spec'].shape,
+                                        initializer=rate_info['fwd']['reac_to_spec'],
+                                        order=self.order)
+
         if rate_info['rev']['num']:
             self.nu_rev = creator('nu_rev',
                                   dtype=np.int32,
                                   shape=rate_info['rev']['nu'].shape,
                                   initializer=rate_info['rev']['nu'],
                                   order=self.order)
+
+            off = self.__make_offset(rate_info['rev']['num_reac_to_spec'])
+            self.rev_reac_to_spec_offsets = creator('rev_reac_to_spec_offset',
+                                                    dtype=np.int32,
+                                                    shape=off.shape,
+                                                    initializer=off,
+                                                    order=self.order)
+
+            self.rev_reac_to_spec = creator('fwd_reac_to_spec',
+                                            dtype=np.int32,
+                                            shape=rate_info['rev']['reac_to_spec'].shape,
+                                            initializer=rate_info['rev']['reac_to_spec'],
+                                            order=self.order)
 
         # reaction data (fwd / rev rates, KC)
         self.kf = creator('kf',
@@ -920,12 +946,12 @@ class NameStore(object):
         if rate_info['rev']['num']:
             self.kr = creator('kr',
                               dtype=np.float64,
-                              shape=(test_size, rate_info['Nr']),
+                              shape=(test_size, rate_info['rev']['num']),
                               order=self.order)
 
             self.Kc = creator('Kc',
                               dtype=np.float64,
-                              shape=(test_size, rate_info['Nr']),
+                              shape=(test_size, rate_info['rev']['num']),
                               order=self.order)
 
             self.reac_to_spec_nu_sum = creator('reac_to_spec_nu_sum',

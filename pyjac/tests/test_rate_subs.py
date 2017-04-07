@@ -35,6 +35,7 @@ from nose.plugins.attrib import attr
 
 
 class SubTest(TestClass):
+
     def test_get_rate_eqs(self):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
@@ -711,11 +712,22 @@ class SubTest(TestClass):
         rev_rate_constants = self.store.rev_rate_constants.copy()
         fwd_rxn_rate = self.store.fwd_rxn_rate.copy()
         rev_rxn_rate = self.store.rev_rxn_rate.copy()
-        concs = self.store.concs.copy()
+        phi = self.store.phi.copy()
 
-        args = {'kf': lambda x: fwd_rate_constants.copy() if x == 'F' else fwd_rate_constants.T.copy(),
-                'kr': lambda x: rev_rate_constants.copy() if x == 'F' else rev_rate_constants.T.copy(),
-                'conc': lambda x: concs.copy() if x == 'F' else concs.T.copy()}
+        # create the dictionary for nu values stating if all integer
+        allint = {'fwd':
+                  np.allclose(np.mod(self.store.gas.reactant_stoich_coeffs(),
+                                     1), 0),
+                  'rev':
+                  np.allclose(np.mod(self.store.gas.product_stoich_coeffs(),
+                                     1), 0)}
+
+        args = {'kf': lambda x:
+                np.array(fwd_rate_constants, order=x, copy=True),
+                'kr': lambda x:
+                np.array(rev_rate_constants, order=x, copy=True),
+                'phi': lambda x:
+                np.array(phi, order=x, copy=True)}
 
         kc = [kernel_call('rop_eval_fwd', [fwd_rxn_rate],
                           input_mask=['kr'],
@@ -723,7 +735,7 @@ class SubTest(TestClass):
               kernel_call('rop_eval_rev', [rev_rxn_rate],
                           input_mask=['kf'],
                           strict_name_match=True, **args)]
-        self.__generic_rate_tester(get_rop, kc)
+        self.__generic_rate_tester(get_rop, kc, allint=allint)
 
     @attr('long')
     def test_rop_net(self):
@@ -780,7 +792,8 @@ class SubTest(TestClass):
         wdot = np.concatenate((np.zeros((self.store.test_size, 1)),
                                self.store.species_rates), axis=1)
         kc = kernel_call('spec_rates', [wdot],
-                         compare_mask=[1 + np.arange(self.store.gas.n_species)],
+                         compare_mask=[
+                             1 + np.arange(self.store.gas.n_species)],
                          **args)
 
         # test regularly
@@ -796,13 +809,13 @@ class SubTest(TestClass):
                 'cp': lambda x: np.array(self.store.spec_cp, order=x, copy=True),
                 'h': lambda x: np.array(self.store.spec_h, order=x, copy=True),
                 'cv': lambda x: np.array(self.store.spec_cv, order=x, copy=True),
-                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True),}
+                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True), }
         Tdot_cp = np.concatenate((self.store.conp_temperature_rates.reshape((-1, 1)),
                                   np.zeros((self.store.test_size, self.store.gas.n_species))),
-                                  axis=1)
+                                 axis=1)
         Tdot_cv = np.concatenate((self.store.conv_temperature_rates.reshape((-1, 1)),
                                   np.zeros((self.store.test_size, self.store.gas.n_species))),
-                                  axis=1)
+                                 axis=1)
 
         kc = [kernel_call('temperature_rate', [Tdot_cp],
                           input_mask=['cv', 'u'],

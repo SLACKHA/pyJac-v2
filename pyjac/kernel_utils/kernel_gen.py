@@ -1003,7 +1003,7 @@ def _find_indent(template_str, key, value):
     Returns
     -------
     formatted_value : str
-        The formatted string
+        The properly indented value
     """
 
     # find the instance of ${key} in kernel_str
@@ -1016,3 +1016,28 @@ def _find_indent(template_str, key, value):
     result = [line if i == 0 else whitespace + line for i, line in
               enumerate(textwrap.dedent(value).splitlines())]
     return '\n'.join(result)
+
+
+def subs_at_indent(template_str, key, value):
+    """
+    Substitutes :param:`key` for :param:`value` in :param:`template_str`
+    ensuring that the indentation of the value is the same as that of the key
+    for all lines present in the value
+
+    Parameters
+    ----------
+    template_str : str
+        The string to sub into
+    key : str
+        The key in the template string
+    value : str
+        The string to format
+
+    Returns
+    -------
+    formatted_value : str
+        The formatted string
+    """
+
+    return Template(template_str).safe_substitute(**{key: _find_indent(
+        template_str, '${{{key}}}'.format(key=key), value)})
