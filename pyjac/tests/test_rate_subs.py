@@ -682,16 +682,14 @@ class SubTest(TestClass):
         ref_Fi = self.store.ref_Fall.copy()
         ref_thd = self.store.ref_thd.copy()
 
-        args = {'Fi': lambda x: ref_Fi.copy() if x == 'F' else ref_Fi.T.copy(),
-                'thd_conc': lambda x: ref_thd.copy() if x == 'F' else ref_thd.T.copy(),
-                'Pr': lambda x: ref_Pr.copy() if x == 'F' else ref_Pr.T.copy()}
+        args = {'Fi': lambda x: np.array(ref_Fi, order=x, copy=True),
+                'thd_conc': lambda x: np.array(ref_thd, order=x, copy=True),
+                'Pr': lambda x: np.array(ref_Pr, order=x, copy=True)}
 
         thd_only_inds = np.where(np.logical_not(np.in1d(self.store.thd_inds,
                                                         self.store.fall_inds)))[0]
-        thd_rxn_inds = self.store.thd_inds[thd_only_inds]
         fall_only_inds = np.where(np.in1d(self.store.thd_inds,
                                           self.store.fall_inds))[0]
-        fall_rxn_inds = self.store.fall_inds[:]
 
         # create the kernel call
         kc = [kernel_call('ci_thd', [ref_pres_mod],
@@ -809,7 +807,7 @@ class SubTest(TestClass):
                 'cp': lambda x: np.array(self.store.spec_cp, order=x, copy=True),
                 'h': lambda x: np.array(self.store.spec_h, order=x, copy=True),
                 'cv': lambda x: np.array(self.store.spec_cv, order=x, copy=True),
-                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True), }
+                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True)}
         Tdot_cp = np.concatenate((self.store.conp_temperature_rates.reshape((-1, 1)),
                                   np.zeros((self.store.test_size, self.store.gas.n_species))),
                                  axis=1)

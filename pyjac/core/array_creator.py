@@ -1059,12 +1059,12 @@ class NameStore(object):
                                       order=self.order)
 
             # simple mask
-            simple_mask = _make_mask(rate_info['fall']['type'],
+            fall_mask = _make_mask(rate_info['fall']['type'],
                                      rate_info['Nr'])
             self.fall_mask = creator('fall_mask',
-                                     dtype=simple_mask.dtype,
-                                     shape=simple_mask.shape,
-                                     initializer=simple_mask,
+                                     dtype=fall_mask.dtype,
+                                     shape=fall_mask.shape,
+                                     initializer=fall_mask,
                                      order=self.order)
 
             # rtype maps
@@ -1108,7 +1108,7 @@ class NameStore(object):
                                          'fall']['ftype'],
                                      order=self.order)
 
-            #maps and masks
+            # maps and masks
             fall_to_thd_map = np.array(
                 np.where(
                     np.in1d(
@@ -1182,7 +1182,7 @@ class NameStore(object):
                                            'fall']['troe']['T2'],
                                        order=self.order)
 
-                #map and mask
+                # map and mask
                 self.troe_map = creator('troe_map',
                                         shape=rate_info['fall'][
                                             'troe']['map'].shape,
@@ -1249,7 +1249,7 @@ class NameStore(object):
                                          'fall']['sri']['e'],
                                      order=self.order)
 
-                #map and mask
+                # map and mask
                 self.sri_map = creator('sri_map',
                                        shape=rate_info['fall'][
                                            'sri']['map'].shape,
