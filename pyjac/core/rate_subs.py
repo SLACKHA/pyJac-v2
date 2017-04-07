@@ -1217,7 +1217,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
     return infos
 
 
-def get_rxn_pres_mod(eqs, loopy_opts, rate_info, test_size=None):
+def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for pressure modification
     term of the forward reaction rates.
 
@@ -1227,8 +1227,8 @@ def get_rxn_pres_mod(eqs, loopy_opts, rate_info, test_size=None):
         Sympy equations / variables for constant pressure / constant volume systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -1241,49 +1241,27 @@ def get_rxn_pres_mod(eqs, loopy_opts, rate_info, test_size=None):
 
     # start developing the ci kernel
     # rate info and reac ind
-    reac_ind = 'i'
+
+    global_ind = 'j'
+    var_name = 'i'
+    default_inds = (global_ind, var_name)
+
     kernel_data = []
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    # set of eqn's doesn't matter
-    conp_eqs = eqs['conp']
-
     # create the third body conc pres-mod kernel
 
-    # first, we need all third body reactions that are not falloff
-    num_thd = rate_info['thd']['num']
-    non_fall_thd = np.where(np.logical_not(np.in1d(rate_info['thd']['map'],
-                                                   rate_info['fall']['map'])))[0]
+    thd_map = arc.MapStore(loopy_opts, namestore.thd_map,
+                           namestore.thd_only_mask)
 
-    thd_map = {}
-    thd_maplist = []
-    indicies = k_gen.handle_indicies(non_fall_thd, '${reac_ind}', thd_map, kernel_data,
-                                     inmap_name='thd_only_ind')
-
-    # next the thd_body_conc's
-    num_thd = rate_info['thd']['num']
-    reac_mapname = '${reac_ind}_map'
-    thd_lp, thd_str, map_instructs = lp_utils.get_loopy_arg('thd_conc',
-                                                            indicies=[
-                                                                '${reac_ind}', 'j'],
-                                                            dimensions=(
-                                                                num_thd, test_size),
-                                                            order=loopy_opts.order,
-                                                            map_name=thd_map,
-                                                            map_result=reac_mapname)
-    # add the map
-    if '${reac_ind}' in map_instructs:
-        thd_maplist.append(map_instructs['${reac_ind}'])
+    # get the third body concs
+    thd_lp, thd_str = thd_map.apply_maps(namestore.thd_conc,
+                                         *default_inds)
 
     # and the pressure mod term
-    pres_mod_lp, pres_mod_str, map_instructs = lp_utils.get_loopy_arg('pres_mod',
-                                                                      ['${reac_ind}',
-                                                                          'j'],
-                                                                      dimensions=(
-                                                                          num_thd, test_size),
-                                                                      order=loopy_opts.order,
-                                                                      map_name=thd_map)
+    pres_mod_lp, pres_mod_str = thd_map.apply_maps(namestore.pres_mod,
+                                                   *default_inds)
 
     thd_instructions = Template(
         """
@@ -1291,8 +1269,7 @@ ${pres_mod} = ${thd_conc}
 
 """).safe_substitute(pres_mod=pres_mod_str,
                      thd_conc=thd_str)
-    thd_instructions = Template(
-        thd_instructions).safe_substitute(reac_ind=reac_ind)
+
     # and the args
     kernel_data.extend([thd_lp, pres_mod_lp])
 
@@ -1300,67 +1277,39 @@ ${pres_mod} = ${thd_conc}
     info_list = [
         k_gen.knl_info(name='ci_thd',
                        instructions=thd_instructions,
-                       var_name=reac_ind,
+                       var_name=var_name,
                        kernel_data=kernel_data,
-                       maps=thd_maplist,
-                       indicies=indicies,
-                       extra_subs={'reac_ind': reac_ind})]
+                       mapstore=thd_map)]
 
     # and now the falloff kernel
     kernel_data = []
     if test_size == 'problem_size':
         kernel_data.append(lp.ValueArg('problem_size', dtype=np.int32))
-    fall_maplist = []
-    fall_map = {}
-    indicies = k_gen.handle_indicies(np.arange(rate_info['fall']['num'], dtype=np.int32),
-                                     '${reac_ind}', fall_map, kernel_data,
-                                     inmap_name='fall_inds', scope=scopes.GLOBAL)
+
+    fall_map = arc.MapStore(loopy_opts, namestore.fall_map,
+                            namestore.fall_mask)
 
     # the falloff vs chemically activated indicator
-    fall_type = rate_info['fall']['ftype']
-    fall_type_lp, fall_type_str, map_instructs = lp_utils.get_loopy_arg('fall_type',
-                                                                        ['${reac_ind}'],
-                                                                        dimensions=(
-                                                                            fall_type.shape),
-                                                                        order=loopy_opts.order,
-                                                                        initializer=fall_type,
-                                                                        dtype=fall_type.dtype)
+    fall_type_lp, fall_type_str = \
+        fall_map.apply_maps(namestore.fall_type, var_name)
 
     # the blending term
-    Fi_lp, Fi_str, _ = lp_utils.get_loopy_arg('Fi',
-                                              indicies=['${reac_ind}', 'j'],
-                                              dimensions=[
-                                                  rate_info['fall']['num'], test_size],
-                                              order=loopy_opts.order)
+    Fi_lp, Fi_str = \
+        fall_map.apply_maps(namestore.Fi, *default_inds)
+
     # the Pr array
-    Pr_lp, Pr_str, _ = lp_utils.get_loopy_arg('Pr',
-                                              indicies=['${reac_ind}', 'j'],
-                                              dimensions=[
-                                                  rate_info['fall']['num'], test_size],
-                                              order=loopy_opts.order)
+    Pr_lp, Pr_str = \
+        fall_map.apply_maps(namestore.Pr, *default_inds)
 
-    # find the falloff -> thd map
-    map_name = 'pres_mod_map'
-    pres_mod_ind = 'pres_mod_ind'
-    pres_mod_map = np.array(
-        np.where(np.in1d(rate_info['thd']['map'], rate_info['fall']['map']))[0], dtype=np.int32)
-    pres_mod_map, pres_mod_str = __1Dcreator(
-        map_name, pres_mod_map, '${pres_mod_ind}')
-    fall_maplist.append(lp_utils.generate_map_instruction(
-        newname=pres_mod_ind,
-        map_arr=map_name,
-        oldname='${reac_ind}'))
+    # and the pressure mod term (use fall_to_thd_map/mask)
+    fall_map.check_and_add_transform(namestore.pres_mod,
+                                     namestore.fall_to_thd_map)
 
-    # and the pressure mod term
-    pres_mod_lp, pres_mod_str, _ = lp_utils.get_loopy_arg('pres_mod',
-                                                          ['${pres_mod_ind}',
-                                                              'j'],
-                                                          dimensions=(
-                                                              num_thd, test_size),
-                                                          order=loopy_opts.order)
+    pres_mod_lp, pres_mod_str = \
+        fall_map.apply_maps(namestore.pres_mod, *default_inds)
 
     # update the args
-    kernel_data.extend([Fi_lp, Pr_lp, fall_type_lp, pres_mod_lp, pres_mod_map])
+    kernel_data.extend([Fi_lp, Pr_lp, fall_type_lp, pres_mod_lp])
 
     fall_instructions = Template(
         """
@@ -1373,18 +1322,14 @@ ${pres_mod} = ci_temp {dep=ci_update}
                      Pr_str=Pr_str,
                      pres_mod=pres_mod_str,
                      fall_type=fall_type_str)
-    fall_instructions = Template(fall_instructions).safe_substitute(reac_ind=reac_ind,
-                                                                    pres_mod_ind=pres_mod_ind)
 
     # add to the info list
     info_list.append(
         k_gen.knl_info(name='ci_fall',
                        instructions=fall_instructions,
-                       var_name=reac_ind,
+                       var_name=var_name,
                        kernel_data=kernel_data,
-                       maps=fall_maplist,
-                       indicies=indicies,
-                       extra_subs={'reac_ind': reac_ind}))
+                       mapstore=fall_map))
 
     return info_list
 
