@@ -1055,18 +1055,23 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
         return infos
 
 
-def get_rop(eqs, loopy_opts, rate_info, test_size=None):
+def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
     """Generates instructions, kernel arguements, and data for the Rate of Progress
     kernels
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems.
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    allint : dict
+        Contains keys 'fwd' and 'rev', with booleans corresponding to whether
+        all nu values for that direction are integers.  If True, powers of
+        concentrations will be evaluated using multiplications
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -1077,115 +1082,88 @@ def get_rop(eqs, loopy_opts, rate_info, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
+    var_name = 'i'
+    global_ind = 'j'
+
+    default_inds = (global_ind, var_name)
+    maps = {}
+
     # create ROP kernels
 
     def __rop_create(direction):
-        mapname = {}
-        maplist = []
-        reac_ind = 'i'
+        spec_loop = 'ispec'
+        spec_ind = 'spec_ind'
 
         # indicies
         kernel_data = []
         if test_size == 'problem_size':
-            kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
-        indicies = k_gen.handle_indicies(
-            np.arange(rate_info[direction]['num']), '${reac_ind}', mapname, kernel_data)
+            kernel_data.append(namestore.problem_size)
+        if direction == 'fwd':
+            inds = namestore.num_reacs
+            mapinds = namestore.num_reacs
+        else:
+            inds = namestore.rev_map
+            mapinds = namestore.rev_mask
+
+        maps[direction] = arc.MapStore(loopy_opts, inds, mapinds)
+        themap = maps[direction]
 
         # we need species lists, nu lists, etc.
-        # first create offsets for map
-        net_spec_offsets = np.array(
-            np.cumsum(rate_info[direction]['num_reac_to_spec']) - rate_info[direction]['num_reac_to_spec'], dtype=np.int32)
-        num_spec_offsets_lp, num_spec_offsets_str, map_result = lp_utils.get_loopy_arg('spec_offset_{}'.format(direction),
-                                                                                       [
-                                                                                           '${reac_ind}'],
-                                                                                       dimensions=net_spec_offsets.shape,
-                                                                                       order=loopy_opts.order,
-                                                                                       initializer=net_spec_offsets,
-                                                                                       dtype=net_spec_offsets.dtype,
-                                                                                       map_name=mapname,
-                                                                                       map_result='${spec_offset}')
-        if '${reac_ind}' in maplist:
-            maplist.append(map_instructs['${reac_ind}'])
 
-        # nu lists
-        nu_lp, nu_str, _ = lp_utils.get_loopy_arg('nu_{}'.format(direction),
-                                                  ['${spec_map}'],
-                                                  dimensions=rate_info[
-                                                      direction]['nu'].shape,
-                                                  initializer=rate_info[
-                                                      direction]['nu'],
-                                                  dtype=rate_info[
-                                                      direction]['nu'].dtype,
-                                                  order=loopy_opts.order)
+        # offsets are on main loop, no map
+        offsets = getattr(namestore, direction + '_reac_to_spec_offsets')
+        num_spec_offsets_lp, num_spec_offsets_str = themap.apply_maps(
+            offsets, var_name)
 
-        # species lists
-        spec_lp, spec_str, _ = lp_utils.get_loopy_arg('spec_{}'.format(direction),
-                                                      ['${spec_map}'],
-                                                      dimensions=rate_info[direction][
-                                                          'reac_to_spec'].shape,
-                                                      initializer=rate_info[
-                                                          direction]['reac_to_spec'],
-                                                      dtype=rate_info[direction][
-                                                          'reac_to_spec'].dtype,
-                                                      order=loopy_opts.order)
+        # next offset to calculate num species
+        _, num_spec_offsets_next_str = themap.apply_maps(
+            offsets, var_name + ' + 1')
 
-        # species counts
-        num_spec_lp, num_spec_str, map_result = lp_utils.get_loopy_arg('num_spec_{}'.format(direction),
-                                                                       ['${reac_ind}'],
-                                                                       dimensions=rate_info[direction][
-                                                                           'num_reac_to_spec'].shape,
-                                                                       order=loopy_opts.order,
-                                                                       initializer=rate_info[direction][
-                                                                           'num_reac_to_spec'],
-                                                                       dtype=rate_info[direction][
-                                                                           'num_reac_to_spec'].dtype,
-                                                                       map_result='${spec_offset}')
+        # nu lists are on main loop, no map
+        nu = getattr(namestore, 'nu_' + direction)
+        nu_lp, nu_str = themap.apply_maps(nu, spec_loop)
 
-        # rate constants
-        rateconst_arr, rateconst_str, _ = lp_utils.get_loopy_arg('kf' if direction == 'fwd' else 'kr',
-                                                                 indicies=[
-                                                                     '${reac_ind}', 'j'],
-                                                                 dimensions=[
-                                                                     rate_info[direction]['num'], test_size],
-                                                                 order=loopy_opts.order)
+        # species lists are in ispec loop, use that iname
+        speclist = getattr(namestore, direction + '_reac_to_spec')
+        spec_lp, spec_str = themap.apply_maps(speclist, spec_loop)
 
-        # concentrations
-        concs_lp, concs_str, _ = lp_utils.get_loopy_arg('conc',
-                                                        indicies=[
-                                                            '${spec_ind}', 'j'],
-                                                        dimensions=(
-                                                            rate_info['Ns'], test_size),
-                                                        order=loopy_opts.order)
+        # rate constants on main loop, no map
+        rateconst = namestore.kf if direction == 'fwd' else namestore.kr
+        rateconst_arr, rateconst_str = themap.apply_maps(
+            rateconst, *default_inds)
 
-        # and finally the ROP values
-        rop_arr, rop_str, _ = lp_utils.get_loopy_arg('rop_{}'.format(direction),
-                                                     indicies=[
-                                                         '${reac_ind}', 'j'],
-                                                     dimensions=[
-                                                         rate_info[direction]['num'], test_size],
-                                                     order=loopy_opts.order)
+        # concentrations in ispec loop, also use offset for phi
+        concs_lp, concs_str = themap.apply_maps(
+            namestore.conc_arr, global_ind, spec_ind + ' + 1')
+
+        # and finally the ROP values in the mainloop, no map
+        rop = getattr(namestore, 'rop_' + direction)
+        rop_arr, rop_str = themap.apply_maps(rop, *default_inds)
 
         # update kernel data
         kernel_data.extend(
-            [num_spec_offsets_lp, concs_lp, nu_lp, spec_lp, num_spec_lp, rateconst_arr, rop_arr])
+            [num_spec_offsets_lp, concs_lp, nu_lp, spec_lp,
+             rateconst_arr, rop_arr])
 
         # instructions
-        rop_instructions = Template(Template(
+        rop_instructions = Template(
             """
     <>rop_temp = ${rateconst_str} {id=rop_init}
     <>spec_offset = ${num_spec_offsets_str}
-    <>num_spec = ${num_spec_str}
-    for ispec
+    <>num_spec = ${num_spec_offsets_next_str} - spec_offset
+    for ${spec_loop}
         <>spec_map = spec_offset + ispec
-        <>spec_ind = ${spec_str} {id=spec_ind}
-    ${rop_temp_eval}
+        <>${spec_ind} = ${spec_str} {id=spec_ind}
+        ${rop_temp_eval}
     end
     ${rop_str} = rop_temp {dep=rop_fin*}
     """).safe_substitute(rateconst_str=rateconst_str,
                          rop_str=rop_str,
+                         spec_loop=spec_loop,
                          num_spec_offsets_str=num_spec_offsets_str,
+                         num_spec_offsets_next_str=num_spec_offsets_next_str,
                          spec_str=spec_str,
-                         num_spec_str=num_spec_str))
+                         spec_ind=spec_ind)
 
         # if all integers, it's much faster to use multiplication
         allint_eval = Template(
@@ -1198,52 +1176,43 @@ def get_rop(eqs, loopy_opts, rate_info, test_size=None):
     rop_temp = rop_temp * conc_temp {id=rop_fin, dep=conc_update}""").safe_substitute(
             nu_str=nu_str,
             concs_str=concs_str)
-        # cleanup
-        allint_eval = '\n'.join(
-            '    ' + line for line in allint_eval.split('\n') if line)
 
         # if we need to use powers, do so
         fractional_eval = Template(
             """
-    if int(${nu_sum}) == ${nu_sum}
-    ${allint}
+    if int(${nu_str}) == ${nu_str}
+        ${allint}
     else
         rop_temp = rop_temp * (${concs_str})**(${nu_str}) {id=rop_fin2}
     end
-    """).safe_substitute(allint=allint_eval,
-                         nu_str=nu_str,
+    """).safe_substitute(nu_str=nu_str,
                          concs_str=concs_str)
-        # cleanup
-        fractional_eval = '\n'.join(
-            '    ' + line for line in fractional_eval.split('\n') if line)
+        fractional_eval = k_gen.subs_at_indent(fractional_eval, 'allint',
+                                               allint_eval)
 
-        if not rate_info[direction]['allint']:
-            rop_instructions = rop_instructions.safe_substitute(
-                rop_temp_eval=fractional_eval)
+        if not allint[direction]:
+            rop_instructions = k_gen.subs_at_indent(rop_instructions,
+                                                    'rop_temp_eval',
+                                                    fractional_eval)
         else:
-            rop_instructions = rop_instructions.safe_substitute(
-                rop_temp_eval=allint_eval)
-        rop_instructions = Template(rop_instructions).safe_substitute(
-            reac_ind=reac_ind,
-            spec_map='spec_map',
-            spec_ind='spec_ind')
+            rop_instructions = k_gen.subs_at_indent(rop_instructions,
+                                                    'rop_temp_eval',
+                                                    allint_eval)
 
         # and finally extra inames
-        extra_inames = [('ispec', '0 <= ispec < num_spec'),
+        extra_inames = [(spec_loop, 'spec_offset <= {} < spec_offset + num_spec'.format(spec_loop)),
                         ('inu', '0 <= inu < nu')]
 
         # and return the rateconst
         return k_gen.knl_info(name='rop_eval_{}'.format(direction),
                               instructions=rop_instructions,
-                              var_name=reac_ind,
+                              var_name=var_name,
                               kernel_data=kernel_data,
-                              maps=maplist,
                               extra_inames=extra_inames,
-                              indicies=indicies,
-                              extra_subs={'reac_ind': reac_ind})
+                              mapstore=maps[direction])
 
     infos = [__rop_create('fwd')]
-    if rate_info['rev']['num']:
+    if namestore.rop_rev is not None:
         infos.append(__rop_create('rev'))
     return infos
 
@@ -1275,7 +1244,7 @@ def get_rxn_pres_mod(eqs, loopy_opts, rate_info, test_size=None):
     reac_ind = 'i'
     kernel_data = []
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg('problem_size', dtype=np.int32))
+        kernel_data.append(namestore.problem_size)
 
     # set of eqn's doesn't matter
     conp_eqs = eqs['conp']
@@ -3229,7 +3198,9 @@ def write_specrates_kernel(eqs, reacs, specs,
 
     # add ROP
     __add_knl(get_rop(eqs, loopy_opts,
-                      nstore, test_size))
+                      nstore, allint={'fwd': rate_info['fwd']['allint'],
+                                      'rev': rate_info['rev']['allint']},
+                      test_size=test_size))
     # add ROP net
     __add_knl(get_rop_net(eqs, loopy_opts,
                           nstore, test_size))
