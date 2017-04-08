@@ -429,7 +429,7 @@ class MapStore(object):
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
 
-    def apply_maps(self, variable, *indicies, **kwargs):
+    def apply_maps(self, variable, *indicies, affine=None, **kwargs):
         """
         Applies the developed iname mappings to the indicies supplied and
         returns the created loopy Arg/Temporary and the string version
@@ -440,7 +440,8 @@ class MapStore(object):
             The NameStore variable(s) to work with
         indices : list of str
             The inames to map
-
+        affine : int
+            An affine transformation to apply inline to this variable.
         Returns
         -------
         lp_var : :class:`loopy.GlobalArg` or :class:`loopy.TemporaryVariable`
@@ -451,10 +452,17 @@ class MapStore(object):
             The transform instruction string
         """
 
+        def __get_affine(iname):
+            if affine is not None:
+                return iname + ' {} {}'.format('+' if affine >= 0 else '-',
+                                               affine)
+            return iname
+
         if variable in self.transformed_variables:
             indicies = tuple(x if x !=
                              self.transformed_variables[variable].iname else
-                             self.transformed_variables[variable].new_iname
+                             __get_affine(
+                                self.transformed_variables[variable].new_iname)
                              for x in indicies)
 
         return variable(*indicies, **kwargs)
