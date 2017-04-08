@@ -17,7 +17,7 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
                               get_temperature_rate)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
-                                       get_target, get_device_list, populate,
+                                       get_device_list, populate,
                                        kernel_call)
 from . import TestClass
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
@@ -666,14 +666,20 @@ class SubTest(TestClass):
         ref_kc = self.store.equilibrium_constants.copy()
         ref_B = self.store.ref_B_rev.copy()
         ref_rev = self.store.rev_rate_constants.copy()
-        args = {'b': lambda x: ref_B.copy() if x == 'F' else ref_B.T.copy(),
-                'kf': lambda x: ref_fwd_rates.copy() if x == 'F' else ref_fwd_rates.T.copy()}
+        args = {'b': lambda x: np.array(ref_B, order=x, copy=True),
+                'kf': lambda x: np.array(ref_fwd_rates, order=x, copy=True)}
+
+        # create the dictionary for nu values stating if all integer
+        allint = {'net':
+                  np.allclose(np.mod(self.store.gas.reactant_stoich_coeffs() -
+                                     self.store.gas.product_stoich_coeffs(),
+                                     1), 0)}
 
         # create the kernel call
         kc = kernel_call('Kc', [ref_kc, ref_rev],
                          out_mask=[0, 1], **args)
 
-        self.__generic_rate_tester(get_rev_rates, kc)
+        self.__generic_rate_tester(get_rev_rates, kc, allint=allint)
 
     @attr('long')
     def test_pressure_mod(self):
