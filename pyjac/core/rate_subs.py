@@ -30,6 +30,29 @@ from . reaction_types import reaction_type, falloff_form, thd_body_type, \
     reversible_type
 from . import array_creator as arc
 
+global_ind = 'j'
+"""str: The global initial condition index
+
+This is the string index for the global condition loop in generated kernels
+of :module:`rate_subs`
+"""
+
+
+var_name = 'i'
+"""str: The inner loop index
+
+This is the string index for the inner loops in generated kernels of
+:module:`rate_subs`
+"""
+
+
+default_inds = (global_ind, var_name)
+"""str: The default indicies used in main loops of :module:`rate_subs`
+
+This is the string indicies for the main loops for generated kernels in
+:module:`rate_subs`
+"""
+
 
 def assign_rates(reacs, specs, rate_spec):
     """
@@ -510,10 +533,7 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
     mapstore = arc.MapStore(loopy_opts,
                             namestore.num_specs,
                             namestore.num_specs)
-
-    var_name = 'i'
-    default_inds = ('j', var_name)
-    fixed_inds = ('j')
+    fixed_inds = (global_ind,)
 
     # here, the equation form _does_ matter
     if conp:
@@ -692,9 +712,6 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                      '  Disabling...')
         over_reac = False
 
-    var_name = 'i'
-    global_ind = 'j'
-    default_inds = ('j', var_name)
     kernel_data = []
     # add problem size
     if namestore.problem_size is not None:
@@ -848,10 +865,6 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
     """
 
     # create net rop kernel
-    var_name = 'i'
-    global_ind = 'j'
-
-    default_inds = (global_ind, var_name)
 
     kernel_data = OrderedDict([('fwd', [])])
     maps = OrderedDict([('fwd',
@@ -1082,10 +1095,6 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    var_name = 'i'
-    global_ind = 'j'
-
-    default_inds = (global_ind, var_name)
     maps = {}
 
     # create ROP kernels
@@ -1241,10 +1250,6 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
 
     # start developing the ci kernel
     # rate info and reac ind
-
-    global_ind = 'j'
-    var_name = 'i'
-    default_inds = (global_ind, var_name)
 
     kernel_data = []
     if test_size == 'problem_size':
