@@ -1067,8 +1067,8 @@ class NameStore(object):
                                       order=self.order)
 
             # simple mask
-            fall_mask = _make_mask(rate_info['fall']['type'],
-                                     rate_info['Nr'])
+            fall_mask = _make_mask(rate_info['fall']['map'],
+                                   rate_info['Nr'])
             self.fall_mask = creator('fall_mask',
                                      dtype=fall_mask.dtype,
                                      shape=fall_mask.shape,
@@ -1191,6 +1191,13 @@ class NameStore(object):
                                        order=self.order)
 
                 # map and mask
+                num_troe = np.arange(rate_info['fall']['troe']['num'],
+                                     dtype=np.int32)
+                self.num_troe = creator('troe_map',
+                                        shape=num_troe.shape,
+                                        dtype=num_troe.dtype,
+                                        initializer=num_troe,
+                                        order=self.order)
                 self.troe_map = creator('troe_map',
                                         shape=rate_info['fall'][
                                             'troe']['map'].shape,
