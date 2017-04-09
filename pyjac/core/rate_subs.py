@@ -2267,18 +2267,19 @@ ${Pr_str} = ${Pr_eq} {dep=k*}
                            extra_subs={'reac_ind': reac_ind})]
 
 
-def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
+def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the Troe
     falloff evaluation kernel
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -2294,69 +2295,38 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
     conp_eqs = eqs['conp']
 
     # rate info and reac ind
-    reac_ind = 'i'
     kernel_data = []
 
-    if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
+    # create mapper
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.troe_map, namestore.troe_mask)
 
-    # add the troe map
-    # add sri map
-    out_map = {}
-    outmap_name = 'out_map'
-    indicies = np.array(rate_info['fall']['troe']['map'], dtype=np.int32)
-    indicies = k_gen.handle_indicies(indicies, '${reac_ind}', out_map, kernel_data,
-                                     force_zero=True)
+    if test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
 
     # create the Pr loopy array / string
-    Pr_lp, Pr_str, map_result = lp_utils.get_loopy_arg('Pr',
-                                                       indicies=[
-                                                           '${reac_ind}', 'j'],
-                                                       dimensions=[
-                                                           rate_info['fall']['num'], test_size],
-                                                       order=loopy_opts.order,
-                                                       map_name=out_map)
+    Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
 
     # create Fi loopy array / string
-    Fi_lp, Fi_str, map_result = lp_utils.get_loopy_arg('Fi',
-                                                       indicies=[
-                                                           '${reac_ind}', 'j'],
-                                                       dimensions=[
-                                                           rate_info['fall']['num'], test_size],
-                                                       order=loopy_opts.order,
-                                                       map_name=out_map)
-
-    # add to the kernel maps
-    maps = []
-    if '${reac_ind}' in map_result:
-        maps.append(map_result['${reac_ind}'])
+    Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
 
     # create the Fcent loopy array / str
-    Fcent_lp, Fcent_str, _ = lp_utils.get_loopy_arg('Fcent',
-                                                    indicies=[
-                                                        '${reac_ind}', 'j'],
-                                                    dimensions=[
-                                                        rate_info['fall']['troe']['num'], test_size],
-                                                    order=loopy_opts.order)
+    # this may require a map / mask
+    mapstore.check_and_add_transform(namestore.Fcent, namestore.num_troe)
+    Fcent_lp, Fcent_str = mapstore.apply_maps(namestore.Fcent, *default_inds)
 
     # create the Atroe loopy array / str
-    Atroe_lp, Atroe_str, _ = lp_utils.get_loopy_arg('Atroe',
-                                                    indicies=[
-                                                        '${reac_ind}', 'j'],
-                                                    dimensions=[
-                                                        rate_info['fall']['troe']['num'], test_size],
-                                                    order=loopy_opts.order)
+    # this may require a map / mask
+    mapstore.check_and_add_transform(namestore.Atroe, namestore.num_troe)
+    Atroe_lp, Atroe_str = mapstore.apply_maps(namestore.Atroe, *default_inds)
 
-    # create the Fcent loopy array / str
-    Btroe_lp, Btroe_str, _ = lp_utils.get_loopy_arg('Btroe',
-                                                    indicies=[
-                                                        '${reac_ind}', 'j'],
-                                                    dimensions=[
-                                                        rate_info['fall']['troe']['num'], test_size],
-                                                    order=loopy_opts.order)
+    # create the Btroe loopy array / str
+    # this may require a map / mask
+    mapstore.check_and_add_transform(namestore.Btroe, namestore.num_troe)
+    Btroe_lp, Btroe_str = mapstore.apply_maps(namestore.Btroe, *default_inds)
 
     # create the temperature array
-    T_lp = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
 
     # update the kernel_data
     kernel_data.extend([Pr_lp, T_lp, Fi_lp, Fcent_lp, Atroe_lp, Btroe_lp])
@@ -2377,17 +2347,10 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
         Fcent], conp_eqs[Atroe], conp_eqs[Btroe]
 
     # get troe params and create arrays
-    troe_a, troe_T3, troe_T1, troe_T2 = rate_info['fall']['troe']['a'], \
-        rate_info['fall']['troe']['T3'], \
-        rate_info['fall']['troe']['T1'], \
-        rate_info['fall']['troe']['T2']
-    troe_a_lp, troe_a_str = __1Dcreator('troe_a', troe_a, scope=scopes.GLOBAL)
-    troe_T3_lp, troe_T3_str = __1Dcreator(
-        'troe_T3', troe_T3, scope=scopes.GLOBAL)
-    troe_T1_lp, troe_T1_str = __1Dcreator(
-        'troe_T1', troe_T1, scope=scopes.GLOBAL)
-    troe_T2_lp, troe_T2_str = __1Dcreator(
-        'troe_T2', troe_T2, scope=scopes.GLOBAL)
+    troe_a_lp, troe_a_str = mapstore.apply_maps(namestore.troe_a, var_name)
+    troe_T3_lp, troe_T3_str = mapstore.apply_maps(namestore.troe_T3, var_name)
+    troe_T1_lp, troe_T1_str = mapstore.apply_maps(namestore.troe_T1, var_name)
+    troe_T2_lp, troe_T2_str = mapstore.apply_maps(namestore.troe_T2, var_name)
     # update the kernel_data
     kernel_data.extend([troe_a_lp, troe_T3_lp, troe_T1_lp, troe_T2_lp])
     # sub into eqs
@@ -2400,7 +2363,8 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
 
     # now separate into optional / base parts
     Fcent_base_eq = sp.Add(
-        *[x for x in sp.Add.make_args(Fcent_eq) if not sp.Symbol(troe_T2_str) in x.free_symbols])
+        *[x for x in sp.Add.make_args(Fcent_eq)
+          if not sp.Symbol(troe_T2_str) in x.free_symbols])
     Fcent_opt_eq = Fcent_eq - Fcent_base_eq
 
     # develop the Atroe / Btroe eqs
@@ -2435,9 +2399,8 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
     ]))
 
     # make the instructions
-    troe_instructions = Template(
-        """
-    <>T = T_arr[j]
+    troe_instructions = Template("""
+    <>T = ${T_str}
     <>${Fcent_temp} = ${Fcent_base_eq} {id=Fcent_decl} # this must be a temporary to avoid a race on future assignments
     if ${troe_T2_str} != 0
         ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
@@ -2454,33 +2417,30 @@ def get_troe_kernel(eqs, loopy_opts, rate_info, test_size=None):
     <>Atroe_squared = Atroe_temp * Atroe_temp
     <>Btroe_squared = Btroe_temp * Btroe_temp
     ${Fi_str} = ${Fi_base_eq}**(${Fi_pow_eq}) {dep=Fcent_decl*}
-    """
-    ).safe_substitute(Fcent_temp=Fcent_temp_str,
-                      Fcent_str=Fcent_str,
-                      Fcent_base_eq=Fcent_base_eq,
-                      Fcent_opt_eq=Fcent_opt_eq,
-                      troe_T2_str=troe_T2_str,
-                      Pr_str=Pr_str,
-                      Atroe_eq=Atroe_eq,
-                      Btroe_eq=Btroe_eq,
-                      Atroe_str=Atroe_str,
-                      Btroe_str=Btroe_str,
-                      Fi_str=Fi_str,
-                      Fi_base_eq=Fi_base_eq,
-                      Fi_pow_eq=Fi_pow_eq)
-    troe_instructions = Template(
-        troe_instructions).safe_substitute(reac_ind=reac_ind)
+    """).safe_substitute(T_str=T_str,
+                         Fcent_temp=Fcent_temp_str,
+                         Fcent_str=Fcent_str,
+                         Fcent_base_eq=Fcent_base_eq,
+                         Fcent_opt_eq=Fcent_opt_eq,
+                         troe_T2_str=troe_T2_str,
+                         Pr_str=Pr_str,
+                         Atroe_eq=Atroe_eq,
+                         Btroe_eq=Btroe_eq,
+                         Atroe_str=Atroe_str,
+                         Btroe_str=Btroe_str,
+                         Fi_str=Fi_str,
+                         Fi_base_eq=Fi_base_eq,
+                         Fi_pow_eq=Fi_pow_eq)
 
     return [k_gen.knl_info('fall_troe',
                            instructions=troe_instructions,
-                           var_name=reac_ind,
+                           var_name=var_name,
                            kernel_data=kernel_data,
-                           indicies=indicies,
-                           maps=maps,
-                           extra_subs={'reac_ind': reac_ind},
+                           mapstore=mapstore,
                            manglers=[
-                               k_gen.MangleGen('fmax', (np.float64, np.float64),
-                                               np.float64)])]
+                                k_gen.MangleGen('fmax',
+                                                (np.float64, np.float64),
+                                                np.float64)])]
 
 
 def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
@@ -2490,7 +2450,8 @@ def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     rate_info : dict
@@ -2650,18 +2611,19 @@ ${X_str} = X_temp
                            extra_subs={'reac_ind': reac_ind})]
 
 
-def get_lind_kernel(eqs, loopy_opts, rate_info, test_size=None):
+def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the Lindeman
     falloff evaluation kernel
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -2674,47 +2636,30 @@ def get_lind_kernel(eqs, loopy_opts, rate_info, test_size=None):
     """
 
     # set of equations is irrelevant for non-derivatives
-    conp_eqs = eqs['conp']
-    reac_ind = 'i'
 
     kernel_data = []
 
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
+        kernel_data.append(namestore.problem_size)
 
-    # figure out if we need to do any mapping of the input variable
-    out_map = {}
-    outmap_name = 'out_map'
-    indicies = np.array(rate_info['fall']['lind']['map'], dtype=np.int32)
-    indicies = k_gen.handle_indicies(indicies, '${reac_ind}', out_map, kernel_data,
-                                     force_zero=True)
+    # create Fi array / str
 
-    # create Fi array / mapping
-    Fi_lp, Fi_str, map_result = lp_utils.get_loopy_arg('Fi',
-                                                       indicies=[
-                                                           '${reac_ind}', 'j'],
-                                                       dimensions=[
-                                                           rate_info['fall']['num'], test_size],
-                                                       order=loopy_opts.order,
-                                                       map_name=out_map)
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.lind_map, namestore.lind_mask)
+
+    Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
     kernel_data.append(Fi_lp)
-    maps = []
-    if '${reac_ind}' in map_result:
-        maps.append(map_result['${reac_ind}'])
 
     # create instruction set
-    lind_instructions = Template(Template("""
-${Fi_str} = 1
-""").safe_substitute(Fi_str=Fi_str)).safe_substitute(
-        reac_ind=reac_ind)
+    lind_instructions = Template("""
+    ${Fi_str} = 1
+    """).safe_substitute(Fi_str=Fi_str)
 
     return [k_gen.knl_info('fall_lind',
                            instructions=lind_instructions,
-                           var_name=reac_ind,
+                           var_name=var_name,
                            kernel_data=kernel_data,
-                           indicies=indicies,
-                           maps=maps,
-                           extra_subs={'reac_ind': reac_ind})]
+                           mapstore=mapstore)]
 
 
 def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,

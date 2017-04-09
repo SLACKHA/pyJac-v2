@@ -629,12 +629,11 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_troe_falloff(self):
-        T = self.store.T
+        phi = self.store.phi.copy()
         ref_Pr = self.store.ref_Pr.copy()
         ref_ans = self.store.ref_Troe.copy().squeeze()
-        args = {'Pr': lambda x: ref_Pr.copy() if x == 'F'
-                else ref_Pr.T.copy(),
-                'T_arr': T
+        args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
+                'phi': lambda x: np.array(phi, order=x, copy=True),
                 }
 
         # get Troe reaction mask

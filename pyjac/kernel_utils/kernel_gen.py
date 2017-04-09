@@ -24,6 +24,7 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 TINV_PREINST_KEY = 'Tinv'
 TLOG_PREINST_KEY = 'logT'
 PLOG_PREINST_KEY = 'logP'
+TVAL_PREINST_KEY = 'T'
 
 
 class wrapping_kernel_generator(object):
@@ -666,7 +667,8 @@ ${name} : ${type}
         # various precomputes
         pre_inst = {TINV_PREINST_KEY: '<> T_inv = 1 / T_arr[j]',
                     TLOG_PREINST_KEY: '<> logT = log(T_arr[j])',
-                    PLOG_PREINST_KEY: '<> logP = log(P_arr[j])'}
+                    PLOG_PREINST_KEY: '<> logP = log(P_arr[j])',
+                    TVAL_PREINST_KEY: '<> T = T_arr[j]'}
 
         # and the skeleton kernel
         skeleton = """
