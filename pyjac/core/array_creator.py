@@ -1193,7 +1193,7 @@ class NameStore(object):
                 # map and mask
                 num_troe = np.arange(rate_info['fall']['troe']['num'],
                                      dtype=np.int32)
-                self.num_troe = creator('troe_map',
+                self.num_troe = creator('num_troe',
                                         shape=num_troe.shape,
                                         dtype=num_troe.dtype,
                                         initializer=num_troe,
@@ -1265,6 +1265,13 @@ class NameStore(object):
                                      order=self.order)
 
                 # map and mask
+                num_sri = np.arange(rate_info['fall']['sri']['num'],
+                                     dtype=np.int32)
+                self.num_sri = creator('num_sri',
+                                        shape=num_sri.shape,
+                                        dtype=num_sri.dtype,
+                                        initializer=num_sri,
+                                        order=self.order)
                 self.sri_map = creator('sri_map',
                                        shape=rate_info['fall'][
                                            'sri']['map'].shape,
