@@ -609,12 +609,11 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_sri_falloff(self):
-        T = self.store.T
+        ref_phi = self.store.phi
         ref_Pr = self.store.ref_Pr.copy()
         ref_ans = self.store.ref_Sri.copy().squeeze()
-        args = {'Pr': lambda x: ref_Pr.copy() if x == 'F'
-                else ref_Pr.T.copy(),
-                'T_arr': T
+        args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
+                'phi': lambda x: np.array(ref_phi, order=x, copy=True),
                 }
 
         # get SRI reaction mask

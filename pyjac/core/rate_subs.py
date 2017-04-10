@@ -2304,6 +2304,11 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
+    # add maps / masks
+    mapstore.check_and_add_transform(namestore.Fcent, namestore.num_troe)
+    mapstore.check_and_add_transform(namestore.Atroe, namestore.num_troe)
+    mapstore.check_and_add_transform(namestore.Btroe, namestore.num_troe)
+
     # create the Pr loopy array / string
     Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
 
@@ -2311,18 +2316,12 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
 
     # create the Fcent loopy array / str
-    # this may require a map / mask
-    mapstore.check_and_add_transform(namestore.Fcent, namestore.num_troe)
     Fcent_lp, Fcent_str = mapstore.apply_maps(namestore.Fcent, *default_inds)
 
     # create the Atroe loopy array / str
-    # this may require a map / mask
-    mapstore.check_and_add_transform(namestore.Atroe, namestore.num_troe)
     Atroe_lp, Atroe_str = mapstore.apply_maps(namestore.Atroe, *default_inds)
 
     # create the Btroe loopy array / str
-    # this may require a map / mask
-    mapstore.check_and_add_transform(namestore.Btroe, namestore.num_troe)
     Btroe_lp, Btroe_str = mapstore.apply_maps(namestore.Btroe, *default_inds)
 
     # create the temperature array
@@ -2438,12 +2437,12 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            manglers=[
-                                k_gen.MangleGen('fmax',
-                                                (np.float64, np.float64),
-                                                np.float64)])]
+                               k_gen.MangleGen('fmax',
+                                               (np.float64, np.float64),
+                                               np.float64)])]
 
 
-def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
+def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the SRI
     falloff evaluation kernel
 
@@ -2454,8 +2453,8 @@ def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
         systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -2469,91 +2468,55 @@ def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
 
     # set of equations is irrelevant for non-derivatives
     conp_eqs = eqs['conp']
-    reac_ind = 'i'
+    kernel_data = []
 
-    # Create the temperature array
-    T_arr = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
-    kernel_data = [T_arr]
+    # create mapper
+    mapstore = arc.MapStore(loopy_opts, namestore.sri_map, namestore.sri_mask)
 
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
+        kernel_data.append(namestore.problem_size)
 
-    # figure out if we need to do any mapping of the input variable
-    out_map = {}
-    outmap_name = 'out_map'
-    indicies = np.array(rate_info['fall']['sri']['map'], dtype=np.int32)
-    indicies = k_gen.handle_indicies(indicies, '${reac_ind}', out_map, kernel_data,
-                                     force_zero=True)
+    # maps and transforms
+    for arr in [namestore.X_sri, namestore.sri_a, namestore.sri_b,
+                namestore.sri_c, namestore.sri_d, namestore.sri_e]:
+        mapstore.check_and_add_transform(namestore.arr, namestore.num_sri)
+
+    # Create the temperature array
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+
+    # create Fi array / mapping
+    Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
+    # and Pri array / mapping
+    Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
+
+    kernel_data.extend([T_arr, Fi_lp, Pr_lp])
+
+    # create SRI parameters
+    X_sri_lp, X_sri_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
+    sri_a_lp, sri_a_str = mapstore.apply_maps(namestore.sri_a, var_name)
+    sri_b_lp, sri_b_str = mapstore.apply_maps(namestore.sri_b, var_name)
+    sri_c_lp, sri_c_str = mapstore.apply_maps(namestore.sri_c, var_name)
+    sri_d_lp, sri_d_str = mapstore.apply_maps(namestore.sri_d, var_name)
+    sri_e_lp, sri_e_str = mapstore.apply_maps(namestore.sri_e, var_name)
+
+    kernel_data.extend(
+        [X_sri_lp, sri_a_lp, sri_b_lp, sri_c_lp, sri_d_lp, sri_e_lp])
 
     # start creating SRI kernel
     Fi_sym = next(x for x in conp_eqs if str(x) == 'F_{i}')
-    keys = conp_eqs[Fi_sym]
-    Fi = {}
-    for key in keys:
-        fall_form = next(x for x in key if isinstance(x, falloff_form))
-        Fi[fall_form] = conp_eqs[Fi_sym][key]
+    Fi = next(val for key, val in conp_eqs[Fi_sym].items()
+              if falloff_form.sri in key)
 
     # find Pr symbol
     Pri_sym = next(x for x in conp_eqs if str(x) == 'P_{r, i}')
 
-    # create Fi array / mapping
-    Fi_lp, Fi_str, map_result = lp_utils.get_loopy_arg('Fi',
-                                                       indicies=[
-                                                           '${reac_ind}', 'j'],
-                                                       dimensions=[
-                                                           rate_info['fall']['num'], test_size],
-                                                       order=loopy_opts.order,
-                                                       map_name=out_map)
-    # and Pri array / mapping
-    Pr_lp, Pr_str, map_result = lp_utils.get_loopy_arg('Pr',
-                                                       indicies=[
-                                                           '${reac_ind}', 'j'],
-                                                       dimensions=[
-                                                           rate_info['fall']['num'], test_size],
-                                                       order=loopy_opts.order,
-                                                       map_name=out_map)
-    maps = []
-    if '${reac_ind}' in map_result:
-        maps.append(map_result['${reac_ind}'])
-    kernel_data.extend([Fi_lp, Pr_lp])
-
     # get SRI symbols
-    X_sri_sym = next(
-        x for x in Fi[falloff_form.sri].free_symbols if str(x) == 'X')
-    a_sri_sym = next(
-        x for x in Fi[falloff_form.sri].free_symbols if str(x) == 'a')
-    b_sri_sym = next(
-        x for x in Fi[falloff_form.sri].free_symbols if str(x) == 'b')
-    c_sri_sym = next(
-        x for x in Fi[falloff_form.sri].free_symbols if str(x) == 'c')
-    d_sri_sym = next(
-        x for x in Fi[falloff_form.sri].free_symbols if str(x) == 'd')
-    e_sri_sym = next(
-        x for x in Fi[falloff_form.sri].free_symbols if str(x) == 'e')
-    # get SRI params and create arrays
-    sri_a, sri_b, sri_c, sri_d, sri_e = rate_info['fall']['sri']['a'], \
-        rate_info['fall']['sri']['b'], \
-        rate_info['fall']['sri']['c'], \
-        rate_info['fall']['sri']['d'], \
-        rate_info['fall']['sri']['e']
-    X_sri_lp, X_sri_str, _ = lp_utils.get_loopy_arg('X',
-                                                    indicies=[
-                                                        '${reac_ind}', 'j'],
-                                                    dimensions=[
-                                                        rate_info['fall']['sri']['num'], test_size],
-                                                    order=loopy_opts.order)
-    sri_a_lp, sri_a_str = __1Dcreator('sri_a', sri_a, scope=scopes.GLOBAL)
-    sri_b_lp, sri_b_str = __1Dcreator('sri_b', sri_b, scope=scopes.GLOBAL)
-    sri_c_lp, sri_c_str = __1Dcreator('sri_c', sri_c, scope=scopes.GLOBAL)
-    sri_d_lp, sri_d_str = __1Dcreator('sri_d', sri_d, scope=scopes.GLOBAL)
-    sri_e_lp, sri_e_str = __1Dcreator('sri_e', sri_e, scope=scopes.GLOBAL)
-    kernel_data.extend(
-        [X_sri_lp, sri_a_lp, sri_b_lp, sri_c_lp, sri_d_lp, sri_e_lp])
+    X_sri_sym = next(x for x in Fi.free_symbols if str(x) == 'X')
 
     # create SRI eqs
     X_sri_eq = conp_eqs[X_sri_sym].subs(
         sp.Pow(sp.log(Pri_sym, 10), 2), 'logPr * logPr')
-    Fi_sri_eq = Fi[falloff_form.sri]
+    Fi_sri_eq = Fi.copy()
     Fi_sri_eq = sp_utils.sanitize(Fi_sri_eq,
                                   subs={
                                       'a': sri_a_str,
@@ -2573,42 +2536,39 @@ def get_sri_kernel(eqs, loopy_opts, rate_info, test_size=None):
                         if any(str(y) == sri_e_str for y in x.free_symbols))
 
     # create instruction set
-    sri_instructions = Template(Template("""
-<>T = T_arr[j]
-<>Pr_val = 1e-300 {id=Pri}
-if ${pr_str} > 1e-300
-    Pr_val = ${pr_str} {id=Prv, dep=Pri}
-end
-<>logPr = log10(Pr_val) {dep=Prv}
-<>X_temp = ${Xeq} {id=X_decl} # this must be a temporary to avoid a race on Fi_temp assignment
-<>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
-if ${d_str} != 1.0
-    Fi_temp = Fi_temp * ${d_eval} {id=Fi_decl1, dep=Fi_decl}
-end
-if ${e_str} != 0.0
-    Fi_temp = Fi_temp * ${e_eval} {id=Fi_decl2, dep=Fi_decl}
-end
-${Fi_str} = Fi_temp {dep=Fi_decl*}
-${X_str} = X_temp
-""").safe_substitute(logPr_eval='logPr',
-                     pr_str=Pr_str,
-                     X_str=X_sri_str,
-                     Xeq=X_sri_eq,
-                     Fi_sri=Fi_sri_base,
-                     d_str=sri_d_str,
-                     d_eval=Fi_sri_d_opt,
-                     e_str=sri_e_str,
-                     e_eval=Fi_sri_e_opt,
-                     Fi_str=Fi_str)).safe_substitute(
-        reac_ind=reac_ind)
+    sri_instructions = Template("""
+    <>T = ${T_str}
+    <>Pr_val = 1e-300 {id=Pri}
+    if ${pr_str} > 1e-300
+        Pr_val = ${pr_str} {id=Prv, dep=Pri}
+    end
+    <>logPr = log10(Pr_val) {dep=Prv}
+    <>X_temp = ${Xeq} {id=X_decl} # this must be a temporary to avoid a race on Fi_temp assignment
+    <>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
+    if ${d_str} != 1.0
+        Fi_temp = Fi_temp * ${d_eval} {id=Fi_decl1, dep=Fi_decl}
+    end
+    if ${e_str} != 0.0
+        Fi_temp = Fi_temp * ${e_eval} {id=Fi_decl2, dep=Fi_decl}
+    end
+    ${Fi_str} = Fi_temp {dep=Fi_decl*}
+    ${X_str} = X_temp
+    """).safe_substitute(T_str=T_str,
+                         pr_str=Pr_str,
+                         X_str=X_sri_str,
+                         Xeq=X_sri_eq,
+                         Fi_sri=Fi_sri_base,
+                         d_str=sri_d_str,
+                         d_eval=Fi_sri_d_opt,
+                         e_str=sri_e_str,
+                         e_eval=Fi_sri_e_opt,
+                         Fi_str=Fi_str)
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
-                           var_name=reac_ind,
+                           var_name=var_name,
                            kernel_data=kernel_data,
-                           indicies=indicies,
-                           maps=maps,
-                           extra_subs={'reac_ind': reac_ind})]
+                           mapstore=mapstore)]
 
 
 def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):

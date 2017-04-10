@@ -12,7 +12,6 @@ import logging
 import loopy as lp
 import pyopencl as cl
 import numpy as np
-from loopy.kernel.data import temp_var_scope as scopes
 
 from . import file_writers as filew
 from .memory_manager import memory_manager
@@ -21,10 +20,6 @@ from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
-TINV_PREINST_KEY = 'Tinv'
-TLOG_PREINST_KEY = 'logT'
-PLOG_PREINST_KEY = 'logP'
-TVAL_PREINST_KEY = 'T'
 
 
 class wrapping_kernel_generator(object):
@@ -664,12 +659,6 @@ ${name} : ${type}
             The generated loopy kernel
         """
 
-        # various precomputes
-        pre_inst = {TINV_PREINST_KEY: '<> T_inv = 1 / T_arr[j]',
-                    TLOG_PREINST_KEY: '<> logT = log(T_arr[j])',
-                    PLOG_PREINST_KEY: '<> logP = log(P_arr[j])',
-                    TVAL_PREINST_KEY: '<> T = T_arr[j]'}
-
         # and the skeleton kernel
         skeleton = """
         for j
@@ -721,9 +710,7 @@ ${name} : ${type}
             iname_range.append(irange)
 
         # construct the kernel args
-        pre_instructions = [pre_inst[k] if k in pre_inst else k
-                            for k in info.pre_instructions]
-
+        pre_instructions = info.pre_instructions[:]
         post_instructions = info.post_instructions[:]
 
         def subs_preprocess(key, value):
