@@ -464,7 +464,7 @@ class MapStore(object):
             indicies = tuple(x if x !=
                              self.transformed_variables[variable].iname else
                              __get_affine(
-                                self.transformed_variables[variable].new_iname)
+                                 self.transformed_variables[variable].new_iname)
                              for x in indicies)
 
         return variable(*indicies, **kwargs)
@@ -770,8 +770,10 @@ class NameStore(object):
         # per reaction
         self.net_reac_to_spec_map = creator('net_reac_to_spec',
                                             dtype=np.int32,
-                                            shape=rate_info['net']['reac_to_spec'].shape,
-                                            initializer=rate_info['net']['reac_to_spec'],
+                                            shape=rate_info['net'][
+                                                'reac_to_spec'].shape,
+                                            initializer=rate_info[
+                                                'net']['reac_to_spec'],
                                             order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
         self.net_reac_to_spec_offsets = creator('net_reac_to_spec_offsets',
@@ -785,17 +787,23 @@ class NameStore(object):
 
         # per species
         self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
-                                        shape=rate_info['net_per_spec']['map'].shape,
-                                        initializer=rate_info['net_per_spec']['map'],
+                                        shape=rate_info['net_per_spec'][
+                                            'map'].shape,
+                                        initializer=rate_info[
+                                            'net_per_spec']['map'],
                                         order=self.order)
         self.net_nonzero_phi = creator('net_nonzero_phi', dtype=np.int32,
-                                        shape=rate_info['net_per_spec']['map'].shape,
-                                        initializer=rate_info['net_per_spec']['map'] + 1,
-                                        order=self.order)
+                                       shape=rate_info['net_per_spec'][
+                                           'map'].shape,
+                                       initializer=rate_info[
+                                           'net_per_spec']['map'] + 1,
+                                       order=self.order)
 
         self.net_spec_to_reac = creator('net_spec_to_reac', dtype=np.int32,
-                                        shape=rate_info['net_per_spec']['reacs'].shape,
-                                        initializer=rate_info['net_per_spec']['reacs'],
+                                        shape=rate_info['net_per_spec'][
+                                            'reacs'].shape,
+                                        initializer=rate_info[
+                                            'net_per_spec']['reacs'],
                                         order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
         self.net_spec_to_reac_offsets = creator('net_reac_to_spec_offsets',
@@ -804,7 +812,8 @@ class NameStore(object):
         self.net_spec_to_reac_nu = creator('net_spec_to_reac_nu',
                                            dtype=np.int32, shape=rate_info[
                                                'net_per_spec']['nu'].shape,
-                                           initializer=rate_info['net_per_spec']['nu'],
+                                           initializer=rate_info[
+                                               'net_per_spec']['nu'],
                                            order=self.order)
 
         # rop's and fwd / rev / thd maps
@@ -876,8 +885,10 @@ class NameStore(object):
 
         self.fwd_reac_to_spec = creator('fwd_reac_to_spec',
                                         dtype=np.int32,
-                                        shape=rate_info['fwd']['reac_to_spec'].shape,
-                                        initializer=rate_info['fwd']['reac_to_spec'],
+                                        shape=rate_info['fwd'][
+                                            'reac_to_spec'].shape,
+                                        initializer=rate_info[
+                                            'fwd']['reac_to_spec'],
                                         order=self.order)
 
         if rate_info['rev']['num']:
@@ -896,8 +907,10 @@ class NameStore(object):
 
             self.rev_reac_to_spec = creator('fwd_reac_to_spec',
                                             dtype=np.int32,
-                                            shape=rate_info['rev']['reac_to_spec'].shape,
-                                            initializer=rate_info['rev']['reac_to_spec'],
+                                            shape=rate_info['rev'][
+                                                'reac_to_spec'].shape,
+                                            initializer=rate_info[
+                                                'rev']['reac_to_spec'],
                                             order=self.order)
 
         # reaction data (fwd / rev rates, KC)
@@ -962,7 +975,7 @@ class NameStore(object):
         for rtype in np.unique(rate_info['simple']['type']):
             # find the map
             mapv = rate_info['simple']['map'][
-                        np.where(rate_info['simple']['type'] == rtype)[0]]
+                np.where(rate_info['simple']['type'] == rtype)[0]]
             setattr(self, 'simple_rtype_{}_map'.format(rtype),
                     creator('simple_rtype_{}_map'.format(rtype),
                             dtype=mapv.dtype,
@@ -979,8 +992,8 @@ class NameStore(object):
                             order=self.order))
             # and indicies inside of the simple parameters
             inds = np.where(
-                    np.in1d(rate_info['simple']['map'], mapv))[0].astype(
-                    dtype=np.int32)
+                np.in1d(rate_info['simple']['map'], mapv))[0].astype(
+                dtype=np.int32)
             setattr(self, 'simple_rtype_{}_inds'.format(rtype),
                     creator('simple_rtype_{}_inds'.format(rtype),
                             dtype=inds.dtype,
@@ -1075,6 +1088,10 @@ class NameStore(object):
         # falloff rxn rates, blending vals, reduced pressures, maps
         if rate_info['fall']['num']:
             # falloff reaction parameters
+            self.kf_fall = creator('kf_fall',
+                                   dtype=np.float64,
+                                   shape=(test_size, rate_info['fall']['num']),
+                                   order=self.order)
             self.fall_A = creator('fall_A',
                                   dtype=rate_info['fall']['A'].dtype,
                                   shape=rate_info['fall']['A'].shape,
@@ -1116,7 +1133,7 @@ class NameStore(object):
             for rtype in np.unique(rate_info['fall']['type']):
                 # find the map
                 mapv = rate_info['fall']['map'][
-                        np.where(rate_info['fall']['type'] == rtype)[0]]
+                    np.where(rate_info['fall']['type'] == rtype)[0]]
                 setattr(self, 'fall_rtype_{}_map'.format(rtype),
                         creator('fall_rtype_{}_map'.format(rtype),
                                 dtype=mapv.dtype,
@@ -1327,12 +1344,12 @@ class NameStore(object):
 
                 # map and mask
                 num_sri = np.arange(rate_info['fall']['sri']['num'],
-                                     dtype=np.int32)
+                                    dtype=np.int32)
                 self.num_sri = creator('num_sri',
-                                        shape=num_sri.shape,
-                                        dtype=num_sri.dtype,
-                                        initializer=num_sri,
-                                        order=self.order)
+                                       shape=num_sri.shape,
+                                       dtype=num_sri.dtype,
+                                       initializer=num_sri,
+                                       order=self.order)
                 self.sri_map = creator('sri_map',
                                        shape=rate_info['fall'][
                                            'sri']['map'].shape,

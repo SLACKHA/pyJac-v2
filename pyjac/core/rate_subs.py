@@ -2160,13 +2160,14 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     # add maps / masks
 
     # kf is over all reactions
-    mapstore.check_and_add_transform(namestore.kf, namestore.num_reacs)
+    mapstore.check_and_add_transform(namestore.kf, namestore.fall_map)
     # kf_fall / Pr / fall type are over falloff reactions
     mapstore.check_and_add_transform(namestore.kf_fall, namestore.num_fall)
     mapstore.check_and_add_transform(namestore.Pr, namestore.num_fall)
     mapstore.check_and_add_transform(namestore.fall_type, namestore.num_fall)
     # third body concentrations are over thd_map
-    mapstore.check_and_add_transform(namestore.thd_conc, namestore.thd_map)
+    mapstore.check_and_add_transform(namestore.thd_conc,
+                                     namestore.fall_to_thd_map)
 
     # simple arrhenius rates
     kf_arr, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
@@ -2185,7 +2186,7 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
                                                     *default_inds)
     # and finally the falloff types
     fall_type_lp, fall_type_str = mapstore.apply_maps(namestore.fall_type,
-                                                      *default_inds)
+                                                      var_name)
 
     # append all arrays to the kernel data
     kernel_data.extend([T_arr, thd_conc_lp, kf_arr, kf_fall_arr, Pr_arr,
@@ -2203,7 +2204,7 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     # create instruction set
     pr_instructions = Template("""
-if fall_type[${reac_ind}]
+if ${fall_type_str}
     # chemically activated
     <>k0 = ${kf_str} {id=k0_c}
     <>kinf = ${kf_fall_str} {id=kinf_c}
@@ -2217,6 +2218,7 @@ ${Pr_str} = ${Pr_eq} {dep=k*}
 
     # sub in strings
     pr_instructions = pr_instructions.safe_substitute(
+        fall_type_str=fall_type_str,
         kf_str=kf_str,
         kf_fall_str=kf_fall_str,
         Pr_str=Pr_str,
@@ -2227,7 +2229,7 @@ ${Pr_str} = ${Pr_eq} {dep=k*}
                            instructions=pr_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=MapStore)]
+                           mapstore=mapstore)]
 
 
 def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
