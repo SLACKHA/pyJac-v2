@@ -475,6 +475,8 @@ def populate(knl, kernel_calls, device='0'):
         The value(s) of the evaluated :class:`loopy.LoopKernel`
     """
 
+    assert len(knl), 'No kernels supplied!'
+
     # create context
     ctx, queue = get_context(device)
 

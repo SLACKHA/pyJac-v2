@@ -429,7 +429,7 @@ class MapStore(object):
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
 
-    def apply_maps(self, variable, *indicies, affine=None, **kwargs):
+    def apply_maps(self, variable, *indicies, **kwargs):
         """
         Applies the developed iname mappings to the indicies supplied and
         returns the created loopy Arg/Temporary and the string version
@@ -452,6 +452,8 @@ class MapStore(object):
             The transform instruction string
         """
 
+        affine = kwargs.pop('affine', None)
+
         def __get_affine(iname):
             if affine is not None:
                 return iname + ' {} {}'.format('+' if affine >= 0 else '-',
@@ -466,6 +468,9 @@ class MapStore(object):
                              for x in indicies)
 
         return variable(*indicies, **kwargs)
+
+    def copy(self):
+        return copy.deepcopy(self)
 
     def generate_transform_instruction(self, oldname, newname, map_arr='',
                                        affine='',
@@ -930,6 +935,20 @@ class NameStore(object):
                                         'simple']['type'],
                                     order=self.order)
 
+        # num simple
+        num_simple = np.arange(rate_info['simple']['num'], dtype=np.int32)
+        self.num_simple = creator('num_simple',
+                                  dtype=np.int32,
+                                  shape=num_simple.shape,
+                                  initializer=num_simple,
+                                  order=self.order)
+
+        # simple map
+        self.simple_map = creator('simple_map',
+                                  dtype=np.int32,
+                                  shape=rate_info['simple']['map'].shape,
+                                  initializer=rate_info['simple']['map'],
+                                  order=self.order)
         # simple mask
         simple_mask = _make_mask(rate_info['simple']['type'],
                                  rate_info['Nr'])
@@ -942,13 +961,31 @@ class NameStore(object):
         # rtype maps
         for rtype in np.unique(rate_info['simple']['type']):
             # find the map
-            mapv = np.where(rate_info['simple']['type'] == rtype)[0].astype(
-                dtype=np.int32)
+            mapv = rate_info['simple']['map'][
+                        np.where(rate_info['simple']['type'] == rtype)[0]]
             setattr(self, 'simple_rtype_{}_map'.format(rtype),
                     creator('simple_rtype_{}_map'.format(rtype),
                             dtype=mapv.dtype,
                             shape=mapv.shape,
                             initializer=mapv,
+                            order=self.order))
+            # and the mask
+            maskv = _make_mask(mapv, rate_info['Nr'])
+            setattr(self, 'simple_rtype_{}_mask'.format(rtype),
+                    creator('simple_rtype_{}_mask'.format(rtype),
+                            dtype=maskv.dtype,
+                            shape=maskv.shape,
+                            initializer=maskv,
+                            order=self.order))
+            # and indicies inside of the simple parameters
+            inds = np.where(
+                    np.in1d(rate_info['simple']['map'], mapv))[0].astype(
+                    dtype=np.int32)
+            setattr(self, 'simple_rtype_{}_inds'.format(rtype),
+                    creator('simple_rtype_{}_inds'.format(rtype),
+                            dtype=inds.dtype,
+                            shape=inds.shape,
+                            initializer=inds,
                             order=self.order))
 
         if rate_info['rev']['num']:
@@ -1066,7 +1103,7 @@ class NameStore(object):
                                           'fall']['type'],
                                       order=self.order)
 
-            # simple mask
+            # fall mask
             fall_mask = _make_mask(rate_info['fall']['map'],
                                    rate_info['Nr'])
             self.fall_mask = creator('fall_mask',
@@ -1078,13 +1115,30 @@ class NameStore(object):
             # rtype maps
             for rtype in np.unique(rate_info['fall']['type']):
                 # find the map
-                mapv = np.where(rate_info['fall']['type'] == rtype)[0].astype(
-                    dtype=np.int32)
+                mapv = rate_info['fall']['map'][
+                        np.where(rate_info['fall']['type'] == rtype)[0]]
                 setattr(self, 'fall_rtype_{}_map'.format(rtype),
                         creator('fall_rtype_{}_map'.format(rtype),
                                 dtype=mapv.dtype,
                                 shape=mapv.shape,
                                 initializer=mapv,
+                                order=self.order))
+                # create corresponding mask
+                maskv = _make_mask(mapv, rate_info['Nr'])
+                setattr(self, 'fall_rtype_{}_mask'.format(rtype),
+                        creator('fall_rtype_{}_mask'.format(rtype),
+                                dtype=maskv.dtype,
+                                shape=maskv.shape,
+                                initializer=maskv,
+                                order=self.order))
+                # and indicies inside of the falloff parameters
+                inds = np.where(rate_info['fall']['map'] == mapv)[0].astype(
+                    dtype=np.int32)
+                setattr(self, 'fall_rtype_{}_inds'.format(rtype),
+                        creator('fall_rtype_{}_inds'.format(rtype),
+                                dtype=inds.dtype,
+                                shape=inds.shape,
+                                initializer=inds,
                                 order=self.order))
 
             # maps
@@ -1092,6 +1146,13 @@ class NameStore(object):
                                     dtype=np.int32,
                                     initializer=rate_info['fall']['map'],
                                     shape=rate_info['fall']['map'].shape,
+                                    order=self.order)
+
+            num_fall = np.arange(rate_info['fall']['num'], dtype=np.int32)
+            self.num_fall = creator('num_fall',
+                                    dtype=np.int32,
+                                    initializer=num_fall,
+                                    shape=num_fall.shape,
                                     order=self.order)
 
             # blending
