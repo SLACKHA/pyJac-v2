@@ -1731,7 +1731,7 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
     cheb_form = sp.Pow(10, sp.Symbol('kf_temp'))
 
     # make nice symbols
-    Tinv = sp.Symbol('T_inv')
+    Tinv = sp.Symbol('Tinv')
     logP = sp.Symbol('logP')
     Pmax, Pmin, Tmax, Tmin = sp.symbols('Pmax Pmin Tmax Tmin')
     Pred, Tred = sp.symbols('Pred Tred')
@@ -2121,18 +2121,19 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
                            extra_subs={'reac_ind': reac_ind})]
 
 
-def get_reduced_pressure_kernel(eqs, loopy_opts, rate_info, test_size=None):
+def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the reduced
     pressure evaluation kernel
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -2144,81 +2145,47 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, rate_info, test_size=None):
 
     """
 
-    reac_ind = 'i'
     conp_eqs = eqs['conp']  # conp / conv irrelevant for rates
+
+    # create the mapper
+    mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
+                            namestore.fall_mask)
 
     # create the various necessary arrays
 
     kernel_data = []
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
+        kernel_data.append(namestore.problem_size)
 
-    map_instructs = []
-    inmaps = {}
+    # add maps / masks
 
-    # falloff index mapping
-    indicies = ['${reac_ind}', 'j']
-    k_gen.handle_indicies(rate_info['fall']['map'], '${reac_ind}', inmaps, kernel_data,
-                          inmap_name='fall_map',
-                          force_zero=True)
+    # kf is over all reactions
+    mapstore.check_and_add_transform(namestore.kf, namestore.num_reacs)
+    # kf_fall / Pr / fall type are over falloff reactions
+    mapstore.check_and_add_transform(namestore.kf_fall, namestore.num_fall)
+    mapstore.check_and_add_transform(namestore.Pr, namestore.num_fall)
+    mapstore.check_and_add_transform(namestore.fall_type, namestore.num_fall)
+    # third body concentrations are over thd_map
+    mapstore.check_and_add_transform(namestore.thd_conc, namestore.thd_map)
 
     # simple arrhenius rates
-    kf_arr, kf_str, map_inst = lp_utils.get_loopy_arg('kf',
-                                                      indicies=indicies,
-                                                      dimensions=[
-                                                          rate_info['Nr'], test_size],
-                                                      order=loopy_opts.order,
-                                                      map_name=inmaps)
-    if '${reac_ind}' in map_inst:
-        map_instructs.append(map_inst['${reac_ind}'])
-
+    kf_arr, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
     # simple arrhenius rates using falloff (alternate) parameters
-    kf_fall_arr, kf_fall_str, _ = lp_utils.get_loopy_arg('kf_fall',
-                                                         indicies=indicies,
-                                                         dimensions=[
-                                                             rate_info['fall']['num'], test_size],
-                                                         order=loopy_opts.order)
+    kf_fall_arr, kf_fall_str = mapstore.apply_maps(namestore.kf_fall,
+                                                   *default_inds)
 
     # temperatures
-    T_arr = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
 
     # create a Pr array
-    Pr_arr, Pr_str, _ = lp_utils.get_loopy_arg('Pr',
-                                               indicies=indicies,
-                                               dimensions=[
-                                                   rate_info['fall']['num'], test_size],
-                                               order=loopy_opts.order)
+    Pr_arr, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
 
-    # third-body concentrations
-    thd_indexing_str = '${reac_ind}'
-    thd_index_map = {}
-
-    # check if a mapping is needed
-    thd_inds = rate_info['thd']['map']
-    fall_inds = rate_info['fall']['map']
-    if not np.array_equal(thd_inds, fall_inds):
-        # add a mapping for falloff index -> third body conc index
-        thd_map_name = 'thd_map'
-        thd_map = np.where(np.in1d(thd_inds, fall_inds))[0].astype(np.int32)
-
-        k_gen.handle_indicies(thd_map, thd_indexing_str, thd_index_map,
-                              kernel_data, inmap_name=thd_map_name, force_map=True)
-
-    # create the array
-    indicies = ['${reac_ind}', 'j']
-    thd_conc_lp, thd_conc_str, map_inst = lp_utils.get_loopy_arg('thd_conc',
-                                                                 indicies=indicies,
-                                                                 dimensions=(
-                                                                     rate_info['thd']['num'], test_size),
-                                                                 order=loopy_opts.order,
-                                                                 map_name=thd_index_map,
-                                                                 map_result='thd_i')
-    if '${reac_ind}' in map_inst:
-        map_instructs.append(map_inst['${reac_ind}'])
-
+    # third-body concentration
+    thd_conc_lp, thd_conc_str = mapstore.apply_maps(namestore.thd_conc,
+                                                    *default_inds)
     # and finally the falloff types
-    fall_type_lp, fall_type_str = __1Dcreator('fall_type', rate_info['fall']['ftype'],
-                                              scope=scopes.GLOBAL)
+    fall_type_lp, fall_type_str = mapstore.apply_maps(namestore.fall_type,
+                                                      *default_inds)
 
     # append all arrays to the kernel data
     kernel_data.extend([T_arr, thd_conc_lp, kf_arr, kf_fall_arr, Pr_arr,
@@ -2249,22 +2216,18 @@ ${Pr_str} = ${Pr_eq} {dep=k*}
 """)
 
     # sub in strings
-    pr_instructions = Template(pr_instructions.safe_substitute(
+    pr_instructions = pr_instructions.safe_substitute(
         kf_str=kf_str,
         kf_fall_str=kf_fall_str,
         Pr_str=Pr_str,
-        Pr_eq=Pri_eqn)).safe_substitute(
-        reac_ind=reac_ind)
+        Pr_eq=Pri_eqn)
 
     # and finally return the resulting info
     return [k_gen.knl_info('red_pres',
                            instructions=pr_instructions,
-                           var_name=reac_ind,
+                           var_name=var_name,
                            kernel_data=kernel_data,
-                           indicies=np.array(
-                               range(rate_info['fall']['num']), dtype=np.int32),
-                           maps=map_instructs,
-                           extra_subs={'reac_ind': reac_ind})]
+                           mapstore=MapStore)]
 
 
 def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
@@ -2622,7 +2585,7 @@ def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
                            mapstore=mapstore)]
 
 
-def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
+def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                                falloff=False):
     """Generates instructions, kernel arguements, and data for specialized forms
     of simple (non-pressure dependent) rate constants
@@ -2630,17 +2593,19 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
     falloff : bool
         If true, generate rate kernel for the falloff rates, i.e. either
-        k0 or kinf depending on whether the reaction is falloff or chemically activated
+        k0 or kinf depending on whether the reaction is falloff or chemically
+        activated
 
     Returns
     -------
@@ -2652,12 +2617,32 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
     # find options, sizes, etc.
     if falloff:
         tag = 'fall'
-        name_mod = '_fall'
-        Nr = rate_info['fall']['num']
+        mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
+                                namestore.fall_mask)
+        # define the rtype iteration domain
+
+        def get_rdomain(rtype):
+            if rtype < 0:
+                return namestore.num_fall, namestore.fall_map
+            else:
+                return getattr(namestore, 'fall_rtype_{}_inds'.format(rtype)),\
+                    getattr(namestore, 'fall_rtype_{}_map'.format(rtype))
+        rdomain = get_rdomain
     else:
         tag = 'simple'
-        name_mod = ''
-        Nr = rate_info['Nr']
+        mapstore = arc.MapStore(loopy_opts, namestore.simple_map,
+                                namestore.simple_mask)
+        # define the rtype iteration domain
+
+        def get_rdomain(rtype):
+            if rtype < 0:
+                return namestore.num_simple, namestore.simple_map
+            else:
+                return getattr(namestore,
+                               'simple_rtype_{}_inds'.format(rtype)), \
+                    getattr(namestore,
+                            'simple_rtype_{}_map'.format(rtype))
+        rdomain = get_rdomain
 
     # first assign the reac types, parameters
     full = loopy_opts.rate_spec == lp_utils.RateSpecialization.full
@@ -2666,111 +2651,162 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
     separated_kernels = loopy_opts.rate_spec_kernels
     if fixed and separated_kernels:
         separated_kernels = False
-        logging.warn('Cannot use separated kernels with a fixed RateSpecialization, '
-                     'disabling...')
+        logging.warn('Cannot use separated kernels with a fixed '
+                     'RateSpecialization, disabling...')
 
-    # define loopy arrays
-    A_name = 'A{}'.format(name_mod)
-    A_lp = lp.TemporaryVariable(A_name, shape=lp.auto,
-                                initializer=rate_info[tag]['A'],
-                                read_only=True, scope=scopes.GLOBAL)
-    b_name = 'beta{}'.format(name_mod)
-    b_lp = lp.TemporaryVariable(b_name, shape=lp.auto,
-                                initializer=rate_info[tag]['b'],
-                                read_only=True, scope=scopes.GLOBAL)
-    Ta_name = 'Ta{}'.format(name_mod)
-    Ta_lp = lp.TemporaryVariable(Ta_name, shape=lp.auto,
-                                 initializer=rate_info[tag]['Ta'],
-                                 read_only=True, scope=scopes.GLOBAL)
-    T_arr = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
+    # create temperature array / str
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
 
-    simple_arrhenius_data = []
+    base_kernel_data = []
     if test_size == 'problem_size':
-        simple_arrhenius_data += [lp.ValueArg(test_size, dtype=np.int32)]
-    simple_arrhenius_data.extend([A_lp, b_lp, Ta_lp, T_arr])
+        base_kernel_data.append(namestore.problem_size)
+    base_kernel_data.extend([T_arr])
 
     # if we need the rtype array, add it
     if not separated_kernels and not fixed:
-        rtype_lp = lp.TemporaryVariable('rtype{}'.format(name_mod), shape=lp.auto,
-                                        initializer=rate_info[tag]['type'],
-                                        read_only=True, scope=scopes.PRIVATE)
-        simple_arrhenius_data.append(rtype_lp)
-
-    # the reaction index variable
-    reac_ind = 'i'
+        rtype_attr = getattr(namestore, '{}_rtype'.format(tag))
+        # get domain and corresponing kf inds
+        domain, inds = rdomain(-1)
+        # add map
+        mapstore.check_and_add_transform(rtype_attr, domain)
+        # create
+        rtype_lp, rtype_str = mapstore.apply_maps(rtype_attr, var_name)
+        # add
+        base_kernel_data.append(rtype_lp)
 
     # put rateconst info args in dict for unpacking convenience
-    extra_args = {'kernel_data': simple_arrhenius_data,
-                  'var_name': reac_ind,
-                  'extra_subs': {'reac_ind': reac_ind}}
+    extra_args = {'kernel_data': base_kernel_data,
+                  'var_name': var_name}
 
-    default_preinstructs = [k_gen.TINV_PREINST_KEY, k_gen.TLOG_PREINST_KEY]
+    T_skele = Template('<>${name} = ${value}')
+    default_preinstructs = {'Tinv': T_skele.safe_substitute(
+        name='Tinv',
+        value='1 / {}'.format(T_str)),
+                            'logT': T_skele.safe_substitute(
+        name='logT',
+        value='log({})'.format(T_str)),
+                            'Tval': T_skele.safe_substitute(
+        name='Tval',
+        value=T_str)}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
     expkf_assign = Template("${kf_str} = exp(${rate})")
 
-    def get_instructions(rtype, index='i'):
+    def get_instructions(rtype, mapper, kernel_data, beta_iter=False,
+                         single_kernel_rtype=None):
+        # get domain
+        domain, inds = rdomain(rtype)
+
+        # use the single_kernel_rtype to find instructions
+        if rtype < 0:
+            rtype = single_kernel_rtype
+
+        # get attrs
+        A_attr = getattr(namestore, '{}_A'.format(tag))
+        b_attr = getattr(namestore, '{}_beta'.format(tag))
+        Ta_attr = getattr(namestore, '{}_Ta'.format(tag))
+        kf_attr = getattr(namestore, 'kf' if tag == 'simple' else 'kf_fall')
+
+        # add maps
+        mapper.check_and_add_transform(A_attr, domain)
+        mapper.check_and_add_transform(b_attr, domain)
+        mapper.check_and_add_transform(Ta_attr, domain)
+        mapper.check_and_add_transform(kf_attr, inds)
+
+        # create A / b / ta
+        A_lp, A_str = mapper.apply_maps(A_attr, var_name)
+        b_lp, b_str = mapper.apply_maps(b_attr, var_name)
+        Ta_lp, Ta_str = mapper.apply_maps(Ta_attr, var_name)
+        kf_lp, kf_str = mapper.apply_maps(kf_attr, *default_inds)
+
+        # add arrays
+        kernel_data.extend([A_lp, b_lp, Ta_lp, kf_lp])
+
         # get rate equations
-        rate_eqn_pre = get_rate_eqn(eqs, index=index)
-        index_str = '[{}]'.format(index)
+        rate_eqn_pre = get_rate_eqn(eqs)
         rate_eqn_pre = sp_utils.sanitize(rate_eqn_pre,
                                          symlist={
-                                             'A' + index_str: A_name + index_str,
-                                             'Ta' + index_str: Ta_name + index_str,
-                                             'beta' + index_str: b_name + index_str,
+                                             'A[i]': A_str,
+                                             'Ta[i]': Ta_str,
+                                             'beta[i]': b_str,
                                          })
 
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
-            return expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
-
-        # otherwise check type and return appropriate
-        if rtype == 0:
-            return kf_assign.safe_substitute(rate=A_name + index_str)
+            retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
+        # otherwise check type and return appropriate instructions with
+        # array strings substituted in
+        elif rtype == 0:
+            retv = kf_assign.safe_substitute(rate=A_str)
         elif rtype == 1:
-            return Template(
-                """
-                <> T_val = T_arr[j] {id=a1}
-                <> negval = ${b_name}[${index}] < 0
-                if negval
-                    T_val = T_inv {id=a2, dep=a1}
+            if beta_iter:
+                beta_iter_str = Template("""
+                <> b_end = abs(${b_str})
+                for k
+                    kf_temp = kf_temp * T_iter {id=a4, dep=a3:a2:a1}
                 end
-                <>kf_temp = ${A_name}[${index}] {id=a3, dep=a2}
+                ${kf_str} = kf_temp {dep=a4}
+                """).safe_substitute(b_str=b_str)
+            else:
+                beta_iter_str = ("${kf_str} = kf_temp * T_iter"
+                                 " {id=a4, dep=a3:a2:a1}")
+            retv = Template(
+                """
+                <> T_iter = Tval {id=a1}
+                if ${b_str} < 0
+                    T_iter = Tinv {id=a2}
+                end
+                <>kf_temp = ${A_str} {id=a3}
                 ${beta_iter}
-                """).safe_substitute(index=index, A_name=A_name,
-                                     b_name=b_name)
+                """).safe_substitute(A_str=A_str,
+                                     b_str=b_str,
+                                     beta_iter=beta_iter_str)
         elif rtype == 2:
-            return expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre.subs(Ta_name + index_str, 0)))
+            retv = expkf_assign.safe_substitute(
+                rate=str(rate_eqn_pre.subs(Ta_str, 0)))
         elif rtype == 3:
-            return expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre.subs(b_name + index_str, 0)))
+            retv = expkf_assign.safe_substitute(
+                rate=str(rate_eqn_pre.subs(b_str, 0)))
+
+        return Template(retv).safe_substitute(kf_str=kf_str)
 
     # various specializations of the rate form
     specializations = {}
-    i_a_only = k_gen.knl_info(name='a_only{}'.format(name_mod),
+    i_a_only = k_gen.knl_info(name='a_only_{}'.format(tag),
                               instructions='',
+                              mapstore=mapstore,
                               **extra_args)
 
     # the default is a single multiplication
     # if needed, this will be expanded to a for-loop multiplier
-    beta_iter = "${kf_str} = kf_temp * T_val {id=a4, dep=a3}"
-    i_beta_int = k_gen.knl_info(name='beta_int{}'.format(name_mod),
+    i_beta_int = k_gen.knl_info(name='beta_int_{}'.format(tag),
                                 instructions='',
-                                pre_instructions=[k_gen.TINV_PREINST_KEY],
+                                mapstore=mapstore,
+                                pre_instructions=[
+                                    default_preinstructs['Tval'],
+                                    default_preinstructs['Tinv']],
                                 **extra_args)
-    i_beta_exp = k_gen.knl_info('rateconst_beta_exp{}'.format(name_mod),
+    i_beta_exp = k_gen.knl_info('beta_exp_{}'.format(tag),
                                 instructions='',
-                                pre_instructions=default_preinstructs,
+                                mapstore=mapstore,
+                                pre_instructions=[
+                                    default_preinstructs['Tinv'],
+                                    default_preinstructs['logT']],
                                 **extra_args)
-    i_ta_exp = k_gen.knl_info('rateconst_ta_exp{}'.format(name_mod),
+    i_ta_exp = k_gen.knl_info('ta_exp_{}'.format(tag),
                               instructions='',
-                              pre_instructions=default_preinstructs,
+                              mapstore=mapstore,
+                              pre_instructions=[
+                                    default_preinstructs['Tinv'],
+                                    default_preinstructs['logT']],
                               **extra_args)
-    i_full = k_gen.knl_info('rateconst_full{}'.format(name_mod),
+    i_full = k_gen.knl_info('rateconst_full{}'.format(tag),
                             instructions='',
-                            pre_instructions=default_preinstructs,
+                            mapstore=mapstore,
+                            pre_instructions=[
+                                    default_preinstructs['Tinv'],
+                                    default_preinstructs['logT']],
                             **extra_args)
 
     # set up the simple arrhenius rate specializations
@@ -2786,115 +2822,67 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None,
         else:
             specializations[2] = i_full
 
+    # find out if beta iteration needed
+    beta_iter = False
+    b_attr = getattr(namestore, '{}_beta'.format(tag))
+    rtype_attr = getattr(namestore, '{}_rtype'.format(tag))
+    # find locations
+    locs = np.where(rtype_attr.initializer == 1)
+    b_vals = b_attr.initializer[locs]
+    if b_vals.size:
+        # if max b exponent > 1, need to iterate
+        beta_iter = np.max(np.abs(b_vals)) > 1
+
+    # if single kernel, and not a fixed exponential
     if not separated_kernels and not fixed:
         # need to enclose each branch in it's own if statement
         if len(specializations) > 1:
             instruction_list = []
-            inds = set()
             for i in specializations:
                 instruction_list.append(
-                    'if rtype{1}[i] == {0}'.format(i, name_mod))
-                instruction_list.extend(['\t' + x for x in get_instructions(
-                    i).split('\n') if x.strip()])
+                    'if {1} == {0}'.format(i, rtype_str))
+                instruction_list.extend([
+                    '\t' + x for x in get_instructions(
+                        -1,
+                        mapstore,
+                        specializations[i].kernel_data,
+                        beta_iter,
+                        single_kernel_rtype=i).split('\n') if x.strip()])
                 instruction_list.append('end')
         # and combine them
-        specializations = {-1: k_gen.knl_info('rateconst_singlekernel{}'.format(name_mod),
-                                              instructions='\n'.join(
-                                                  instruction_list),
-                                              pre_instructions=[
-                                                  k_gen.TINV_PREINST_KEY, k_gen.TLOG_PREINST_KEY],
-                                              **extra_args)}
+        specializations = {-1: k_gen.knl_info(
+                           'rateconst_singlekernel_{}'.format(tag),
+                           instructions='\n'.join(instruction_list),
+                           pre_instructions=list(
+                            default_preinstructs.values()),
+                           mapstore=mapstore,
+                           kernel_data=specializations[0].kernel_data,
+                           var_name=var_name)}
 
     out_specs = {}
     # and do some finalizations for the specializations
     for rtype, info in specializations.items():
-        # first, get indicies
+        # this is handled above
         if rtype < 0:
-            # select all for joined kernel
-            info.indicies = np.arange(
-                0, rate_info[tag]['type'].size, dtype=np.int32)
-        else:
-            # otherwise choose just our rtype
-            info.indicies = np.where(
-                rate_info[tag]['type'] == rtype)[0].astype(dtype=np.int32)
+            out_specs[rtype] = info
+            continue
 
-        if not info.indicies.size:
+        if not rdomain(rtype)[0].initializer.size:
             # kernel doesn't act on anything, don't add it to output
             continue
 
-        # check maxb / iteration
-        if (separated_kernels and (info.name == i_beta_int.name)) or \
-                (not separated_kernels and not fixed):
-            # find b's for this type
-            bvals = rate_info[tag]['b'][np.where(rate_info[tag]['type'] == 1)]
-            if bvals.size:
-                # find max b exponent
-                maxb = np.max(np.abs(bvals))
-                # if we need to iterate
-                if maxb > 1:
-                    # add an extra iname, and the resulting iteraton loop
-                    info.extra_inames.append(('k', '0 <= k < b_end'))
-                    beta_iter = """
-                <> b_end = abs(${b_name}[${index}])
-                for k
-                    kf_temp = kf_temp * T_val {id=a4, dep=a3}
-                end
-                ${kf_str} = kf_temp {dep=a4}
-                    """
+        # next create a mapper for this rtype
+        mapper = arc.MapStore(loopy_opts, rdomain(rtype)[0],
+                              rdomain(rtype)[0])
 
-        # check if we need an input map
-        maps = {}
-        dummy_in_index = 'i_in'  # used as input map if needed
-        dummy_out_index = 'i_out'
-        inmap_name = 'input_map'
-        outmap_name = 'output_map'
-        # need to store these here for the moment, until
-        # _after_ we check for the output map
-        out_inds = None
-        if not falloff:
-            out_inds = rate_info[tag]['map'][info.indicies]
-        info.indicies = k_gen.handle_indicies(info.indicies, info.var_name,
-                                              maps, info.kernel_data, inmap_name=inmap_name,
-                                              output_indicies=out_inds,
-                                              outmap_name=outmap_name)
+        # set as mapper
+        info.mapstore = mapper
 
-        index = info.var_name
-        # handle input mapping info if needed
-        if info.var_name in maps:
-            info.maps.append(lp_utils.generate_map_instruction(
-                info.var_name, dummy_in_index, inmap_name))
-            # change the var_name
-            index = dummy_in_index
-        kf_ind = index
-        # handle output mapping info if needed
-        if info.var_name + '_out' in maps:
-            # need to map from the actual loop index
-            info.maps.append(lp_utils.generate_map_instruction(
-                info.var_name, dummy_out_index, outmap_name))
-            # change the kf_ind
-            kf_ind = dummy_out_index
-
-        # get the proper kf indexing / array
-        kf_arr, kf_str, map_result = lp_utils.get_loopy_arg('kf' + name_mod,
-                                                            indicies=[
-                                                                kf_ind, 'j'],
-                                                            dimensions=[
-                                                                Nr, test_size],
-                                                            order=loopy_opts.order)
-        info.kernel_data.append(kf_arr)
-
+        # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions = get_instructions(rtype, index=index)
+            info.instructions = get_instructions(rtype, mapper,
+                                                 info.kernel_data, beta_iter)
 
-        # substitute in whatever beta_iter / kf_str we found
-        info.instructions = Template(info.instructions).safe_substitute(
-            beta_iter=beta_iter)
-        info.instructions = Template(info.instructions).safe_substitute(
-            kf_str=kf_str,
-            A_name=A_name,
-            b_name=b_name,
-            Ta_name=Ta_name,
-            index=index)
         out_specs[rtype] = info
 
     return list(out_specs.values())
@@ -3144,7 +3132,7 @@ def get_rate_eqn(eqs, index='i'):
                'A[i]': A_sym,
                'T': T_sym,
                'beta[i]': b_sym}
-    Tinv_sym = sp.Symbol('T_inv')
+    Tinv_sym = sp.Symbol('Tinv')
     logA_sym = sp.Symbol('A[{ind}]'.format(ind=index))
     logT_sym = sp.Symbol('logT')
 

@@ -470,36 +470,34 @@ class SubTest(TestClass):
             The reaction type to test
         """
 
-        T = self.store.T
+        phi = self.store.phi
         P = self.store.P
         ref_const = self.store.fwd_rate_constants
 
         reacs = self.store.reacs
         masks = {
             'simple': (
-                [np.array([i for i, x in enumerate(reacs) if x.match((reaction_type.elementary,
-                                                                      reaction_type.fall, reaction_type.chem))])],
+                [np.array([i for i, x in enumerate(reacs)
+                          if x.match((
+                            reaction_type.elementary,
+                            reaction_type.fall,
+                            reaction_type.chem))])],
                 get_simple_arrhenius_rates),
             'plog': (
-                [np.array(
-                    [i for i, x in enumerate(reacs) if x.match((reaction_type.plog,))])],
+                [np.array([i for i, x in enumerate(reacs)
+                          if x.match((reaction_type.plog,))])],
                 get_plog_arrhenius_rates),
             'cheb': (
-                [np.array(
-                    [i for i, x in enumerate(reacs) if x.match((reaction_type.cheb,))])],
+                [np.array([i for i, x in enumerate(reacs)
+                          if x.match((reaction_type.cheb,))])],
                 get_cheb_arrhenius_rates)}
 
-        args = {'T_arr': T}
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
         if rtype != 'simple':
             args['P_arr'] = P
 
         def __simple_post(kc, out):
-            if kc.current_order == 'C':
-                out[0][
-                    :, self.store.thd_inds] *= self.store.ref_pres_mod.T.copy()
-            else:
-                out[0][
-                    self.store.thd_inds, :] *= self.store.ref_pres_mod.copy()
+            out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
 
         compare_mask, rate_func = masks[rtype]
         post = None if rtype != 'simple' else __simple_post
@@ -510,7 +508,8 @@ class SubTest(TestClass):
 
         # create the kernel call
         kc = kernel_call(rtype,
-                         ref_const, compare_mask=compare_mask,
+                         ref_const,
+                         compare_mask=compare_mask,
                          post_process=post, **args)
 
         self.__generic_rate_tester(
@@ -545,21 +544,21 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_reduced_pressure(self):
-        T = self.store.T
+        phi = self.store.phi.copy()
         ref_thd = self.store.ref_thd.copy()
         ref_ans = self.store.ref_Pr.copy()
-        kf_vals = {}
-        kf_fall_vals = {}
-        args = {'T_arr': T,
-                'kf': lambda x: kf_vals[x],
-                'kf_fall': lambda x: kf_fall_vals[x],
-                'thd_conc': lambda x: ref_thd.copy() if x == 'F'
-                else ref_thd.T.copy()
+        kf_val = []
+        kf_fall_val = []
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                'kf': lambda x: np.array(kf_val[0], order=x, copy=True),
+                'kf_fall': lambda x: np.array(kf_fall_val[0],
+                                              order=x, copy=True),
+                'thd_conc': lambda x: np.array(ref_thd, order=x, copy=True),
                 }
 
         def __tester(eqs, loopy_opts, rate_info, test_size):
             # check if we've found the kf / kf_fall values yet
-            if loopy_opts.order not in kf_vals:
+            if not kf_val:
                 # first we have to get the simple arrhenius rates
                 # in order to evaluate the reduced pressure
 
@@ -577,11 +576,14 @@ class SubTest(TestClass):
                     test_size=self.store.test_size
                 )
                 gen._make_kernels()
-                kc = kernel_call('kf_fall', np.empty((self.store.test_size, self.store.fall_inds.size)),
-                                 **{'T_arr': T})
+                kc = kernel_call('kf_fall',
+                                 np.empty((self.store.test_size,
+                                           self.store.fall_inds.size)),
+                                 **{'phi': lambda x:
+                                    np.array(phi, order=x, copy=True)})
                 kc.set_state(loopy_opts.order)
-                kf_fall_vals[loopy_opts.order] = populate(
-                    gen.kernels, kc, device=device)[0][0]
+                kf_fall_val.append(
+                    populate(gen.kernels, kc, device=device)[0][0])
 
                 # next with regular parameters
                 infos = get_simple_arrhenius_rates(
@@ -595,13 +597,15 @@ class SubTest(TestClass):
                 )
                 gen._make_kernels()
                 kc = kernel_call('kf', np.empty(
-                    (self.store.test_size, self.store.gas.n_reactions)), **{'T_arr': T})
+                    (self.store.test_size, self.store.gas.n_reactions)),
+                    **{'phi': lambda x:
+                       np.array(phi, order=x, copy=True)})
                 kc.set_state(loopy_opts.order)
-                kf_vals[loopy_opts.order] = populate(
-                    gen.kernels, kc, device=device)[0][0]
+                kf_val.append(populate(gen.kernels, kc, device=device)[0][0])
 
             # finally we can call the reduced pressure evaluator
-            return get_reduced_pressure_kernel(eqs, loopy_opts, rate_info, test_size)
+            return get_reduced_pressure_kernel(
+                eqs, loopy_opts, rate_info, test_size)
 
         # create the kernel call
         kc = kernel_call('pred', ref_ans, **args)
