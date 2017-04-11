@@ -214,7 +214,11 @@ def performance_tester(home, work_dir):
         subprocess.check_call(['mkdir', '-p', my_build])
         subprocess.check_call(['mkdir', '-p', my_test])
 
-        current_data_order = None
+        # rewrite data to file in 'C' order
+        num_conditions = dbw.write(os.path.join(work_dir, mech_name))
+        # find max testable # of conditions
+        num_conditions = int(
+            np.floor(num_conditions / max_vec_width) * max_vec_width)
 
         the_path = os.getcwd()
         first_run = True
@@ -235,12 +239,6 @@ def performance_tester(home, work_dir):
 
             if rate_spec == 'fixed' and split_kernels:
                 continue #not a thing!
-
-            if order != current_data_order:
-                #rewrite data to file in 'C' order
-                num_conditions = dbw.write(os.path.join(work_dir, mech_name))
-            #find max testable # of conditions
-            num_conditions = int(np.floor(num_conditions / max_vec_width) * max_vec_width)
 
             temp_lang = 'c'
             data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
