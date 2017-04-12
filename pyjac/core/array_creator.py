@@ -455,17 +455,32 @@ class MapStore(object):
         affine = kwargs.pop('affine', None)
 
         def __get_affine(iname):
-            if affine is not None:
-                return iname + ' {} {}'.format('+' if affine >= 0 else '-',
-                                               affine)
+            aff = None
+            if isinstance(affine, dict):
+                if iname in affine:
+                    aff = affine[iname]
+            elif affine is not None:
+                aff = affine
+            if aff is not None:
+                return iname + ' {} {}'.format('+' if aff >= 0 else '-', aff)
             return iname
 
         if variable in self.transformed_variables:
             indicies = tuple(x if x !=
                              self.transformed_variables[variable].iname else
                              __get_affine(
-                                 self.transformed_variables[variable].new_iname)
+                                self.transformed_variables[variable].new_iname)
                              for x in indicies)
+        elif affine and len(indicies) == 1:
+            # if we don't have a map, but we do have an affine index
+            # and it's obvious who to apply to
+            indicies = (__get_affine(indicies[0]),)
+        elif isinstance(affine, dict):
+            indicies = tuple(__get_affine(i) for i in indicies)
+        elif affine:
+            raise Exception("Can't apply affine transformation to indicies, {}"
+                            " as the index to apply to cannot be"
+                            " determined".format(indicies))
 
         return variable(*indicies, **kwargs)
 
@@ -869,6 +884,13 @@ class NameStore(object):
                                     initializer=mask,
                                     order=self.order)
 
+            thd_inds = np.arange(rate_info['thd']['num'], dtype=np.int32)
+            self.thd_inds = creator('thd_inds',
+                                    dtype=np.int32,
+                                    shape=thd_inds.shape,
+                                    initializer=thd_inds,
+                                    order=self.order)
+
         # fwd / rev rop data
         self.nu_fwd = creator('nu_fwd',
                               dtype=np.int32,
@@ -1048,14 +1070,12 @@ class NameStore(object):
                                              initializer=mask,
                                              order=self.order)
 
-            thd_eff_ns = rate_info['thd']['post_process']['eff_ns'].astype(
-                dtype=np.int32)
+            thd_eff_ns = rate_info['thd']['post_process']['eff_ns']
             num_specs = rate_info['thd'][
                 'post_process']['spec_num'].astype(dtype=np.int32)
             spec_list = rate_info['thd']['post_process']['spec'].astype(
                 dtype=np.int32)
-            thd_effs = rate_info['thd']['post_process']['eff'].astype(
-                dtype=np.int32)
+            thd_effs = rate_info['thd']['post_process']['eff']
 
             # finally create arrays
             self.thd_eff = creator('thd_eff',
