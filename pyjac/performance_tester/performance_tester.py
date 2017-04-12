@@ -212,8 +212,6 @@ def performance_tester(home, work_dir):
         subprocess.check_call(['mkdir', '-p', my_build])
         subprocess.check_call(['mkdir', '-p', my_test])
 
-        current_data_order = None
-
         the_path = os.getcwd()
         op = OptionLoop(ocl_params, lambda: False)
 
