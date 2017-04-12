@@ -375,8 +375,12 @@ def assign_rates(reacs, specs, rate_spec):
         # get number of thd body species and offset
         num = pp_thd_num_specs[i]
         offset = np.sum(pp_thd_num_specs[:i])
+        is_spec = thd_type[i] == int(thd_body_type.species)
+        if is_spec:
+            # set ns efficiency to 0 to simplify sum
+            pp_thd_eff_ns[i] = 0
         # check if Ns has a non-default efficiency
-        if last_spec in pp_thd_spec[offset:offset+num]:
+        elif last_spec in pp_thd_spec[offset:offset+num]:
             ind = np.where(pp_thd_spec[offset:offset+num] == last_spec)[0][0]
             # set the efficiency
             pp_thd_eff_ns[i] = pp_thd_eff[offset + ind]
@@ -388,7 +392,7 @@ def assign_rates(reacs, specs, rate_spec):
             pp_thd_num_specs[i] -= 1
         # and subtract from efficiencies
         pp_thd_eff[offset:offset+pp_thd_num_specs[i]] -= pp_thd_eff_ns[i]
-        if pp_thd_eff_ns[i] != 1:
+        if not is_spec and pp_thd_eff_ns[i] != 1:
             # we need to add all the other species :(
             # get updated species list
             to_add = np.array(range(len(specs) - 1), dtype=np.int32)
@@ -736,14 +740,14 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         num_spec_offsets_next_lp, \
             num_spec_offsets_next_str = \
             mapstore.apply_maps(namestore.net_reac_to_spec_offsets,
-                                var_name + ' + 1')
+                                var_name, affine=1)
         net_nu_lp, net_nu_str = \
             mapstore.apply_maps(namestore.net_reac_to_spec_nu,
                                 spec_map)
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
                                                       *default_inds)
         dphi_lp, dphi_str = mapstore.apply_maps(namestore.conc_dot,
-                                                global_ind, spec_ind + ' + 1')
+                                                global_ind, spec_ind, affine=1)
 
         # update kernel args
         kernel_data.extend(
@@ -802,7 +806,7 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         num_reac_offsets_next_lp, \
             num_reac_offsets_next_str = \
             mapstore.apply_maps(namestore.net_spec_to_reac_offsets,
-                                var_name + ' + 1')
+                                var_name, affine=1)
         # rop net depends on reac_ind
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
                                                       global_ind, reac_ind)
@@ -1126,7 +1130,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # next offset to calculate num species
         _, num_spec_offsets_next_str = themap.apply_maps(
-            offsets, var_name + ' + 1')
+            offsets, var_name, affine=1)
 
         # nu lists are on main loop, no map
         nu = getattr(namestore, 'nu_' + direction)
@@ -1143,7 +1147,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # concentrations in ispec loop, also use offset for phi
         concs_lp, concs_str = themap.apply_maps(
-            namestore.conc_arr, global_ind, spec_ind + ' + 1')
+            namestore.conc_arr, global_ind, spec_ind, affine=1)
 
         # and finally the ROP values in the mainloop, no map
         rop = getattr(namestore, 'rop_' + direction)
@@ -1536,17 +1540,19 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                               'R_u': np.float64(chem.RU)})
 
 
-def get_thd_body_concs(eqs, loopy_opts, rate_info, test_size=None):
-    """Generates instructions, kernel arguements, and data for third body concentrations
+def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for third body
+    concentrations
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -1557,145 +1563,93 @@ def get_thd_body_concs(eqs, loopy_opts, rate_info, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    Ns = rate_info['Ns']
-    num_thd = rate_info['thd']['num']
-    reac_ind = 'i'
+    spec_ind = 'spec_ind'
+    spec_loop = 'ispec'
+    spec_offset = 'offset'
+
+    # create mapstore over number of third reactions
+    mapstore = arc.MapStore(loopy_opts, namestore.thd_inds, namestore.thd_inds)
 
     # create args
-    indicies = ['${species_ind}', 'j']
-    concs_lp, concs_str, _ = lp_utils.get_loopy_arg('conc',
-                                                    indicies=indicies,
-                                                    dimensions=(Ns, test_size),
-                                                    order=loopy_opts.order)
-    concs_str = Template(concs_str)
 
-    indicies = ['${reac_ind}', 'j']
-    thd_lp, thd_str, _ = lp_utils.get_loopy_arg('thd_conc',
-                                                indicies=indicies,
-                                                dimensions=(
-                                                    num_thd, test_size),
-                                                order=loopy_opts.order)
+    # get concentrations
+    # in species loop
+    concs_lp, concs_str = mapstore.apply_maps(
+        namestore.conc_arr, global_ind, spec_ind, affine={spec_ind: 1})
 
-    T_arr = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
-    P_arr = lp.GlobalArg('P_arr', shape=(test_size,), dtype=np.float64)
+    # get third body concentrations (by defn same as third reactions)
+    thd_lp, thd_str = mapstore.apply_maps(namestore.thd_conc, *default_inds)
 
-    thd_eff_ns = np.ones(num_thd)
-    num_specs = rate_info['thd']['spec_num'].copy()
-    spec_list = rate_info['thd']['spec'].copy()
-    thd_effs = rate_info['thd']['eff'].copy()
+    # get T and P arrays
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    P_arr, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
 
-    last_spec = Ns - 1
-    # first, we must do some surgery to get _our_ form of the thd-body
-    # efficiencies
-    for i in range(num_specs.size):
-        num = num_specs[i]
-        offset = np.sum(num_specs[:i])
-        # check if Ns has a non-default efficiency
-        if last_spec in spec_list[offset:offset+num]:
-            ind = np.where(spec_list[offset:offset+num] == last_spec)[0][0]
-            # set the efficiency
-            thd_eff_ns[i] = thd_effs[offset + ind]
-            # delete from the species list
-            spec_list = np.delete(spec_list, offset + ind)
-            # delete from effiency list
-            thd_effs = np.delete(thd_effs, offset + ind)
-            # subtract from species num
-            num_specs[i] -= 1
-        # and subtract from efficiencies
-        thd_effs[offset:offset+num_specs[i]] -= thd_eff_ns[i]
-        if thd_eff_ns[i] != 1:
-            # we need to add all the other species :(
-            # get updated species list
-            to_add = np.array(range(Ns - 1), dtype=np.int32)
-            # and efficiencies
-            eff = np.array([1 - thd_eff_ns[i] for spec in range(Ns - 1)])
-            eff[spec_list[offset:offset+num_specs[i]]
-                ] = thd_effs[offset:offset+num_specs[i]]
-            # delete from the species list / efficiencies
-            spec_list = np.delete(
-                spec_list, range(offset, offset+num_specs[i]))
-            thd_effs = np.delete(thd_effs,  range(offset, offset+num_specs[i]))
-            # insert
-            spec_list = np.insert(spec_list, offset, to_add)
-            thd_effs = np.insert(thd_effs, offset, eff)
-            # and update number
-            num_specs[i] = to_add.size
+    # and the third body descriptions
 
-    # and temporary variables:
-    thd_type_lp, thd_type_str = __1Dcreator(
-        'thd_type', rate_info['thd']['type'], scope=scopes.GLOBAL)
-    thd_eff_lp, thd_eff_str = __1Dcreator('thd_eff', thd_effs)
-    thd_spec_lp, thd_spec_str = __1Dcreator('thd_spec', spec_list)
-    thd_num_spec_lp, thd_num_spec_str = __1Dcreator('thd_spec_num', num_specs)
-    thd_eff_ns_lp, thd_eff_ns_str = __1Dcreator('thd_eff_ns', thd_eff_ns)
-
-    # calculate offsets
-    offsets = np.cumsum(num_specs, dtype=np.int32) - num_specs
-    thd_offset_lp, thd_offset_str = __1Dcreator('thd_offset', offsets)
+    # efficiency list
+    thd_eff_lp, thd_eff_str = mapstore.apply_maps(
+        namestore.thd_eff, spec_loop)
+    # efficiency list of last species
+    thd_eff_ns_lp, thd_eff_ns_str = mapstore.apply_maps(
+        namestore.thd_eff_ns, var_name)
+    # non-unity species in thd-body conc
+    thd_spec_lp, thd_spec_str = mapstore.apply_maps(
+        namestore.thd_spec, spec_loop)
+    # offset to spec / efficiency arrays
+    thd_offset_lp, thd_offset_str = mapstore.apply_maps(
+        namestore.thd_offset, var_name)
+    # get next offset to determine num of thd body eff's in rxnq
+    _, thd_offset_next_str = mapstore.apply_maps(
+        namestore.thd_offset, var_name, affine=1)
 
     # kernel data
     kernel_data = []
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
+        kernel_data.append(namestore.problem_size)
 
-    kernel_data.extend([T_arr, P_arr, concs_lp, thd_lp, thd_type_lp,
-                        thd_eff_lp, thd_spec_lp, thd_num_spec_lp, thd_offset_lp,
+    # don't add T_arr for now as it is same as concs
+    kernel_data.extend([P_arr, concs_lp, thd_lp,
+                        thd_eff_lp, thd_spec_lp, thd_offset_lp,
                         thd_eff_ns_lp])
 
     # maps
-    out_map = {}
-    outmap_name = 'out_map'
-    indicies = rate_info['thd']['map'].astype(dtype=np.int32)
-    indicies = k_gen.handle_indicies(indicies, reac_ind, out_map, kernel_data)
     # extra loops
-    extra_inames = [('k', '0 <= k < num')]
+    extra_inames = [(spec_loop, '{} <= {} < spec_end'.format(
+        spec_offset, spec_loop))]
 
-    # generate instructions
+    # generate instructions and sub in instructions
     instructions = Template("""
-<> offset = ${offset} {id=offset}
-<> num_temp = ${num_spec_str} {id=num0}
-if ${type_str} == 1 # single species
-    <> thd_temp = ${conc_spec} {id=thd0, dep=num0}
-    num_temp = 0 {id=num1, dep=num0}
-else
-    thd_temp = P_arr[j] * ${thd_eff_ns_str} / (R * T_arr[j]) {id=thd1, dep=num0}
-end
-<> num = num_temp {dep=num*}
-for k
-    thd_temp = thd_temp + ${thd_eff} * ${conc_thd_spec} {id=thdcalc}
+<> ${offset_name} = ${offset} {id=offset}
+<> spec_end = ${offset_next} {id=num0}
+<> thd_temp = ${P_str} * ${thd_eff_ns_str} / (R * ${T_str}) {id=thd1, dep=num0}
+for ${spec_loop}
+    <> ${spec_ind} = ${thd_spec} {id=ind1}
+    thd_temp = thd_temp + ${thd_eff} * ${conc_thd_spec} {id=thdcalc, dep=ind1}
 end
 ${thd_str} = thd_temp {dep=thd*}
-""")
-
-    # sub in instructions
-    instructions = Template(
-        instructions.safe_substitute(
-            offset=thd_offset_str,
-            type_str=thd_type_str,
-            conc_spec=concs_str.safe_substitute(
-                species_ind=Template(thd_spec_str).safe_substitute(
-                    reac_ind='offset')),
-            num_spec_str=thd_num_spec_str,
-            thd_eff=Template(thd_eff_str).safe_substitute(
-                reac_ind='offset + k'),
-            conc_thd_spec=concs_str.safe_substitute(
-                species_ind=Template(thd_spec_str).safe_substitute(
-                    reac_ind='offset + k')),
-            thd_str=thd_str,
-            thd_eff_ns_str=thd_eff_ns_str
-        )
-    ).safe_substitute(reac_ind=reac_ind)
+""").safe_substitute(
+        offset_name=spec_offset,
+        offset=thd_offset_str,
+        offset_next=thd_offset_next_str,
+        thd_eff=thd_eff_str,
+        conc_thd_spec=concs_str,
+        thd_str=thd_str,
+        thd_eff_ns_str=thd_eff_ns_str,
+        spec_loop=spec_loop,
+        spec_ind=spec_ind,
+        thd_spec=thd_spec_str,
+        P_str=P_str,
+        T_str=T_str,
+    )
 
     # create info
-    info = k_gen.knl_info('eval_thd_body_concs',
+    return k_gen.knl_info('eval_thd_body_concs',
                           instructions=instructions,
-                          var_name=reac_ind,
+                          var_name=var_name,
                           kernel_data=kernel_data,
                           extra_inames=extra_inames,
-                          indicies=indicies,
                           parameters={'R': chem.RU},
-                          extra_subs={'reac_ind': reac_ind})
-    return info
+                          mapstore=mapstore)
 
 
 def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):

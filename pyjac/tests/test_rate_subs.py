@@ -529,14 +529,11 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_thd_body_concs(self):
-        T = self.store.T
+        phi = self.store.phi
         P = self.store.P
-        concs = self.store.concs
         ref_ans = self.store.ref_thd.copy()
-        args = {'T_arr': T,
-                'P_arr': P,
-                'conc': lambda x: concs.copy() if x == 'F'
-                else concs.T.copy()}
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                'P_arr': lambda x: np.array(P, order=x, copy=True)}
 
         # create the kernel call
         kc = kernel_call('eval_thd_body_concs', ref_ans, **args)
