@@ -1131,7 +1131,7 @@ class NameStore(object):
 
             # rtype maps
             for rtype in np.unique(rate_info['fall']['type']):
-                # find the map
+                # find the map in global reaction index
                 mapv = rate_info['fall']['map'][
                     np.where(rate_info['fall']['type'] == rtype)[0]]
                 setattr(self, 'fall_rtype_{}_map'.format(rtype),

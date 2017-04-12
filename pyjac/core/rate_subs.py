@@ -2628,7 +2628,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 return namestore.num_fall, namestore.fall_map
             else:
                 return getattr(namestore, 'fall_rtype_{}_inds'.format(rtype)),\
-                    getattr(namestore, 'fall_rtype_{}_map'.format(rtype))
+                    getattr(namestore, 'fall_rtype_{}_inds'.format(rtype))
         rdomain = get_rdomain
     else:
         tag = 'simple'

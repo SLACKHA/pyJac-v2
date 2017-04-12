@@ -217,6 +217,12 @@ def performance_tester(home, work_dir):
         the_path = os.getcwd()
         op = OptionLoop(ocl_params, lambda: False)
 
+        # rewrite data to file in 'C' order
+        num_conditions = dbw.write(os.path.join(work_dir, mech_name))
+        # find max testable # of conditions
+        num_conditions = int(
+            np.floor(num_conditions / max_vec_width) * max_vec_width)
+
         for i, state in enumerate(op):
             lang = state['lang']
             vecsize = state['vecsize']
@@ -233,13 +239,6 @@ def performance_tester(home, work_dir):
 
             if rate_spec == 'fixed' and split_kernels:
                 continue  # not a thing!
-
-            if order != current_data_order:
-                # rewrite data to file in 'C' order
-                num_conditions = dbw.write(os.path.join(work_dir, mech_name))
-            # find max testable # of conditions
-            num_conditions = int(
-                np.floor(num_conditions / max_vec_width) * max_vec_width)
 
             data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
                                                             'w' if wide else 'd' if deep else 'par',
