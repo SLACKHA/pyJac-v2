@@ -495,6 +495,11 @@ class SubTest(TestClass):
         args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
         if rtype != 'simple':
             args['P_arr'] = P
+        kw_args = {}
+        if rtype == 'plog':
+            kw_args['maxP'] = np.max([
+                len(rxn.rates) for rxn in self.store.gas.reactions()
+                if isinstance(rxn, ct.PlogReaction)])
 
         def __simple_post(kc, out):
             out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
@@ -513,7 +518,7 @@ class SubTest(TestClass):
                          post_process=post, **args)
 
         self.__generic_rate_tester(
-            rate_func, kc, do_ratespec=rtype == 'simple')
+            rate_func, kc, do_ratespec=rtype == 'simple', **kw_args)
 
     @attr('long')
     def test_simple_rate_constants(self):

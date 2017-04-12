@@ -443,7 +443,8 @@ def assign_rates(reacs, specs, rate_spec):
                        'num': num_simple, 'map': simple_map},
             'plog': {'map': plog_map, 'num': num_plog,
                      'num_P': num_pressures, 'params': plog_params,
-                     'post_process': {'params': pp_plog_params}
+                     'max_P': maxP,
+                     'post_process': {'params': pp_plog_params},
                      },
             'cheb': {'map': cheb_map, 'num': num_cheb,
                      'num_P': cheb_n_pres, 'num_T': cheb_n_temp,
@@ -503,6 +504,34 @@ def assign_rates(reacs, specs, rate_spec):
                              'allint': net_nu_integer},
             'Nr': len(reacs),
             'Ns': len(specs)}
+
+
+def default_pre_instructs(var_str, result_name, INSN_KEY):
+    """
+    Simple helper method to return a number of precomputes based off the passed
+    instruction key
+
+    Parameters
+    ----------
+    var_str : str
+        The stringified representation of the variable to construct
+    result_name : str
+        The loopy temporary variable name to store in
+    key : ['INV', 'LOG', 'VAL']
+        The transform / value to precompute
+
+    Returns
+    -------
+    precompute : str
+        A loopy instruction in the form:
+            '<>result_name = fn(var_str)'
+    """
+    default_preinstructs = {'INV': '1 / {}'.format(var_str),
+                            'LOG': 'log({})'.format(var_str),
+                            'VAL': '{}'.format(var_str)}
+    return Template("<>${result} = ${value}").safe_substitute(
+                    result=result_name,
+                    value=default_preinstructs[INSN_KEY])
 
 
 def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
@@ -1341,12 +1370,14 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
 
 
 def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
-    """Generates instructions, kernel arguements, and data for reverse reaction rates
+    """Generates instructions, kernel arguements, and data for reverse reaction
+    rates
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1876,17 +1907,21 @@ ${kf_str} = exp10(kf_temp) {dep=kf}
                           extra_subs={'reac_ind': reac_ind})
 
 
-def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
+def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
     """Generates instructions, kernel arguements, and data for p-log rate constants
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    maxP : int
+        The maximum number of pressure interpolations of any reaction in
+        the mechanism.
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -1902,7 +1937,7 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
 
     # find the plog equation
     plog_eqn = next(x for x in eqs['conp'] if str(x) == 'log({k_f}[i])')
-    plog_form, plog_eqn = plog_eqn, eqs[
+    _, plog_eqn = plog_eqn, eqs[
         'conp'][plog_eqn][(reaction_type.plog,)]
 
     # now we do some surgery to obtain a form w/o 'logs' as we'll take them
@@ -1932,98 +1967,83 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
                                               sp.Symbol('beta[i]'): b2,
                                               sp.Symbol('Ta[i]'): Ta2})
 
-    # total # of plog reactions
-    num_plog = rate_info['plog']['num']
+    # parameter indicies
+    arrhen_ind = 'm'
+    param_ind = 'k'
+    lo_ind = 'lo_ind'
+    hi_ind = 'hi_ind'
+
+    # create mapper
+    mapstore = arc.MapStore(loopy_opts, namestore.plog_map,
+                            namestore.plog_mask)
+
     # number of parameter sets per reaction
-    num_params = rate_info['plog']['num_P']
+    mapstore.check_and_add_transform(namestore.plog_num_param,
+                                     namestore.num_plog)
+    plog_num_param_lp, plog_num_param_str = mapstore.apply_maps(
+        namestore.plog_num_param, var_name)
 
-    # create the loopy equivalents
-    params = rate_info['plog']['params']
-    # create a copy
-    params_temp = [p[:] for p in params]
-    # max # of parameters for sizing
-    maxP = np.max(num_params)
+    # plog parameters
+    mapstore.check_and_add_transform(namestore.plog_params,
+                                     namestore.num_plog)
+    plog_params_lp, plog_params_str = mapstore.apply_maps(
+        namestore.plog_params, arrhen_ind, var_name, param_ind)
 
-    # for simplicity, we're going to use a padded form
-    params = np.zeros((4, num_plog, maxP))
-    for m in range(4):
-        for i, numP in enumerate(num_params):
-            for j in range(numP):
-                params[m, i, j] = params_temp[i][j][m]
+    # temperature / pressure arrays
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    P_arr, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
 
-    # take the log of P and A
-    hold = np.seterr(divide='ignore')
-    params[0, :, :] = np.log(params[0, :, :])
-    params[1, :, :] = np.log(params[1, :, :])
-    params[np.where(np.isinf(params))] = 0
-    np.seterr(**hold)
-
-    # default params indexing order
-    inds = ['${m}', '${reac_ind}', '${param_ind}']
-    # make loopy version
-    plog_params_lp = lp.TemporaryVariable('plog_params', shape=params.shape,
-                                          initializer=params, scope=scopes.GLOBAL, read_only=True)
-    param_str = Template('plog_params[' + ','.join(inds) + ']')
-
-    # and finally the loopy version of num_params
-    num_params_lp = lp.TemporaryVariable('plog_num_params', shape=lp.auto,
-                                         initializer=num_params, read_only=True, scope=scopes.GLOBAL)
-
-    # create temporary variables
+    # create temporary storage variables
     low_lp = lp.TemporaryVariable(
         'low', shape=(4,), scope=scopes.PRIVATE, dtype=np.float64)
     hi_lp = lp.TemporaryVariable(
         'hi', shape=(4,), scope=scopes.PRIVATE, dtype=np.float64)
-    T_arr = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
-    P_arr = lp.GlobalArg('P_arr', shape=(test_size,), dtype=np.float64)
 
-    # start creating the k_gen.knl_info's
+    # forward rxn rate constants
+    mapstore.check_and_add_transform(namestore.kf, namestore.plog_map)
+    kf_arr, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
+
     # data
     kernel_data = []
     if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
-    kernel_data.extend([plog_params_lp, num_params_lp, T_arr,
-                        P_arr, low_lp, hi_lp])
+        kernel_data.append(namestore.problem_size)
 
-    # reac ind
-    reac_ind = 'i'
-
+    # update kernel data
+    kernel_data.extend([plog_params_lp, plog_num_param_lp, T_arr,
+                        P_arr, low_lp, hi_lp, kf_arr])
     # extra loops
-    extra_inames = [('k', '0 <= k < {}'.format(maxP - 1)), ('m', '0 <= m < 4')]
+    extra_inames = [(param_ind, '0 <= {} < {}'.format(param_ind, maxP - 1)),
+                    (arrhen_ind, '0 <= {} < 4'.format(arrhen_ind))]
 
-    # see if we need an output mask
-    out_map = {}
-    indicies = rate_info['plog']['map'].astype(dtype=np.int32)
-    Nr = rate_info['Nr']
+    # specific indexing strings
+    _, pressure_lo = mapstore.apply_maps(
+        namestore.plog_params, 0, var_name, 0)
+    _, pressure_hi = mapstore.apply_maps(
+        namestore.plog_params, 0, var_name, 'numP')
+    _, pressure_mid_lo = mapstore.apply_maps(
+        namestore.plog_params, 0, var_name, param_ind)
+    _, pressure_mid_hi = mapstore.apply_maps(
+        namestore.plog_params, 0, var_name, param_ind, affine={param_ind: 1})
+    _, pressure_general_lo = mapstore.apply_maps(
+        namestore.plog_params, arrhen_ind, var_name, lo_ind)
+    _, pressure_general_hi = mapstore.apply_maps(
+        namestore.plog_params, arrhen_ind, var_name, hi_ind)
 
-    indicies = k_gen.handle_indicies(indicies, reac_ind, out_map,
-                                     kernel_data, inmap_name='plog_inds')
-
-    # get the proper kf indexing / array
-    kf_arr, kf_str, map_result = lp_utils.get_loopy_arg('kf',
-                                                        indicies=[
-                                                            reac_ind, 'j'],
-                                                        dimensions=[
-                                                            Nr, test_size],
-                                                        map_name=out_map,
-                                                        order=loopy_opts.order)
-    kernel_data.append(kf_arr)
-
-    # handle map info
-    maps = []
-    if reac_ind in map_result:
-        maps.append(map_result[reac_ind])
+    # precompute names
+    logP = 'logP'
+    logT = 'logT'
+    Tinv = 'Tinv'
 
     # instructions
-    instructions = Template(Template(
+    instructions = Template(
         """
-        <>lower = logP <= ${pressure_lo} # check below range
+        <>lower = ${logP} <= ${pressure_lo} # check below range
         if lower
             <>lo_ind = 0 {id=ind00}
             <>hi_ind = 0 {id=ind01}
         end
-        <>numP = plog_num_params[${reac_ind}] - 1
-        <>upper = logP > ${pressure_hi} # check above range
+        <>numP = ${plog_num_param_str} - 1
+        <>upper = ${logP} > ${pressure_hi} # check above range
         if upper
             lo_ind = numP {id=ind10}
             hi_ind = numP {id=ind11}
@@ -2033,7 +2053,7 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
             # check that
             # 1. inside this reactions parameter's still
             # 2. inside pressure range
-            <> midcheck = (k <= numP) and (logP > ${pressure_mid_lo}) and (logP <= ${pressure_mid_hi})
+            <> midcheck = (k <= numP) and (${logP} > ${pressure_mid_lo}) and (${logP} <= ${pressure_mid_hi})
             if midcheck
                 lo_ind = k {id=ind20}
                 hi_ind = k + 1 {id=ind21}
@@ -2052,27 +2072,27 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
         ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
 """).safe_substitute(loweq=k1_eq, hieq=k2_eq, plog_eqn=plog_eqn,
                      kf_str=kf_str,
-                     pressure_lo=param_str.safe_substitute(m=0, param_ind=0),
-                     pressure_hi=param_str.safe_substitute(
-                         m=0, param_ind='numP'),
-                     pressure_mid_lo=param_str.safe_substitute(
-                         m=0, param_ind='k'),
-                     pressure_mid_hi=param_str.safe_substitute(
-                         m=0, param_ind='k + 1'),
-                     pressure_general_lo=param_str.safe_substitute(
-                         m='m', param_ind='lo_ind'),
-                     pressure_general_hi=param_str.safe_substitute(
-                         m='m', param_ind='hi_ind')
+                     logP=logP,
+                     plog_num_param_str=plog_num_param_str,
+                     pressure_lo=pressure_lo,
+                     pressure_hi=pressure_hi,
+                     pressure_mid_lo=pressure_mid_lo,
+                     pressure_mid_hi=pressure_mid_hi,
+                     pressure_general_lo=pressure_general_lo,
+                     pressure_general_hi=pressure_general_hi
                      )
-    ).safe_substitute(reac_ind=reac_ind)
 
     # and return
-    return [k_gen.knl_info(name='rateconst_plog', instructions=instructions,
+    return [k_gen.knl_info(name='rateconst_plog',
+                           instructions=instructions,
                            pre_instructions=[
-                               k_gen.TINV_PREINST_KEY, k_gen.TLOG_PREINST_KEY, k_gen.PLOG_PREINST_KEY],
-                           var_name=reac_ind, kernel_data=kernel_data,
-                           maps=maps, extra_inames=extra_inames, indicies=indicies,
-                           extra_subs={'reac_ind': reac_ind})]
+                               default_pre_instructs(T_str, Tinv, 'INV'),
+                               default_pre_instructs(T_str, logT, 'LOG'),
+                               default_pre_instructs(P_str, logP, 'LOG')],
+                           var_name=var_name,
+                           kernel_data=kernel_data,
+                           mapstore=mapstore,
+                           extra_inames=extra_inames)]
 
 
 def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
@@ -2634,16 +2654,12 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     extra_args = {'kernel_data': base_kernel_data,
                   'var_name': var_name}
 
-    T_skele = Template('<>${name} = ${value}')
-    default_preinstructs = {'Tinv': T_skele.safe_substitute(
-        name='Tinv',
-        value='1 / {}'.format(T_str)),
-                            'logT': T_skele.safe_substitute(
-        name='logT',
-        value='log({})'.format(T_str)),
-                            'Tval': T_skele.safe_substitute(
-        name='Tval',
-        value=T_str)}
+    default_preinstructs = {'Tinv':
+                            default_pre_instructs(T_str, 'Tinv', 'INV'),
+                            'logT':
+                            default_pre_instructs(T_str, 'logT', 'LOG'),
+                            'Tval':
+                            default_pre_instructs(T_str, 'Tval', 'VAL')}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
@@ -2914,7 +2930,8 @@ def write_specrates_kernel(eqs, reacs, specs,
     if rate_info['plog']['num']:
         # generate the plog kernel
         __add_knl(get_plog_arrhenius_rates(eqs, loopy_opts,
-                                           nstore, test_size=test_size))
+                                           nstore, rate_info['plog']['max_P'],
+                                           test_size=test_size))
 
     # check for chebyshev
     if rate_info['cheb']['num']:
@@ -2931,7 +2948,8 @@ def write_specrates_kernel(eqs, reacs, specs,
     if rate_info['fall']['num']:
         # get the falloff rates
         __add_knl(get_simple_arrhenius_rates(eqs, loopy_opts,
-                                             nstore, test_size=test_size, falloff=True))
+                                             nstore, test_size=test_size,
+                                             falloff=True))
         # and the reduced pressure
         __add_knl(get_reduced_pressure_kernel(eqs, loopy_opts,
                                               nstore, test_size=test_size))

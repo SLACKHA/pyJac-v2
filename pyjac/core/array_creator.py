@@ -469,7 +469,7 @@ class MapStore(object):
             indicies = tuple(x if x !=
                              self.transformed_variables[variable].iname else
                              __get_affine(
-                                self.transformed_variables[variable].new_iname)
+                                 self.transformed_variables[variable].new_iname)
                              for x in indicies)
         elif affine and len(indicies) == 1:
             # if we don't have a map, but we do have an affine index
@@ -1477,13 +1477,14 @@ class NameStore(object):
                                            'post_process']['params'].shape,
                                        order=self.order)
 
-            plog_num_params = self.__make_offset(rate_info['plog'][
-                'num_P'])
-            self.plog_num_params = creator('plog_num_params',
-                                           dtype=plog_num_params.dtype,
-                                           initializer=plog_num_params,
-                                           shape=plog_num_params.shape,
-                                           order=self.order)
+            self.plog_num_param = creator('plog_num_param',
+                                          dtype=rate_info['plog'][
+                                              'num_P'].dtype,
+                                          initializer=rate_info['plog'][
+                                              'num_P'],
+                                          shape=rate_info['plog'][
+                                              'num_P'].shape,
+                                          order=self.order)
 
             # mask and map
             plog_map = rate_info['plog']['map'].astype(dtype=np.int32)
@@ -1498,3 +1499,9 @@ class NameStore(object):
                                      initializer=plog_mask,
                                      shape=plog_mask.shape,
                                      order=self.order)
+            num_plog = np.arange(rate_info['plog']['num'], dtype=np.int32)
+            self.num_plog = creator('num_plog',
+                                    dtype=num_plog.dtype,
+                                    initializer=num_plog,
+                                    shape=num_plog.shape,
+                                    order=self.order)
