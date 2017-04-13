@@ -500,6 +500,13 @@ class SubTest(TestClass):
             kw_args['maxP'] = np.max([
                 len(rxn.rates) for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.PlogReaction)])
+        elif rtype == 'cheb':
+            kw_args['maxP'] = np.max([
+                rxn.nPressure for rxn in self.store.gas.reactions()
+                if isinstance(rxn, ct.ChebyshevReaction)])
+            kw_args['maxT'] = np.max([
+                rxn.nTemperature for rxn in self.store.gas.reactions()
+                if isinstance(rxn, ct.ChebyshevReaction)])
 
         def __simple_post(kc, out):
             out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod

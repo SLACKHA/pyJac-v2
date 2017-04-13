@@ -506,17 +506,17 @@ def assign_rates(reacs, specs, rate_spec):
             'Ns': len(specs)}
 
 
-def default_pre_instructs(var_str, result_name, INSN_KEY):
+def default_pre_instructs(result_name, var_str, INSN_KEY):
     """
     Simple helper method to return a number of precomputes based off the passed
     instruction key
 
     Parameters
     ----------
-    var_str : str
-        The stringified representation of the variable to construct
     result_name : str
         The loopy temporary variable name to store in
+    var_str : str
+        The stringified representation of the variable to construct
     key : ['INV', 'LOG', 'VAL']
         The transform / value to precompute
 
@@ -530,8 +530,8 @@ def default_pre_instructs(var_str, result_name, INSN_KEY):
                             'LOG': 'log({})'.format(var_str),
                             'VAL': '{}'.format(var_str)}
     return Template("<>${result} = ${value}").safe_substitute(
-                    result=result_name,
-                    value=default_preinstructs[INSN_KEY])
+        result=result_name,
+        value=default_preinstructs[INSN_KEY])
 
 
 def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
@@ -1683,17 +1683,25 @@ ${thd_str} = thd_temp {dep=thd*}
                           mapstore=mapstore)
 
 
-def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
+def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
+                             test_size=None):
     """Generates instructions, kernel arguements, and data for cheb rate constants
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
-    rate_info : dict
-        The output of :method:`assign_rates` for this mechanism
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    maxP : int
+        The maximum degree of pressure polynomials for chebyshev reactions in
+        this mechanism
+    maxT : int
+        The maximum degree of temperature polynomials for chebyshev reactions
+        in this mechanism
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -1705,11 +1713,14 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
 
     """
 
+    # create mapper
+    mapstore = arc.MapStore(loopy_opts, namestore.cheb_map,
+                            namestore.cheb_mask)
+
     # the equation set doesn't matter for this application
     # just use conp
     conp_eqs = eqs['conp']
 
-    rate_eqn_pre = get_rate_eqn(eqs)
     # find the cheb equation
     cheb_eqn = next(x for x in conp_eqs if str(x) == 'log({k_f}[i])/log(10)')
     cheb_form, cheb_eqn = cheb_eqn, conp_eqs[cheb_eqn][(reaction_type.cheb,)]
@@ -1725,119 +1736,103 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, rate_info, test_size=None):
     T_red = next(x for x in conp_eqs if str(x) == 'tilde{T}')
     P_red = next(x for x in conp_eqs if str(x) == 'tilde{P}')
 
-    Pred_eqn = sp_utils.sanitize(conp_eqs[P_red], subs={sp.log(sp.Symbol('P_{min}')): Pmin,
-                                                        sp.log(sp.Symbol('P_{max}')): Pmax,
-                                                        sp.log(sp.Symbol('P')): logP})
+    Pred_eqn = sp_utils.sanitize(conp_eqs[P_red],
+                                 subs={sp.log(sp.Symbol('P_{min}')): Pmin,
+                                       sp.log(sp.Symbol('P_{max}')): Pmax,
+                                       sp.log(sp.Symbol('P')): logP})
 
-    Tred_eqn = sp_utils.sanitize(conp_eqs[T_red], subs={sp.S.One / sp.Symbol('T_{min}'): Tmin,
-                                                        sp.S.One / sp.Symbol('T_{max}'): Tmax,
-                                                        sp.S.One / sp.Symbol('T'): Tinv})
-
-    # number of cheb reactions
-    num_cheb = rate_info['cheb']['num']
-    # degree of pressure polynomial per reaction
-    num_P = np.array(rate_info['cheb']['num_P'], dtype=np.int32)
-    # degree of temperature polynomial per reaction
-    num_T = np.array(rate_info['cheb']['num_T'], dtype=np.int32)
+    Tred_eqn = sp_utils.sanitize(conp_eqs[T_red],
+                                 subs={sp.S.One / sp.Symbol('T_{min}'): Tmin,
+                                       sp.S.One / sp.Symbol('T_{max}'): Tmax,
+                                       sp.S.One / sp.Symbol('T'): Tinv})
 
     # max degrees in mechanism
-    maxP = int(np.max(num_P))
-    maxT = int(np.max(num_T))
-    minP = int(np.min(num_P))
-    minT = int(np.min(num_T))
     poly_max = int(np.maximum(maxP, maxT))
 
-    # now we start defining parameters / temporary variable
-
-    # workspace vars
-    pres_poly_lp = lp.TemporaryVariable('pres_poly', shape=(poly_max,),
-                                        dtype=np.float64, scope=scopes.PRIVATE, read_only=False)
-    temp_poly_lp = lp.TemporaryVariable('temp_poly', shape=(poly_max,),
-                                        dtype=np.float64, scope=scopes.PRIVATE, read_only=False)
-    pres_poly_str = Template('pres_poly[${pres_poly_ind}]')
-    temp_poly_str = Template('temp_poly[${temp_poly_ind}]')
-
-    # chebyshev parameters
-    params = np.zeros((num_cheb, maxT, maxP))
-    for i, p in enumerate(rate_info['cheb']['params']):
-        params[i, :num_T[i], :num_P[i]] = p[:, :]
-
-    indicies = ['${reac_ind}', '${temp_poly_ind}', '${pres_poly_ind}']
-    params_lp = lp.TemporaryVariable('cheb_params', shape=params.shape,
-                                     initializer=params, scope=scopes.GLOBAL, read_only=True)
-    params_str = Template('cheb_params[' + ','.join(indicies) + ']')
-
-    # finally the min/maxs & param #'s
-    numP_lp = lp.TemporaryVariable('cheb_numP', shape=num_P.shape,
-                                   initializer=num_P, dtype=np.int32, read_only=True, scope=scopes.GLOBAL)
-    numP_str = 'cheb_numP[${reac_ind}]'
-    numT_lp = lp.TemporaryVariable('cheb_numT', shape=num_T.shape,
-                                   initializer=num_T, dtype=np.int32, read_only=True, scope=scopes.GLOBAL)
-    numT_str = 'cheb_numT[${reac_ind}]'
-
-    # limits for cheby polys
-    Plim = np.log(np.array(rate_info['cheb']['Plim'], dtype=np.float64))
-    Tlim = 1. / np.array(rate_info['cheb']['Tlim'], dtype=np.float64)
-
-    indicies = ['${reac_ind}', '${lim_ind}']
-    plim_lp = lp.TemporaryVariable('cheb_plim', shape=Plim.shape,
-                                   initializer=Plim, scope=scopes.GLOBAL, read_only=True)
-    tlim_lp = lp.TemporaryVariable('cheb_tlim', shape=Tlim.shape,
-                                   initializer=Tlim, scope=scopes.GLOBAL, read_only=True)
-    plim_str = Template('cheb_plim[' + ','.join(indicies) + ']')
-    tlim_str = Template('cheb_tlim[' + ','.join(indicies) + ']')
-
-    T_arr, T_arr_str, _ = lp_utils.get_loopy_arg('T_arr',
-                                                 indicies=['j'],
-                                                 dimensions=[test_size],
-                                                 order=loopy_opts.order,
-                                                 dtype=np.float64)
-    P_arr, P_arr_str, _ = lp_utils.get_loopy_arg('P_arr',
-                                                 indicies=['j'],
-                                                 dimensions=[test_size],
-                                                 order=loopy_opts.order,
-                                                 dtype=np.float64)
-    kernel_data = [params_lp, numP_lp, numT_lp, plim_lp, tlim_lp,
-                   pres_poly_lp, temp_poly_lp, T_arr, P_arr]
-
-    if test_size == 'problem_size':
-        kernel_data.append(lp.ValueArg(test_size, dtype=np.int32))
-
-    reac_ind = 'i'
-    out_map = {}
-    outmap_name = 'out_map'
-    indicies = rate_info['cheb']['map'].astype(dtype=np.int32)
-    Nr = rate_info['Nr']
-
-    indicies = k_gen.handle_indicies(indicies, reac_ind,
-                                     out_map, kernel_data, inmap_name=outmap_name,
-                                     force_zero=True)
-
-    # get the proper kf indexing / array
-    kf_arr, kf_str, map_result = lp_utils.get_loopy_arg('kf',
-                                                        indicies=[
-                                                            reac_ind, 'j'],
-                                                        dimensions=[
-                                                            Nr, test_size],
-                                                        order=loopy_opts.order,
-                                                        map_name=out_map)
-    maps = []
-    if reac_ind in map_result:
-        maps.append(map_result[reac_ind])
-
-    # add to kernel data
-    kernel_data.append(kf_arr)
-
-    # preinstructions
-    preinstructs = [k_gen.PLOG_PREINST_KEY, k_gen.TINV_PREINST_KEY]
-
-    # extra loops
+    # extra inames
     pres_poly_ind = 'k'
     temp_poly_ind = 'm'
-    extra_inames = [(pres_poly_ind, '0 <= {} < {}'.format(pres_poly_ind, maxP)),
-                    (temp_poly_ind, '0 <= {} < {}'.format(
+    poly_compute_ind = 'p'
+    lim_ind = 'dummy'
+    extra_inames = [(pres_poly_ind, '0 <= {} < {}'.format(
+        pres_poly_ind, maxP)),
+        (temp_poly_ind, '0 <= {} < {}'.format(
                         temp_poly_ind, maxT)),
-                    ('p', '2 <= p < {}'.format(poly_max))]
+        (poly_compute_ind, '2 <= {} < {}'.format(poly_compute_ind, poly_max))]
+
+    # create arrays
+
+    # parameters, counts and limit arrays are based on number of
+    # chebyshev reacs
+    mapstore.check_and_add_transform(namestore.cheb_numP, namestore.num_cheb)
+    mapstore.check_and_add_transform(namestore.cheb_numT, namestore.num_cheb)
+    mapstore.check_and_add_transform(namestore.cheb_params, namestore.num_cheb)
+    mapstore.check_and_add_transform(namestore.cheb_Plim, namestore.num_cheb)
+    mapstore.check_and_add_transform(namestore.cheb_Tlim, namestore.num_cheb)
+
+    num_P_lp, num_P_str = mapstore.apply_maps(namestore.cheb_numP, var_name)
+    num_T_lp, num_T_str = mapstore.apply_maps(namestore.cheb_numT, var_name)
+    params_lp, params_str = mapstore.apply_maps(namestore.cheb_params,
+                                                var_name,
+                                                temp_poly_ind,
+                                                pres_poly_ind)
+    plim_lp, _ = mapstore.apply_maps(namestore.cheb_Plim, var_name, lim_ind)
+    tlim_lp, _ = mapstore.apply_maps(namestore.cheb_Tlim, var_name, lim_ind)
+
+    # workspace vars are based only on their polynomial indicies
+    pres_poly_lp, pres_poly_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                      pres_poly_ind)
+    temp_poly_lp, temp_poly_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                      temp_poly_ind)
+
+    # create temperature and pressure arrays
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    P_arr, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
+
+    # get the forward rate constants
+    mapstore.check_and_add_transform(namestore.kf, namestore.cheb_map)
+    kf_arr, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
+
+    # update kernel data
+    kernel_data = []
+    if test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    kernel_data = [params_lp, num_P_lp, num_T_lp, plim_lp, tlim_lp,
+                   pres_poly_lp, temp_poly_lp, T_arr, P_arr, kf_arr]
+
+    # preinstructions
+    logP = 'logP'
+    Tinv = 'Tinv'
+    preinstructs = [default_pre_instructs(logP, P_str, 'LOG'),
+                    default_pre_instructs(Tinv, T_str, 'INV')]
+
+    # various strings for preindexed limits, params, etc
+    _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
+    _, Pmax_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '1')
+    _, Tmin_str = mapstore.apply_maps(namestore.cheb_Tlim, var_name, '0')
+    _, Tmax_str = mapstore.apply_maps(namestore.cheb_Tlim, var_name, '1')
+
+    _, ppoly0_str = mapstore.apply_maps(namestore.cheb_pres_poly, '0')
+    _, ppoly1_str = mapstore.apply_maps(namestore.cheb_pres_poly, '1')
+    _, ppolyp_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                        poly_compute_ind)
+    _, ppolypm1_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                          poly_compute_ind,
+                                          affine=-1)
+    _, ppolypm2_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                          poly_compute_ind,
+                                          affine=-2)
+    _, tpoly0_str = mapstore.apply_maps(namestore.cheb_temp_poly, '0')
+    _, tpoly1_str = mapstore.apply_maps(namestore.cheb_temp_poly, '1')
+    _, tpolyp_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                        poly_compute_ind)
+    _, tpolypm1_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                          poly_compute_ind,
+                                          affine=-1)
+    _, tpolypm2_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                          poly_compute_ind,
+                                          affine=-2)
 
     instructions = Template("""
 <>Pmin = ${Pmin_str}
@@ -1871,40 +1866,41 @@ for m
     kf_temp = kf_temp + ${tpoly_m} * temp {id=kf, dep=temp}
 end
 
-${kf_str} = exp10(kf_temp) {dep=kf}
+${kf_str} = ${kf_eval} {dep=kf}
 """)
 
-    instructions = Template(instructions.safe_substitute(
+    instructions = instructions.safe_substitute(
         kf_str=kf_str,
         Tred_str=str(Tred_eqn),
         Pred_str=str(Pred_eqn),
-        Pmin_str=plim_str.safe_substitute(lim_ind=0),
-        Pmax_str=plim_str.safe_substitute(lim_ind=1),
-        Tmin_str=tlim_str.safe_substitute(lim_ind=0),
-        Tmax_str=tlim_str.safe_substitute(lim_ind=1),
-        ppoly_0=pres_poly_str.safe_substitute(pres_poly_ind=0),
-        ppoly_1=pres_poly_str.safe_substitute(pres_poly_ind=1),
-        ppoly_k=pres_poly_str.safe_substitute(pres_poly_ind=pres_poly_ind),
-        ppoly_p=pres_poly_str.safe_substitute(pres_poly_ind='p'),
-        ppoly_pm1=pres_poly_str.safe_substitute(pres_poly_ind='p - 1'),
-        ppoly_pm2=pres_poly_str.safe_substitute(pres_poly_ind='p - 2'),
-        tpoly_0=temp_poly_str.safe_substitute(temp_poly_ind=0),
-        tpoly_1=temp_poly_str.safe_substitute(temp_poly_ind=1),
-        tpoly_m=temp_poly_str.safe_substitute(temp_poly_ind=temp_poly_ind),
-        tpoly_p=temp_poly_str.safe_substitute(temp_poly_ind='p'),
-        tpoly_pm1=temp_poly_str.safe_substitute(temp_poly_ind='p - 1'),
-        tpoly_pm2=temp_poly_str.safe_substitute(temp_poly_ind='p - 2'),
-        chebpar_km=params_str.safe_substitute(temp_poly_ind=temp_poly_ind,
-                                              pres_poly_ind=pres_poly_ind),
-        numP_str=numP_str,
-        numT_str=numT_str,
-        kf_eval=str(cheb_form),
-        num_cheb=num_cheb)).safe_substitute(reac_ind=reac_ind)
+        Pmin_str=Pmin_str,
+        Pmax_str=Pmax_str,
+        Tmin_str=Tmin_str,
+        Tmax_str=Tmax_str,
+        ppoly_0=ppoly0_str,
+        ppoly_1=ppoly1_str,
+        ppoly_k=pres_poly_str,
+        ppoly_p=ppolyp_str,
+        ppoly_pm1=ppolypm1_str,
+        ppoly_pm2=ppolypm2_str,
+        tpoly_0=tpoly0_str,
+        tpoly_1=tpoly1_str,
+        tpoly_m=temp_poly_str,
+        tpoly_p=tpolyp_str,
+        tpoly_pm1=tpolypm1_str,
+        tpoly_pm2=tpolypm2_str,
+        chebpar_km=params_str,
+        numP_str=num_P_str,
+        numT_str=num_T_str,
+        kf_eval=str(cheb_form))
 
-    return k_gen.knl_info('rateconst_cheb', instructions=instructions, pre_instructions=preinstructs,
-                          var_name=reac_ind, kernel_data=kernel_data, maps=maps,
-                          extra_inames=extra_inames, indicies=indicies,
-                          extra_subs={'reac_ind': reac_ind})
+    return k_gen.knl_info('rateconst_cheb',
+                          instructions=instructions,
+                          pre_instructions=preinstructs,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore,
+                          extra_inames=extra_inames)
 
 
 def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
@@ -2086,9 +2082,9 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
                            pre_instructions=[
-                               default_pre_instructs(T_str, Tinv, 'INV'),
-                               default_pre_instructs(T_str, logT, 'LOG'),
-                               default_pre_instructs(P_str, logP, 'LOG')],
+                               default_pre_instructs(Tinv, T_str, 'INV'),
+                               default_pre_instructs(logT, T_str, 'LOG'),
+                               default_pre_instructs(logP, P_str, 'LOG')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2655,11 +2651,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                   'var_name': var_name}
 
     default_preinstructs = {'Tinv':
-                            default_pre_instructs(T_str, 'Tinv', 'INV'),
+                            default_pre_instructs('Tinv', T_str, 'INV'),
                             'logT':
-                            default_pre_instructs(T_str, 'logT', 'LOG'),
+                            default_pre_instructs('logT', T_str, 'LOG'),
                             'Tval':
-                            default_pre_instructs(T_str, 'Tval', 'VAL')}
+                            default_pre_instructs('Tval', T_str, 'VAL')}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
@@ -2770,16 +2766,16 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                               instructions='',
                               mapstore=mapstore,
                               pre_instructions=[
-                                    default_preinstructs['Tinv'],
-                                    default_preinstructs['logT']],
-                              **extra_args)
+        default_preinstructs['Tinv'],
+        default_preinstructs['logT']],
+        **extra_args)
     i_full = k_gen.knl_info('rateconst_full{}'.format(tag),
                             instructions='',
                             mapstore=mapstore,
                             pre_instructions=[
-                                    default_preinstructs['Tinv'],
-                                    default_preinstructs['logT']],
-                            **extra_args)
+        default_preinstructs['Tinv'],
+        default_preinstructs['logT']],
+        **extra_args)
 
     # set up the simple arrhenius rate specializations
     if fixed:
@@ -2826,7 +2822,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                            'rateconst_singlekernel_{}'.format(tag),
                            instructions='\n'.join(instruction_list),
                            pre_instructions=list(
-                            default_preinstructs.values()),
+                               default_preinstructs.values()),
                            mapstore=mapstore,
                            kernel_data=specializations[0].kernel_data,
                            var_name=var_name)}
@@ -2935,8 +2931,12 @@ def write_specrates_kernel(eqs, reacs, specs,
 
     # check for chebyshev
     if rate_info['cheb']['num']:
-        __add_knl(get_cheb_arrhenius_rates(eqs, loopy_opts,
-                                           nstore, test_size=test_size))
+        __add_knl(get_cheb_arrhenius_rates(eqs,
+                                           loopy_opts,
+                                           nstore,
+                                           rate_info['cheb']['maxP'],
+                                           rate_info['cheb']['maxT'],
+                                           test_size=test_size))
 
     # check for third body terms
     if rate_info['thd']['num']:
