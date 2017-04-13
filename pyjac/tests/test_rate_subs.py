@@ -1,6 +1,5 @@
 # system
 import os
-import filecmp
 from collections import OrderedDict, defaultdict
 import subprocess
 import sys
@@ -849,35 +848,6 @@ class SubTest(TestClass):
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc, do_spec_per_reac=True,
                                    conp=False)
-
-    def test_write_specrates_knl(self):
-        kgen_cp = write_specrates_kernel(
-            {'conp': self.store.conp_eqs, 'conv': self.store.conv_eqs},
-            self.store.reacs, self.store.specs,
-            loopy_options(lang='opencl',
-                          width=None, depth=None, ilp=False,
-                          unr=None, order='C', platform='CPU'),
-            conp=True)
-        kgen_cv = write_specrates_kernel(
-            {'conp': self.store.conp_eqs, 'conv': self.store.conv_eqs},
-            self.store.reacs, self.store.specs,
-            loopy_options(lang='opencl',
-                          width=None, depth=None, ilp=False,
-                          unr=None, order='C', platform='CPU'),
-            conp=False)
-
-        # generate the kernels
-        for kgen, postfix in [(kgen_cp, 'conp'), (kgen_cv, 'conv')]:
-            kgen.generate(self.store.build_dir)
-
-            assert filecmp.cmp(os.path.join(self.store.build_dir, 'spec_rates.oclh'),
-                               os.path.join(self.store.script_dir, 'blessed', 'spec_rates_{}.oclh'.format(postfix)))
-            assert filecmp.cmp(os.path.join(self.store.build_dir, 'spec_rates.ocl'),
-                               os.path.join(self.store.script_dir, 'blessed', 'spec_rates_{}.ocl'.format(postfix)))
-            assert filecmp.cmp(os.path.join(self.store.build_dir, 'spec_rates_compiler.ocl'),
-                               os.path.join(self.store.script_dir, 'blessed', 'spec_rates_{}_compiler.ocl'.format(postfix)))
-            assert filecmp.cmp(os.path.join(self.store.build_dir, 'spec_rates_main.ocl'),
-                               os.path.join(self.store.script_dir, 'blessed', 'spec_rates_{}_main.ocl'.format(postfix)))
 
     @attr('long')
     def test_specrates(self):
