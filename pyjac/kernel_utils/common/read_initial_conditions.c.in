@@ -20,26 +20,28 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* phi
     for (int i = 0; i < NUM; ++i)
     {
         // read line from data file
-        int count = fread(buffer, sizeof(double), NN + 2, fp);
-        if (count != (NN + 2))
+        int count = fread(buffer, sizeof(double), NN + 1, fp);
+        if (count != (NN + 1))
         {
-            fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NN + 2, count);
+            fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NN + 1, count);
             exit(-1);
         }
 
-        //fill T_host, P_host
-        phi_host[i] = buffer[0];
+        //fill P_host
         P_host[i] = buffer[1];
 
+        // phi fill depends on order
         if (order == 'C')
         {
+            phi_host[i * NN] = buffer[0];
             for (int j = 0; j < NN; j++)
             {
-                phi_host[(i + 1) * NN + j] = buffer[j + 2];
+                phi_host[i * NN + j + 1] = buffer[j + 2];
             }
         }
         else
         {
+            phi_host[i] = buffer[0];
             for (int j = 0; j < NN; j++)
             {
                 phi_host[(j + 1) * NUM + i] = buffer[j + 2];
