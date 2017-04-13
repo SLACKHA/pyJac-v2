@@ -227,17 +227,21 @@ class wrapping_kernel_generator(object):
             name=argv.name + postfix)
 
     def _generate_calling_header(self, path):
-        assert self.filename or self.bin_name, 'Cannot generate calling header before wrapping kernel is generated...'
+        assert self.filename or self.bin_name, ('Cannot generate calling '
+                                                'header before wrapping kernel'
+                                                ' is generated...')
         with open(os.path.join(script_dir, self.lang,
                                'kernel.h.in'), 'r') as file:
             file_src = Template(file.read())
 
         self.header_name = os.path.join(path,
-                                        self.file_prefix + self.name + utils.header_ext[self.mem.host_lang])
+                                        self.file_prefix + self.name +
+                                        utils.header_ext[self.mem.host_lang])
         with filew.get_file(os.path.join(path, self.header_name), self.lang,
                             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
-                input_args=', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a))
+                input_args=', '.join([self._get_pass(next(
+                    x for x in self.mem.arrays if x.name == a))
                                       for a in self.mem.host_arrays]),
                 knl_name=self.name))
 
@@ -286,20 +290,18 @@ ${name} : ${type}
     ${desc}
 """)
         for x in self.mem.in_arrays:
-            if x == 'T_arr':
+            if x == 'phi':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc='The array of temperatures'))
+                    name=x, type='double*', desc='The state vector'))
             elif x == 'P_arr':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
                     name=x, type='double*', desc='The array of pressures'))
-            elif x == 'conc':
+            elif x == 'dphi':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc='The array of concentrations in {}-order').format(
-                    self.loopy_opts.order))
-            elif x == 'wdot':
-                knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc='The array of species rates, in {}-order').format(
-                    self.loopy_opts.order))
+                    name=x, type='double*', desc=('The time rate of change of'
+                                                  'the state vector, in '
+                                                  '{}-order').format(
+                                                       self.loopy_opts.order)))
             else:
                 logging.warn(
                     'Argument documentation not found for arg {}'.format(x))
@@ -340,7 +342,7 @@ ${name} : ${type}
         local_allocs = self.mem.get_mem_allocs(True)
         # read args are those that aren't initalized elsewhere
         read_args = ', '.join(['h_' + x + '_local' for x in self.mem.in_arrays
-                               if x in ['T_arr', 'P_arr', 'conc']])
+                               if x in ['phi', 'P_arr']])
         # kernel arg setting
         kernel_arg_sets = self.get_kernel_arg_setting()
         # memory frees

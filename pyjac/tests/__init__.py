@@ -162,6 +162,12 @@ class storage(object):
 
         # set phi
         self.phi = np.concatenate((self.T.reshape(-1, 1), self.concs), axis=1)
+        self.dphi_cp = np.concatenate((
+            self.conp_temperature_rates.reshape(-1, 1),
+            self.species_rates), axis=1)
+        self.dphi_cv = np.concatenate((
+            self.conv_temperature_rates.reshape(-1, 1),
+            self.species_rates), axis=1)
 
         #the pressure mod terms depend on the reaction type
         #for pure third bodies, it's just the third body conc:

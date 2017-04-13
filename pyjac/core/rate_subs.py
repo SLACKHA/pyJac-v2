@@ -521,7 +521,7 @@ def assign_rates(reacs, specs, rate_spec):
                 'a_lo': a_lo,
                 'a_hi': a_hi,
                 'T_mid': T_mid
-            }}
+    }}
 
 
 def default_pre_instructs(result_name, var_str, INSN_KEY):
@@ -794,7 +794,9 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
                                                       *default_inds)
         dphi_lp, dphi_str = mapstore.apply_maps(namestore.conc_dot,
-                                                global_ind, spec_ind, affine=1)
+                                                global_ind, spec_ind, affine={
+                                                    spec_ind: 1
+                                                })
 
         # update kernel args
         kernel_data.extend(
@@ -1194,7 +1196,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # concentrations in ispec loop, also use offset for phi
         concs_lp, concs_str = themap.apply_maps(
-            namestore.conc_arr, global_ind, spec_ind, affine=1)
+            namestore.conc_arr, global_ind, spec_ind, affine={spec_ind: 1})
 
         # and finally the ROP values in the mainloop, no map
         rop = getattr(namestore, 'rop_' + direction)
@@ -1816,8 +1818,8 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    kernel_data = [params_lp, num_P_lp, num_T_lp, plim_lp, tlim_lp,
-                   pres_poly_lp, temp_poly_lp, T_arr, P_arr, kf_arr]
+    kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp, tlim_lp,
+                        pres_poly_lp, temp_poly_lp, T_arr, P_arr, kf_arr])
 
     # preinstructions
     logP = 'logP'
@@ -2432,7 +2434,7 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     # maps and transforms
     for arr in [namestore.X_sri, namestore.sri_a, namestore.sri_b,
                 namestore.sri_c, namestore.sri_d, namestore.sri_e]:
-        mapstore.check_and_add_transform(namestore.arr, namestore.num_sri)
+        mapstore.check_and_add_transform(arr, namestore.num_sri)
 
     # Create the temperature array
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
@@ -2490,7 +2492,6 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     # create instruction set
     sri_instructions = Template("""
-    <>T = ${T_str}
     <>Pr_val = 1e-300 {id=Pri}
     if ${pr_str} > 1e-300
         Pr_val = ${pr_str} {id=Prv, dep=Pri}
@@ -2519,6 +2520,8 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
+                           pre_instructions=[
+                            default_pre_instructs('T',T_str, 'VAL')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore)]
@@ -2853,7 +2856,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             out_specs[rtype] = info
             continue
 
-        if not rdomain(rtype)[0].initializer.size:
+        inds, _ = rdomain(rtype)
+        if inds is not None and inds.initializer.size:
             # kernel doesn't act on anything, don't add it to output
             continue
 
@@ -2952,8 +2956,8 @@ def write_specrates_kernel(eqs, reacs, specs,
         __add_knl(get_cheb_arrhenius_rates(eqs,
                                            loopy_opts,
                                            nstore,
-                                           rate_info['cheb']['maxP'],
-                                           rate_info['cheb']['maxT'],
+                                           np.max(rate_info['cheb']['num_P']),
+                                           np.max(rate_info['cheb']['num_T']),
                                            test_size=test_size))
 
     # check for third body terms
@@ -2994,7 +2998,11 @@ def write_specrates_kernel(eqs, reacs, specs,
         depends_on.append(kernels[-1])
         # add Kc / rev rates
         __add_knl(get_rev_rates(eqs, loopy_opts,
-                                nstore, test_size=test_size))
+                                nstore,
+                                allint={'fwd': rate_info['fwd']['allint'],
+                                        'rev': rate_info['rev']['allint'],
+                                        'net': rate_info['net']['allint']},
+                                test_size=test_size))
 
     # check for falloff
     if rate_info['fall']['num']:
@@ -3039,7 +3047,8 @@ def write_specrates_kernel(eqs, reacs, specs,
                                                   kernels=depends_on,
                                                   input_arrays=['T_arr'],
                                                   output_arrays=[
-                                                      'h', 'cp'] if conp else ['u', 'cv'],
+                                                      'h', 'cp'] if conp else
+                                                      ['u', 'cv'],
                                                   auto_diff=auto_diff,
                                                   test_size=test_size
                                                   )
@@ -3074,8 +3083,8 @@ def write_specrates_kernel(eqs, reacs, specs,
         __insert_at('spec_rates', True)
         __insert_at('temperature_rate', True)
 
-    input_arrays = ['T_arr', 'P_arr', 'conc', 'wdot']
-    output_arrays = ['wdot']
+    input_arrays = ['phi', 'P_arr', 'dphi']
+    output_arrays = ['dphi']
     if output_full_rop:
         output_arrays += ['rop_fwd']
         if rate_info['rev']['num']:
@@ -3091,7 +3100,7 @@ def write_specrates_kernel(eqs, reacs, specs,
         depends_on=[thermo_wrap],
         input_arrays=input_arrays,
         output_arrays=output_arrays,
-        init_arrays={'wdot': 0},
+        init_arrays={'dphi': 0},
         auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers)
@@ -3189,7 +3198,7 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
                             loop_index)
 
     knl_data = []
-    if test_size is None:
+    if test_size == 'problem_size':
         knl_data.append(namestore.problem_size)
 
     if loopy_opts.width is not None and loopy_opts.depth is not None:
@@ -3243,17 +3252,17 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
             end
         end
         """).safe_substitute(
-            out_str=out_str,
-            lo_eq=lo_eq_str,
-            hi_eq=hi_eq_str,
-            T_mid_str=T_mid_str,
-            T_val=T_val),
-                          kernel_data=knl_data,
-                          pre_instructions=preinstructs,
-                          name='eval_{}'.format(nicename),
-                          parameters={'R_u': chem.RU},
-                          var_name=loop_index,
-                          mapstore=mapstore)
+        out_str=out_str,
+        lo_eq=lo_eq_str,
+        hi_eq=hi_eq_str,
+        T_mid_str=T_mid_str,
+        T_val=T_val),
+        kernel_data=knl_data,
+        pre_instructions=preinstructs,
+        name='eval_{}'.format(nicename),
+        parameters={'R_u': chem.RU},
+        var_name=loop_index,
+        mapstore=mapstore)
 
 
 def write_chem_utils(specs, eqs, loopy_opts,
@@ -3311,7 +3320,7 @@ def write_chem_utils(specs, eqs, loopy_opts,
         loopy_opts=loopy_opts,
         name='chem_utils',
         kernels=kernels,
-        input_arrays=['T_arr'],
+        input_arrays=['phi'],
         output_arrays=nicenames,
         auto_diff=auto_diff,
         test_size=test_size
