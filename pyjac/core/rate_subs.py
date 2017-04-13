@@ -2857,7 +2857,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             continue
 
         inds, _ = rdomain(rtype)
-        if inds is not None and not inds.initializer.size:
+        if inds is None or not inds.initializer.size:
             # kernel doesn't act on anything, don't add it to output
             continue
 
