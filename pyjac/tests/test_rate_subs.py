@@ -870,8 +870,6 @@ class SubTest(TestClass):
                 shutil.rmtree(dist_build)
         T = self.store.T
         P = self.store.P
-        Tdot_conp = np.reshape(self.store.conp_temperature_rates, (1, -1))
-        Tdot_conv = np.reshape(self.store.conv_temperature_rates, (1, -1))
         exceptions = ['conp']
 
         # load the module tester template
@@ -888,7 +886,8 @@ class SubTest(TestClass):
             conp = state['conp']
 
             # generate kernel
-            kgen = write_specrates_kernel(eqs, self.store.reacs, self.store.specs, opts,
+            kgen = write_specrates_kernel(eqs, self.store.reacs,
+                                          self.store.specs, opts,
                                           conp=conp)
 
             # generate
@@ -902,15 +901,12 @@ class SubTest(TestClass):
                              out_dir=lib_dir, platform=str(opts.platform))
 
             # get arrays
-            concs = (self.store.concs.copy() if opts.order == 'F' else
-                     self.store.concs.T.copy()).flatten('K')
+            phi = np.array(
+                    self.store.phi, order=opts.order, copy=True).flatten('K')
+
+            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
             # put together species rates
-            spec_rates = np.concatenate((Tdot_conp.copy() if conp else Tdot_conv,
-                                         self.store.species_rates.copy()))
-            if opts.order == 'C':
-                spec_rates = spec_rates.T.copy()
-            # and flatten in correct order
-            spec_rates = spec_rates.flatten(order='K')
+            dphi = np.array(dphi, order=opts.order, copy=True).flatten('K')
 
             # save args to dir
             def __saver(arr, name, namelist):
@@ -919,13 +915,12 @@ class SubTest(TestClass):
                 namelist.append(myname)
 
             args = []
-            __saver(T, 'T', args)
+            __saver(phi, 'phi', args)
             __saver(P, 'P', args)
-            __saver(concs, 'conc', args)
 
             # and now the test values
             tests = []
-            __saver(spec_rates, 'wdot', tests)
+            __saver(dphi, 'dphi', tests)
 
             # write the module tester
             with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
@@ -937,10 +932,11 @@ class SubTest(TestClass):
                     call_name='species_rates',
                     output_files=''))
 
-            out_arr = np.concatenate((np.reshape(T.copy(), (1, -1)),
-                                      np.reshape(P.copy(), (1, -1)), self.store.concs.copy()))
-            if opts.order == 'C':
-                out_arr = out_arr.T.copy()
+            out_arr = np.concatenate((T.reshape((-1, 1)),
+                                      P.reshape((-1, 1)),
+                                      self.store.concs),
+                                     axis=1)
+            out_arr = np.array(out_arr, order=opts.order, copy=True)
 
             out_arr.flatten('K').tofile(os.path.join(os.getcwd(), 'data.bin'))
             # and call

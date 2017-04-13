@@ -9,6 +9,11 @@ import numpy as np
 import copy
 from loopy.kernel.data import temp_var_scope as scopes
 
+problem_size = lp.ValueArg('problem_size', dtype=np.int32)
+"""
+    The problem size variable for non-testing
+"""
+
 
 class domain_transform(object):
 
@@ -742,7 +747,7 @@ class NameStore(object):
 
         # problem size
         if isinstance(test_size, str):
-            self.problem_size = lp.ValueArg(test_size, dtype=np.int32)
+            self.problem_size = problem_size
 
         # generic ranges
         self.num_specs = creator('num_specs', shape=(rate_info['Ns'],),
@@ -797,8 +802,10 @@ class NameStore(object):
                                             order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
         self.net_reac_to_spec_offsets = creator('net_reac_to_spec_offsets',
-                                                dtype=np.int32, shape=off.shape,
-                                                initializer=off, order=self.order)
+                                                dtype=np.int32,
+                                                shape=off.shape,
+                                                initializer=off,
+                                                order=self.order)
         self.net_reac_to_spec_nu = creator('net_reac_to_spec_nu',
                                            dtype=np.int32, shape=rate_info[
                                                'net']['nu'].shape,
@@ -826,9 +833,11 @@ class NameStore(object):
                                             'net_per_spec']['reacs'],
                                         order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
-        self.net_spec_to_reac_offsets = creator('net_reac_to_spec_offsets',
-                                                dtype=np.int32, shape=off.shape,
-                                                initializer=off, order=self.order)
+        self.net_spec_to_reac_offsets = creator('net_spec_to_reac_offsets',
+                                                dtype=np.int32,
+                                                shape=off.shape,
+                                                initializer=off,
+                                                order=self.order)
         self.net_spec_to_reac_nu = creator('net_spec_to_reac_nu',
                                            dtype=np.int32, shape=rate_info[
                                                'net_per_spec']['nu'].shape,
@@ -932,7 +941,7 @@ class NameStore(object):
                                                     initializer=off,
                                                     order=self.order)
 
-            self.rev_reac_to_spec = creator('fwd_reac_to_spec',
+            self.rev_reac_to_spec = creator('rev_reac_to_spec',
                                             dtype=np.int32,
                                             shape=rate_info['rev'][
                                                 'reac_to_spec'].shape,

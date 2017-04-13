@@ -10,9 +10,7 @@ Nicholas Curtis - 2017
 */
 
 #include "${knl_name}.h"
-
-void read_initial_conditions(const char* filename, unsigned int NUM, double* T_host,
-                                double* P_host, double* conc_host, const char order);
+#include "read_initial_conditions.oclh"
 
 //global kernel vars
 cl_kernel kernel = NULL;
