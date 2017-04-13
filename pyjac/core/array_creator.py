@@ -462,7 +462,8 @@ class MapStore(object):
             elif affine is not None:
                 aff = affine
             if aff is not None:
-                return iname + ' {} {}'.format('+' if aff >= 0 else '-', aff)
+                return iname + ' {} {}'.format('+' if aff >= 0 else '-',
+                                               np.abs(aff))
             return iname
 
         if variable in self.transformed_variables:
@@ -569,7 +570,8 @@ class creator(object):
     def __init__(self, name, dtype, shape, order,
                  initializer=None,
                  scope=scopes.GLOBAL,
-                 fixed_indicies=None):
+                 fixed_indicies=None,
+                 is_temporary=False):
         """
         Initializes the creator object
 
@@ -590,6 +592,8 @@ class creator(object):
             specify indicies (e.g. for the Temperature/Phi array)
         order : ['C', 'F']
             The row/column-major data format to use in storage
+        is_temporary : bool
+            If true, this should be a temporary variable
         """
 
         self.name = name
@@ -604,14 +608,15 @@ class creator(object):
         self.order = order
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
-        if initializer is not None:
+        if is_temporary or initializer is not None:
             self.creator = self.__temp_var_creator
-            assert dtype == initializer.dtype, ('Incorrect dtype specified'
-                                                ' for {}, got: {} expected: {}'.format(
-                                                    name, initializer.dtype, dtype))
-            assert shape == initializer.shape, ('Incorrect shape specified'
-                                                ' for {}, got: {} expected: {}'.format(
-                                                    name, initializer.shape, shape))
+            if initializer is not None:
+                assert dtype == initializer.dtype, (
+                    'Incorrect dtype specified for {}, got: {} expected: {}'
+                    .format(name, initializer.dtype, dtype))
+                assert shape == initializer.shape, (
+                    'Incorrect shape specified for {}, got: {} expected: {}'
+                    .format(name, initializer.shape, shape))
         else:
             self.creator = self.__glob_arg_creator
 
@@ -629,9 +634,9 @@ class creator(object):
                 inds[ind] = indicies[i]
             return inds
         else:
-            assert len(indicies) == self.num_indicies, ('Wrong number of '
-                                                        'indicies supplied for {}: expected {} got {}'.format(
-                                                            self.name, len(self.shape), len(indicies)))
+            assert len(indicies) == self.num_indicies, (
+                'Wrong number of indicies supplied for {}: expected {} got {}'
+                .format(self.name, len(self.shape), len(indicies)))
             return indicies[:]
 
     def __temp_var_creator(self, **kwargs):
@@ -639,7 +644,7 @@ class creator(object):
                                     shape=self.shape,
                                     initializer=self.initializer,
                                     scope=self.scope,
-                                    read_only=True,
+                                    read_only=self.initializer is not None,
                                     dtype=self.dtype,
                                     order=self.order,
                                     **kwargs)
@@ -1452,6 +1457,22 @@ class NameStore(object):
                                          'post_process']['Tlim'].shape,
                                      order=self.order)
 
+            # workspace variables
+            polymax = int(np.max(np.maximum(rate_info['cheb']['num_P'],
+                                            rate_info['cheb']['num_T'])))
+            self.cheb_pres_poly = creator('cheb_pres_poly',
+                                          dtype=np.float64,
+                                          shape=(polymax,),
+                                          order=self.order,
+                                          is_temporary=True,
+                                          scope=scopes.PRIVATE)
+            self.cheb_temp_poly = creator('cheb_temp_poly',
+                                          dtype=np.float64,
+                                          shape=(polymax,),
+                                          order=self.order,
+                                          is_temporary=True,
+                                          scope=scopes.PRIVATE)
+
             # mask and map
             cheb_map = rate_info['cheb']['map'].astype(dtype=np.int32)
             self.cheb_map = creator('cheb_map',
@@ -1465,6 +1486,12 @@ class NameStore(object):
                                      initializer=cheb_mask,
                                      shape=cheb_mask.shape,
                                      order=self.order)
+            num_cheb = np.arange(rate_info['cheb']['num'], dtype=np.int32)
+            self.num_cheb = creator('num_cheb',
+                                    dtype=num_cheb.dtype,
+                                    initializer=num_cheb,
+                                    shape=num_cheb.shape,
+                                    order=self.order)
 
         # plog parameters, offsets, map / mask
         if rate_info['plog']['num']:
