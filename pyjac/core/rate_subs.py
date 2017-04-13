@@ -361,6 +361,19 @@ def assign_rates(reacs, specs, rate_spec):
     thd_spec = np.array(thd_spec, dtype=np.int32)
     thd_eff = np.array(thd_eff, dtype=np.float64)
 
+    # thermo properties
+    poly_dim = specs[0].hi.shape[0]
+    Ns = len(specs)
+
+    # pick out a values and T_mid
+    a_lo = np.zeros((Ns, poly_dim), dtype=np.float64)
+    a_hi = np.zeros((Ns, poly_dim), dtype=np.float64)
+    T_mid = np.zeros((Ns,), dtype=np.float64)
+    for ind, spec in enumerate(specs):
+        a_lo[ind, :] = spec.lo[:]
+        a_hi[ind, :] = spec.hi[:]
+        T_mid[ind] = spec.Trange[1]
+
     # post processing
 
     # first, we must do some surgery to get _our_ form of the thd-body
@@ -503,7 +516,12 @@ def assign_rates(reacs, specs, rate_spec):
                              'reacs': spec_to_reac, 'map': spec_list,
                              'allint': net_nu_integer},
             'Nr': len(reacs),
-            'Ns': len(specs)}
+            'Ns': len(specs),
+            'thermo': {
+                'a_lo': a_lo,
+                'a_hi': a_hi,
+                'T_mid': T_mid
+            }}
 
 
 def default_pre_instructs(result_name, var_str, INSN_KEY):
@@ -2964,12 +2982,14 @@ def write_specrates_kernel(eqs, reacs, specs,
             __add_knl(get_sri_kernel(eqs, loopy_opts,
                                      nstore, test_size=test_size))
 
+    # thermo polynomial dimension
+    polydim = specs[0].hi.size
     depends_on = []
     # check for reverse rates
     if rate_info['rev']['num']:
         # add the 'b' eval
-        __add_knl(polyfit_kernel_gen('b', eqs['conp'], specs, loopy_opts,
-                                     test_size))
+        __add_knl(polyfit_kernel_gen('b', eqs['conp'], loopy_opts,
+                                     nstore, polydim, test_size))
         # addd the 'b' eval to depnediencies
         depends_on.append(kernels[-1])
         # add Kc / rev rates
@@ -2997,16 +3017,16 @@ def write_specrates_kernel(eqs, reacs, specs,
 
     if conp:
         # get h / cp evals
-        __add_knl(polyfit_kernel_gen('h', eqs['conp'], specs, loopy_opts,
-                                     test_size))
-        __add_knl(polyfit_kernel_gen('cp', eqs['conp'], specs, loopy_opts,
-                                     test_size))
+        __add_knl(polyfit_kernel_gen('h', eqs['conp'], loopy_opts, nstore,
+                                     polydim, test_size))
+        __add_knl(polyfit_kernel_gen('cp', eqs['conp'], loopy_opts, nstore,
+                                     polydim, test_size))
     else:
         # and u / cv
-        __add_knl(polyfit_kernel_gen('u', eqs['conv'], specs, loopy_opts,
-                                     test_size))
-        __add_knl(polyfit_kernel_gen('cv', eqs['conv'], specs, loopy_opts,
-                                     test_size))
+        __add_knl(polyfit_kernel_gen('u', eqs['conv'], loopy_opts, nstore,
+                                     polydim, test_size))
+        __add_knl(polyfit_kernel_gen('cv', eqs['conv'], loopy_opts, nstore,
+                                     polydim, test_size))
     # add the thermo kernels to our dependencies
     depends_on.extend(kernels[-2:])
     # and temperature rates
@@ -3133,8 +3153,8 @@ def get_rate_eqn(eqs, index='i'):
     return rate_eqn_pre
 
 
-def polyfit_kernel_gen(nicename, eqs, specs,
-                       loopy_opts, test_size=None):
+def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
+                       poly_dim, test_size=None):
     """Helper function that generates kernels for
        evaluation of various thermodynamic species properties
 
@@ -3144,12 +3164,12 @@ def polyfit_kernel_gen(nicename, eqs, specs,
         The variable name to use in generated code
     eqs : dict of `sympy.Symbol`
         Dictionary defining conditional equations for the variables (keys)
-    specs : list of `SpecInfo`
-        List of species in the mechanism.
-    lang : {'c', 'cuda', 'opencl'}
-        Programming language.
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    poly_dim : int
+        The dimension of the NASA polynomial being used
     test_size : int
         If not None, this kernel is being used for testing.
 
@@ -3160,80 +3180,80 @@ def polyfit_kernel_gen(nicename, eqs, specs,
 
     """
 
+    param_ind = 'dummy'
+    loop_index = 'k'
+    # create mapper
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs,
+                            namestore.num_specs,
+                            loop_index)
+
+    knl_data = []
     if test_size is None:
-        test_size = 'problem_size'
+        knl_data.append(namestore.problem_size)
 
     if loopy_opts.width is not None and loopy_opts.depth is not None:
         raise Exception('Cannot specify both SIMD/SIMT width and depth')
 
+    # get correctly ordered arrays / strings
+    a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)
+    a_hi_lp, _ = mapstore.apply_maps(namestore.a_hi, loop_index, param_ind)
+    T_mid_lp, T_mid_str = mapstore.apply_maps(namestore.T_mid, loop_index)
+
+    # create the input/temperature arrays
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    out_lp, out_str = mapstore.apply_maps(getattr(namestore, nicename),
+                                          global_ind, loop_index)
+
+    knl_data.extend([a_lo_lp, a_hi_lp, T_mid_lp, T_lp, out_lp])
+
     # mapping of nicename -> varname
     var_maps = {'cp': '{C_p}[k]',
-                'h': 'H[k]', 'cv': '{C_v}[k]',
-                'u': 'U[k]', 'b': 'B[k]'}
+                'h': 'H[k]',
+                'cv': '{C_v}[k]',
+                'u': 'U[k]',
+                'b': 'B[k]'}
     varname = var_maps[nicename]
 
+    # get variable and equation
     var = next(v for v in eqs.keys() if str(v) == varname)
     eq = eqs[var]
-    poly_dim = specs[0].hi.shape[0]
-    Ns = len(specs)
 
-    # pick out a values and T_mid
-    a_lo = np.zeros((Ns, poly_dim), dtype=np.float64)
-    a_hi = np.zeros((Ns, poly_dim), dtype=np.float64)
-    T_mid = np.zeros((Ns,), dtype=np.float64)
-    for ind, spec in enumerate(specs):
-        a_lo[ind, :] = spec.lo[:]
-        a_hi[ind, :] = spec.hi[:]
-        T_mid[ind] = spec.Trange[1]
-
-    # get correctly ordered arrays / strings
-    indicies = ['k', '${param_val}']
-    a_lo_lp = lp.TemporaryVariable('a_lo', shape=a_lo.shape, initializer=a_lo,
-                                   scope=scopes.GLOBAL, read_only=True)
-    a_hi_lp = lp.TemporaryVariable('a_hi', shape=a_hi.shape, initializer=a_hi,
-                                   scope=scopes.GLOBAL, read_only=True)
-    a_lo_str = Template('a_lo[' + ','.join(indicies) + ']')
-    a_hi_str = Template('a_hi[' + ','.join(indicies) + ']')
-    T_mid_lp = lp.TemporaryVariable('T_mid', shape=T_mid.shape, initializer=T_mid, read_only=True,
-                                    scope=scopes.GLOBAL)
-
+    # create string indexes for a_lo/a_hi
+    a_lo_strs = [mapstore.apply_maps(namestore.a_lo, loop_index, str(i))[1]
+                 for i in range(poly_dim)]
+    a_hi_strs = [mapstore.apply_maps(namestore.a_hi, loop_index, str(i))[1]
+                 for i in range(poly_dim)]
+    # use to create lo / hi equation
     k = sp.Idx('k')
     lo_eq_str = str(eq.subs([(sp.IndexedBase('a')[k, i],
-                              a_lo_str.safe_substitute(param_val=i)) for i in range(poly_dim)]))
+                              a_lo_strs[i]) for i in range(poly_dim)]))
     hi_eq_str = str(eq.subs([(sp.IndexedBase('a')[k, i],
-                              a_hi_str.safe_substitute(param_val=i)) for i in range(poly_dim)]))
+                              a_hi_strs[i]) for i in range(poly_dim)]))
 
-    target = lp_utils.get_target(loopy_opts.lang)
-
-    # create the input arrays arrays
-    T_lp = lp.GlobalArg('T_arr', shape=(test_size,), dtype=np.float64)
-    out_lp, out_str, _ = lp_utils.get_loopy_arg(nicename,
-                                                indicies=['k', 'j'],
-                                                dimensions=(Ns, test_size),
-                                                order=loopy_opts.order)
-
-    knl_data = [a_lo_lp, a_hi_lp, T_mid_lp, T_lp, out_lp]
-
-    if test_size == 'problem_size':
-        knl_data = [lp.ValueArg('problem_size', dtype=np.int32)] + knl_data
+    T_val = 'T'
+    preinstructs = [default_pre_instructs(T_val, T_str, 'VAL')]
 
     return k_gen.knl_info(instructions=Template("""
-        for j
-            <> T = T_arr[j]
-            for k
-                if T < T_mid[k]
-                    ${out_str} = ${lo_eq}
-                else
-                    ${out_str} = ${hi_eq}
-                end
+        for k
+            if ${T_val} < ${T_mid_str}
+                ${out_str} = ${lo_eq}
+            else
+                ${out_str} = ${hi_eq}
             end
         end
-        """).safe_substitute(out_str=out_str, lo_eq=lo_eq_str, hi_eq=hi_eq_str),
+        """).safe_substitute(
+            out_str=out_str,
+            lo_eq=lo_eq_str,
+            hi_eq=hi_eq_str,
+            T_mid_str=T_mid_str,
+            T_val=T_val),
                           kernel_data=knl_data,
+                          pre_instructions=preinstructs,
                           name='eval_{}'.format(nicename),
                           parameters={'R_u': chem.RU},
-                          var_name='k',
-                          indicies=k_gen.handle_indicies(np.arange(Ns, dtype=np.int32), 'k', None, []))
+                          var_name=loop_index,
+                          mapstore=mapstore)
 
 
 def write_chem_utils(specs, eqs, loopy_opts,

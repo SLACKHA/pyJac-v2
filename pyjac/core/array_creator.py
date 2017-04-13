@@ -1532,3 +1532,25 @@ class NameStore(object):
                                     initializer=num_plog,
                                     shape=num_plog.shape,
                                     order=self.order)
+
+        # thermodynamic properties
+        self.a_lo = creator('a_lo',
+                            dtype=rate_info['thermo']['a_lo'].dtype,
+                            initializer=rate_info['thermo']['a_lo'],
+                            shape=rate_info['thermo']['a_lo'].shape,
+                            order=self.order)
+        self.a_hi = creator('a_hi',
+                            dtype=rate_info['thermo']['a_hi'].dtype,
+                            initializer=rate_info['thermo']['a_hi'],
+                            shape=rate_info['thermo']['a_hi'].shape,
+                            order=self.order)
+        self.T_mid = creator('T_mid',
+                             dtype=rate_info['thermo']['T_mid'].dtype,
+                             initializer=rate_info['thermo']['T_mid'],
+                             shape=rate_info['thermo']['T_mid'].shape,
+                             order=self.order)
+        for name in ['cp', 'cv', 'u', 'h', 'b']:
+            setattr(self, name, creator(name,
+                                        dtype=np.float64,
+                                        shape=(test_size, rate_info['Ns']),
+                                        order=self.order))

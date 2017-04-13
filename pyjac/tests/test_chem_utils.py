@@ -1,56 +1,61 @@
-#compatibility
-from builtins import range
-
-#system
-import os
-import filecmp
+# system
 from collections import OrderedDict
 
-#local imports
-from ..core.rate_subs import polyfit_kernel_gen, write_chem_utils
-from ..loopy_utils.loopy_utils import auto_run, loopy_options, get_device_list, kernel_call
-from ..utils import create_dir
+# local imports
+from ..core.rate_subs import polyfit_kernel_gen, assign_rates
+from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
+                                       get_device_list, kernel_call,
+                                       RateSpecialization)
 from ..kernel_utils import kernel_gen as k_gen
 from . import TestClass
+from ..core.array_creator import NameStore
 
-#modules
+# modules
 from optionloop import OptionLoop
-import cantera as ct
-import numpy as np
 from nose.plugins.attrib import attr
+import numpy as np
+
 
 class SubTest(TestClass):
-    def __subtest(self, T, ref_ans, nicename, eqs):
+    def __subtest(self, ref_ans, nicename, eqs):
         oploop = OptionLoop(OrderedDict([('lang', ['opencl']),
-            ('width', [4, None]),
-            ('depth', [4, None]),
-            ('ilp', [True, False]),
-            ('unr', [None, 4]),
-            ('order', ['C', 'F']),
-            ('device', get_device_list())]))
+                                         ('width', [4, None]),
+                                         ('depth', [4, None]),
+                                         ('ilp', [True, False]),
+                                         ('unr', [None, 4]),
+                                         ('order', ['C', 'F']),
+                                         ('device', get_device_list())]))
 
-        #create the kernel call
-        kc = kernel_call('eval_' + nicename,
-                            [ref_ans], T_arr=T)
-
-        specs = self.store.specs
+        poly_dim = self.store.specs[0].hi.size
         test_size = self.store.test_size
         for i, state in enumerate(oploop):
             try:
-                opt = loopy_options(**{x : state[x] for x in state if x != 'device'})
-                knl = polyfit_kernel_gen(nicename, eqs, specs,
-                                            opt, test_size=test_size)
+                opt = loopy_options(
+                    **{x: state[x] for x in state if x != 'device'})
+                rate_info = assign_rates(self.store.reacs, self.store.specs,
+                                         RateSpecialization.fixed)
+                namestore = NameStore(opt, rate_info, test_size)
+                knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
+                                         poly_dim,
+                                         test_size=test_size)
 
-                #create a dummy kernel generator
+                # create the kernel call
+                kc = kernel_call('eval_' + nicename,
+                         [ref_ans],
+                         phi=np.array(self.store.phi,
+                                      order=state['order'],
+                                      copy=True))
+
+                # create a dummy kernel generator
                 knl = k_gen.wrapping_kernel_generator(
                     name='chem_utils',
                     loopy_opts=opt,
                     kernels=[knl],
                     test_size=test_size
-                    )
+                )
                 knl._make_kernels()
 
-                #now run
+                # now run
                 kc.set_state(state['order'])
                 assert auto_run(knl.kernels, kc, device=state['device'])
             except Exception as e:
@@ -59,41 +64,25 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_cp(self):
-        self.__subtest(self.store.T, self.store.spec_cp,
-            'cp', self.store.conp_eqs)
+        self.__subtest(self.store.spec_cp,
+                       'cp', self.store.conp_eqs)
 
     @attr('long')
     def test_cv(self):
-        self.__subtest(self.store.T, self.store.spec_cv,
-            'cv', self.store.conp_eqs)
+        self.__subtest(self.store.spec_cv,
+                       'cv', self.store.conp_eqs)
 
     @attr('long')
     def test_h(self):
-        self.__subtest(self.store.T, self.store.spec_h,
-            'h', self.store.conp_eqs)
+        self.__subtest(self.store.spec_h,
+                       'h', self.store.conp_eqs)
 
     @attr('long')
     def test_u(self):
-        self.__subtest(self.store.T, self.store.spec_u,
-            'u', self.store.conv_eqs)
+        self.__subtest(self.store.spec_u,
+                       'u', self.store.conv_eqs)
 
     @attr('long')
     def test_b(self):
-        self.__subtest(self.store.T, self.store.spec_b,
-            'b', self.store.conp_eqs)
-
-    def test_write_chem_utils(self):
-        script_dir = self.store.script_dir
-        build_dir = self.store.build_dir
-        k = write_chem_utils(self.store.specs,
-            {'conp' : self.store.conp_eqs, 'conv' : self.store.conv_eqs},
-                loopy_options(lang='opencl',
-                    width=None, depth=None, ilp=False,
-                    unr=None, order='C', platform='CPU'))
-        k._make_kernels()
-        k._generate_wrapping_kernel(build_dir)
-
-        assert filecmp.cmp(os.path.join(build_dir, 'chem_utils.oclh'),
-                        os.path.join(script_dir, 'blessed', 'chem_utils.oclh'))
-        assert filecmp.cmp(os.path.join(build_dir, 'chem_utils.ocl'),
-                        os.path.join(script_dir, 'blessed', 'chem_utils.ocl'))
+        self.__subtest(self.store.spec_b,
+                       'b', self.store.conp_eqs)
