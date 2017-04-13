@@ -2744,7 +2744,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 """
                 <> T_iter = Tval {id=a1}
                 if ${b_str} < 0
-                    T_iter = Tinv {id=a2}
+                    T_iter = Tinv {id=a2, dep=a1}
                 end
                 <>kf_temp = ${A_str} {id=a3}
                 ${beta_iter}
