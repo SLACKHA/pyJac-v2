@@ -304,7 +304,7 @@ int main(int argc, char* argv[])
     cl_uint num_devices = atoi(argv[2]);
     int compile = 1;
     if (argc >= 4)
-        compile = atoi(argv[2]);
+        compile = atoi(argv[3]);
 
     //first compile to binary
     double compilation_time = -1;
