@@ -77,7 +77,7 @@ def get_cuda_path():
     cuda_path = which('nvcc')
     if cuda_path is None:
         print('nvcc not found!')
-        sys.exit(-1)
+        return []
 
     sixtyfourbit = platform.architecture()[0] == '64bit'
     cuda_path = os.path.dirname(os.path.dirname(cuda_path))

@@ -23,9 +23,9 @@ def write_mechanism_header(path, lang, specs, reacs):
                 'mechanism' + utils.header_ext[lang]), lang) as file:
         #define NR, NS, NN, etc.
 
-        file.add_define('NS', len(specs) - 1)
+        file.add_define('NS', len(specs))
         file.add_define('NR', len(reacs))
-        file.add_define('NN', len(specs))
+        file.add_define('NN', len(specs) + 1)
 
 def write_vec_header(path, lang, loopy_opts):
     with filew.get_header_file(os.path.join(path,
