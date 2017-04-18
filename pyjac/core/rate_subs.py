@@ -2492,11 +2492,8 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     # create instruction set
     sri_instructions = Template("""
-    <>Pr_val = 1e-300 {id=Pri}
-    if ${pr_str} > 1e-300
-        Pr_val = ${pr_str} {id=Prv, dep=Pri}
-    end
-    <>logPr = log10(Pr_val) {dep=Prv}
+    <>Pr_val = fmax(1e-300d, ${pr_str}) {id=Pri}
+    <>logPr = log10(Pr_val) {dep=Pri}
     <>X_temp = ${Xeq} {id=X_decl} # this must be a temporary to avoid a race on Fi_temp assignment
     <>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
     if ${d_str} != 1.0
@@ -2521,10 +2518,14 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                            default_pre_instructs('T',T_str, 'VAL')],
+                            default_pre_instructs('T', T_str, 'VAL')],
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=mapstore)]
+                           mapstore=mapstore,
+                           manglers=[
+                               k_gen.MangleGen('fmax',
+                                               (np.float64, np.float64),
+                                               np.float64)])]
 
 
 def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
