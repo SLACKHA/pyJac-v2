@@ -31,6 +31,7 @@ from optionloop import OptionLoop
 import cantera as ct
 import numpy as np
 from nose.plugins.attrib import attr
+from parameterized import parameterized
 
 
 class SubTest(TestClass):
@@ -365,12 +366,17 @@ class SubTest(TestClass):
         assert np.array_equal(result['thd']['spec'], thd_sp)
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
-                             do_spec_per_reac=False, use_platform_instead=False, do_conp=False):
+                             do_spec_per_reac=False,
+                             use_platform_instead=False,
+                             do_conp=False,
+                             do_vector=True,
+                             langs=['opencl']):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
-        oploop = [('lang', ['opencl']),
-                  ('width', [4, None]),
-                  ('depth', [4, None]),
+        vectypes = [4, None] if do_vector else [None]
+        oploop = [('lang', langs),
+                  ('width', vectypes[:]),
+                  ('depth', vectypes[:]),
                   ('order', ['C', 'F']),
                   ('ilp', [False]),
                   ('unr', [None, 4]),
@@ -441,7 +447,7 @@ class SubTest(TestClass):
                     infos = [infos]
 
             # create a dummy kernel generator
-            knl = k_gen.wrapping_kernel_generator(
+            knl = k_gen.make_kernel_generator(
                 name='spec_rates',
                 loopy_opts=opt,
                 kernels=infos,
@@ -577,7 +583,7 @@ class SubTest(TestClass):
                                                    test_size, falloff=True)
 
                 # create a dummy generator
-                gen = k_gen.wrapping_kernel_generator(
+                gen = k_gen.make_kernel_generator(
                     name='dummy',
                     loopy_opts=loopy_opts,
                     kernels=infos,
@@ -597,7 +603,7 @@ class SubTest(TestClass):
                 infos = get_simple_arrhenius_rates(
                     eqs, loopy_opts, rate_info, test_size)
                 # create a dummy generator
-                gen = k_gen.wrapping_kernel_generator(
+                gen = k_gen.make_kernel_generator(
                     name='dummy',
                     loopy_opts=loopy_opts,
                     kernels=infos,
@@ -846,13 +852,20 @@ class SubTest(TestClass):
                           compare_mask=[0],
                           **args)]
         # test conv
-        self.__generic_rate_tester(get_temperature_rate, kc, do_spec_per_reac=True,
+        self.__generic_rate_tester(get_temperature_rate, kc,
+                                   do_spec_per_reac=True,
                                    conp=False)
 
+    @parameterized.expand([('opencl',), ('c',)])
     @attr('long')
-    def test_specrates(self):
+    def test_specrates(self, lang):
         eqs, oploop = self.__get_eqs_and_oploop(True, True, True,
-                                                use_platform_instead=True, do_conp=True)
+                                                use_platform_instead=True,
+                                                do_conp=True,
+                                                do_vector=lang != 'c',
+                                                langs=[lang])
+        if lang != 'c':
+            return True
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir

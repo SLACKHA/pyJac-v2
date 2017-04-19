@@ -6,7 +6,7 @@ import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
 import numpy as np
 import pyopencl as cl
-import re
+from .. import utils
 import os
 
 # local imports
@@ -92,6 +92,10 @@ class loopy_options(object):
                  knl_type='map'):
         self.width = width
         self.depth = depth
+        if not utils.can_vectorize_lang[lang]:
+            assert width is None and depth is None, (
+                "Can't use a vectorized form with unvectorizable language,"
+                " {}".format(lang))
         self.ilp = ilp
         self.unr = unr
         check_lang(lang)
@@ -109,7 +113,7 @@ class loopy_options(object):
         self.knl_type = knl_type
         # need to find the first platform that has the device of the correct
         # type
-        if self.platform:
+        if self.lang == 'opencl' and self.platform:
             self.device_type = cl.device_type.ALL
             check_name = None
             if platform.lower() == 'cpu':
@@ -122,23 +126,26 @@ class loopy_options(object):
             platforms = cl.get_platforms()
             for p in platforms:
                 try:
-                    ctx = cl.Context(
+                    cl.Context(
                         dev_type=self.device_type,
                         properties=[(cl.context_properties.PLATFORM, p)])
-                    if not check_name or check_name.lower() in p.get_info(cl.platform_info.NAME).lower():
+                    if not check_name or check_name.lower() in p.get_info(
+                            cl.platform_info.NAME).lower():
                         self.platform = p
                         break
                 except cl.cffi_cl.RuntimeError:
                     pass
             if not self.platform:
                 raise Exception(
-                    'Cannot find matching platform for string: {}'.format(platform))
+                    'Cannot find matching platform for string: {}'.format(
+                        platform))
             # finally a matching device
             self.device = self.platform.get_devices(
                 device_type=self.device_type)
             if not self.device:
-                raise Exception('Cannot find devices of type {} on platform {}'.format(
-                    self.device_type, self.platform))
+                raise Exception(
+                    'Cannot find devices of type {} on platform {}'.format(
+                        self.device_type, self.platform))
             self.device = self.device[0]
             self.device_type = self.device.get_info(cl.device_info.TYPE)
 

@@ -47,7 +47,7 @@ class SubTest(TestClass):
                                       copy=True))
 
                 # create a dummy kernel generator
-                knl = k_gen.wrapping_kernel_generator(
+                knl = k_gen.make_kernel_generator(
                     name='chem_utils',
                     loopy_opts=opt,
                     kernels=[knl],

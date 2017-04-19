@@ -2910,7 +2910,7 @@ def write_specrates_kernel(eqs, reacs, specs,
 
     Returns
     -------
-    kernel_gen : :class:`wrapping_kernel_generator`
+    kernel_gen : :class:`kernel_generator`
         The generator responsible for creating the resulting code
 
     """
@@ -3043,7 +3043,7 @@ def write_specrates_kernel(eqs, reacs, specs,
                                    nstore, test_size=test_size, conp=conp))
 
     # get a wrapper for the dependecies
-    thermo_wrap = k_gen.wrapping_kernel_generator(name='chem_utils_kernel',
+    thermo_wrap = k_gen.make_kernel_generator(name='chem_utils_kernel',
                                                   loopy_opts=loopy_opts,
                                                   kernels=depends_on,
                                                   input_arrays=['T_arr'],
@@ -3093,7 +3093,7 @@ def write_specrates_kernel(eqs, reacs, specs,
         if rate_info['thd']['num']:
             output_arrays += ['pres_mod']
         output_arrays += ['rop_net']
-    return k_gen.wrapping_kernel_generator(
+    return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='species_rates_kernel',
         kernels=kernels,
@@ -3317,7 +3317,7 @@ def write_chem_utils(specs, eqs, loopy_opts,
         kernels.append(polyfit_kernel_gen(nicename,
                                           eq, specs, loopy_opts, test_size))
 
-    return k_gen.wrapping_kernel_generator(
+    return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='chem_utils',
         kernels=kernels,
