@@ -125,7 +125,7 @@ class memory_manager(object):
 
         # process any host array that needs init but isn't an input array
         for arr in sorted(self.has_init):
-            if not arr in self.host_arrays:
+            if arr not in self.host_arrays:
                 self.host_inits.append(arr)
 
         # get host defns

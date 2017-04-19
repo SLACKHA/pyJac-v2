@@ -265,7 +265,7 @@ void finalize()
 bool ${knl_name}_init = false;
 cl_uint problem_size_store = 0;
 cl_uint num_devices_store = 0;
-void ${knl_name}(cl_uint problem_size, cl_uint num_devices,
+void ${knl_name}_call(cl_uint problem_size, cl_uint num_devices,
                     ${knl_args})
 {
     if (num_devices != num_devices_store && ${knl_name}_init)

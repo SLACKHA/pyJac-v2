@@ -1,0 +1,157 @@
+/*
+kernel.c
+
+A skeleton for pyJac C-kernel (OpenMP) execution
+
+Nicholas Curtis - 2017
+*/
+
+#include "${knl_name}_main.h"
+#include "${knl_name}.h"
+#include "read_initial_conditions.h"
+#include "error_check.h"
+
+/* declare memory buffers */
+${mem_declares}
+
+/*
+Execute the kernel
+
+Parameters
+----------
+problem_size : int
+    The number of conditions to execute for
+${knl_args_doc}
+*/
+void execute_kernel(int problem_size, ${knl_args})
+{
+    /* Memory Transfers into the kernel, if any */
+    ${mem_transfers_in}
+
+    ${knl_name}(problem_size, ${full_kernel_args});
+
+    /* Memory Transfers out */
+    ${mem_transfers_out}
+}
+
+/*
+Initialize memory & assign kernel args for the kernel
+
+Parameters
+----------
+problem_size : int
+    The number of conditions to execute for
+*/
+void mem_init(int problem_size${input_initialized_args_defn})
+{
+    /* Alloc buffers */
+    ${mem_allocs}
+}
+
+/*
+Resets the program for a change in number of threads
+*/
+void threadset(int num_threads)
+{
+    // get maximum allowed threads
+    int max_threads = omp_get_max_threads();
+    // check that # of threads < max allowed
+    cassert(num_threads <= max_threads, "Can't use more than the maximum allowed threads by OpenMP.");
+    // set number of threads
+    omp_set_num_threads(num_threads);
+}
+
+
+/*
+Initialize the C (OpenMP) kernel
+
+Parameters
+----------
+problem_size : int
+    The number of conditions to execute for
+num_threads : int
+    The number of OpenMP threads to use
+*/
+void init(int problem_size, int num_threads${input_initialized_args_defn})
+{
+    threadset(num_threads);
+    mem_init(problem_size${input_initialized_args});
+}
+
+/*
+Completely cleanup the opencl kernel
+*/
+void finalize()
+{
+    /* Memory Frees */
+    ${mem_frees}
+}
+
+//knl specific vars
+bool ${knl_name}_init = false;
+int problem_size_store = 0;
+int num_threads_store = 0;
+void ${knl_name}_call(int problem_size, int num_threads,
+                    ${knl_args})
+{
+    if (num_threads != num_threads_store && ${knl_name}_init)
+    {
+        //check to see if we need to set the number of threads
+        threadset(num_threads);
+    }
+    else if (problem_size != problem_size_store && ${knl_name}_init)
+    {
+        //check to see if the problem size changed, if so we need to realloc memory
+        finalize();
+        mem_init(problem_size${input_initialized_args});
+    }
+    if(!${knl_name}_init)
+    {
+        init(problem_size, num_threads${input_initialized_args});
+        ${knl_name}_init = true;
+    }
+    execute_kernel(problem_size, ${input_args});
+
+    //store for next call
+    num_threads_store = num_threads;
+    problem_size_store = problem_size;
+}
+
+int main(int argc, char* argv[])
+{
+
+    //check args
+    cassert(argc >= 3, "Missing arguements...");
+
+    //arglist is:
+    //#0 - the program name
+    //#1 - the problem size
+    //#2 - the number of OpenMP threads [CPU only]
+
+    int problem_size = atoi(argv[1]);
+    int num_threads = atoi(argv[2]);
+
+    ${local_allocs}
+
+    //init memory & program
+    StartTimer();
+    init(problem_size, num_threads${input_initialized_args_local});
+    double setup_time = GetTimer();
+    //read input data
+    read_initial_conditions("${data_filename}", problem_size,
+                                ${read_args},
+                                '${order}');
+
+    StartTimer();
+    execute_kernel(problem_size, ${local_input_args});
+    double runtime = GetTimer();
+
+    printf("%d,%.15le,%.15le,%.15le\n", problem_size, -1.0,
+                setup_time, runtime);
+
+    ${local_frees}
+
+    finalize();
+
+    return 0;
+}

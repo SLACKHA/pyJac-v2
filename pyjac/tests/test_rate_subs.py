@@ -866,6 +866,9 @@ class SubTest(TestClass):
                                                 langs=[lang])
         if lang != 'c':
             return True
+
+        package_lang = {'opencl': 'ocl',
+                        'c': 'c'}
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
@@ -938,7 +941,8 @@ class SubTest(TestClass):
             # write the module tester
             with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
                 file.write(mod_test.safe_substitute(
-                    package='pyjac_ocl',
+                    package='pyjac_{lang}'.format(
+                        lang=package_lang[opts.lang]),
                     input_args=', '.join('"{}"'.format(x) for x in args),
                     test_arrays=', '.join('"{}"'.format(x) for x in tests),
                     non_array_args='{}, 12'.format(self.store.test_size),

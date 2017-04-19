@@ -13,6 +13,7 @@ import platform
 from .. import utils
 from .. import site_conf as site
 
+
 def lib_ext(shared):
     """Returns the appropriate library extension based on the shared flag"""
     return '.a' if not shared else '.so'
@@ -20,7 +21,7 @@ def lib_ext(shared):
 
 cmd_compile = dict(c='gcc',
                    opencl='gcc',
-                   #cuda='nvcc'
+                   # cuda='nvcc'
                    )
 
 
@@ -29,7 +30,7 @@ def cmd_lib(lang, shared):
     language and shared flag"""
     if lang in ['c', 'opencl']:
         return ['ar', 'rcs'] if not shared else ['gcc', '-shared']
-    #elif lang == 'cuda':
+    # elif lang == 'cuda':
     #    return ['nvcc', '-lib'] if not shared else ['nvcc', '-shared']
 
 
@@ -56,7 +57,7 @@ def which(file):
     a given file"""
     for path in os.environ["PATH"].split(os.pathsep):
         if os.path.exists(os.path.join(path, file)):
-                return os.path.join(path, file)
+            return os.path.join(path, file)
 
     return None
 
@@ -120,7 +121,7 @@ def compiler(fstruct):
     if fstruct.auto_diff:
         args = [x for x in args if 'std=c99' not in x]
 
-    #always use fPIC in case we're building wrapper
+    # always use fPIC in case we're building wrapper
     args.extend(shared_flags[fstruct.build_lang])
     args.extend(fstruct.args)
     include = ['-I{}'.format(d) for d in fstruct.i_dirs +
@@ -132,14 +133,16 @@ def compiler(fstruct):
         os.path.join(fstruct.source_dir, fstruct.filename +
                      utils.file_ext[fstruct.build_lang]
                      ),
-        '-o', os.path.join(fstruct.obj_dir, os.path.basename(fstruct.filename) + '.o')
-        ])
+        '-o', os.path.join(fstruct.obj_dir,
+                           os.path.basename(fstruct.filename) + '.o')
+    ])
     args = [val for val in args if val.strip()]
     try:
         print(' '.join(args))
         subprocess.check_call(args)
     except OSError:
-        print('Error: Compiler {} not found, generation of pyjac library failed.'.format(args[0]))
+        print('Error: Compiler {} not found, generation of pyjac library failed.'.format(
+            args[0]))
         sys.exit(-1)
     except subprocess.CalledProcessError:
         print('Error: compilation failed for ' + fstruct.filename +
@@ -180,7 +183,7 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
 
     libname = 'lib{}_pyjac'.format(desc)
 
-    #remove the old library
+    # remove the old library
     if os.path.exists(os.path.join(out_dir, libname + lib_ext(shared))):
         os.remove(os.path.join(out_dir, libname + lib_ext(shared)))
     if os.path.exists(os.path.join(out_dir, libname + lib_ext(not shared))):
@@ -191,8 +194,9 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
     if not shared and lang != 'cuda':
         command += [os.path.join(out_dir, libname)]
 
-    #add the files
-    command.extend([os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
+    # add the files
+    command.extend(
+        [os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
 
     if shared:
         command.extend(shared_flags[lang])
@@ -208,7 +212,8 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
         print(' '.join(command))
         subprocess.check_call(command)
     except OSError:
-        print('Error: Compiler {} not found, generation of pyjac library failed.'.format(args[0]))
+        print('Error: Compiler {} not found, generation of pyjac library failed.'.format(
+            command[0]))
         sys.exit(-1)
     except subprocess.CalledProcessError:
         print('Error: Generation of pyjac library failed.')
@@ -218,8 +223,10 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
 
 
 class file_struct(object):
+
     """A simple structure designed to enable multiprocess compilation
     """
+
     def __init__(self, lang, build_lang, filename, i_dirs, args,
                  source_dir, obj_dir, shared
                  ):
@@ -252,7 +259,7 @@ class file_struct(object):
         self.source_dir = source_dir
         self.obj_dir = obj_dir
         self.shared = shared
-        self.auto_diff=False
+        self.auto_diff = False
 
 
 def get_file_list(source_dir, lang, FD=False, AD=False):
@@ -284,14 +291,16 @@ def get_file_list(source_dir, lang, FD=False, AD=False):
 
     files = ['read_initial_conditions', 'timer']
     if lang == 'opencl':
-        files += ['species_rates_kernel_compiler', 'species_rates_kernel_main', 'ocl_errorcheck']
+        files += ['species_rates_kernel_compiler',
+                  'species_rates_kernel_main', 'ocl_errorcheck']
     else:
-        files += ['species_rates']
+        files += ['species_rates_kernel_main', 'species_rates_kernel',
+                  'error_check', 'chem_utils_kernel']
 
-    #if FD:
+    # if FD:
         #files += ['fd_jacob']
         #flists = []
-    #else:
+    # else:
         #files += ['jacob']
         #flists = [('jacobs', 'jac_list_{}')]
 
@@ -300,11 +309,11 @@ def get_file_list(source_dir, lang, FD=False, AD=False):
     for flist in flists:
         try:
             with open(os.path.join(source_dir,
-                      flist[0], flist[1].format(lang))
+                                   flist[0], flist[1].format(lang))
                       ) as file:
                 vals = file.readline().strip().split(' ')
                 vals = [os.path.join(flist[0],
-                        f[:f.index(utils.file_ext[lang])]) for f in vals
+                                     f[:f.index(utils.file_ext[lang])]) for f in vals
                         ]
                 files += vals
                 i_dirs.append(os.path.join(source_dir, flist[0]))
@@ -342,7 +351,7 @@ def generate_library(lang, source_dir, obj_dir=None,
     Location of generated library
 
     """
-    #check lang
+    # check lang
     if lang not in flags.keys():
         print('Cannot generate library for unknown language {}'.format(lang))
         sys.exit(-1)
@@ -372,25 +381,25 @@ def generate_library(lang, source_dir, obj_dir=None,
     obj_dir = os.path.abspath(obj_dir)
     out_dir = os.path.abspath(out_dir)
 
-    #get file lists
+    # get file lists
     i_dirs, files = get_file_list(source_dir, build_lang,
                                   FD=finite_difference, AD=auto_diff
                                   )
 
     # Compile generated source code
     structs = [file_struct(lang, build_lang, f, i_dirs,
-               (['-DFINITE_DIFF'] if finite_difference else []),
-               source_dir, obj_dir, shared) for f in files
+                           (['-DFINITE_DIFF'] if finite_difference else []),
+                           source_dir, obj_dir, shared) for f in files
                ]
     for x in structs:
-        x.auto_diff=auto_diff
+        x.auto_diff = auto_diff
 
     pool = multiprocessing.Pool()
     results = pool.map(compiler, structs)
     pool.close()
     pool.join()
     if any(r == -1 for r in results):
-       sys.exit(-1)
+        sys.exit(-1)
 
     libname = libgen(lang, obj_dir, out_dir, files, shared, auto_diff)
     return os.path.join(out_dir, libname)
