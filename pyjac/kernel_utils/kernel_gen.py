@@ -48,7 +48,7 @@ class vecwith_fixer(object):
         return grid_size, (lsize,)
 
 
-def make_kernel_generator(self, loopy_opts, *args, **kw_args):
+def make_kernel_generator(loopy_opts, *args, **kw_args):
     """
     Factory generator method to return the appropriate
     :class:`kernel_generator` type based on the target language in the
@@ -64,7 +64,7 @@ def make_kernel_generator(self, loopy_opts, *args, **kw_args):
         The keyword args to pass to the :class:`kernel_generator`
     """
     if loopy_opts.lang == 'c':
-        return kernel_generator(loopy_opts, *args, **kw_args)
+        return c_kernel_generator(loopy_opts, *args, **kw_args)
     if loopy_opts.lang == 'opencl':
         return opencl_kernel_generator(loopy_opts, *args, **kw_args)
     raise NotImplementedError
@@ -299,7 +299,7 @@ class kernel_generator(object):
         # and any other deps
         self.__copy_deps(common_dir, path)
 
-    def _get_pass(self, argv, include_type=True, postfix=''):
+    def _get_pass(self, argv, include_type=True, is_host=True, postfix=''):
         """
         Simple helper method to get the string for passing an arguement
         to a method (or for the method definition)
@@ -313,8 +313,10 @@ class kernel_generator(object):
         postfix : str
             Optional postfix to append to the variable name [Default:'']
         """
-        return '{type}h_{name}'.format(
+        prefix = 'h_' if is_host else 'd_'
+        return '{type}{prefix}{name}'.format(
             type=self.type_map[argv.dtype] + '* ' if include_type else '',
+            prefix=prefix,
             name=argv.name + postfix)
 
     def _generate_calling_header(self, path):
@@ -339,7 +341,8 @@ class kernel_generator(object):
 
         self.header_name = os.path.join(path,
                                         self.file_prefix + self.name +
-                                        utils.header_ext[self.mem.host_lang])
+                                        '_main' + utils.header_ext[
+                                            self.mem.host_lang])
         with filew.get_file(os.path.join(path, self.header_name), self.lang,
                             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
@@ -364,7 +367,28 @@ class kernel_generator(object):
             An updated kernel source template to substitute general template
             parameters into
         """
-        pass
+        return file_src
+
+    def _special_wrapper_subs(self, file_src):
+        """
+        Substitutes wrapper kernel template parameters that are specific to a
+        target languages, to be specialized by subclasses of the
+        :class:`kernel_generator`
+
+        Parameters
+        ----------
+        file_src : Template
+            The kernel source template to substitute into
+
+        Returns:
+        new_file_src : Template
+            An updated kernel source template to substitute general template
+            parameters into
+        """
+        return file_src
+
+    def _set_sort(self, arr):
+        return sorted(set(arr), key=lambda x: arr.index(x))
 
     def _generate_calling_program(self, path, data_filename):
         """
@@ -390,21 +414,22 @@ class kernel_generator(object):
         # find definitions
         mem_declares = self.mem.get_defns()
 
-        def __set_sort(arr):
-            return sorted(set(arr), key=lambda x: arr.index(x))
-
         # and input args
 
         # these are the args in the kernel defn
-        knl_args = ', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a))
+        knl_args = ', '.join([self._get_pass(
+            next(x for x in self.mem.arrays if x.name == a))
                               for a in self.mem.host_arrays])
         # these are the args passed to the kernel (exclude type)
-        input_args = ', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a), False)
-                                for a in self.mem.host_arrays])
+        input_args = ', '.join([self._get_pass(
+            next(x for x in self.mem.arrays if x.name == a),
+            include_type=False) for a in self.mem.host_arrays])
         # these are passed from the main method (exclude type, add _local
         # postfix)
-        local_input_args = ', '.join([self._get_pass(next(x for x in self.mem.arrays if x.name == a), False,
-                                                     '_local') for a in self.mem.host_arrays])
+        local_input_args = ', '.join([self._get_pass(
+            next(x for x in self.mem.arrays if x.name == a),
+            include_type=False,
+            postfix='_local') for a in self.mem.host_arrays])
         # create doc strings
         knl_args_doc = []
         knl_args_doc_template = Template(
@@ -434,7 +459,8 @@ ${name} : ${type}
         # that require initialization, and hence must be passed to mem_init
         input_initialized_args = ', ' + ', '.join([
             self._get_pass(
-                next(x for x in self.mem.arrays if x.name == a), False)
+                next(x for x in self.mem.arrays if x.name == a),
+                include_type=False)
             for a in self.mem.in_arrays if a in self.mem.has_init])
         # and the type included form thereof (for defn's)
         input_initialized_args_defn = ', ' + ', '.join([
@@ -442,8 +468,9 @@ ${name} : ${type}
             for a in self.mem.in_arrays if a in self.mem.has_init])
         # and finally the local versions
         input_initialized_args_local = ', ' + ', '.join([
-            self._get_pass(next(x for x in self.mem.arrays if x.name == a), False,
-                           '_local')
+            self._get_pass(next(x for x in self.mem.arrays if x.name == a),
+                           include_type=False,
+                           postfix='_local')
             for a in self.mem.in_arrays if a in self.mem.has_init])
         # memory transfers in
         mem_in = self.mem.get_mem_transfers_in()
@@ -466,7 +493,7 @@ ${name} : ${type}
                                'kernel.c.in'), 'r') as file:
             file_src = Template(file.read())
 
-        file_src = self._special_kernel_subs()
+        file_src = self._special_kernel_subs(file_src)
 
         with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[self.lang]),
                             self.lang, use_filter=False) as file:
@@ -653,6 +680,8 @@ ${name} : ${type}
         additional_kernels = '\n'.join([
             lp_utils.get_code(k) for k in self.kernels
             if not any(y.name == k.name for y in self.external_kernels)])
+
+        file_src = self._special_wrapper_subs(file_src)
 
         self.filename = os.path.join(
             path,
@@ -885,23 +914,49 @@ ${name} : ${type}
         return knl
 
 
+class c_kernel_generator(kernel_generator):
+    def __init__(self, *args, **kw_args):
+
+        super(c_kernel_generator, self).__init__(*args, **kw_args)
+
+        self.extern_defn_template = Template(
+            'extern ${type}* ${name}' + utils.line_end[self.lang])
+
+    def _special_kernel_subs(self, file_src):
+        """
+        An override of the :method:`kernel_generator._special_wrapping_subs`
+        that implements C-specific wrapping kernel arguement passing
+
+        Parameters
+        ----------
+        file_src : Template
+            The kernel source template to substitute into
+
+        Returns:
+        new_file_src : Template
+            An updated kernel source template to substitute general template
+            parameters into
+        """
+
+        # and input args
+
+        # these are the args in the kernel defn
+        full_kernel_args = ', '.join(self._set_sort(
+            [self._get_pass(a, include_type=False, is_host=False)
+             for a in self.mem.arrays]))
+
+        return Template(file_src.safe_substitute(
+            full_kernel_args=full_kernel_args))
+
+
 class opencl_kernel_generator(kernel_generator):
 
     """
     An opencl specific kernel generator
     """
 
-    def __init__(self, loopy_opts, name, kernels,
-                 external_kernels=[],
-                 input_arrays=[],
-                 output_arrays=[],
-                 init_arrays={},
-                 test_size=None,
-                 auto_diff=False,
-                 depends_on=[],
-                 array_props={},
-                 barriers=[]):
-        super(opencl_kernel_generator, self).__init__()
+    def __init__(self, *args, **kw_args):
+        super(opencl_kernel_generator, self).__init__(*args, **kw_args)
 
         # opencl specific items
         self.set_knl_arg_array_template = Template(

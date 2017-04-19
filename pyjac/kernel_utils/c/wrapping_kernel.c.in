@@ -1,0 +1,10 @@
+#include <math.h>
+
+${defines}
+
+${additional_kernels}
+
+${func_define}
+{
+    ${body}
+}
