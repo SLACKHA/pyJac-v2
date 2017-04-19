@@ -286,6 +286,10 @@ void ${knl_name}(cl_uint problem_size, cl_uint num_devices,
         ${knl_name}_init = true;
     }
     execute_kernel(problem_size, ${input_args});
+
+    //store for next call
+    num_devices_store = num_devices;
+    problem_size_store = problem_size;
 }
 
 int main(int argc, char* argv[])

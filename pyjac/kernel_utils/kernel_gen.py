@@ -22,7 +22,59 @@ from ..loopy_utils import loopy_utils as lp_utils
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
 
-class wrapping_kernel_generator(object):
+class vecwith_fixer(object):
+
+    """
+    Simple utility class to force a constant vector width
+    even when the loop being vectorized is shorted than the desired width
+
+    clean : :class:`loopy.LoopyKernel`
+        The 'clean' version of the kernel, that will be used for
+        determination of the gridsize / vecwidth
+    vecwidth : int
+        The desired vector width
+    """
+
+    def __init__(self, clean, vecwidth):
+        self.clean = clean
+        self.vecwidth = vecwidth
+
+    def __call__(self, insn_ids, ignore_auto=False):
+        # fix for variable too small for vectorization
+        grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
+            insn_ids, ignore_auto=ignore_auto)
+        lsize = lsize if self.vecwidth is None else \
+            self.vecwidth
+        return grid_size, (lsize,)
+
+
+def make_kernel_generator(self, loopy_opts, *args, **kw_args):
+    """
+    Factory generator method to return the appropriate
+    :class:`kernel_generator` type based on the target language in the
+    :param:`loopy_opts`
+
+    Parameters
+    ----------
+    loopy_opts : :class:`LoopyOptions`
+        The specified user options
+    *args : tuple
+        The other positional args to pass to the :class:`kernel_generator`
+    **kw_args : dict
+        The keyword args to pass to the :class:`kernel_generator`
+    """
+    if loopy_opts.lang == 'c':
+        return kernel_generator(loopy_opts, *args, **kw_args)
+    if loopy_opts.lang == 'opencl':
+        return opencl_kernel_generator(loopy_opts, *args, **kw_args)
+    raise NotImplementedError
+
+
+class kernel_generator(object):
+
+    """
+    The base class for the kernel generators
+    """
 
     def __init__(self, loopy_opts, name, kernels,
                  external_kernels=[],
@@ -44,7 +96,8 @@ class wrapping_kernel_generator(object):
         kernels : list of :class:`loopy.LoopKernel`
             The kernels / calls to wrap
         external_kernels : list of :class:`loopy.LoopKernel`
-            External kernels that must be called, but not implemented in this file
+            External kernels that must be called, but not implemented in this
+            file
         input_arrays : list of str
             The names of the input arrays of this kernel
         output_arrays : list of str
@@ -56,12 +109,13 @@ class wrapping_kernel_generator(object):
             If specified, the # of conditions to test
         auto_diff : bool
             If true, this will be used for automatic differentiation
-        depends_on : list of :class:`wrapping_kernel_generator`
+        depends_on : list of :class:`kernel_generator`
             If supplied, this kernel depends on the supplied depencies
         array_props : dict
             Mapping of various switches to array names:
                 doesnt_need_init
-                    * Arrays in this list do not need initialization [defined for host arrays only]
+                    * Arrays in this list do not need initialization
+                      [defined for host arrays only]
         barriers : list of tuples
             List of global memory barriers needed, (knl1, knl2, barrier_type)
         """
@@ -78,15 +132,6 @@ class wrapping_kernel_generator(object):
         # update the memory manager
         self.mem.add_arrays(in_arrays=input_arrays,
                             out_arrays=output_arrays, has_init=init_arrays)
-
-        self.set_knl_arg_array_template = Template(self.mem.get_check_err_call('clSetKernelArg(kernel,'
-                                                                               '${arg_index}, ${arg_size}, ${arg_value})'))
-        self.set_knl_arg_value_template = Template(self.mem.get_check_err_call('clSetKernelArg(kernel,'
-                                                                               '${arg_index}, ${arg_size}, ${arg_value})'))
-        self.barrier_templates = {'opencl': {
-            'global': 'barrier(CLK_GLOBAL_MEM_FENCE)',
-            'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
-        }}
 
         self.type_map = {}
         from loopy.types import to_loopy_type
@@ -105,13 +150,14 @@ class wrapping_kernel_generator(object):
 
     def add_depencencies(self, k_gens):
         """
-        Adds the supplied :class:`wrapping_kernel_generator`s to this
-        one's dependency list.  Functionally this means that this kernel generator
-        will know how to compile and execute functions from the dependencies
+        Adds the supplied :class:`kernel_generator`s to this
+        one's dependency list.  Functionally this means that this kernel
+        generator will know how to compile and execute functions
+        from the dependencies
 
         Parameters
         ----------
-        k_gens : list of :class:`wrapping_kernel_generator`
+        k_gens : list of :class:`kernel_generator`
             The dependencies to add to this kernel
         """
 
@@ -132,7 +178,7 @@ class wrapping_kernel_generator(object):
         """
 
         # TODO: need to update loopy to allow pointer args
-        # to functions, in the meantime use a OpenCL Template
+        # to functions, in the meantime use a Template
 
         # now create the kernels!
         target = lp_utils.get_target(self.lang, self.loopy_opts.device)
@@ -142,10 +188,12 @@ class wrapping_kernel_generator(object):
             # create kernel from k_gen.knl_info
             self.kernels[i] = self.make_kernel(info, target, self.test_size)
             # apply vectorization
-            self.kernels[i] = apply_vectorization(self.loopy_opts,
-                                                  info.var_name, self.kernels[
-                                                      i], vecspec=info.vectorization_specializer,
-                                                  can_vectorize=info.can_vectorize)
+            self.kernels[i] = self.apply_specialization(
+                self.loopy_opts,
+                info.var_name,
+                self.kernels[i],
+                vecspec=info.vectorization_specializer,
+                can_vectorize=info.can_vectorize)
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
             # set the editor
@@ -160,13 +208,29 @@ class wrapping_kernel_generator(object):
             x._make_kernels()
 
     def __copy_deps(self, scan_path, out_path, change_extension=True):
+        """
+        Convenience function to copy the dependencies of this
+        :class:`kernel_generator` to our own output path
+
+        Parameters
+        ----------
+
+        scan_path : str
+            The path the dependencies were written to
+        out_path : str
+            The path this generator is writing to
+        change_ext : bool
+            If True, any dependencies that do not end with the proper file
+            extension, see :any:`utils.file_ext`
+
+        """
         deps = [x for x in os.listdir(scan_path) if os.path.isfile(
             os.path.join(scan_path, x)) and not x.endswith('.in')]
         for dep in deps:
             dep_dest = dep
             dep_is_header = dep.endswith('.h')
-            ext = utils.file_ext[
-                self.lang] if not dep_is_header else utils.header_ext[self.lang]
+            ext = (utils.file_ext[self.lang] if not dep_is_header
+                   else utils.header_ext[self.lang])
             if change_extension and not dep.endswith(ext):
                 dep_dest = dep[:dep.rfind('.')] + ext
             shutil.copyfile(os.path.join(scan_path, dep),
@@ -205,6 +269,19 @@ class wrapping_kernel_generator(object):
         self.__copy_deps(lang_dir, path, change_extension=False)
 
     def _generate_common(self, path):
+        """
+        Creates the common files (used by all target languages) for this
+        kernel generator
+
+        Parameters
+        ----------
+        path : str
+            The output path for the common files
+
+        Returns
+        -------
+        None
+        """
 
         common_dir = os.path.join(script_dir, 'common')
         # get the initial condition reader
@@ -213,7 +290,8 @@ class wrapping_kernel_generator(object):
             file_src = Template(file.read())
 
         with filew.get_file(os.path.join(path, 'read_initial_conditions'
-                                         + utils.file_ext[self.lang]), self.lang,
+                                         + utils.file_ext[self.lang]),
+                            self.lang,
                             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
                 mechanism='mechanism' + utils.header_ext[self.lang]))
@@ -222,11 +300,36 @@ class wrapping_kernel_generator(object):
         self.__copy_deps(common_dir, path)
 
     def _get_pass(self, argv, include_type=True, postfix=''):
+        """
+        Simple helper method to get the string for passing an arguement
+        to a method (or for the method definition)
+
+        Parameters
+        ----------
+        argv : :class:`loopy.KernelArgument`
+            The arguement to pass
+        include_type : bool
+            If True, include the C-type in the pass string [Default:True]
+        postfix : str
+            Optional postfix to append to the variable name [Default:'']
+        """
         return '{type}h_{name}'.format(
             type=self.type_map[argv.dtype] + '* ' if include_type else '',
             name=argv.name + postfix)
 
     def _generate_calling_header(self, path):
+        """
+        Creates the header file for this kernel
+
+        Parameters
+        ----------
+        path : str
+            The output path for the header file
+
+        Returns
+        -------
+        None
+        """
         assert self.filename or self.bin_name, ('Cannot generate calling '
                                                 'header before wrapping kernel'
                                                 ' is generated...')
@@ -242,8 +345,26 @@ class wrapping_kernel_generator(object):
             file.add_lines(file_src.safe_substitute(
                 input_args=', '.join([self._get_pass(next(
                     x for x in self.mem.arrays if x.name == a))
-                                      for a in self.mem.host_arrays]),
+                    for a in self.mem.host_arrays]),
                 knl_name=self.name))
+
+    def _special_kernel_subs(self, file_src):
+        """
+        Substitutes kernel template parameters that are specific to a
+        target languages, to be specialized by subclasses of the
+        :class:`kernel_generator`
+
+        Parameters
+        ----------
+        file_src : Template
+            The kernel source template to substitute into
+
+        Returns:
+        new_file_src : Template
+            An updated kernel source template to substitute general template
+            parameters into
+        """
+        pass
 
     def _generate_calling_program(self, path, data_filename):
         """
@@ -262,7 +383,9 @@ class wrapping_kernel_generator(object):
         None
         """
 
-        assert self.filename or self.bin_name, 'Cannot generate calling program before wrapping kernel is generated...'
+        assert self.filename or self.bin_name, (
+            'Cannot generate calling program before wrapping kernel '
+            'is generated...')
 
         # find definitions
         mem_declares = self.mem.get_defns()
@@ -301,7 +424,7 @@ ${name} : ${type}
                     name=x, type='double*', desc=('The time rate of change of'
                                                   'the state vector, in '
                                                   '{}-order').format(
-                                                       self.loopy_opts.order)))
+                        self.loopy_opts.order)))
             else:
                 logging.warn(
                     'Argument documentation not found for arg {}'.format(x))
@@ -326,16 +449,6 @@ ${name} : ${type}
         mem_in = self.mem.get_mem_transfers_in()
         # memory transfers out
         mem_out = self.mem.get_mem_transfers_out()
-        # vec width
-        vec_width = self.vec_width
-        if not vec_width:
-            # set to default
-            vec_width = 1
-        # platform
-        platform_str = self.loopy_opts.platform.get_info(
-            cl.platform_info.VENDOR)
-        # build options
-        build_options = self.build_options
         # memory allocations
         mem_allocs = self.mem.get_mem_allocs()
         # input allocs
@@ -343,28 +456,22 @@ ${name} : ${type}
         # read args are those that aren't initalized elsewhere
         read_args = ', '.join(['h_' + x + '_local' for x in self.mem.in_arrays
                                if x in ['phi', 'P_arr']])
-        # kernel arg setting
-        kernel_arg_sets = self.get_kernel_arg_setting()
         # memory frees
         mem_frees = self.mem.get_mem_frees()
         # input frees
         local_frees = self.mem.get_mem_frees(True)
-        # kernel list
-        kernel_paths = [self.bin_name] + [x.bin_name for x in self.depends_on]
-        kernel_paths = ', '.join('"{}"'.format(x)
-                                 for x in kernel_paths if x.strip())
 
         # get template
         with open(os.path.join(script_dir, self.lang,
                                'kernel.c.in'), 'r') as file:
             file_src = Template(file.read())
 
+        file_src = self._special_kernel_subs()
+
         with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[self.lang]),
                             self.lang, use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
                 mem_declares=mem_declares,
-                platform=platform_str,
-                build_options=self.build_options,
                 knl_args=knl_args,
                 knl_args_doc=knl_args_doc,
                 knl_name=self.name,
@@ -375,111 +482,36 @@ ${name} : ${type}
                 input_initialized_args_local=input_initialized_args_local,
                 mem_transfers_in=mem_in,
                 mem_transfers_out=mem_out,
-                vec_width=vec_width,
-                kernel_paths=kernel_paths,
                 mem_allocs=mem_allocs,
-                kernel_arg_set=kernel_arg_sets,
                 mem_frees=mem_frees,
                 read_args=read_args,
                 order=self.loopy_opts.order,
-                device_type=str(self.loopy_opts.device_type),
-                num_source=1,  # only 1 program / binary is built
                 data_filename=data_filename,
                 local_allocs=local_allocs,
                 local_frees=local_frees
             ))
 
-    def get_kernel_arg_setting(self):
-        """
-        Needed for OpenCL, this generates the code that sets the kernel args
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        knl_arg_set_str : str
-            The code that sets opencl kernel args
-        """
-
-        kernel_arg_sets = []
-        for i, arg in enumerate(self.all_arrays):
-            if not isinstance(arg, lp.ValueArg):
-                kernel_arg_sets.append(
-                    self.set_knl_arg_array_template.safe_substitute(
-                        arg_index=i,
-                        arg_size='sizeof({})'.format('d_' + arg.name),
-                        arg_value='&d_' + arg.name)
-                )
-            else:
-                kernel_arg_sets.append(
-                    self.set_knl_arg_value_template.safe_substitute(
-                        arg_index=i,
-                        arg_size='sizeof({})'.format(arg.name),
-                        arg_value='&' + arg.name))
-
-        return '\n'.join([x + utils.line_end[self.lang] for x in kernel_arg_sets])
-
     def _generate_compiling_program(self, path):
         """
-        Needed for OpenCL, this generates a simple C file that
-        compiles and stores the binary OpenCL kernel generated w/ the wrapper
+        Needed for some languages (e.g., OpenCL) this may be overriden in
+        subclasses to generate a program that compilers the kernel
 
         Parameters
         ----------
         path : str
-            The output path to write files to
+            The output path for the compiling program
 
         Returns
         -------
         None
         """
 
-        assert self.filename, 'Cannot generate compiler before wrapping kernel is generated...'
-        if self.depends_on:
-            assert [x.filename for x in self.depends_on], ('Cannot generate compiler before wrapping kernel '
-                                                           'for dependencies are generated...')
-
-        self.build_options = ''
-        if self.lang == 'opencl':
-            with open(os.path.join(script_dir, self.lang,
-                                   'opencl_kernel_compiler.c.in'),
-                      'r') as file:
-                file_str = file.read()
-                file_src = Template(file_str)
-
-            # get the platform from the options
-            platform_str = self.loopy_opts.platform.get_info(
-                cl.platform_info.VENDOR)
-
-            # for the build options, we turn to the siteconf
-            self.build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
-            self.build_options.extend(site.CL_FLAGS)
-            self.build_options.append('-cl-std=CL{}'.format(site.CL_VERSION))
-            self.build_options = ' '.join(self.build_options)
-
-            file_list = [self.filename] + [x.filename for x in self.depends_on]
-            file_list = ', '.join('"{}"'.format(x) for x in file_list)
-
-            self.bin_name = self.filename[:self.filename.index(
-                utils.file_ext[self.lang])] + '.bin'
-
-            with filew.get_file(os.path.join(path, self.name + '_compiler'
-                                             + utils.file_ext[self.lang]),
-                                self.lang, use_filter=False) as file:
-                file.add_lines(file_src.safe_substitute(
-                    filenames=file_list,
-                    outname=self.bin_name,
-                    platform=platform_str,
-                    build_options=self.build_options,
-                    # compiler expects all source strings
-                    num_source=1+len(self.depends_on)
-                ))
+        pass
 
     def _generate_wrapping_kernel(self, path):
         """
-        Generates the wrapping kernel
+        Generates a wrapper around the various subkernels in this
+        :class:`kernel_generator` (rather than working through loopy's fusion)
 
         Parameters
         ----------
@@ -491,8 +523,11 @@ ${name} : ${type}
         None
         """
 
-        assert all(isinstance(x, lp.LoopKernel) or next((y for y in self.external_kernels if x.name == y.name), None)
-                   for x in self.kernels), 'Cannot generate wrapper before calling _make_kernels'
+        assert all(
+            isinstance(x, lp.LoopKernel) or
+            next((y for y in self.external_kernels if x.name == y.name), None)
+            for x in self.kernels), ('Cannot generate wrapper '
+                                     'before calling _make_kernels')
 
         if self.depends_on:
             # generate wrappers for dependencies
@@ -504,8 +539,10 @@ ${name} : ${type}
             self.file_prefix = 'ad_'
 
         # first, load the wrapper as a template
-        with open(os.path.join(script_dir, self.lang,
-                               'wrapping_kernel{}.in'.format(utils.file_ext[self.lang])),
+        with open(os.path.join(
+                script_dir,
+                self.lang,
+                'wrapping_kernel{}.in'.format(utils.file_ext[self.lang])),
                   'r') as file:
             file_str = file.read()
             file_src = Template(file_str)
@@ -517,20 +554,22 @@ ${name} : ${type}
         # need to find mapping of externel kernels to depends
         for x in self.external_kernels:
             knl = next(
-                (y for dep in self.depends_on for y in dep.kernels if y.name == x.name), None)
-            assert knl, 'Cannot find external kernel {} in any dependencies'.format(
-                x.name)
+                (y for dep in self.depends_on
+                 for y in dep.kernels if y.name == x.name), None)
+            assert knl, (
+                'Cannot find external kernel {} in any dependencies'.format(
+                         x.name))
             my_knl_ind = next(
-                (i for i, k in enumerate(self.kernels) if x.name == k.name), None)
+                (i for i, k in enumerate(self.kernels) if x.name == k.name),
+                None)
             # now replace
             self.kernels[my_knl_ind] = knl
 
         # now scan through all our (and externel) kernels
         # and compile the args
-        defines = [arg for knl in self.kernels for arg in knl.args if
+        defines = [arg for dummy in self.kernels for arg in dummy.args if
                    not isinstance(arg, lp.TemporaryVariable)]
         nameset = sorted(set(d.name for d in defines))
-        args = []
         for name in nameset:
             # check for dupes
             same_name = [x for x in defines if x.name == name]
@@ -543,10 +582,10 @@ ${name} : ${type}
         self.mem.add_arrays(kernel_data)
 
         def _name_assign(arr):
-            if arr.name not in ['T_arr', 'P_arr', 'conc_arr'] and not \
+            if arr.name not in ['P_arr', 'phi'] and not \
                     isinstance(arr, lp.ValueArg):
-                return arr.name + '[{ind}] = 0'.format(ind=
-                    ', '.join(['0'] * len(arr.shape)))
+                return arr.name + '[{ind}] = 0'.format(
+                    ind=', '.join(['0'] * len(arr.shape)))
             return ''
 
         # generate the kernel definition
@@ -556,12 +595,15 @@ ${name} : ${type}
         if self.vec_width is None:
             self.vec_width = 0
         # create a dummy kernel to get the defn
-        knl = lp.make_kernel('{{[i, j]: 0 <= i,j < {}}}'.format(self.vec_width),
-            '\n'.join(_name_assign(arr) for arr in kernel_data),
-            kernel_data,
-            name=self.name,
-            target=lp_utils.get_target(self.lang, self.loopy_opts.device)
-            )
+        knl = lp.make_kernel('{{[i, j]: 0 <= i,j < {}}}'.format(
+                                self.vec_width),
+                             '\n'.join(_name_assign(arr)
+                                       for arr in kernel_data),
+                             kernel_data,
+                             name=self.name,
+                             target=lp_utils.get_target(
+                                 self.lang, self.loopy_opts.device)
+                             )
         # force vector width
         if self.vec_width != 0:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
@@ -576,19 +618,18 @@ ${name} : ${type}
                 args=','.join([arg.name for arg in knl.args
                                if not isinstance(arg, lp.TemporaryVariable)]),
                 end=utils.line_end[self.lang]
-                #dep='id=call_{}{}'.format(idx, ', dep=call_{}'.format(idx - 1) if idx > 0 else '')
+                # dep='id=call_{}{}'.format(idx, ', dep=call_{}'.format(idx - 1) if idx > 0 else '')
             )
             if condition:
-                call = Template(
-                    """
+                call = Template("""
     #ifdef ${cond}
         ${call}
     #endif
-    """            ).safe_substitute(cond=condition, call=call)
+    """).safe_substitute(cond=condition, call=call)
             return call
 
-        instructions = [__gen_call(knl, i)
-                        for i, knl in enumerate(self.kernels)]
+        instructions = [__gen_call(x, i)
+                        for i, x in enumerate(self.kernels)]
         # insert barriers if any
         if self.barriers:
             instructions = list(enumerate(instructions))
@@ -609,13 +650,16 @@ ${name} : ${type}
 
         # and finally, generate the additional kernels [excluding additional
         # knls]
-        additional_kernels = '\n'.join([lp_utils.get_code(k) for k in self.kernels
-                                        if not any(y.name == k.name for y in self.external_kernels)])
+        additional_kernels = '\n'.join([
+            lp_utils.get_code(k) for k in self.kernels
+            if not any(y.name == k.name for y in self.external_kernels)])
 
-        self.filename = os.path.join(path,
-                                     self.file_prefix + self.name + utils.file_ext[self.lang])
+        self.filename = os.path.join(
+            path,
+            self.file_prefix + self.name + utils.file_ext[self.lang])
         # create the file
-        with filew.get_file(self.filename, self.lang, include_own_header=True) as file:
+        with filew.get_file(
+                self.filename, self.lang, include_own_header=True) as file:
             instructions = _find_indent(file_str, 'body', instructions)
             lines = file_src.safe_substitute(
                 defines='',
@@ -630,10 +674,12 @@ ${name} : ${type}
                 file.add_headers([x.name for x in self.depends_on])
 
         # and the header file
-        headers = [lp_utils.get_header(knl) + utils.line_end[self.lang]
-                   for knl in self.kernels] + [defn_str + utils.line_end[self.lang]]
-        with filew.get_header_file(os.path.join(path, self.file_prefix + self.name
-                                                + utils.header_ext[self.lang]), self.lang) as file:
+        headers = ([lp_utils.get_header(x) + utils.line_end[self.lang]
+                   for x in self.kernels] +
+                   [defn_str + utils.line_end[self.lang]])
+        with filew.get_header_file(
+            os.path.join(path, self.file_prefix + self.name +
+                         utils.header_ext[self.lang]), self.lang) as file:
 
             lines = '\n'.join(headers).split('\n')
             if self.auto_diff:
@@ -702,7 +748,7 @@ ${name} : ${type}
             vec_width = None
             if self.loopy_opts.depth or self.loopy_opts.width:
                 vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
-                            else self.loopy_opts.width
+                    else self.loopy_opts.width
             if vec_width:
                 assumptions.append('{0} mod {1} = 0'.format(
                     test_size, vec_width))
@@ -762,102 +808,247 @@ ${name} : ${type}
             knl = lp.register_function_manglers(knl, info.manglers)
         return knl
 
+    def apply_specialization(self, loopy_opts, inner_ind, knl, vecspec=None,
+                             can_vectorize=True):
+        """
+        Applies wide / deep vectorization and/or ILP loop unrolling
+        to a loopy kernel
 
-class vecwith_fixer(object):
+        Parameters
+        ----------
+        loopy_opts : :class:`loopy_options` object
+            A object containing all the loopy options to execute
+        inner_ind : str
+            The inner loop index variable
+        knl : :class:`loopy.LoopKernel`
+            The kernel to transform
+        vecspec : :function:
+            An optional specialization function that is applied after
+            vectorization to fix hanging loopy issues
+        can_vectorize : bool
+            If False, cannot be vectorized in the normal manner, hence
+            vecspec must be used to vectorize.
+
+        Returns
+        -------
+        knl : :class:`loopy.LoopKernel`
+            The transformed kernel
+        """
+
+        # before doing anything, find vec width
+        # and split variable
+        vec_width = None
+        to_split = None
+        i_tag = inner_ind
+        j_tag = 'j'
+        depth = loopy_opts.depth
+        width = loopy_opts.width
+        if depth:
+            to_split = inner_ind
+            vec_width = depth
+            i_tag += '_outer'
+        elif width:
+            to_split = 'j'
+            vec_width = width
+            j_tag += '_outer'
+        if not can_vectorize:
+            assert vecspec is not None, ('Cannot vectorize a non-vectorizable '
+                                         'kernel {} without a specialized '
+                                         'vectorization function'.format(
+                                            knl.name))
+
+        # if we're splitting
+        # apply specified optimizations
+        if to_split:
+            # and assign the l0 axis to the correct variable
+            knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
+
+        if utils.can_vectorize_lang[loopy_opts.lang]:
+            # tag 'j' as g0, use simple parallelism
+            knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+
+        # if we have a specialization
+        if vecspec:
+            knl = vecspec(knl)
+
+        if vec_width is not None:
+            # finally apply the vector width fix above
+            ggs = vecwith_fixer(knl.copy(), vec_width)
+            knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
+
+        # now do unr / ilp
+        if loopy_opts.unr is not None:
+            knl = lp.split_iname(knl, i_tag, loopy_opts.unr, inner_tag='unr')
+        elif loopy_opts.ilp:
+            knl = lp.tag_inames(knl, [(i_tag, 'ilp')])
+
+        return knl
+
+
+class opencl_kernel_generator(kernel_generator):
 
     """
-    Simple utility class to force a constant vector width
-    even when the loop being vectorized is shorted than the desired width
-
-    clean : :class:`loopy.LoopyKernel`
-        The 'clean' version of the kernel, that will be used for
-        determination of the gridsize / vecwidth
-    vecwidth : int
-        The desired vector width
+    An opencl specific kernel generator
     """
 
-    def __init__(self, clean, vecwidth):
-        self.clean = clean
-        self.vecwidth = vecwidth
+    def __init__(self, loopy_opts, name, kernels,
+                 external_kernels=[],
+                 input_arrays=[],
+                 output_arrays=[],
+                 init_arrays={},
+                 test_size=None,
+                 auto_diff=False,
+                 depends_on=[],
+                 array_props={},
+                 barriers=[]):
+        super(opencl_kernel_generator, self).__init__()
 
-    def __call__(self, insn_ids, ignore_auto=False):
-        # fix for variable too small for vectorization
-        grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
-            insn_ids, ignore_auto=ignore_auto)
-        lsize = lsize if self.vecwidth is None else \
-            self.vecwidth
-        return grid_size, (lsize,)
+        # opencl specific items
+        self.set_knl_arg_array_template = Template(
+            self.mem.get_check_err_call('clSetKernelArg(kernel,'
+                                        '${arg_index}, ${arg_size}, '
+                                        '${arg_value})'))
+        self.set_knl_arg_value_template = Template(
+            self.mem.get_check_err_call('clSetKernelArg(kernel,'
+                                        '${arg_index}, ${arg_size}, '
+                                        '${arg_value})'))
+        self.barrier_templates = {
+            'global': 'barrier(CLK_GLOBAL_MEM_FENCE)',
+            'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
+        }
 
+    def _special_kernel_subs(self, file_src):
+        """
+        An override of the :method:`kernel_generator._special_kernel_subs`
+        that implements OpenCL specific kernel substitutions
 
-def apply_vectorization(loopy_opts, inner_ind, knl, vecspec=None, can_vectorize=True):
-    """
-    Applies wide / deep vectorization to a generic rateconst kernel
+        Parameters
+        ----------
+        file_src : Template
+            The kernel source template to substitute into
 
-    Parameters
-    ----------
-    loopy_opts : :class:`loopy_options` object
-        A object containing all the loopy options to execute
-    inner_ind : str
-        The inner loop index variable
-    knl : :class:`loopy.LoopKernel`
-        The kernel to transform
-    vecspec : :function:
-        An optional specialization function that is applied after vectorization
-        To fix hanging loopy issues
-    can_vectorize : bool
-        If False, cannot be vectorized in the normal manner, hence vecspec must
-        be used to vectorize.
+        Returns:
+        new_file_src : Template
+            An updated kernel source template to substitute general template
+            parameters into
+        """
 
-    Returns
-    -------
-    knl : :class:`loopy.LoopKernel`
-        The transformed kernel
-    """
+        # open cl specific
+        # vec width
+        vec_width = self.vec_width
+        if not vec_width:
+            # set to default
+            vec_width = 1
+        # platform
+        platform_str = self.loopy_opts.platform.get_info(
+            cl.platform_info.VENDOR)
+        # build options
+        build_options = self.build_options
+        # kernel arg setting
+        kernel_arg_sets = self.get_kernel_arg_setting()
+        # kernel list
+        kernel_paths = [self.bin_name] + [x.bin_name for x in self.depends_on]
+        kernel_paths = ', '.join('"{}"'.format(x)
+                                 for x in kernel_paths if x.strip())
 
-    # before doing anything, find vec width
-    # and split variable
-    vec_width = None
-    to_split = None
-    i_tag = inner_ind
-    j_tag = 'j'
-    depth = loopy_opts.depth
-    width = loopy_opts.width
-    if depth:
-        to_split = inner_ind
-        vec_width = depth
-        i_tag += '_outer'
-    elif width:
-        to_split = 'j'
-        vec_width = width
-        j_tag += '_outer'
-    if not can_vectorize:
-        assert vecspec is not None, ('Cannot vectorize a non-vectorizable kernel'
-                                     ' {} without a specialized vectorization function'.format(knl.name))
+        return Template(file_src.safe_substitute(
+            vec_width=vec_width,
+            platform_str=platform_str,
+            build_options=build_options,
+            kernel_arg_sets=kernel_arg_sets,
+            kernel_paths=kernel_paths,
+            device_type=str(self.loopy_opts.device_type),
+            num_source=1  # only 1 program / binary is built
+        ))
 
-    # if we're splitting
-    # apply specified optimizations
-    if to_split and can_vectorize:
-        # and assign the l0 axis to the correct variable
-        knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
-    # tag 'j' as g0, use simple parallelism
-    knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+    def get_kernel_arg_setting(self):
+        """
+        Needed for OpenCL, this generates the code that sets the kernel args
 
-    # if we have a specialization
-    if vecspec:
-        knl = vecspec(knl)
+        Parameters
+        ----------
+        None
 
-    if vec_width is not None:
-        # finally apply the vector width fix above
-        ggs = vecwith_fixer(knl.copy(), vec_width)
-        knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
+        Returns
+        -------
+        knl_arg_set_str : str
+            The code that sets opencl kernel args
+        """
 
-    # now do unr / ilp
-    if loopy_opts.unr is not None:
-        knl = lp.split_iname(knl, i_tag, loopy_opts.unr, inner_tag='unr')
-    elif loopy_opts.ilp:
-        knl = lp.tag_inames(knl, [(i_tag, 'ilp')])
+        kernel_arg_sets = []
+        for i, arg in enumerate(self.all_arrays):
+            if not isinstance(arg, lp.ValueArg):
+                kernel_arg_sets.append(
+                    self.set_knl_arg_array_template.safe_substitute(
+                        arg_index=i,
+                        arg_size='sizeof({})'.format('d_' + arg.name),
+                        arg_value='&d_' + arg.name)
+                )
+            else:
+                kernel_arg_sets.append(
+                    self.set_knl_arg_value_template.safe_substitute(
+                        arg_index=i,
+                        arg_size='sizeof({})'.format(arg.name),
+                        arg_value='&' + arg.name))
 
-    return knl
+        return '\n'.join([
+            x + utils.line_end[self.lang] for x in kernel_arg_sets])
+
+    def _generate_compiling_program(self, path):
+        """
+        Needed for OpenCL, this generates a simple C file that
+        compiles and stores the binary OpenCL kernel generated w/ the wrapper
+
+        Parameters
+        ----------
+        path : str
+            The output path to write files to
+
+        Returns
+        -------
+        None
+        """
+
+        assert self.filename, 'Cannot generate compiler before wrapping kernel is generated...'
+        if self.depends_on:
+            assert [x.filename for x in self.depends_on], ('Cannot generate compiler before wrapping kernel '
+                                                           'for dependencies are generated...')
+
+        self.build_options = ''
+        if self.lang == 'opencl':
+            with open(os.path.join(script_dir, self.lang,
+                                   'opencl_kernel_compiler.c.in'),
+                      'r') as file:
+                file_str = file.read()
+                file_src = Template(file_str)
+
+            # get the platform from the options
+            platform_str = self.loopy_opts.platform.get_info(
+                cl.platform_info.VENDOR)
+
+            # for the build options, we turn to the siteconf
+            self.build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
+            self.build_options.extend(site.CL_FLAGS)
+            self.build_options.append('-cl-std=CL{}'.format(site.CL_VERSION))
+            self.build_options = ' '.join(self.build_options)
+
+            file_list = [self.filename] + [x.filename for x in self.depends_on]
+            file_list = ', '.join('"{}"'.format(x) for x in file_list)
+
+            self.bin_name = self.filename[:self.filename.index(
+                utils.file_ext[self.lang])] + '.bin'
+
+            with filew.get_file(os.path.join(path, self.name + '_compiler'
+                                             + utils.file_ext[self.lang]),
+                                self.lang, use_filter=False) as file:
+                file.add_lines(file_src.safe_substitute(
+                    filenames=file_list,
+                    outname=self.bin_name,
+                    platform=platform_str,
+                    build_options=self.build_options,
+                    # compiler expects all source strings
+                    num_source=1+len(self.depends_on)
+                ))
 
 
 class knl_info(object):

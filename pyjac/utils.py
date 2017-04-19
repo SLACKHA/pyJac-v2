@@ -5,14 +5,7 @@
 # Standard libraries
 import os
 import errno
-from math import log10, floor
 from argparse import ArgumentParser
-import string
-import re
-import numpy as np
-
-#modules
-import loopy as lp
 
 __all__ = ['line_start', 'comment', 'langs', 'file_ext',
            'header_ext', 'line_end', 'exp_10_fun', 'array_chars',
@@ -27,7 +20,7 @@ comment = dict(c='//', cuda='//',
                )
 """dict: comment characters for each language"""
 
-langs = ['c', 'opencl'] #, 'cuda'
+langs = ['c', 'opencl']  # , 'cuda'
 """list(`str`): list of supported languages"""
 
 file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
@@ -42,10 +35,15 @@ line_end = dict(c=';', cuda=';',
                 )
 """dict: line endings dependent on language"""
 
-decl_map = {'opencl' : '__global',
-            'cuda' : '__device__',
-            'c' : ''}
+decl_map = {'opencl': '__global',
+            'cuda': '__device__',
+            'c': ''}
 """dict: declaration modification string for global memory"""
+
+can_vectorize_lang = {'c': False,
+                      'cuda': True,
+                      'opencl': True}
+"""dict: defines whether a language can be 'vectorized' in the loopy sense"""
 
 exp_10_fun = dict(c="pow(10.0, ", cuda='exp10(',
                   fortran='exp(log(10) * ', matlab='exp(log(10.0) * '
@@ -59,6 +57,7 @@ array_chars = dict(c="[{}]", cuda="[INDEX({})]",
 
 # if false, zero values will be assumed to have been set previously (by memset etc.)
 # and can be skipped, to increase efficiency
+
 
 def get_species_mappings(num_specs, last_species):
     """
@@ -83,15 +82,15 @@ def get_species_mappings(num_specs, last_species):
     fwd_species_map = list(range(num_specs))
     back_species_map = list(range(num_specs))
 
-    #in the forward mapping process
-    #last_species -> end
-    #all entries after last_species are reduced by one
+    # in the forward mapping process
+    # last_species -> end
+    # all entries after last_species are reduced by one
     back_species_map[last_species + 1:] = back_species_map[last_species:-1]
     back_species_map[last_species] = num_specs - 1
 
-    #in the backwards mapping
-    #end -> last_species
-    #all entries with value >= last_species are increased by one
+    # in the backwards mapping
+    # end -> last_species
+    # all entries with value >= last_species are increased by one
     ind = fwd_species_map.index(last_species)
     fwd_species_map[ind:-1] = fwd_species_map[ind + 1:]
     fwd_species_map[-1] = last_species
@@ -220,12 +219,12 @@ def get_array(lang, name, index, twod=None):
 
     """
     if index is None:
-        #a dummy call to see if it's in shared memory
+        # a dummy call to see if it's in shared memory
         return name
 
     if lang in ['fortran', 'matlab']:
         if twod is not None:
-            return name +'({}, {})'.format(index + 1, twod + 1)
+            return name + '({}, {})'.format(index + 1, twod + 1)
         return name + array_chars[lang].format(index + 1)
     return name + array_chars[lang].format(index)
 
@@ -277,11 +276,11 @@ def reassign_species_lists(reacs, specs):
     species_map = {sp.name: i for i, sp in enumerate(specs)}
     for rxn in reacs:
         rxn.reac, rxn.reac_nu = zip(*[(species_map[sp], nu) for sp, nu in
-            sorted(zip(rxn.reac, rxn.reac_nu), key=lambda x:species_map[x[0]])])
+                                      sorted(zip(rxn.reac, rxn.reac_nu), key=lambda x:species_map[x[0]])])
         rxn.prod, rxn.prod_nu = zip(*[(species_map[sp], nu) for sp, nu in
-            sorted(zip(rxn.prod, rxn.prod_nu), key=lambda x:species_map[x[0]])])
+                                      sorted(zip(rxn.prod, rxn.prod_nu), key=lambda x:species_map[x[0]])])
         rxn.thd_body_eff = sorted([(species_map[thd[0]], thd[1])
-            for thd in rxn.thd_body_eff], key=lambda x: x[0])
+                                   for thd in rxn.thd_body_eff], key=lambda x: x[0])
         if rxn.pdep_sp != '':
             rxn.pdep_sp = species_map[rxn.pdep_sp]
         else:
@@ -307,11 +306,12 @@ def is_integer(val):
     except:
         if isinstance(val, int):
             return True
-        #last ditch effort
+        # last ditch effort
         try:
             return int(val) == float(val)
         except:
             return False
+
 
 def check_lang(lang):
     """
@@ -328,6 +328,7 @@ def check_lang(lang):
     """
     if not lang in langs:
         raise NotImplementedError('Language {} not supported'.format(lang))
+
 
 def get_parser():
     """
