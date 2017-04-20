@@ -3,6 +3,7 @@ import multiprocessing
 import sys
 import cantera as ct
 from collections import OrderedDict
+from optionloop import OptionLoop
 
 def get_test_matrix(work_dir):
     """Runs a set of mechanisms and an ordered dictionary for
@@ -71,4 +72,11 @@ def get_test_matrix(work_dir):
                   ('split_kernels', [True, False]),
                   ('num_cores', num_cores)
                   ]
-    return mechanism_list, OrderedDict(ocl_params), vec_widths[-1]
+    c_params = [('lang', 'c'),
+                ('order', ['F', 'C']),
+                ('num_cores', num_cores)
+                ]
+
+    oclloop = OptionLoop(OrderedDict(ocl_params), lambda: False)
+    cloop = OptionLoop(OrderedDict(c_params), lambda: False)
+    return mechanism_list, oclloop + cloop, vec_widths[-1]
