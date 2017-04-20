@@ -2,7 +2,7 @@ import cython
 import numpy as np
 cimport numpy as np
 
-cdef extern from "species_rates_kernel_main.h":
+cdef extern from "species_rates_kernel_main.oclh":
     void species_rates_kernel_call(np.uint_t problem_size, np.uint_t num_devices, double* phi, double* P, double* dphi)
     void finalize()
     void compiler()

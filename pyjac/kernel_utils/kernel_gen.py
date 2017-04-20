@@ -1159,7 +1159,7 @@ class opencl_kernel_generator(kernel_generator):
         # build options
         build_options = self.build_options
         # kernel arg setting
-        kernel_arg_sets = self.get_kernel_arg_setting()
+        kernel_arg_set = self.get_kernel_arg_setting()
         # kernel list
         kernel_paths = [self.bin_name] + [x.bin_name for x in self.depends_on]
         kernel_paths = ', '.join('"{}"'.format(x)
@@ -1169,7 +1169,7 @@ class opencl_kernel_generator(kernel_generator):
             vec_width=vec_width,
             platform_str=platform_str,
             build_options=build_options,
-            kernel_arg_sets=kernel_arg_sets,
+            kernel_arg_set=kernel_arg_set,
             kernel_paths=kernel_paths,
             device_type=str(self.loopy_opts.device_type),
             num_source=1  # only 1 program / binary is built
