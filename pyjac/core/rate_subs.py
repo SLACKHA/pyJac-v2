@@ -426,31 +426,38 @@ def assign_rates(reacs, specs, rate_spec):
             pp_thd_num_specs[i] = to_add.size
 
     # chebyshev parameter reordering
-    pp_cheb_coeff = np.zeros((num_cheb, int(np.max(cheb_n_temp)),
-                              int(np.max(cheb_n_pres))))
-    for i, p in enumerate(cheb_coeff):
-        pp_cheb_coeff[i, :cheb_n_temp[i], :cheb_n_pres[i]] = p[:, :]
+    pp_cheb_coeff = None
+    pp_cheb_plim = None
+    pp_cheb_tlim = None
+    if num_cheb:
+        pp_cheb_coeff = np.zeros((num_cheb, int(np.max(cheb_n_temp)),
+                                  int(np.max(cheb_n_pres))))
+        for i, p in enumerate(cheb_coeff):
+            pp_cheb_coeff[i, :cheb_n_temp[i], :cheb_n_pres[i]] = p[:, :]
 
-    # limits for cheby polys
-    pp_cheb_plim = np.log(np.array(cheb_plim, dtype=np.float64))
-    pp_cheb_tlim = 1. / np.array(cheb_tlim, dtype=np.float64)
+        # limits for cheby polys
+        pp_cheb_plim = np.log(np.array(cheb_plim, dtype=np.float64))
+        pp_cheb_tlim = 1. / np.array(cheb_tlim, dtype=np.float64)
 
     # plog parameter reorder
-    # max # of parameters for sizing
-    maxP = np.max(num_pressures)
-    # for simplicity, we're going to use a padded form
-    pp_plog_params = np.zeros((4, num_plog, maxP))
-    for m in range(4):
-        for i, numP in enumerate(num_pressures):
-            for j in range(numP):
-                pp_plog_params[m, i, j] = plog_params[i][j][m]
+    pp_plog_params = None
+    maxP = None
+    if num_plog:
+        # max # of parameters for sizing
+        maxP = np.max(num_pressures)
+        # for simplicity, we're going to use a padded form
+        pp_plog_params = np.zeros((4, num_plog, maxP))
+        for m in range(4):
+            for i, numP in enumerate(num_pressures):
+                for j in range(numP):
+                    pp_plog_params[m, i, j] = plog_params[i][j][m]
 
-    # take the log of P and A
-    hold = np.seterr(divide='ignore')
-    pp_plog_params[0, :, :] = np.log(pp_plog_params[0, :, :])
-    pp_plog_params[1, :, :] = np.log(pp_plog_params[1, :, :])
-    pp_plog_params[np.where(np.isinf(pp_plog_params))] = 0
-    np.seterr(**hold)
+        # take the log of P and A
+        hold = np.seterr(divide='ignore')
+        pp_plog_params[0, :, :] = np.log(pp_plog_params[0, :, :])
+        pp_plog_params[1, :, :] = np.log(pp_plog_params[1, :, :])
+        pp_plog_params[np.where(np.isinf(pp_plog_params))] = 0
+        np.seterr(**hold)
 
     return {'simple': {'A': A, 'b': b, 'Ta': Ta, 'type': simple_rate_type,
                        'num': num_simple, 'map': simple_map},
