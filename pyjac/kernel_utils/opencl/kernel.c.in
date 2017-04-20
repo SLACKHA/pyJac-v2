@@ -93,7 +93,7 @@ void init(cl_uint problem_size, cl_uint num_devices${input_initialized_args_defn
     cl_int return_code;
 
     char* kernel_paths[${num_source}] = {${kernel_paths}};
-    char* platform_check = "${platform}";
+    char* platform_check = "${platform_str}";
     char* build_options = "${build_options}";
     size_t source_sizes[${num_source}];
 
