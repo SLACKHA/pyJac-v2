@@ -189,7 +189,7 @@ def performance_tester(home, work_dir):
     test_dir = 'test'
     work_dir = os.path.abspath(work_dir)
 
-    mechanism_list, ocl_params, max_vec_width = tm.get_test_matrix(work_dir)
+    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir)
 
     if len(mechanism_list) == 0:
         print('No mechanisms found for performance testing in '
@@ -213,7 +213,7 @@ def performance_tester(home, work_dir):
         subprocess.check_call(['mkdir', '-p', my_test])
 
         the_path = os.getcwd()
-        op = OptionLoop(ocl_params, lambda: False)
+        op = oploop.reset()
 
         # rewrite data to file in 'C' order
         num_conditions = dbw.write(os.path.join(work_dir, mech_name))
