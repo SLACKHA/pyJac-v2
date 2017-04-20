@@ -702,9 +702,16 @@ ${name} : ${type}
             self.vec_width = self.loopy_opts.width
         if self.vec_width is None:
             self.vec_width = 0
+
+        inames, _ = self.get_inames(0)
+
+        domains = []
+        for iname in ['i'] + inames:
+            domains.append('{{[{iname}]: 0 <= {iname} < {size}}}'.format(
+                iname=iname,
+                size=self.vec_width))
         # create a dummy kernel to get the defn
-        knl = lp.make_kernel('{{[i, j]: 0 <= i,j < {}}}'.format(
-                                self.vec_width),
+        knl = lp.make_kernel(domains,
                              '\n'.join(_name_assign(arr)
                                        for arr in kernel_data),
                              kernel_data,
