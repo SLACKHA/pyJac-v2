@@ -119,10 +119,11 @@ def functional_tester(work_dir):
               )
         sys.exit(-1)
 
-    repeats = 10
     conp = True
 
-    script_dir = os.path.abspath(os.path.dirname(__file__))
+    package_lang = {'opencl': 'ocl',
+                    'c': 'c'}
+
     # load the module tester template
     mod_test = test_utils.get_import_source()
 
@@ -169,11 +170,15 @@ def functional_tester(work_dir):
             np.floor(max_per_run / max_vec_width) * max_vec_width)
 
         # set T, P arrays
-        T = data[:, 0].flatten()
-        P = data[:, 1].flatten()
+        T = data[:num_conditions, 0].flatten()
+        P = data[:num_conditions, 1].flatten()
 
         # resize data
         data = data[:num_conditions, 2:]
+
+        # get phi
+        phi = np.concatenate((np.reshape(T, (-1, 1)),
+                              data), axis=1)
 
         spec_rates = np.zeros((num_conditions, gas.n_species))
         conp_temperature_rates = np.zeros((num_conditions, 1))
@@ -345,21 +350,21 @@ def functional_tester(work_dir):
                 this_run = int(np.floor(np.minimum(
                     cond_per_run, num_conditions - offset) / max_vec_width) * max_vec_width)
                 # get arrays
-                concs = data[offset:offset + this_run, :].flatten(order=order)
+                myphi = np.array(phi[offset:offset + this_run, :],
+                                 order=order, copy=True).flatten('K')
 
                 args = []
-                __saver(T[offset:offset + this_run], 'T', args)
+                __saver(myphi, 'phi', args)
                 __saver(P[offset:offset + this_run], 'P', args)
-                __saver(concs, 'conc', args)
-                del concs
+                del myphi
 
                 # put save outputs
                 output_names = [
                     'wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
-                species_rates = np.concatenate((conp_temperature_rates[offset:offset + this_run, :] if conp
+                dphi = np.concatenate((conp_temperature_rates[offset:offset + this_run, :] if conp
                                                 else conv_temperature_rates[offset:offset + this_run, :],
                                                 spec_rates[offset:offset + this_run, :]), axis=1)
-                out_arrays = [species_rates,
+                out_arrays = [dphi,
                               rop_fwd_test[offset:offset + this_run, :],
                               rop_rev_test[offset:offset + this_run, :],
                               pres_mod_test[offset:offset + this_run, :],
@@ -379,7 +384,7 @@ def functional_tester(work_dir):
                 # write the module tester
                 with open(os.path.join(my_test, 'test.py'), 'w') as file:
                     file.write(mod_test.safe_substitute(
-                        package='pyjac_ocl',
+                        package='pyjac_{}'.format(package_lang[lang]),
                         input_args=', '.join('"{}"'.format(x) for x in args),
                         test_arrays=', '.join('"{}"'.format(x)
                                               for x in test_f),
