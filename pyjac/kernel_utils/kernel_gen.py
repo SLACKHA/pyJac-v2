@@ -169,6 +169,36 @@ class kernel_generator(object):
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = []
 
+    def get_assumptions(self, test_size):
+        """
+        Returns a list of assumptions on the loop domains
+        of generated subkernels
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+
+        Returns
+        -------
+
+        assumptions : list of str
+            List of assumptions to apply to the generated sub kernel
+        """
+
+        assumpt_list = ['{0} > 0'.format(test_size)]
+        # get vector width
+        vec_width = None
+        if self.loopy_opts.depth or self.loopy_opts.width:
+            vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
+                else self.loopy_opts.width
+        if vec_width:
+            assumpt_list.append('{0} mod {1} = 0'.format(
+                test_size, vec_width))
+        return assumpt_list
+
     def get_inames(self, test_size):
         """
         Returns the inames and iname_ranges for subkernels created using
@@ -815,16 +845,9 @@ ${name} : ${type}
         iname_range.append(iname_domain)
         iname_range.extend(our_iname_domains)
 
+        assumptions = []
         if isinstance(test_size, str):
-            assumptions.append('{0} > 0'.format(test_size))
-            # get vector width
-            vec_width = None
-            if self.loopy_opts.depth or self.loopy_opts.width:
-                vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
-                    else self.loopy_opts.width
-            if vec_width:
-                assumptions.append('{0} mod {1} = 0'.format(
-                    test_size, vec_width))
+            assumptions.extend(self.get_assumptions(test_size))
 
         for iname, irange in info.extra_inames:
             inames.append(iname)
@@ -1006,6 +1029,33 @@ class c_kernel_generator(kernel_generator):
             The iname domains to add to created subkernels by default
         """
         return self.inames, self.iname_domains
+
+    def get_assumptions(self, test_size):
+        """
+        Returns a list of assumptions on the loop domains
+        of generated subkernels
+
+        For the C-kernels, the problem_size is abstracted out into the wrapper
+        kernel's OpenMP loop.
+
+        Additionally, there is no concept of a "vector width", hence
+        we return an empty assumption set
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+
+        Returns
+        -------
+
+        assumptions : list of str
+            List of assumptions to apply to the generated sub kernel
+        """
+
+        return []
 
     def _special_kernel_subs(self, file_src):
         """
