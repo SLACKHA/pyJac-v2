@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
+//buffer size
+#define BUFF_SIZE (NN + 1)
+
 //for sanity, the input data _must_ be in C-order
 
 void read_initial_conditions(const char* filename, unsigned int NUM, double* phi_host, double* P_host,
@@ -15,15 +18,15 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* phi
         exit(-1);
     }
 
-    double buffer[NN + 2];
+    double buffer[BUFF_SIZE];
     // load temperature, pressure and concentrations for all (cells)
     for (int i = 0; i < NUM; ++i)
     {
         // read line from data file
-        int count = fread(buffer, sizeof(double), NN + 1, fp);
-        if (count != (NN + 1))
+        int count = fread(buffer, sizeof(double), BUFF_SIZE, fp);
+        if (count != (BUFF_SIZE))
         {
-            fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, NN + 1, count);
+            fprintf(stderr, "File (%s) is incorrectly formatted, %d doubles were expected but only %d were read.\\n", filename, BUFF_SIZE, count);
             exit(-1);
         }
 
@@ -33,16 +36,20 @@ void read_initial_conditions(const char* filename, unsigned int NUM, double* phi
         // phi fill depends on order
         if (order == 'C')
         {
+            //fill in temperature
             phi_host[i * NN] = buffer[0];
-            for (int j = 0; j < NN; j++)
+            //fill in species
+            for (int j = 0; j < NS; j++)
             {
                 phi_host[i * NN + j + 1] = buffer[j + 2];
             }
         }
         else
         {
+            //fill in temperature
             phi_host[i] = buffer[0];
-            for (int j = 0; j < NN; j++)
+            //fill in species
+            for (int j = 0; j < NS; j++)
             {
                 phi_host[(j + 1) * NUM + i] = buffer[j + 2];
             }
