@@ -123,7 +123,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         out_dir = os.getcwd()
 
     if build_dir is None:
-        build_dir = os.path.join(os.path.getcwd(), 'build', distutils_dir_name('temp'))
+        build_dir = os.path.join('build', distutils_dir_name('temp'))
 
     shared = False
     ext = '.so' if shared else '.a'
