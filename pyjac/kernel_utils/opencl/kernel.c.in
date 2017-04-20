@@ -10,6 +10,7 @@ Nicholas Curtis - 2017
 */
 
 #include "${knl_name}.oclh"
+#include "${knl_name}_main.oclh"
 #include "read_initial_conditions.oclh"
 
 //global kernel vars
