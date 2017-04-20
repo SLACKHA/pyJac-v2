@@ -169,6 +169,33 @@ class kernel_generator(object):
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = []
 
+    def apply_barriers(self, barriers, instructions):
+        """
+        A method stud that can be overriden to apply synchonization barriers
+        to vectorized code
+
+        Parameters
+        ----------
+        barriers: list of (i0, i1, type)
+            i0: int
+                the index of the instruction to insert the barrier after
+            i1: int
+                the index of the instruction to insert the barrier before,
+                i0 + 1 should be equal to i1
+            type: ['global', 'local']
+                 The type of memory to synchronize, typically global
+
+        instructions: list of str
+            The instructions for this kernel
+
+        Returns
+        -------
+
+        instructions : list of str
+            The instructions passed in
+        """
+        return instructions
+
     def get_assumptions(self, test_size):
         """
         Returns a list of assumptions on the loop domains
@@ -748,19 +775,7 @@ ${name} : ${type}
         instructions = [__gen_call(x, i)
                         for i, x in enumerate(self.kernels)]
         # insert barriers if any
-        if self.barriers:
-            instructions = list(enumerate(instructions))
-            for barrier in self.barriers:
-                # find insert index (the second barrier ind)
-                index = next(ind for ind, inst in enumerate(instructions)
-                             if inst[0] == barrier[1])
-                # check that we're inserting between the required barriers
-                assert barrier[0] == instructions[index - 1][0]
-                # and insert
-                instructions.insert(index, (-1, self.barrier_templates[
-                    self.lang][barrier[2]] + utils.line_end[self.lang]))
-            # and get rid of indicies
-            instructions = [inst[1] for inst in instructions]
+        instructions = self.apply_barriers(self.barriers, instructions)
 
         # join to str
         instructions = '\n'.join(instructions)
@@ -966,7 +981,7 @@ ${name} : ${type}
 
         # if we're splitting
         # apply specified optimizations
-        if to_split:
+        if to_split and can_vectorize:
             # and assign the l0 axis to the correct variable
             knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
 
@@ -1248,6 +1263,46 @@ class opencl_kernel_generator(kernel_generator):
                     # compiler expects all source strings
                     num_source=1+len(self.depends_on)
                 ))
+
+    def apply_barriers(self, barriers, instructions):
+        """
+        An override of :method:`kernel_generator.apply_barriers` that
+        applies synchronization barriers to OpenCL kernels
+
+        Parameters
+        ----------
+        barriers: list of (i0, i1, type)
+            i0: int
+                the index of the instruction to insert the barrier after
+            i1: int
+                the index of the instruction to insert the barrier before,
+                i0 + 1 should be equal to i1
+            type: ['global', 'local']
+                 The type of memory to synchronize, typically global
+
+        instructions: list of str
+            The instructions for this kernel
+
+        Returns
+        -------
+
+        synchronized_instructions : list of str
+            The instruction list with the barriers inserted
+        """
+
+        instructions = list(enumerate(instructions))
+        for barrier in self.barriers:
+            # find insert index (the second barrier ind)
+            index = next(ind for ind, inst in enumerate(instructions)
+                         if inst[0] == barrier[1])
+            # check that we're inserting between the required barriers
+            assert barrier[0] == instructions[index - 1][0]
+            # and insert
+            instructions.insert(index, (-1, self.barrier_templates[barrier[2]]
+                                        + utils.line_end[self.lang]))
+        # and get rid of indicies
+        instructions = [inst[1] for inst in instructions]
+        return instructions
 
 
 class knl_info(object):
