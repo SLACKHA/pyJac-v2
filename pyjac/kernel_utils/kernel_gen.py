@@ -149,6 +149,48 @@ class kernel_generator(object):
         self.all_arrays = []
         self.barriers = barriers[:]
 
+        # the base skeleton for sub kernel creation
+        self.skeleton = """
+        for j
+            ${pre}
+            for ${var_name}
+                ${main}
+            end
+            ${post}
+        end
+        """
+
+        # list of inames added to sub kernels
+        self.inames = ['j']
+
+        # list of iname domains added to subkernels
+        self.iname_domains = ['0<=j<{}']
+
+        # extra kernel parameters to be added to subkernels
+        self.extra_kernel_data = []
+
+    def get_inames(self, test_size):
+        """
+        Returns the inames and iname_ranges for subkernels created using
+        this generator
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+
+        Returns
+        -------
+        inames : list of str
+            The string inames to add to created subkernels by default
+        iname_domains : list of str
+            The iname domains to add to created subkernels by default
+        """
+
+        return self.inames, [self.iname_domains[0].format(test_size)]
+
     def add_depencencies(self, k_gens):
         """
         Adds the supplied :class:`kernel_generator`s to this
@@ -746,15 +788,7 @@ ${name} : ${type}
         """
 
         # and the skeleton kernel
-        skeleton = """
-        for j
-            ${pre}
-            for ${var_name}
-                ${main}
-            end
-            ${post}
-        end
-        """
+        skeleton = self.skeleton[:]
 
         # convert instructions into a list for convienence
         instructions = info.instructions
@@ -763,7 +797,8 @@ ${name} : ${type}
             instructions = [x for x in instructions.split('\n') if x.strip()]
 
         # load inames
-        inames = [info.var_name, 'j']
+        our_inames, our_iname_domains = self.get_inames(test_size)
+        inames = [info.var_name] + our_inames
 
         # add map instructions
         instructions = list(info.mapstore.transform_insns) + instructions
@@ -778,7 +813,7 @@ ${name} : ${type}
 
         # add to ranges
         iname_range.append(iname_domain)
-        iname_range.append('{}<=j<{}'.format(0, test_size))
+        iname_range.extend(our_iname_domains)
 
         if isinstance(test_size, str):
             assumptions.append('{0} > 0'.format(test_size))
@@ -827,6 +862,8 @@ ${name} : ${type}
         # get extra mapping data
         extra_kernel_data = [x.new_domain(x.iname)[0]
                              for x in info.mapstore.transformed_domains]
+
+        extra_kernel_data += self.extra_kernel_data[:]
 
         # make the kernel
         knl = lp.make_kernel(iname_arr,
@@ -930,6 +967,45 @@ class c_kernel_generator(kernel_generator):
 
         self.extern_defn_template = Template(
             'extern ${type}* ${name}' + utils.line_end[self.lang])
+        self.skeleton = """
+        ${pre}
+        for ${var_name}
+            ${main}
+        end
+        ${post}
+        """
+
+        # clear list of inames added to sub kernels, as the OpenMP loop over
+        # the states is implemented in the wrapping kernel
+        self.inames = []
+
+        # clear list of inames domains added to sub kernels, as the OpenMP loop
+        # over the states is implemented in the wrapping kernel
+        self.iname_domains = []
+
+        # add 'j' to the list of extra kernel data to be added to subkernels
+        self.extra_kernel_data = [lp.ValueArg('j', dtype=np.int32)]
+
+    def get_inames(self, test_size):
+        """
+        Returns the inames and iname_ranges for subkernels created using
+        this generator
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+
+        Returns
+        -------
+        inames : list of str
+            The string inames to add to created subkernels by default
+        iname_domains : list of str
+            The iname domains to add to created subkernels by default
+        """
+        return self.inames, self.iname_domains
 
     def _special_kernel_subs(self, file_src):
         """
