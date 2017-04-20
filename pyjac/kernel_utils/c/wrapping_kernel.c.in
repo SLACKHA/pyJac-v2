@@ -8,7 +8,7 @@ ${additional_kernels}
 ${func_define}
 {
     #pragma omp parallel for
-    for (int j = 0; j <= problem_size; ++j)
+    for (int j = 0; j < problem_size; ++j)
     {
         ${body}
     }
