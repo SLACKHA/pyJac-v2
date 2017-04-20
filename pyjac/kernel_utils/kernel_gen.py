@@ -18,6 +18,7 @@ from .memory_manager import memory_manager
 from .. import site_conf as site
 from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
+from ..core.array_creator import problem_size as p_size
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -596,14 +597,22 @@ ${name} : ${type}
         # and compile the args
         defines = [arg for dummy in self.kernels for arg in dummy.args if
                    not isinstance(arg, lp.TemporaryVariable)]
+
+        # check for dupicates
         nameset = sorted(set(d.name for d in defines))
         for name in nameset:
-            # check for dupes
             same_name = [x for x in defines if x.name == name]
             assert all(same_name[0] == y for y in same_name[1:])
             same_name = same_name[0]
             same_name.read_only = False
             kernel_data.append(same_name)
+
+        # find problem_size
+        problem_size = next(x for x in kernel_data if x == p_size)
+
+        # remove and insert at front
+        kernel_data.remove(problem_size)
+        kernel_data.insert(0, problem_size)
 
         self.all_arrays = kernel_data[:]
         self.mem.add_arrays(kernel_data)
