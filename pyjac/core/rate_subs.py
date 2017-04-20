@@ -1517,7 +1517,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
 
     # create the pressure product loop
     pressure_prod = Template("""
-    <> P_sum_end = abs(${nu_sum}) {id=P_bound}
+    <> P_sum_end = fabs(${nu_sum}) {id=P_bound}
     <> P_sum = 1.0d {id=P_init}
     if ${nu_sum} > 0
         <> P_val = P_a / R_u {id=P_val_decl}
