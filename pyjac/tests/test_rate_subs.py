@@ -864,8 +864,6 @@ class SubTest(TestClass):
                                                 do_conp=True,
                                                 do_vector=lang != 'c',
                                                 langs=[lang])
-        if lang != 'c':
-            return True
 
         package_lang = {'opencl': 'ocl',
                         'c': 'c'}

@@ -670,6 +670,12 @@ ${name} : ${type}
         defines = [arg for dummy in self.kernels for arg in dummy.args if
                    not isinstance(arg, lp.TemporaryVariable)]
 
+        # find problem_size
+        problem_size = next(x for x in defines if x == p_size)
+
+        # remove other value args
+        defines = [x for x in defines if not isinstance(x, lp.ValueArg)]
+
         # check for dupicates
         nameset = sorted(set(d.name for d in defines))
         for name in nameset:
@@ -679,11 +685,7 @@ ${name} : ${type}
             same_name.read_only = False
             kernel_data.append(same_name)
 
-        # find problem_size
-        problem_size = next(x for x in kernel_data if x == p_size)
-
         # remove and insert at front
-        kernel_data.remove(problem_size)
         kernel_data.insert(0, problem_size)
 
         self.all_arrays = kernel_data[:]
