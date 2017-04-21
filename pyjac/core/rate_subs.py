@@ -2830,7 +2830,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     b_vals = b_attr.initializer[locs]
     if b_vals.size:
         # if max b exponent > 1, need to iterate
-        beta_iter = np.max(np.abs(b_vals))
+        beta_iter = int(np.max(np.abs(b_vals)))
 
     # if single kernel, and not a fixed exponential
     if not separated_kernels and not fixed:
