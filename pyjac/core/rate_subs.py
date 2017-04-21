@@ -2690,7 +2690,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     kf_assign = Template("${kf_str} = ${rate}")
     expkf_assign = Template("${kf_str} = exp(${rate})")
 
-    def get_instructions(rtype, mapper, kernel_data, beta_iter=False,
+    def get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                          single_kernel_rtype=None):
         # get domain
         domain, inds = rdomain(rtype)
@@ -2729,6 +2729,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                                              'beta[i]': b_str,
                                          })
 
+        extra_inames = []
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
             retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
@@ -2737,7 +2738,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         elif rtype == 0:
             retv = kf_assign.safe_substitute(rate=A_str)
         elif rtype == 1:
-            if beta_iter:
+            if beta_iter > 1:
                 beta_iter_str = Template("""
                 <> b_end = abs(${b_str})
                 for k
@@ -2745,6 +2746,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 end
                 ${kf_str} = kf_temp {dep=a4}
                 """).safe_substitute(b_str=b_str)
+                extra_inames.append(('k', '0 <= k < {}'.format(beta_iter)))
             else:
                 beta_iter_str = ("${kf_str} = kf_temp * T_iter"
                                  " {id=a4, dep=a3:a2:a1}")
@@ -2766,7 +2768,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             retv = expkf_assign.safe_substitute(
                 rate=str(rate_eqn_pre.subs(b_str, 0)))
 
-        return Template(retv).safe_substitute(kf_str=kf_str)
+        return Template(retv).safe_substitute(kf_str=kf_str), extra_inames
 
     # various specializations of the rate form
     specializations = {}
@@ -2828,24 +2830,28 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     b_vals = b_attr.initializer[locs]
     if b_vals.size:
         # if max b exponent > 1, need to iterate
-        beta_iter = np.max(np.abs(b_vals)) > 1
+        beta_iter = np.max(np.abs(b_vals))
 
     # if single kernel, and not a fixed exponential
     if not separated_kernels and not fixed:
         # need to enclose each branch in it's own if statement
         if len(specializations) > 1:
             instruction_list = []
+            extra_inames = []
             for i in specializations:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                instruction_list.extend([
-                    '\t' + x for x in get_instructions(
+                insns, inames = get_instructions(
                         -1,
                         mapstore,
                         specializations[i].kernel_data,
                         beta_iter,
-                        single_kernel_rtype=i).split('\n') if x.strip()])
+                        single_kernel_rtype=i)
+                instruction_list.extend([
+                    '\t' + x for x in insns.split('\n') if x.strip()])
                 instruction_list.append('end')
+                if inames:
+                    extra_inames.extend(inames)
         # and combine them
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
@@ -2854,7 +2860,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                                default_preinstructs.values()),
                            mapstore=mapstore,
                            kernel_data=specializations[0].kernel_data,
-                           var_name=var_name)}
+                           var_name=var_name,
+                           extra_inames=extra_inames)}
 
     out_specs = {}
     # and do some finalizations for the specializations
@@ -2878,8 +2885,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
         # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions = get_instructions(rtype, mapper,
-                                                 info.kernel_data, beta_iter)
+            info.instructions, info.extra_inames = get_instructions(
+                rtype, mapper, info.kernel_data, beta_iter)
 
         out_specs[rtype] = info
 
