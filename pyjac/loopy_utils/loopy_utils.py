@@ -4,6 +4,7 @@ from __future__ import print_function
 from enum import IntEnum
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
+from loopy.target.c.c_execution import CppCompiler
 import numpy as np
 import pyopencl as cl
 from .. import utils
@@ -15,10 +16,13 @@ from .loopy_edit_script import substitute as codefix
 
 # make loopy's logging less verbose
 import logging
+from string import Template
 logging.getLogger('loopy').setLevel(logging.WARNING)
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                            'loopy_edit_script.py')
+adept_edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
+                                 'adept_edit_script.py')
 
 
 class RateSpecialization(IntEnum):
@@ -219,7 +223,18 @@ def get_header(knl):
     -----
     The kernel's Target and name should be set for proper functioning
     """
+
     return str(lp.generate_header(knl)[0])
+
+
+def __set_editor(knl, script):
+    # set the edit script as the 'editor'
+    os.environ['EDITOR'] = edit_script
+
+    # turn on code editing
+    edit_knl = lp.set_options(knl, edit_code=True)
+
+    return edit_knl
 
 
 def set_editor(knl):
@@ -237,14 +252,92 @@ def set_editor(knl):
         The kernel set up for editing
     """
 
-    # set the edit script as the 'editor'
-    if not 'EDITOR' in os.environ:
-        os.environ['EDITOR'] = edit_script
+    return __set_editor(knl, edit_script)
 
-    # turn on code editing
-    edit_knl = lp.set_options(knl, edit_code=True)
 
-    return edit_knl
+def set_adept_editor(knl,
+                     problem_size=8192,
+                     independent_variable=None,
+                     dependent_variable=None,
+                     output=None):
+    """
+    Returns a copy of knl set up for various automated bug-fixes
+
+    Parameters
+    ----------
+    knl : :class:`loopy.LoopKernel`
+        The kernel to generate code for
+    problem_size : int
+        The size of the testing problem
+    independent_variable : :class:`array_creator.creator`
+        The independent variables to compute the Jacobian with respect to
+    dependent_variable : :class:`array_creator.creator`
+        The dependent variables to find the Jacobian of
+    output : :class:`array_creator.creator`
+        The array to store the column-major
+        Jacobian in, ordered by thermo-chemical condition
+
+    Returns
+    -------
+    edit_knl : :class:`loopy.LoopKernel`
+        The kernel set up for editing
+    """
+
+    # load template
+    with open(adept_edit_script + '.in', 'r') as file:
+        src = Template(file.read())
+
+    def __get_size_and_stringify(variable):
+        if variable.order == 'F':
+            sizes = reversed(variable.shape)
+        else:
+            sizes = variable.shape
+
+        assert len(variable.shape) == 2
+
+        out_str = variable.name + '[{index}]'
+        out_index = ''
+        offset = 1
+        out_size = None
+        for size in sizes:
+            if out_index:
+                out_index += ' + '
+            if size != problem_size:
+                assert out_size is None, (
+                    'Cannot determine variable size!')
+                out_size = size
+                out_index += 'i * ' + str(offset)
+                offset *= size
+            else:
+                out_index += 'j * ' + str(offset)
+                offset *= problem_size
+
+        return out_size, out_str.format(index=out_index)
+
+    # find the dimension / string representation of the independent
+    # and dependent variables
+
+    indep_size, indep = __get_size_and_stringify(independent_variable)
+    dep_size, dep = __get_size_and_stringify(dependent_variable)
+
+    # find the output name
+    output_name = '&' + output.name + '[j * {dep_size} * {indep_size}]'.format(
+        dep_size=dep_size, indep_size=indep_size)
+
+    # fill in template
+    with open(adept_edit_script, 'w') as file:
+        file.write(src.substitute(
+                problem_size=problem_size,
+                ad_indep_name='ad_' + independent_variable.name,
+                indep=indep,
+                indep_size=indep_size,
+                ad_dep_name='ad_' + dependent_variable.name,
+                dep=dep,
+                dep_size=dep_size,
+                output=output_name
+            ))
+
+    return __set_editor(knl, adept_edit_script)
 
 
 def get_code(knl):
@@ -461,7 +554,8 @@ class kernel_call(object):
         return allclear
 
 
-def populate(knl, kernel_calls, device='0'):
+def populate(knl, kernel_calls, device='0',
+             editor=None):
     """
     This method runs the supplied :class:`loopy.LoopKernel` (or list thereof), and is often used by
     :method:`auto_run`
@@ -475,6 +569,12 @@ def populate(knl, kernel_calls, device='0'):
         The masks / ref_answers, etc. to use in testing
     device : str
         The pyopencl string denoting the device to use, defaults to '0'
+    editor : callable
+        If not none, a callable function or object that takes a
+        :class:`loopy.LoopKernel` as the sole arguement, and returns the kernel
+        with editing turned on (for used with auto-differentiation)
+
+        If not specified, the default (opencl) editor will be invoked
 
     Returns
     -------
@@ -486,6 +586,9 @@ def populate(knl, kernel_calls, device='0'):
 
     # create context
     ctx, queue = get_context(device)
+
+    if editor is None:
+        editor = set_editor
 
     output = []
     kc_ind = 0
@@ -516,7 +619,7 @@ def populate(knl, kernel_calls, device='0'):
             if kc.is_my_kernel(k):
                 found = True
                 # set the editor to avoid intel bugs
-                test_knl = set_editor(k)
+                test_knl = editor(k)
                 if isinstance(test_knl.target, lp.PyOpenCLTarget):
                     # recreate with device
                     test_knl = test_knl.copy(
@@ -553,21 +656,28 @@ def populate(knl, kernel_calls, device='0'):
     return output
 
 
-def auto_run(knl, kernel_calls, device='0'):
+def auto_run(knl, kernel_calls, device='0', editor=None):
     """
-    This method tests the supplied :class:`loopy.LoopKernel` (or list thereof) against a reference answer
+    This method tests the supplied :class:`loopy.LoopKernel` (or list thereof)
+    against a reference answer
 
     Parameters
     ----------
     knl : :class:`loopy.LoopKernel` or list of :class:`loopy.LoopKernel`
-        The kernel to test, if a list of kernels they will be successively applied and the
-        end result compared
+        The kernel to test, if a list of kernels they will be successively
+        applied and the end result compared
     kernel_calls : :class:`kernel_call`
         The masks / ref_answers, etc. to use in testing
     device : str
         The pyopencl string denoting the device to use, defaults to '0'
     input_args : dict of `numpy.array`s
         The arguements to supply to the kernel
+    editor : callable
+        If not none, a callable function or object that takes a
+        :class:`loopy.LoopKernel` as the sole arguement, and returns the kernel
+        with editing turned on (for used with auto-differentiation)
+
+        If not specified, the default (opencl) editor will be invoked
 
     Returns
     -------
@@ -581,7 +691,7 @@ def auto_run(knl, kernel_calls, device='0'):
     if not isinstance(knl, list):
         knl = [knl]
 
-    out = populate(knl, kernel_calls, device=device)
+    out = populate(knl, kernel_calls, device=device, editor=editor)
     try:
         result = True
         for i, kc in enumerate(kernel_calls):
@@ -793,3 +903,8 @@ def get_target(lang, device=None):
         return lp.CTarget()
     elif lang == 'cuda':
         return lp.CudaTarget()
+
+
+class AdeptCompiler(CppCompiler):
+    default_compile_flags = '-g -O3 -fopenmp'.split()
+    default_link_flags = '-shared -ladept -fopenmp'.split()
