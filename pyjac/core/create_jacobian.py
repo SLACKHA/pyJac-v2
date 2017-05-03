@@ -125,7 +125,7 @@ def create_jacobian(lang,
 
     """
     if auto_diff or not skip_jac:
-        raise NotImplementedException()
+        raise NotImplementedError()
 
 
     if lang != 'c' and auto_diff:

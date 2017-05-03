@@ -406,6 +406,9 @@ def functional_tester(work_dir):
                 # load output arrays
                 for i in range(len(outf)):
                     out_check[i] = np.load(outf[i])
+                    if np.any(
+                        np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i]))):
+                        import pdb; pdb.set_trace()
                     assert not np.any(
                         np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i])))
                     # and reshape
