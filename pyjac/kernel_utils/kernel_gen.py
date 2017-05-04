@@ -65,10 +65,13 @@ def make_kernel_generator(loopy_opts, *args, **kw_args):
         The keyword args to pass to the :class:`kernel_generator`
     """
     if loopy_opts.lang == 'c':
-        return c_kernel_generator(loopy_opts, *args, **kw_args)
+        if not loopy_opts.auto_diff:
+            return c_kernel_generator(loopy_opts, *args, **kw_args)
+        if loopy_opts.auto_diff:
+            return autodiff_kernel_generator(loopy_opts, *args, **kw_args)
     if loopy_opts.lang == 'opencl':
         return opencl_kernel_generator(loopy_opts, *args, **kw_args)
-    raise NotImplementedError
+    raise NotImplementedError()
 
 
 class kernel_generator(object):
@@ -1008,6 +1011,9 @@ ${name} : ${type}
 
 
 class c_kernel_generator(kernel_generator):
+    """
+    A C-kernel generator that handles OpenMP parallelization
+    """
     def __init__(self, *args, **kw_args):
 
         super(c_kernel_generator, self).__init__(*args, **kw_args)
@@ -1106,6 +1112,78 @@ class c_kernel_generator(kernel_generator):
 
         return Template(file_src.safe_substitute(
             full_kernel_args=full_kernel_args))
+
+
+class autodiff_kernel_generator(c_kernel_generator):
+    """
+    A C-Kernel generator specifically designed to work with the
+    autodifferentiation scheme.  Handles adding jacobian, etc.
+    """
+    def __init__(self, *args, **kw_args):
+
+        super(c_kernel_generator, self).__init__(*args, **kw_args)
+
+        self.extern_defn_template = Template(
+            'extern ${type}* ${name}' + utils.line_end[self.lang])
+
+        # the base skeleton for sub kernel creation
+        self.skeleton = """
+        for j
+            ${pre}
+            for ${var_name}
+                ${main}
+            end
+            ${post}
+        end
+        """
+
+        # reinstate the 'j' iname
+        self.inames = ['j']
+
+        # Add the 'j' iname domain back
+        self.iname_domains = ['0<=j<{}']
+
+        self.extra_kernel_data = []
+
+    def add_jacobian(self, jacobian):
+        """
+        Adds the jacobian object to the extra kernel data for inclusion in
+        generation (to be utilized during the edit / AD process)
+
+        Parameters
+        ----------
+
+        jacobian : :class:`loopy.GlobalArg`
+            The loopy arguement to add to the method signature
+
+        Returns
+        -------
+        None
+        """
+
+        self.extra_kernel_data.append(jacobian)
+
+    def get_inames(self, test_size):
+        """
+        Returns the inames and iname_ranges for subkernels created using
+        this generator
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+
+        Returns
+        -------
+        inames : list of str
+            The string inames to add to created subkernels by default
+        iname_domains : list of str
+            The iname domains to add to created subkernels by default
+        """
+
+        return self.inames, [self.iname_domains[0].format(test_size)]
 
 
 class opencl_kernel_generator(kernel_generator):
