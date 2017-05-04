@@ -31,6 +31,7 @@ class editor(object):
         self.output = arc.creator('jac', np.float64,
                                   (dep_size, indep_size, problem_size),
                                   'F')
+        self.output = self.output(*['i', 'j', 'k'])[0]
 
     def __call__(self, knl):
         return set_adept_editor(knl, self.problem_size,
@@ -158,7 +159,8 @@ class SubTest(TestClass):
                 name='spec_rates',
                 loopy_opts=opt,
                 kernels=infos,
-                test_size=self.store.test_size
+                test_size=self.store.test_size,
+                extra_kernel_data=[editor.output]
             )
             knl._make_kernels()
 

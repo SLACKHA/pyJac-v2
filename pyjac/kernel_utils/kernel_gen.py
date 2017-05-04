@@ -89,7 +89,8 @@ class kernel_generator(object):
                  auto_diff=False,
                  depends_on=[],
                  array_props={},
-                 barriers=[]):
+                 barriers=[],
+                 extra_kernel_data=[]):
         """
         Parameters
         ----------
@@ -122,6 +123,8 @@ class kernel_generator(object):
                       [defined for host arrays only]
         barriers : list of tuples
             List of global memory barriers needed, (knl1, knl2, barrier_type)
+        extra_kernel_data : list of :class:`loopy.ArrayBase`
+            Extra kernel arguements to add to this kernel
         """
 
         self.compiler = None
@@ -171,7 +174,7 @@ class kernel_generator(object):
         self.iname_domains = ['0<=j<{}']
 
         # extra kernel parameters to be added to subkernels
-        self.extra_kernel_data = []
+        self.extra_kernel_data = extra_kernel_data[:]
 
     def apply_barriers(self, barriers, instructions):
         """
@@ -1039,7 +1042,7 @@ class c_kernel_generator(kernel_generator):
         self.iname_domains = []
 
         # add 'j' to the list of extra kernel data to be added to subkernels
-        self.extra_kernel_data = [lp.ValueArg('j', dtype=np.int32)]
+        self.extra_kernel_data.append(lp.ValueArg('j', dtype=np.int32))
 
     def get_inames(self, test_size):
         """
@@ -1125,7 +1128,7 @@ class autodiff_kernel_generator(c_kernel_generator):
 
         super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
 
-        from ..loopy_utils import AdeptCompiler
+        from ..loopy_utils.loopy_utils import AdeptCompiler
         self.compiler = AdeptCompiler()
 
     def add_jacobian(self, jacobian):

@@ -315,7 +315,11 @@ def set_adept_editor(knl,
         else:
             indicies = ['i', 'j']
 
-        assert len(variable.shape) == 2
+        if len(variable.shape) != 2:
+            assert variable.name == 'jac'
+            size = np.product([x for x in sizes if x != problem_size])
+            # can't operate on this
+            return size, None
 
         out_str = variable.name + '[{index}]'
         out_index = ''
@@ -341,10 +345,12 @@ def set_adept_editor(knl,
 
     # initializers
     init_template = Template("""
-        std::vector ad_${name} (${size});
+        std::vector<adouble> ad_${name} (${size});
+        """)
+    set_template = Template("""
         for (int i = 0; i < ${size}; ++i)
         {
-            ad_${name}.set_value(${indexed})
+            ad_${name}[i] = ${indexed};
         }
         """)
     initializers = []
@@ -352,19 +358,41 @@ def set_adept_editor(knl,
         if arg.name != dependent_variable.name \
                 and not isinstance(arg, lp.ValueArg):
             size, indexed = __get_size_and_stringify(arg)
-            # add initializer
-            initializers.append(init_template.substitute(
-                name=arg.name,
-                size=size,
-                indexed=indexed
-                ))
+            if size is not None:
+                # add initializer
+                initializers.append(init_template.substitute(
+                    name=arg.name,
+                    size=size,
+                    ))
+                if indexed is not None:
+                    initializers.append(set_template.substitute(
+                        name=arg.name,
+                        indexed=indexed,
+                        size=size
+                        ))
+
+    jac_size = dep_size * indep_size
     # find the output name
-    output_name = '&' + output.name + '[ad_j * {dep_size} * {indep_size}]'.format(
-        dep_size=dep_size, indep_size=indep_size)
+    jac_base_offset = '&ad_' + output.name + \
+        '[ad_j * {dep_size} * {indep_size}]'.format(
+            dep_size=dep_size, indep_size=indep_size)
+
+    jac_offset = '&ad_' + output.name + \
+        '[ad_j * {dep_size} * {indep_size} + i]'.format(
+            dep_size=dep_size, indep_size=indep_size)
+
+    jac = 
 
     # get header defn
     header = get_header(knl)
     header = header[:header.index(';')]
+
+    # and function call
+
+    kernel_call = 'ad_{name}({args});'.format(
+                name=knl.name,
+                args=', '.join('&ad_' + arg.name + '[0]' if arg.name != 'j'
+                               else 'ad_j' for arg in knl.args))
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
@@ -378,11 +406,11 @@ def set_adept_editor(knl,
             dep=dep,
             dep_name=dependent_variable.name,
             dep_size=dep_size,
-            output=output_name,
+            jac_base_offset=jac_base_offset,
+            jac_size=jac_size,
+            jac_offset=jac_offset,
             function_defn=header,
-            kernel_call='{name}({args});'.format(
-                name=knl.name,
-                args=', '.join('ad_' + arg.name for arg in knl.args)),
+            kernel_call=kernel_call,
             initializers='\n'.join(initializers)
         ))
 
