@@ -9,6 +9,7 @@ import numpy as np
 import pyopencl as cl
 from .. import utils
 import os
+import stat
 
 # local imports
 from ..utils import check_lang
@@ -133,6 +134,7 @@ class loopy_options(object):
         self.device = None
         assert knl_type in ['mask', 'map']
         self.knl_type = knl_type
+        self.auto_diff = auto_diff
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform:
@@ -307,10 +309,11 @@ def set_adept_editor(knl,
         src = Template(file.read())
 
     def __get_size_and_stringify(variable):
+        sizes = variable.shape
         if variable.order == 'F':
-            sizes = reversed(variable.shape)
+            indicies = ['j', 'i']
         else:
-            sizes = variable.shape
+            indicies = ['i', 'j']
 
         assert len(variable.shape) == 2
 
@@ -318,18 +321,15 @@ def set_adept_editor(knl,
         out_index = ''
         offset = 1
         out_size = None
-        for size in sizes:
+        for size, index in zip(sizes, indicies):
             if out_index:
                 out_index += ' + '
             if size != problem_size:
                 assert out_size is None, (
                     'Cannot determine variable size!')
                 out_size = size
-                out_index += 'i * ' + str(offset)
-                offset *= size
-            else:
-                out_index += 'j * ' + str(offset)
-                offset *= problem_size
+            out_index += '{} * {}'.format(index, offset)
+            offset *= size
 
         return out_size, out_str.format(index=out_index)
 
@@ -339,9 +339,32 @@ def set_adept_editor(knl,
     indep_size, indep = __get_size_and_stringify(independent_variable)
     dep_size, dep = __get_size_and_stringify(dependent_variable)
 
+    # initializers
+    init_template = Template("""
+        std::vector ad_${name} (${size});
+        for (int i = 0; i < ${size}; ++i)
+        {
+            ad_${name}.set_value(${indexed})
+        }
+        """)
+    initializers = []
+    for arg in knl.args:
+        if arg.name != dependent_variable.name \
+                and not isinstance(arg, lp.ValueArg):
+            size, indexed = __get_size_and_stringify(arg)
+            # add initializer
+            initializers.append(init_template.substitute(
+                name=arg.name,
+                size=size,
+                indexed=indexed
+                ))
     # find the output name
-    output_name = '&' + output.name + '[j * {dep_size} * {indep_size}]'.format(
+    output_name = '&' + output.name + '[ad_j * {dep_size} * {indep_size}]'.format(
         dep_size=dep_size, indep_size=indep_size)
+
+    # get header defn
+    header = get_header(knl)
+    header = header[:header.index(';')]
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
@@ -355,8 +378,17 @@ def set_adept_editor(knl,
             dep=dep,
             dep_name=dependent_variable.name,
             dep_size=dep_size,
-            output=output_name
+            output=output_name,
+            function_defn=header,
+            kernel_call='{name}({args});'.format(
+                name=knl.name,
+                args=', '.join('ad_' + arg.name for arg in knl.args)),
+            initializers='\n'.join(initializers)
         ))
+
+    # and make it executable
+    st = os.stat(adept_edit_script)
+    os.chmod(adept_edit_script, st.st_mode | stat.S_IEXEC)
 
     return __set_editor(knl, adept_edit_script)
 
@@ -907,7 +939,7 @@ def get_loopy_arg(arg_name, indicies, dimensions,
                                         inds=','.join(string_inds)), map_instructs
 
 
-def get_target(lang, device=None):
+def get_target(lang, device=None, compiler=None):
     """
 
     Parameters
@@ -928,7 +960,7 @@ def get_target(lang, device=None):
     if lang == 'opencl':
         return lp.PyOpenCLTarget(device=device)
     elif lang == 'c':
-        return lp.CTarget()
+        return lp.CTarget(compiler=compiler)
     elif lang == 'cuda':
         return lp.CudaTarget()
 

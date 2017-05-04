@@ -83,6 +83,7 @@ class SubTest(TestClass):
                   ('order', ['C', 'F']),
                   ('ilp', [False]),
                   ('unr', [None, 4]),
+                  ('auto_diff', [True])
                   ]
         if do_ratespec:
             oploop += [
