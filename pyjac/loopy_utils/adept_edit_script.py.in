@@ -36,14 +36,19 @@ def substitute(filename, text_in=None):
             break
 
     # first, replace all double's with adoubles
-    # restrict with __restrict__
     # and substitute problem_size and j for zero, to correct indexing
     for i in range(body_at - 1, len(lines)):
         lines[i] = re.sub(r'double\b', 'adouble', lines[i])
-        lines[i] = re.sub(r'restrict\b', '__restrict__', lines[i])
         if i >= body_at:
             lines[i] = lines[i].replace(str(${problem_size} - 1), '0')
             lines[i] = lines[i].replace('j', '0')
+
+            # check for fmax
+            lines[i] = re.sub(r'(fmax\(.+)\);', r'\1.value());', lines[i])
+
+    # next we have to rename the inner function
+    lines[body_at - 1] = re.sub(r'void\s*([\w_]+)', r'void ad_\1',
+                                lines[body_at - 1])
 
     # add adouble stuff
     lines.insert(0, '#include "adept.h"\n')
@@ -51,11 +56,12 @@ def substitute(filename, text_in=None):
 
     # now insert new calling function
 
-    lines.insert(2,
-                 """
+    lines.append("""
+
+
 ${function_defn}{
     #pragma openmp parallel for
-    for (int ad_j = 0; j < ${problem_size}; ++j)
+    for (int ad_j = 0; ad_j < ${problem_size}; ++ad_j)
     {
         adept::Stack stack; // Where the derivative information is stored
         //initialize variables
@@ -65,14 +71,22 @@ ${function_defn}{
         ${kernel_call} // Run algorithm
         stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
         stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
-        stack.jacobian(${output}); // Compute & store Jacobian in jac
+        stack.jacobian(${jac_base_offset}); // Compute & store Jacobian in jac
+        for (int i = 0; i < ${jac_size}; ++i) // get jac
+        {
+            ${jac} = ${jac_offset}.value();
+        }
         for (int i = 0; i < ${dep_size}; ++i) // get dependent vars
         {
-            ${dep} = ${ad_dep_name}[i].value();
+            ${dep} = ${jac_offset}[i].value();
         }
     }
 }
         """)
+
+    # replace restrict with __restrict__
+    for i in range(len(lines)):
+        lines[i] = re.sub(r'restrict\b', '__restrict__', lines[i])
 
     __save_file(filename, lines)
     return '\n'.join(lines)
