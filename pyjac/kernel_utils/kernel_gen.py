@@ -124,6 +124,7 @@ class kernel_generator(object):
             List of global memory barriers needed, (knl1, knl2, barrier_type)
         """
 
+        self.compiler = None
         self.loopy_opts = loopy_opts
         self.lang = loopy_opts.lang
         self.mem = memory_manager(self.lang)
@@ -284,7 +285,8 @@ class kernel_generator(object):
         # to functions, in the meantime use a Template
 
         # now create the kernels!
-        target = lp_utils.get_target(self.lang, self.loopy_opts.device)
+        target = lp_utils.get_target(self.lang, self.loopy_opts.device,
+                                     self.compiler)
         for i, info in enumerate(self.kernels):
             if info in self.external_kernels:
                 continue
@@ -1121,29 +1123,10 @@ class autodiff_kernel_generator(c_kernel_generator):
     """
     def __init__(self, *args, **kw_args):
 
-        super(c_kernel_generator, self).__init__(*args, **kw_args)
+        super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
 
-        self.extern_defn_template = Template(
-            'extern ${type}* ${name}' + utils.line_end[self.lang])
-
-        # the base skeleton for sub kernel creation
-        self.skeleton = """
-        for j
-            ${pre}
-            for ${var_name}
-                ${main}
-            end
-            ${post}
-        end
-        """
-
-        # reinstate the 'j' iname
-        self.inames = ['j']
-
-        # Add the 'j' iname domain back
-        self.iname_domains = ['0<=j<{}']
-
-        self.extra_kernel_data = []
+        from ..loopy_utils import AdeptCompiler
+        self.compiler = AdeptCompiler()
 
     def add_jacobian(self, jacobian):
         """
@@ -1162,28 +1145,6 @@ class autodiff_kernel_generator(c_kernel_generator):
         """
 
         self.extra_kernel_data.append(jacobian)
-
-    def get_inames(self, test_size):
-        """
-        Returns the inames and iname_ranges for subkernels created using
-        this generator
-
-        Parameters
-        ----------
-        test_size : int or str
-            In testing, this should be the integer size of the test data
-            For production, this should the 'test_size' (or the corresponding)
-            for the variable test size passed to the kernel
-
-        Returns
-        -------
-        inames : list of str
-            The string inames to add to created subkernels by default
-        iname_domains : list of str
-            The iname domains to add to created subkernels by default
-        """
-
-        return self.inames, [self.iname_domains[0].format(test_size)]
 
 
 class opencl_kernel_generator(kernel_generator):

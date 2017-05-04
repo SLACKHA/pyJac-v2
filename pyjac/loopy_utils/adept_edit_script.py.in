@@ -27,69 +27,52 @@ def __save_file(filename, lines):
 
 def substitute(filename, text_in=None):
     lines = __get_file(filename, text_in=text_in)
-    lines.insert(0, '#include "adept.h"\n')
 
     # search for body
     body_at = None
     for i, line in enumerate(lines):
-        if '{' == line.strip():
+        if line.strip() == '{':
             body_at = i
             break
 
-    # now find end of body to calculate jacobian
-    body_end = None
-    for i, line in reversed(list(enumerate(lines))):
-        if '}' == line.strip():
-            body_end = i
-            break
+    # first, replace all double's with adoubles
+    # restrict with __restrict__
+    # and substitute problem_size and j for zero, to correct indexing
+    for i in range(body_at - 1, len(lines)):
+        lines[i] = re.sub(r'double\b', 'adouble', lines[i])
+        lines[i] = re.sub(r'restrict\b', '__restrict__', lines[i])
+        if i >= body_at:
+            lines[i] = lines[i].replace(str(${problem_size} - 1), '0')
+            lines[i] = lines[i].replace('j', '0')
 
-    assert body_at is not None and body_end is not None, (
-        "Function body could not be found")
+    # add adouble stuff
+    lines.insert(0, '#include "adept.h"\n')
+    lines.insert(1, 'using adept::adouble; // Import Stack and adouble from adept\n')
 
-    indep_finder = re.compile(r'${indep_name}(\[[\w\d\*-+ ]+\])')
-    dep_finder = re.compile(r'${dep_name}(\[[\w\d\*-+ ]+\])')
+    # now insert new calling function
 
-    other_adoubles = [$other_adoubles]
-    other_adoubles = [re.compile('(double)\s*(' + x + ')')]
-
-    # look for all instance of the independent / dependent variables, and
-    # replace them with our auto-differentiated versions
-    for i in range(body_at, body_end + 1):
-        lines[i] = indep_finder.sub('${ad_indep_name}', lines[i])
-        lines[i] = dep_finder.sub('${ad_dep_name}', lines[i])
-        lines[i] = lines[i].replace('${problem_size}', '0')
-        for oa in other_adoubles:
-            lines[i] = oa.sub(r'adouble \2', lines[i])
-
-    lines.insert(body_at + 1,
-        """
-#pragma openmp parallel for
-for (int j = 0; j < ${problem_size}; ++j) {
-    using adept::adouble; // Import Stack and adouble from adept
-    adept::Stack stack; // Where the derivative information is stored
-    std::vector<adouble> ${ad_indep_name}(${indep_size}); // Vector of active independent variables
-    for (int i = 0; i < ${indep_size}; ++i) // Initialize adouble independent vars
+    lines.insert(2,
+                 """
+${function_defn}{
+    #pragma openmp parallel for
+    for (int ad_j = 0; j < ${problem_size}; ++j)
     {
-        ${ad_indep_name}[i].set_value(${indep})
-    }
-    adept.new_recording(); // Start recording
-    std::vector<adouble> ${ad_dep_name}(${dep_size}); // Create vector of active output variables
-    // Run algorithm
-        """
-    )
-
-    lines.insert(body_end,
-        """
-    stack.independent(${ad_indep_name}&[0], ${indep_size}); // Identify independent variables
-    stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
-    stack.jacobian(${output}); // Compute & store Jacobian in jac
-    for (int i = 0; i < ${dep_size}; ++i) // get dependent vars
-    {
-        ${dep} = ${ad_dep_name}[i].value()
+        adept::Stack stack; // Where the derivative information is stored
+        //initialize variables
+        ${initializers}
+        stack.new_recording(); // Start recording
+        std::vector<adouble> ${ad_dep_name}(${dep_size}); // Create vector of active output variables
+        ${kernel_call} // Run algorithm
+        stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
+        stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
+        stack.jacobian(${output}); // Compute & store Jacobian in jac
+        for (int i = 0; i < ${dep_size}; ++i) // get dependent vars
+        {
+            ${dep} = ${ad_dep_name}[i].value();
+        }
     }
 }
-        """
-    )
+        """)
 
     __save_file(filename, lines)
     return '\n'.join(lines)
