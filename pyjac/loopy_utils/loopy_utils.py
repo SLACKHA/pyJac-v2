@@ -39,23 +39,30 @@ class loopy_options(object):
     Attributes
     ----------
     width : int
-        If not None, the SIMD lane/SIMT block width.  Cannot be specified along with depth
+        If not None, the SIMD lane/SIMT block width.
+        Cannot be specified along with depth
     depth : int
-        If not None, the SIMD lane/SIMT block depth.  Cannot be specified along with width
+        If not None, the SIMD lane/SIMT block depth.
+        Cannot be specified along with width
     ilp : bool
-        If True, use the ILP tag on the species loop.  Cannot be specified along with unr
+        If True, use the ILP tag on the species loop.
+        Cannot be specified along with unr
     unr : int
-        If not None, the unroll length to apply to the species loop. Cannot be specified along with ilp
+        If not None, the unroll length to apply to the species loop.
+        Cannot be specified along with ilp
     order : {'C', 'F'}
-        The memory layout of the arrays, C (row major) or Fortran (column major)
+        The memory layout of the arrays, C (row major)
+        or Fortran (column major)
     lang : ['opencl', 'c', 'cuda']
         One of the supported languages
     rate_spec : RateSpecialization
         Controls the level to which Arrenhius rate evaluations are specialized
     rate_spec_kernels : bool
-        If True, break different Arrenhius rate specializations into different kernels
+        If True, break different Arrenhius rate specializations into different
+        kernels
     rop_net_kernels : bool
-        If True, break different ROP values (fwd / back / pdep) into different kernels
+        If True, break different ROP values (fwd / back / pdep) into different
+        kernels
     spec_rates_sum_over_reac : bool
         Controls the manner in which the species rates are calculated
         *  If True, the summation occurs as:
@@ -68,32 +75,43 @@ class loopy_options(object):
                 for reac in spec_to_reacs[spec]:
                     rate = reac_rates[reac]
                     spec_rate[spec] += nu(spec, reac) * reac_rate
-        *  Of these, the first choice appears to be slightly more efficient, likely due to less
-        thread divergence / SIMD wastage, HOWEVER it causes issues with deep vectorization
-        (an atomic update of the spec_rate is needed, and doesn't appear to work in current loopy)
-        Hence, we supply both.
-        *  Note that if True, and deep vectorization is passed this switch will be ignored
-        and a warning will be issued
+        *  Of these, the first choice appears to be slightly more efficient,
+           likely due to less thread divergence / SIMD wastage, HOWEVER it
+           causes issues with deep vectorization -- an atomic update of the
+           spec_rate is needed, and doesn't appear to work in loopy/OpenCL1.2,
+           hence, we supply both.
+        *  Note that if True, and deep vectorization is passed this switch will
+        be ignored and a warning will be issued
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
-        *   If 'CPU' or 'GPU', the first available matching platform will be used
-        *   If a vendor specific string, it will be passed to pyopencl to get the platform
+        *   If 'CPU' or 'GPU', the first available matching platform will be
+            used
+        *   If a vendor specific string, it will be passed to pyopencl to get
+            the platform
     knl_type : ['mask', 'map']
         The type of opencl kernels to create:
-        * A masked kernel loops over all available indicies (e.g. reactions) and uses a
-            mask to determine what to do.  Note: **Required for deep vectorization**
-        * A mapped kernel loops over only necessary indicies (e.g. plog reactions vs all)
-            This may be faster for a non-vectorized or wide-vectorization
+        * A masked kernel loops over all available indicies (e.g. reactions)
+            and uses a mask to determine what to do.
+            Note: **Suggested for deep vectorization**
+        * A mapped kernel loops over only necessary indicies
+            (e.g. plog reactions vs all) This may be faster for a
+            non-vectorized kernel or wide-vectorization
     """
 
-    def __init__(self, width=None, depth=None, ilp=False,
-                 unr=None, lang='opencl', order='C',
+    def __init__(self,
+                 width=None,
+                 depth=None,
+                 ilp=False,
+                 unr=None,
+                 lang='opencl',
+                 order='C',
                  rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False,
                  rop_net_kernels=False,
                  spec_rates_sum_over_reac=True,
                  platform='',
-                 knl_type='map'):
+                 knl_type='map',
+                 auto_diff=False):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -184,7 +202,8 @@ def get_context(device='0'):
     Parameters
     ----------
     device : str or :class:`pyopencl.Device`
-        The pyopencl string (or device class) denoting the device to use, defaults to '0'
+        The pyopencl string (or device class) denoting the device to use,
+        defaults to '0'
 
     Returns
     -------
@@ -229,7 +248,7 @@ def get_header(knl):
 
 def __set_editor(knl, script):
     # set the edit script as the 'editor'
-    os.environ['EDITOR'] = edit_script
+    os.environ['EDITOR'] = script
 
     # turn on code editing
     edit_knl = lp.set_options(knl, edit_code=True)
@@ -327,15 +346,17 @@ def set_adept_editor(knl,
     # fill in template
     with open(adept_edit_script, 'w') as file:
         file.write(src.substitute(
-                problem_size=problem_size,
-                ad_indep_name='ad_' + independent_variable.name,
-                indep=indep,
-                indep_size=indep_size,
-                ad_dep_name='ad_' + dependent_variable.name,
-                dep=dep,
-                dep_size=dep_size,
-                output=output_name
-            ))
+            problem_size=problem_size,
+            ad_indep_name='ad_' + independent_variable.name,
+            indep=indep,
+            indep_name=independent_variable.name,
+            indep_size=indep_size,
+            ad_dep_name='ad_' + dependent_variable.name,
+            dep=dep,
+            dep_name=dependent_variable.name,
+            dep_size=dep_size,
+            output=output_name
+        ))
 
     return __set_editor(knl, adept_edit_script)
 
@@ -383,15 +404,19 @@ class kernel_call(object):
         ref_answer : :class:`numpy.ndarray` or list of :class:`numpy.ndarray`
             The reference answer to compare to
         compare_axis : int, optional
-            An axis to apply the compare_mask along, unused if compare_mask is None
-        compare_mask : :class:`numpy.ndarray` or :class:`numpy.ndarray`, optional
-            A list of indexes to compare, useful when the kernel only computes partial results
+            An axis to apply the compare_mask along, unused if compare_mask
+            is None
+        compare_mask : :class:`numpy.ndarray` or :class:`numpy.ndarray`
+            An optional list of indexes to compare, useful when the kernel only
+            computes partial results.
             Should match length of ref_answer
         out_mask : int, optional
-            The index(ices) of the returned array to aggregate.  Should match length of ref_answer
+            The index(ices) of the returned array to aggregate.
+            Should match length of ref_answer
         input_mask : list of str or function, optional
             An optional list of input arguements to filter out
-            If a function is passed, the expected signature is along the lines of
+            If a function is passed, the expected signature is along the
+            lines of:
                 def fcn(self, arg_name):
                     ...
             and returns True iff this arg_name should be used
@@ -402,17 +427,21 @@ class kernel_call(object):
             If not None, a function of signature similar to:
                 def fcn(self, out_values):
                     ....
-            is expected.  This function should take the output values from a previous kernel call,
-            and place in the input args for this kernel call as necessary
+            is expected.
+            This function should take the output values from a previous
+            kernel call, and place in the input args for this kernel call as
+            necessary
         post_process : function, optional
             If not None, a function of signature similar to:
                 def fcn(self, out_values):
                     ....
-            is expected.  This function should take the output values from this kernel call,
-            and process them as expected to compare to results.
-            Currently used only in comparison of reaction rates to Cantera (to deal w/ falloff etc.)
+            is expected.  This function should take the output values from this
+            kernel call, and process them as expected to compare to results.
+            Currently used only in comparison of reaction rates to
+            Cantera (to deal w/ falloff etc.)
         check : bool
-            If False, do not check result (useful when chaining to check only the last result)
+            If False, do not check result (useful when chaining to check only
+            the last result)
             Default is True
         input_args : dict of `numpy.array`s
             The arguements to supply to the kernel
@@ -467,7 +496,8 @@ class kernel_call(object):
         Parameters
         ----------
         order : {'C', 'F'}
-            The memory layout of the arrays, C (row major) or Fortran (column major)
+            The memory layout of the arrays, C (row major) or
+            Fortran (column major)
         """
         self.compare_axis = 1  # always C order now (in numpy comparisons)
         self.current_order = order
@@ -524,7 +554,7 @@ class kernel_call(object):
 
         Parameters
         ----------
-        output_variables : :class:`numpy.ndarray` or :class:`numpy.ndarray`, optional
+        output_variables : :class:`numpy.ndarray` or :class:`numpy.ndarray`
             The output variables to test
 
         Returns
@@ -557,14 +587,14 @@ class kernel_call(object):
 def populate(knl, kernel_calls, device='0',
              editor=None):
     """
-    This method runs the supplied :class:`loopy.LoopKernel` (or list thereof), and is often used by
-    :method:`auto_run`
+    This method runs the supplied :class:`loopy.LoopKernel` (or list thereof),
+    and is often used by :function:`auto_run`
 
     Parameters
     ----------
     knl : :class:`loopy.LoopKernel` or list of :class:`loopy.LoopKernel`
-        The kernel to test, if a list of kernels they will be successively applied and the
-        end result compared
+        The kernel to test, if a list of kernels they will be successively
+        applied and the end result compared
     kernel_calls : :class:`kernel_call` or list thereof
         The masks / ref_answers, etc. to use in testing
     device : str

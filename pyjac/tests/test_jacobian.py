@@ -7,7 +7,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        set_adept_editor
                                        )
 from ..core import array_creator as arc
-from ..kernel_utils import kernel_generator as k_gen
+from ..kernel_utils import kernel_gen as k_gen
 
 import numpy as np
 from nose.plugins.attrib import attr
@@ -33,8 +33,8 @@ class editor(object):
                                   'F')
 
     def __call__(self, knl):
-        set_adept_editor(knl, self.problem_size,
-                         self.independent, self.dependent, self.output)
+        return set_adept_editor(knl, self.problem_size,
+                                self.independent, self.dependent, self.output)
 
 
 class SubTest(TestClass):
@@ -61,9 +61,10 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
         # create namestore
-        namestore = arc.NameStore(object(order='F', kernel_type='map'),
+        namestore = arc.NameStore(loopy_options(order='F', knl_type='map',
+                                                lang='c', auto_diff=True),
                                   rate_info, self.store.test_size)
-        myedit = editor(namestore.phi, namestore.Fi,
+        myedit = editor(namestore.T_arr, namestore.Fi,
                         self.store.test_size)
         self.__generic_rate_tester(get_sri_kernel, kc, editor=myedit)
 
@@ -71,8 +72,8 @@ class SubTest(TestClass):
                              do_spec_per_reac=False,
                              use_platform_instead=False,
                              do_conp=False,
-                             do_vector=True,
-                             langs=['opencl']):
+                             do_vector=False,
+                             langs=['c']):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         vectypes = [4, None] if do_vector else [None]
@@ -126,7 +127,8 @@ class SubTest(TestClass):
         """
 
         eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_spec_per_reac)
+            do_ratespec, do_ropsplit, do_spec_per_reac,
+            do_vector=False)
 
         reacs = self.store.reacs
         specs = self.store.specs

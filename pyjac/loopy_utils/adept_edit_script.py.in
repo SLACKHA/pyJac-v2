@@ -9,6 +9,7 @@ OpenCL implementations (mostly Intel)
 import sys
 import re
 
+
 def __get_file(filename, text_in=None):
     if filename.lower() == 'stdin':
         lines = text_in.split('\n')
@@ -26,19 +27,19 @@ def __save_file(filename, lines):
 
 def substitute(filename, text_in=None):
     lines = __get_file(filename, text_in=text_in)
-    lines.insert(0, '#include "adept.h"')
+    lines.insert(0, '#include "adept.h"\n')
 
     # search for body
     body_at = None
     for i, line in enumerate(lines):
-        if '{' in line:
+        if '{' == line.strip():
             body_at = i
             break
 
     # now find end of body to calculate jacobian
     body_end = None
     for i, line in reversed(list(enumerate(lines))):
-        if '}' in line:
+        if '}' == line.strip():
             body_end = i
             break
 
@@ -48,38 +49,47 @@ def substitute(filename, text_in=None):
     indep_finder = re.compile(r'${indep_name}(\[[\w\d\*-+ ]+\])')
     dep_finder = re.compile(r'${dep_name}(\[[\w\d\*-+ ]+\])')
 
+    other_adoubles = [$other_adoubles]
+    other_adoubles = [re.compile('(double)\s*(' + x + ')')]
+
     # look for all instance of the independent / dependent variables, and
     # replace them with our auto-differentiated versions
     for i in range(body_at, body_end + 1):
-        lines[i] = indep_finder.subs('${ad_indep_name}', lines[i])
-        lines[i] = dep_finder.subs('${ad_dep_name}', lines[i])
+        lines[i] = indep_finder.sub('${ad_indep_name}', lines[i])
+        lines[i] = dep_finder.sub('${ad_dep_name}', lines[i])
         lines[i] = lines[i].replace('${problem_size}', '0')
+        for oa in other_adoubles:
+            lines[i] = oa.sub(r'adouble \2', lines[i])
 
-    lines[body_at+1:body_at+1] = [
-        '#pragma openmp parallel for'
-        'for (int j = 0; j < ${problem_size}; ++j) {'
-        '   using adept::adouble; // Import Stack and adouble from adept',
-        '   adept::Stack stack; // Where the derivative information is stored',
-        '   std::vector<adouble> ${ad_indep_name}(${indep_size}); // Vector of active independent variables',
-        '   for (int i = 0; i < ${indep_size}; ++i) // Initialize adouble independent vars',
-        '   {',
-        '       ${ad_indep_name}[i].set_value(${indep})',
-        '   }',
-        '   adept.new_recording(); // Start recording',
-        '   std::vector<adouble> ${ad_dep}(${dep_size}); // Create vector of active output variables',
-        '   // Run algorithm'
-    ]
+    lines.insert(body_at + 1,
+        """
+#pragma openmp parallel for
+for (int j = 0; j < ${problem_size}; ++j) {
+    using adept::adouble; // Import Stack and adouble from adept
+    adept::Stack stack; // Where the derivative information is stored
+    std::vector<adouble> ${ad_indep_name}(${indep_size}); // Vector of active independent variables
+    for (int i = 0; i < ${indep_size}; ++i) // Initialize adouble independent vars
+    {
+        ${ad_indep_name}[i].set_value(${indep})
+    }
+    adept.new_recording(); // Start recording
+    std::vector<adouble> ${ad_dep_name}(${dep_size}); // Create vector of active output variables
+    // Run algorithm
+        """
+    )
 
-    lines[body_end:body_end] = [
-        '   stack.independent(${ad_indep_name}&[0], ${indep_size}); // Identify independent variables',
-        '   stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables',
-        '   stack.jacobian(${output}); // Compute & store Jacobian in jac',
-        '   for (int i = 0; i < ${dep_size}; ++i) // get dependent vars',
-        '   {',
-        '       ${dep} = ${ad_dep_name}[i].value()',
-        '   }'
-        '}'
-    ]
+    lines.insert(body_end,
+        """
+    stack.independent(${ad_indep_name}&[0], ${indep_size}); // Identify independent variables
+    stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
+    stack.jacobian(${output}); // Compute & store Jacobian in jac
+    for (int i = 0; i < ${dep_size}; ++i) // get dependent vars
+    {
+        ${dep} = ${ad_dep_name}[i].value()
+    }
+}
+        """
+    )
 
     __save_file(filename, lines)
     return '\n'.join(lines)
