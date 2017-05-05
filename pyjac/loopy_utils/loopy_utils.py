@@ -606,7 +606,10 @@ class kernel_call(object):
         """
 
         try:
-            evt, out = knl(queue, out_host=True, **self.kernel_args)
+            if isinstance(knl.target, lp.CTarget):
+                evt, out = knl(**self.kernel_args)
+            else:
+                evt, out = knl(queue, out_host=True, **self.kernel_args)
         except Exception as e:
             raise e
 
@@ -748,12 +751,13 @@ def populate(knl, kernel_calls, device='0',
                     out_ref[ind][copy_inds] = out[ind][copy_inds]
 
         output.append(out_ref)
-        assert found, 'No kernels could be found to match kernel call {}'.format(
-            kc.name)
+        assert found, (
+            'No kernels could be found to match kernel call {}'.format(
+                kc.name))
     return output
 
 
-def auto_run(knl, kernel_calls, device='0', editor=None):
+def auto_run(knl, kernel_calls, device='0'):
     """
     This method tests the supplied :class:`loopy.LoopKernel` (or list thereof)
     against a reference answer
@@ -769,12 +773,6 @@ def auto_run(knl, kernel_calls, device='0', editor=None):
         The pyopencl string denoting the device to use, defaults to '0'
     input_args : dict of `numpy.array`s
         The arguements to supply to the kernel
-    editor : callable
-        If not none, a callable function or object that takes a
-        :class:`loopy.LoopKernel` as the sole arguement, and returns the kernel
-        with editing turned on (for used with auto-differentiation)
-
-        If not specified, the default (opencl) editor will be invoked
 
     Returns
     -------
@@ -788,7 +786,7 @@ def auto_run(knl, kernel_calls, device='0', editor=None):
     if not isinstance(knl, list):
         knl = [knl]
 
-    out = populate(knl, kernel_calls, device=device, editor=editor)
+    out = populate(knl, kernel_calls, device=device)
     try:
         result = True
         for i, kc in enumerate(kernel_calls):
