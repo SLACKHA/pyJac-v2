@@ -10,6 +10,7 @@ import pyopencl as cl
 from .. import utils
 import os
 import stat
+import re
 
 # local imports
 from ..utils import check_lang
@@ -319,7 +320,7 @@ def set_adept_editor(knl,
             assert variable.name == 'jac'
             size = np.product([x for x in sizes if x != problem_size])
             # can't operate on this
-            return size, None
+            return None, None
 
         out_str = variable.name + '[{index}]'
         out_index = ''
@@ -373,26 +374,32 @@ def set_adept_editor(knl,
 
     jac_size = dep_size * indep_size
     # find the output name
-    jac_base_offset = '&ad_' + output.name + \
+    jac_base_offset = '&' + output.name + \
         '[ad_j * {dep_size} * {indep_size}]'.format(
             dep_size=dep_size, indep_size=indep_size)
-
-    jac_offset = '&ad_' + output.name + \
-        '[ad_j * {dep_size} * {indep_size} + i]'.format(
-            dep_size=dep_size, indep_size=indep_size)
-
-    jac = 
 
     # get header defn
     header = get_header(knl)
     header = header[:header.index(';')]
 
+    # replace the "const" on the jacobian
+    header = re.sub(r'double\s*const(?=[^,]+{name})'.format(name=output.name),
+                    'double', header)
+
     # and function call
+
+    arg_list = [arg.name for arg in knl.args]
+    for i, arg in enumerate(arg_list):
+        name = arg[:]
+        if arg != output.name:
+            name = 'ad_' + name
+        if arg != 'j':
+            name = '&' + name + '[0]'
+        arg_list[i] = name
 
     kernel_call = 'ad_{name}({args});'.format(
                 name=knl.name,
-                args=', '.join('&ad_' + arg.name + '[0]' if arg.name != 'j'
-                               else 'ad_j' for arg in knl.args))
+                args=', '.join(arg_list))
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
@@ -408,7 +415,7 @@ def set_adept_editor(knl,
             dep_size=dep_size,
             jac_base_offset=jac_base_offset,
             jac_size=jac_size,
-            jac_offset=jac_offset,
+            jac_name=output.name,
             function_defn=header,
             kernel_call=kernel_call,
             initializers='\n'.join(initializers)
@@ -994,5 +1001,5 @@ def get_target(lang, device=None, compiler=None):
 
 
 class AdeptCompiler(CppCompiler):
-    default_compile_flags = '-g -O3 -fopenmp'.split()
-    default_link_flags = '-shared -ladept -fopenmp'.split()
+    default_compile_flags = '-g -O3 -fopenmp -fPIC'.split()
+    default_link_flags = '-shared -ladept -fopenmp -fPIC'.split()

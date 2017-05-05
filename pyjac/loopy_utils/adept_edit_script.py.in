@@ -38,7 +38,7 @@ def substitute(filename, text_in=None):
     # first, replace all double's with adoubles
     # and substitute problem_size and j for zero, to correct indexing
     for i in range(body_at - 1, len(lines)):
-        lines[i] = re.sub(r'double\b', 'adouble', lines[i])
+        lines[i] = re.sub(r'double\b(?![^,]+${jac_name})', 'adouble', lines[i])
         if i >= body_at:
             lines[i] = lines[i].replace(str(${problem_size} - 1), '0')
             lines[i] = lines[i].replace('j', '0')
@@ -58,7 +58,7 @@ def substitute(filename, text_in=None):
 
     lines.append("""
 
-
+extern "C" {
 ${function_defn}{
     #pragma openmp parallel for
     for (int ad_j = 0; ad_j < ${problem_size}; ++ad_j)
@@ -71,16 +71,13 @@ ${function_defn}{
         ${kernel_call} // Run algorithm
         stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
         stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
-        stack.jacobian(${jac_base_offset}); // Compute & store Jacobian in jac
-        for (int i = 0; i < ${jac_size}; ++i) // get jac
-        {
-            ${jac} = ${jac_offset}.value();
-        }
+        stack.jacobian_forward(${jac_base_offset}); // Compute & store Jacobian in jac
         for (int i = 0; i < ${dep_size}; ++i) // get dependent vars
         {
-            ${dep} = ${jac_offset}[i].value();
+            ${dep} = ${ad_dep_name}[i].value();
         }
     }
+}
 }
         """)
 
