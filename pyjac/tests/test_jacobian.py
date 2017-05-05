@@ -4,7 +4,8 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list,
                                        kernel_call,
-                                       set_adept_editor
+                                       set_adept_editor,
+                                       populate
                                        )
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
@@ -17,7 +18,6 @@ from collections import OrderedDict
 
 
 class editor(object):
-
     def __init__(self, independent, dependent,
                  problem_size):
 
@@ -39,42 +39,12 @@ class editor(object):
 
 
 class SubTest(TestClass):
-
-    @attr('long')
-    def test_sri_derivatives(self):
-        ref_phi = self.store.phi
-        ref_Pr = self.store.ref_Pr.copy()
-        ref_ans = self.store.ref_Sri.copy().squeeze()
-        args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
-                'phi': lambda x: np.array(ref_phi, order=x, copy=True),
-                }
-
-        # get SRI reaction mask
-        sri_mask = np.where(
-            np.in1d(self.store.fall_inds, self.store.sri_inds))[0]
-        if not sri_mask.size:
-            return
-        # create the kernel call
-        kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
-                         compare_mask=[sri_mask], **args)
-
-        reacs = self.store.reacs
-        specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
-        # create namestore
-        namestore = arc.NameStore(loopy_options(order='F', knl_type='map',
-                                                lang='c', auto_diff=True),
-                                  rate_info, self.store.test_size)
-        myedit = editor(namestore.T_arr, namestore.Fi,
-                        self.store.test_size)
-        self.__generic_rate_tester(get_sri_kernel, kc, editor=myedit)
-
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
                              do_spec_per_reac=False,
                              use_platform_instead=False,
                              do_conp=False,
-                             do_vector=False,
-                             langs=['c']):
+                             do_vector=True,
+                             langs=['opencl']):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         vectypes = [4, None] if do_vector else [None]
@@ -107,12 +77,13 @@ class SubTest(TestClass):
 
         return eqs, oploop
 
-    def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False,
+    def __generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                               do_ropsplit=None, do_spec_per_reac=False,
                               editor=None,
                               **kw_args):
         """
-        A generic testing method that can be used for rate constants, third bodies, ...
+        A generic testing method that can be used for rate constants,
+        third bodies, ...
 
         Parameters
         ----------
@@ -121,7 +92,8 @@ class SubTest(TestClass):
         kernel_calls : :class:`kernel_call` or list thereof
             Contains the masks and reference answers for kernel testing
         do_ratespec : bool
-            If true, test rate specializations and kernel splitting for simple rates
+            If true, test rate specializations and kernel splitting for simple
+            rates
         do_ropsplit : bool
             If true, test kernel splitting for rop_net
         do_spec_per_reac : bool
@@ -174,3 +146,85 @@ class SubTest(TestClass):
             assert auto_run(knl.kernels, kernel_calls, device=state['device'],
                             editor=editor), \
                 'Evaluate {} rates failed'.format(func.__name__)
+
+    def __get_jacobian(self, func, kernel_call, editor, **kw_args):
+        opt = loopy_options(auto_diff=True,
+                            lang='c',
+                            order='F',
+                            knl_type='map')
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        # find rate info
+        rate_info = assign_rates(
+            self.store.reacs,
+            self.store.specs,
+            opt.rate_spec)
+        # create namestore
+        namestore = arc.NameStore(opt, rate_info, self.store.test_size)
+        # create the kernel info
+        infos = func(eqs, opt, namestore,
+                     test_size=self.store.test_size, **kw_args)
+
+        # create a dummy kernel generator
+        knl = k_gen.make_kernel_generator(
+                name='jacobian',
+                loopy_opts=opt,
+                kernels=infos,
+                test_size=self.store.test_size,
+                extra_kernel_data=[editor.output]
+            )
+        knl._make_kernels()
+        import pdb; pdb.set_trace()
+
+        # add dummy 'j' arguement
+        kernel_call.kernel_args['j'] = -1
+        # and place output
+        kernel_call.kernel_args[editor.output.name] = np.zeros(
+            editor.output.shape,
+            order='F')
+
+        import loopy as lp
+        knl.kernels[0] = lp.set_options(knl.kernels[0], write_wrapper=True)
+
+        # run kernel
+        populate(
+            knl.kernels, kernel_call, device=get_device_list()[0],
+            editor=editor)
+
+        return knl.kernel_args[editor.output.name]
+
+    @attr('long')
+    def test_sri_derivatives(self):
+        ref_phi = self.store.phi
+        ref_Pr = self.store.ref_Pr.copy()
+        ref_ans = self.store.ref_Sri.copy().squeeze()
+        args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
+                'phi': lambda x: np.array(ref_phi, order=x, copy=True),
+                }
+
+        # get SRI reaction mask
+        sri_mask = np.where(
+            np.in1d(self.store.fall_inds, self.store.sri_inds))[0]
+        if not sri_mask.size:
+            return
+        # create the kernel calls
+        kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
+                         compare_mask=[sri_mask], **args)
+
+        kc.set_state('F')
+
+        reacs = self.store.reacs
+        specs = self.store.specs
+        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        # create namestore
+        namestore = arc.NameStore(loopy_options(order='F', knl_type='map',
+                                                lang='c', auto_diff=True),
+                                  rate_info, self.store.test_size)
+        myedit = editor(namestore.T_arr, namestore.Fi,
+                        self.store.test_size)
+
+        answer = self.__get_jacobian(get_sri_kernel, kc, myedit)
+
+        kc.ref_answer = answer
+
+        self.__generic_jac_tester(get_sri_kernel, kc, editor=myedit)
