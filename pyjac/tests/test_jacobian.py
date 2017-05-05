@@ -29,12 +29,20 @@ class editor(object):
 
         # create the jacobian
         self.output = arc.creator('jac', np.float64,
-                                  (dep_size, indep_size, problem_size),
-                                  'F')
+                                  (problem_size, dep_size, indep_size),
+                                  order='C')
         self.output = self.output(*['i', 'j', 'k'])[0]
 
+    def set_single_kernel(self, single_kernel):
+        """
+        It's far easier to use two generated kernels, one that uses the full
+        problem size (for calling via loopy), and another that uses a problem
+        size of 1, to work with Adept indexing in the AD kernel
+        """
+        self.single_kernel = single_kernel
+
     def __call__(self, knl):
-        return set_adept_editor(knl, self.problem_size,
+        return set_adept_editor(knl, self.single_kernel, self.problem_size,
                                 self.independent, self.dependent, self.output)
 
 
@@ -134,6 +142,7 @@ class SubTest(TestClass):
                 test_size=self.store.test_size,
                 extra_kernel_data=[editor.output]
             )
+
             knl._make_kernels()
 
             # create a list of answers to check
@@ -174,20 +183,37 @@ class SubTest(TestClass):
                 extra_kernel_data=[editor.output]
             )
         knl._make_kernels()
-        import pdb; pdb.set_trace()
+
+        # and a generator for the single kernel
+        single_name = arc.NameStore(opt, rate_info, 1)
+        single_info = func(eqs, opt, single_name,
+                           test_size=1, **kw_args)
+
+        single_knl = k_gen.make_kernel_generator(
+            name='spec_rates',
+            loopy_opts=opt,
+            kernels=single_info,
+            test_size=1,
+            extra_kernel_data=[editor.output]
+        )
+
+        single_knl._make_kernels()
+
+        # set in editor
+        editor.set_single_kernel(single_knl.kernels[0])
 
         # add dummy 'j' arguement
         kernel_call.kernel_args['j'] = -1
         # and place output
         kernel_call.kernel_args[editor.output.name] = np.zeros(
             editor.output.shape,
-            order='F')
+            order=editor.output.order)
 
         import loopy as lp
         knl.kernels[0] = lp.set_options(knl.kernels[0], write_wrapper=True)
 
         # run kernel
-        populate(
+        vals = populate(
             knl.kernels, kernel_call, device=get_device_list()[0],
             editor=editor)
 
