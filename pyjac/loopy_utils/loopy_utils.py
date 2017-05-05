@@ -278,6 +278,7 @@ def set_editor(knl):
 
 
 def set_adept_editor(knl,
+                     single_kernel,
                      problem_size=8192,
                      independent_variable=None,
                      dependent_variable=None,
@@ -289,6 +290,9 @@ def set_adept_editor(knl,
     ----------
     knl : :class:`loopy.LoopKernel`
         The kernel to generate code for
+    single_kernel : :class:`loopy.LoopKernel`
+        The same as knl, except generated for a problem_size of 1 to facilitate
+        indexing in the wrapped kernel
     problem_size : int
         The size of the testing problem
     independent_variable : :class:`array_creator.creator`
@@ -311,10 +315,11 @@ def set_adept_editor(knl,
 
     def __get_size_and_stringify(variable):
         sizes = variable.shape
-        if variable.order == 'F':
-            indicies = ['j', 'i']
-        else:
-            indicies = ['i', 'j']
+        indicies = ['ad_j', 'i']
+        from ..core.array_creator import creator
+        if isinstance(variable, creator):
+            if variable.order == 'C':
+                indicies = ['i', 'ad_j']
 
         if len(variable.shape) != 2:
             assert variable.name == 'jac'
@@ -418,7 +423,8 @@ def set_adept_editor(knl,
             jac_name=output.name,
             function_defn=header,
             kernel_call=kernel_call,
-            initializers='\n'.join(initializers)
+            initializers='\n'.join(initializers),
+            single_kernel=get_code(single_kernel)
         ))
 
     # and make it executable
@@ -999,5 +1005,5 @@ def get_target(lang, device=None, compiler=None):
 
 
 class AdeptCompiler(CppCompiler):
-    default_compile_flags = '-g -O3 -fopenmp -fPIC'.split()
-    default_link_flags = '-shared -ladept -fopenmp -fPIC'.split()
+    default_compile_flags = '-g -O0 -fopenmp -fPIC'.split()
+    default_link_flags = '-g -O0 -shared -ladept -fopenmp -fPIC'.split()

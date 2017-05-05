@@ -26,7 +26,10 @@ def __save_file(filename, lines):
 
 
 def substitute(filename, text_in=None):
-    lines = __get_file(filename, text_in=text_in)
+    # first replace what will become the inner kernel with the single indexed
+    # version
+
+    lines = """${single_kernel}""".splitlines(True)
 
     # search for body
     body_at = None
@@ -51,7 +54,7 @@ def substitute(filename, text_in=None):
                                 lines[body_at - 1])
 
     # add adouble stuff
-    lines.insert(0, '#include "adept.h"\n')
+    lines.insert(0, '#include "adept.h"\n#include<iostream>\n')
     lines.insert(1, 'using adept::adouble; // Import Stack and adouble from adept\n')
 
     # now insert new calling function
@@ -60,7 +63,7 @@ def substitute(filename, text_in=None):
 
 extern "C" {
 ${function_defn}{
-    #pragma openmp parallel for
+    #pragma omp parallel for
     for (int ad_j = 0; ad_j < ${problem_size}; ++ad_j)
     {
         adept::Stack stack; // Where the derivative information is stored
@@ -72,10 +75,6 @@ ${function_defn}{
         stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
         stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
         stack.jacobian(${jac_base_offset}); // Compute & store Jacobian in jac
-        for (int i = 0; i < ${dep_size}; ++i) // get dependent vars
-        {
-            ${dep} = ${ad_dep_name}[i].value();
-        }
     }
 }
 }
