@@ -282,7 +282,8 @@ def set_adept_editor(knl,
                      problem_size=8192,
                      independent_variable=None,
                      dependent_variable=None,
-                     output=None):
+                     output=None,
+                     do_not_set=[]):
     """
     Returns a copy of knl set up for various automated bug-fixes
 
@@ -302,6 +303,9 @@ def set_adept_editor(knl,
     output : :class:`array_creator.creator`
         The array to store the column-major
         Jacobian in, ordered by thermo-chemical condition
+    do_not_set : list of :class:`array_creator.creator`
+        Other variables that are computed in this kernel (and hence shouldn't)
+        be set
 
     Returns
     -------
@@ -319,7 +323,18 @@ def set_adept_editor(knl,
         from ..core.array_creator import creator
         if isinstance(variable, creator):
             if variable.order == 'C':
-                indicies = ['i', 'ad_j']
+                # last index varies fastest, so stride of 'i' is 1
+                sizes = reversed(sizes)
+                indicies = reversed(indicies)
+        elif isinstance(variable, lp.kernel.data.ArrayBase):
+            # find index of test_size
+            strides = [x.stride for x in variable.dim_tags]
+            sizes = variable.shape
+            # if first stride is not problem_size, this is 'C' ordered
+            # hence reverse indicies
+            if strides[0] != problem_size:
+                sizes = reversed(sizes)
+                indicies = reversed(indicies)
 
         if len(variable.shape) != 2:
             assert variable.name == 'jac'
@@ -356,7 +371,7 @@ def set_adept_editor(knl,
     set_template = Template("""
         for (int i = 0; i < ${size}; ++i)
         {
-            ad_${name}[i] = ${indexed};
+            ad_${name}[i].set_value(${indexed});
         }
         """)
     initializers = []
@@ -370,12 +385,28 @@ def set_adept_editor(knl,
                     name=arg.name,
                     size=size,
                     ))
-                if indexed is not None:
+                if indexed is not None and not next((
+                        a for a in do_not_set if a.name == arg.name), None):
                     initializers.append(set_template.substitute(
                         name=arg.name,
                         indexed=indexed,
                         size=size
                         ))
+    dep_set_template = Template("""
+        for (int i = 0; i < ${size}; ++i)
+        {
+            ${indexed} = ad_${name}[i].value();
+        }
+        """)
+
+    setters = []
+    for var in [dependent_variable] + do_not_set:
+        size, ind = __get_size_and_stringify(var)
+        setters.append(dep_set_template.substitute(
+            indexed=ind,
+            name=var.name,
+            size=size))
+    setters = '\n'.join(setters)
 
     jac_size = dep_size * indep_size
     # find the output name
@@ -424,7 +455,8 @@ def set_adept_editor(knl,
             function_defn=header,
             kernel_call=kernel_call,
             initializers='\n'.join(initializers),
-            single_kernel=get_code(single_kernel)
+            single_kernel=get_code(single_kernel),
+            setters=setters
         ))
 
     # and make it executable
