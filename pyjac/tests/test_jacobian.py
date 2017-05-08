@@ -19,7 +19,7 @@ from collections import OrderedDict
 
 class editor(object):
     def __init__(self, independent, dependent,
-                 problem_size):
+                 problem_size, order, do_not_set=[]):
 
         self.independent = independent
         indep_size = next(x for x in independent.shape if x != problem_size)
@@ -30,8 +30,12 @@ class editor(object):
         # create the jacobian
         self.output = arc.creator('jac', np.float64,
                                   (problem_size, dep_size, indep_size),
-                                  order='C')
+                                  order=order)
         self.output = self.output(*['i', 'j', 'k'])[0]
+        try:
+            self.do_not_set = do_not_set[:]
+        except:
+            self.do_not_set = [do_not_set]
 
     def set_single_kernel(self, single_kernel):
         """
@@ -43,7 +47,8 @@ class editor(object):
 
     def __call__(self, knl):
         return set_adept_editor(knl, self.single_kernel, self.problem_size,
-                                self.independent, self.dependent, self.output)
+                                self.independent, self.dependent, self.output,
+                                self.do_not_set)
 
 
 class SubTest(TestClass):
@@ -156,28 +161,33 @@ class SubTest(TestClass):
                             editor=editor), \
                 'Evaluate {} rates failed'.format(func.__name__)
 
-    def __get_jacobian(self, func, kernel_call, editor, **kw_args):
-        opt = loopy_options(auto_diff=True,
-                            lang='c',
-                            order='F',
-                            knl_type='map')
+    def __make_array(self, array, indicies, order='C'):
+        """
+        Creates an array for comparison to an autorun kernel from the result
+        of __get_jacobian
+        """
+
+        import pdb; pdb.set_trace()
+
+    def __get_jacobian(self, func, kernel_call, editor, ad_opts,
+                       **kw_args):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         # find rate info
         rate_info = assign_rates(
             self.store.reacs,
             self.store.specs,
-            opt.rate_spec)
+            ad_opts.rate_spec)
         # create namestore
-        namestore = arc.NameStore(opt, rate_info, self.store.test_size)
+        namestore = arc.NameStore(ad_opts, rate_info, self.store.test_size)
         # create the kernel info
-        infos = func(eqs, opt, namestore,
+        infos = func(eqs, ad_opts, namestore,
                      test_size=self.store.test_size, **kw_args)
 
         # create a dummy kernel generator
         knl = k_gen.make_kernel_generator(
                 name='jacobian',
-                loopy_opts=opt,
+                loopy_opts=ad_opts,
                 kernels=infos,
                 test_size=self.store.test_size,
                 extra_kernel_data=[editor.output]
@@ -185,13 +195,13 @@ class SubTest(TestClass):
         knl._make_kernels()
 
         # and a generator for the single kernel
-        single_name = arc.NameStore(opt, rate_info, 1)
-        single_info = func(eqs, opt, single_name,
+        single_name = arc.NameStore(ad_opts, rate_info, 1)
+        single_info = func(eqs, ad_opts, single_name,
                            test_size=1, **kw_args)
 
         single_knl = k_gen.make_kernel_generator(
             name='spec_rates',
-            loopy_opts=opt,
+            loopy_opts=ad_opts,
             kernels=single_info,
             test_size=1,
             extra_kernel_data=[editor.output]
@@ -201,6 +211,8 @@ class SubTest(TestClass):
 
         # set in editor
         editor.set_single_kernel(single_knl.kernels[0])
+
+        kernel_call.set_state(ad_opts.order)
 
         # add dummy 'j' arguement
         kernel_call.kernel_args['j'] = -1
@@ -213,11 +225,13 @@ class SubTest(TestClass):
         knl.kernels[0] = lp.set_options(knl.kernels[0], write_wrapper=True)
 
         # run kernel
+        import pdb; pdb.set_trace()
         vals = populate(
             knl.kernels, kernel_call, device=get_device_list()[0],
             editor=editor)
 
-        return knl.kernel_args[editor.output.name]
+        return self.__make_array(kernel_call.kernel_args[editor.output.name],
+                                 kernel_call.compare_mask, ad_opts.order)
 
     @attr('long')
     def test_sri_derivatives(self):
@@ -228,28 +242,29 @@ class SubTest(TestClass):
                 'phi': lambda x: np.array(ref_phi, order=x, copy=True),
                 }
 
-        # get SRI reaction mask
-        sri_mask = np.where(
-            np.in1d(self.store.fall_inds, self.store.sri_inds))[0]
-        if not sri_mask.size:
-            return
-        # create the kernel calls
-        kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
-                         compare_mask=[sri_mask], **args)
-
-        kc.set_state('F')
-
+        # get number of sri reactions
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
-        # create namestore
-        namestore = arc.NameStore(loopy_options(order='F', knl_type='map',
-                                                lang='c', auto_diff=True),
-                                  rate_info, self.store.test_size)
-        myedit = editor(namestore.T_arr, namestore.Fi,
-                        self.store.test_size)
 
-        answer = self.__get_jacobian(get_sri_kernel, kc, myedit)
+        num_sri = np.arange(rate_info['fall']['sri']['num'], dtype=np.int32)
+        if not num_sri.size:
+            return
+        # create the kernel calls
+        kc = kernel_call('fall_sri', ref_ans, out_mask=[1],
+                         compare_mask=[num_sri], **args)
+
+        ad_opts = loopy_options(order='C', knl_type='map', lang='c',
+                                auto_diff=True)
+
+        # create namestore
+        namestore = arc.NameStore(ad_opts,
+                                  rate_info, self.store.test_size)
+        myedit = editor(namestore.T_arr, namestore.X_sri,
+                        self.store.test_size, order=ad_opts.order,
+                        do_not_set=namestore.Fi)
+
+        answer = self.__get_jacobian(get_sri_kernel, kc, myedit, ad_opts)
 
         kc.ref_answer = answer
 

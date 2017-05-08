@@ -75,6 +75,7 @@ ${function_defn}{
         stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
         stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
         stack.jacobian(${jac_base_offset}); // Compute & store Jacobian in jac
+        ${setters}
     }
 }
 }
