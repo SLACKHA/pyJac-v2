@@ -161,13 +161,17 @@ class SubTest(TestClass):
                             editor=editor), \
                 'Evaluate {} rates failed'.format(func.__name__)
 
-    def __make_array(self, array, indicies, order='C'):
+    def __make_array(self, array):
         """
         Creates an array for comparison to an autorun kernel from the result
         of __get_jacobian
         """
 
-        import pdb; pdb.set_trace()
+        for i in range(array.shape[0]):
+            # reshape inner array
+            array[i, :, :] = np.reshape(array[i, :, :].flatten(order='K'),
+                                        array.shape[1:],
+                                        order='F')
 
     def __get_jacobian(self, func, kernel_call, editor, ad_opts,
                        **kw_args):
@@ -225,13 +229,11 @@ class SubTest(TestClass):
         knl.kernels[0] = lp.set_options(knl.kernels[0], write_wrapper=True)
 
         # run kernel
-        import pdb; pdb.set_trace()
-        vals = populate(
+        populate(
             knl.kernels, kernel_call, device=get_device_list()[0],
             editor=editor)
 
-        return self.__make_array(kernel_call.kernel_args[editor.output.name],
-                                 kernel_call.compare_mask, ad_opts.order)
+        return self.__make_array(kernel_call.kernel_args[editor.output.name])
 
     @attr('long')
     def test_sri_derivatives(self):
@@ -260,9 +262,9 @@ class SubTest(TestClass):
         # create namestore
         namestore = arc.NameStore(ad_opts,
                                   rate_info, self.store.test_size)
-        myedit = editor(namestore.T_arr, namestore.X_sri,
+        myedit = editor(namestore.T_arr, namestore.Fi,
                         self.store.test_size, order=ad_opts.order,
-                        do_not_set=namestore.Fi)
+                        do_not_set=namestore.X_sri)
 
         answer = self.__get_jacobian(get_sri_kernel, kc, myedit, ad_opts)
 
