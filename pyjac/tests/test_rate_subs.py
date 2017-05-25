@@ -435,7 +435,8 @@ class SubTest(TestClass):
             # find rate info
             rate_info = assign_rates(reacs, specs, opt.rate_spec)
             # create namestore
-            namestore = arc.NameStore(opt, rate_info, self.store.test_size)
+            namestore = arc.NameStore(opt, rate_info, state['conp'],
+                                      self.store.test_size)
             # create the kernel info
             infos = func(eqs, opt, namestore,
                          test_size=self.store.test_size, **kw_args)
