@@ -699,15 +699,19 @@ class NameStore(object):
         offset, maps, etc.
     order : ['C', 'F']
         The row/column-major data format to use in storage
+    conp : Boolean [True]
+        If true, use the constant pressure formulation
     test_size : str or int
         Optional size used in testing.  If not supplied, this is a kernel arg
     """
 
-    def __init__(self, loopy_opts, rate_info, test_size='problem_size'):
+    def __init__(self, loopy_opts, rate_info, conp=True,
+                 test_size='problem_size'):
         self.loopy_opts = loopy_opts
         self.rate_info = rate_info
         self.order = loopy_opts.order
         self.test_size = test_size
+        self.conp = conp
         self._add_arrays(rate_info, test_size)
 
     def __getattr__(self, name):
@@ -759,24 +763,47 @@ class NameStore(object):
                                  initializer=np.arange(rate_info['Nr'],
                                                        dtype=np.int32))
         self.phi_spec_inds = creator('phi_spec_inds',
-                                     shape=(rate_info['Ns'],),
+                                     shape=(rate_info['Ns'] - 1,),
                                      dtype=np.int32, order=self.order,
-                                     initializer=np.arange(1,
+                                     initializer=np.arange(2,
                                                            rate_info['Ns'] + 1,
                                                            dtype=np.int32))
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 0)])
-        self.P_arr = creator('P_arr', shape=(test_size,),
+
+        # handle extra variable and P / V arrays
+        self.E_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+                             dtype=np.float64, order=self.order,
+                             fixed_indicies=[(1, 1)])
+        if self.conp:
+            self.P_arr = creator('P_arr', shape=(test_size,),
+                                 dtype=np.float64, order=self.order)
+            self.V_arr = self.E_arr
+        else:
+            self.P_arr = self.E_arr
+            self.V_arr = creator('V_arr', shape=(test_size,),
+                                 dtype=np.float64, order=self.order)
+
+        self.n_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order)
-        self.conc_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+        self.conc_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                 dtype=np.float64, order=self.order)
-        self.conc_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
-                                dtype=np.float64, order=self.order)
+        self.conc_ns_arr = creator('conc', shape=(test_size, rate_info['Ns']),
+                                   dtype=np.float64, order=self.order,
+                                   fixed_indicies=[(1, rate_info['Ns'] - 1)])
+        self.n_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+                             dtype=np.float64, order=self.order)
         self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 0)])
+        self.E_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+                             dtype=np.float64, order=self.order,
+                             fixed_indicies=[(1, 1)])
+
+        self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
+                                  dtype=np.float64, order=self.order)
 
         # thermo arrays
         self.h_arr = creator('h', shape=(test_size, rate_info['Ns']),

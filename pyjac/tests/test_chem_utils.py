@@ -34,7 +34,7 @@ class SubTest(TestClass):
                     **{x: state[x] for x in state if x != 'device'})
                 rate_info = assign_rates(self.store.reacs, self.store.specs,
                                          RateSpecialization.fixed)
-                namestore = NameStore(opt, rate_info, test_size)
+                namestore = NameStore(opt, rate_info, True, test_size)
                 knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
                                          poly_dim,
                                          test_size=test_size)

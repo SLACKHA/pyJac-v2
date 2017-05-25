@@ -559,6 +559,116 @@ def default_pre_instructs(result_name, var_str, INSN_KEY):
         value=default_preinstructs[INSN_KEY])
 
 
+def get_concentrations(eqs, loopy_opts, namestore, conp=True,
+                       test_size=None):
+    """Determines concentrations from moles and state variables depending
+    on constant pressure vs constant volue assumption
+
+    kernel
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    conp : bool
+        If true, generate equations using constant pressure assumption
+        If false, use constant volume equations
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator for both
+        equation types
+    """
+
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs,
+                            namestore.num_specs)
+
+    fixed_inds = (global_ind,)
+
+    # first, create all arrays
+    kernel_data = []
+
+    # add problem size
+    if namestore.problem_size is not None:
+        kernel_data.append(namestore.problem_size)
+
+    # need P, V, T and n arrays
+
+    # add / apply maps
+    mapstore.check_and_add_transform(namestore.n_arr,
+                                     namestore.num_specs,
+                                     force_inline=True)
+    mapstore.check_and_add_transform(namestore.conc_arr,
+                                     namestore.num_specs,
+                                     force_inline=True)
+    mapstore.check_and_add_transform(namestore.conc_ns_arr,
+                                     namestore.num_specs,
+                                     force_inline=True)
+
+    n_arr, n_str = mapstore.apply_maps(namestore.n_arr, *default_inds)
+    P_arr, P_str = mapstore.apply_maps(namestore.P_arr, *fixed_inds)
+    V_arr, V_str = mapstore.apply_maps(namestore.V_arr, *fixed_inds)
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, *fixed_inds)
+    conc_arr, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
+
+    _, conc_ns_str = mapstore.apply_maps(namestore.conc_ns_arr, *fixed_inds)
+
+    # add arrays
+    kernel_data.extend([n_arr, P_arr, V_arr, T_arr, conc_arr])
+
+    pre_instructions = Template(
+        """
+            <>n = ${P_str} * ${V_str} / (Ru * ${T_str})
+            <>V_inv = 1.0d / ${V_str}
+            <>n_sum = 0 {id=n_init}
+        """).substitute(
+            P_str=P_str,
+            V_str=V_str,
+            T_str=T_str)
+
+    instructions = Template(
+        """
+            ${conc_str} = ${n_str} * V_inv
+            n_sum = n_sum + ${n_str} {id=n_update, dep=n_init}
+        """).substitute(
+            conc_str=conc_str,
+            n_str=n_str
+        )
+
+    post_instructions = Template(
+        """
+        ${cns_str} = (n - n_sum) * V_inv {dep=n_update}
+        """).substitute(cns_str=conc_ns_str)
+
+    can_vectorize = loopy_opts.depth is None
+    # finally do vectorization ability and specializer
+
+    def __vec_spec_deep(knl):
+        # do a dummy split
+        return lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+
+    vec_spec = None if not loopy_opts.depth else __vec_spec_deep
+
+    return k_gen.knl_info(name='temperature_rate',
+                          pre_instructions=pre_instructions,
+                          instructions=instructions,
+                          post_instructions=post_instructions,
+                          mapstore=mapstore,
+                          var_name='i',
+                          kernel_data=kernel_data,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec)
+
 def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
                          test_size=None):
     """Generates instructions, kernel arguements, and data for the
@@ -611,11 +721,11 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
         kernel_data.append(namestore.problem_size)
 
     # add / apply maps
-    mapstore.check_and_add_transform(namestore.conc_dot,
-                                     namestore.phi_spec_inds,
+    mapstore.check_and_add_transform(namestore.spec_rates,
+                                     namestore.num_specs,
                                      force_inline=True)
     mapstore.check_and_add_transform(namestore.conc_arr,
-                                     namestore.phi_spec_inds,
+                                     namestore.num_specs,
                                      force_inline=True)
 
     # add all non-mapped arrays
@@ -630,27 +740,28 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
 
     conc_lp, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
     Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, *fixed_inds)
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, fixed_inds)
+    wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
+                                            *default_inds)
 
-    kernel_data.extend([conc_lp, Tdot_lp])
-
-    conc_dot_lp, conc_dot_str = mapstore.apply_maps(namestore.conc_dot,
-                                                    *default_inds)
-    # kernel_data.add(conc_dot_lp)
+    kernel_data.extend([conc_lp, Tdot_lp, wdot_lp])
 
     # put together conv/conp terms
     if conp:
         term = sp_utils.sanitize(term, subs={
             'H[k]': h_str,
-            'dot{omega}[k]': conc_dot_str,
+            'dot{omega}[k]': wdot_str,
             '[C][k]': conc_str,
-            '{C_p}[k]': cp_str
+            '{C_p}[k]': cp_str,
+            'V': V_str
         })
     else:
         term = sp_utils.sanitize(term, subs={
             'U[k]': u_str,
-            'dot{omega}[k]': conc_dot_str,
+            'dot{omega}[k]': wdot_str,
             '[C][k]': conc_str,
-            '{C_v}[k]': cv_str
+            '{C_v}[k]': cv_str,
+            'V': V_str
         })
     # now split into upper / lower halves
     factor = -1
@@ -2937,7 +3048,7 @@ def write_specrates_kernel(eqs, reacs, specs,
         test_size = 'problem_size'
 
     # create the namestore
-    nstore = arc.NameStore(loopy_opts, rate_info, test_size)
+    nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
 
     kernels = []
 

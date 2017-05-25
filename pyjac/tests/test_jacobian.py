@@ -128,7 +128,8 @@ class SubTest(TestClass):
             # find rate info
             rate_info = assign_rates(reacs, specs, opt.rate_spec)
             # create namestore
-            namestore = arc.NameStore(opt, rate_info, self.store.test_size)
+            namestore = arc.NameStore(opt, rate_info, state['conp'],
+                                      self.store.test_size)
             # create the kernel info
             infos = func(eqs, opt, namestore,
                          test_size=self.store.test_size, **kw_args)
@@ -173,7 +174,7 @@ class SubTest(TestClass):
                                         array.shape[1:],
                                         order='F')
 
-    def __get_jacobian(self, func, kernel_call, editor, ad_opts,
+    def __get_jacobian(self, func, kernel_call, editor, ad_opts, conp,
                        **kw_args):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
@@ -183,7 +184,8 @@ class SubTest(TestClass):
             self.store.specs,
             ad_opts.rate_spec)
         # create namestore
-        namestore = arc.NameStore(ad_opts, rate_info, self.store.test_size)
+        namestore = arc.NameStore(ad_opts, rate_info, conp,
+                                  self.store.test_size)
         # create the kernel info
         infos = func(eqs, ad_opts, namestore,
                      test_size=self.store.test_size, **kw_args)
@@ -199,7 +201,7 @@ class SubTest(TestClass):
         knl._make_kernels()
 
         # and a generator for the single kernel
-        single_name = arc.NameStore(ad_opts, rate_info, 1)
+        single_name = arc.NameStore(ad_opts, rate_info, conp, 1)
         single_info = func(eqs, ad_opts, single_name,
                            test_size=1, **kw_args)
 
@@ -235,6 +237,21 @@ class SubTest(TestClass):
 
         return self.__make_array(kernel_call.kernel_args[editor.output.name])
 
+    def __make_namestore(self, conp):
+        # get number of sri reactions
+        reacs = self.store.reacs
+        specs = self.store.specs
+        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+
+        ad_opts = loopy_options(order='C', knl_type='map', lang='c',
+                                auto_diff=True)
+
+        # create namestore
+        namestore = arc.NameStore(ad_opts,
+                                  rate_info, conp, self.store.test_size)
+
+        return namestore, rate_info
+
     @attr('long')
     def test_sri_derivatives(self):
         ref_phi = self.store.phi
@@ -244,30 +261,24 @@ class SubTest(TestClass):
                 'phi': lambda x: np.array(ref_phi, order=x, copy=True),
                 }
 
-        # get number of sri reactions
-        reacs = self.store.reacs
-        specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        conp = True
 
-        num_sri = np.arange(rate_info['fall']['sri']['num'], dtype=np.int32)
-        if not num_sri.size:
+        # get number of sri reactions
+        namestore, rate_info = self.__make_namestore(conp)
+        ad_opts = namestore.loopy_opts
+
+        sri_inds = np.arange(rate_info['fall']['sri']['map'], dtype=np.int32)
+        if not sri_inds.size:
             return
         # create the kernel calls
         kc = kernel_call('fall_sri', ref_ans, out_mask=[1],
-                         compare_mask=[num_sri], **args)
+                         compare_mask=[sri_inds], **args)
 
-        ad_opts = loopy_options(order='C', knl_type='map', lang='c',
-                                auto_diff=True)
-
-        # create namestore
-        namestore = arc.NameStore(ad_opts,
-                                  rate_info, self.store.test_size)
+        # create editor
         myedit = editor(namestore.T_arr, namestore.Fi,
                         self.store.test_size, order=ad_opts.order,
                         do_not_set=namestore.X_sri)
 
-        answer = self.__get_jacobian(get_sri_kernel, kc, myedit, ad_opts)
+        answer = self.__get_jacobian(get_sri_kernel, kc, myedit, conp, ad_opts)
 
         kc.ref_answer = answer
-
-        self.__generic_jac_tester(get_sri_kernel, kc, editor=myedit)

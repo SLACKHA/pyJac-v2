@@ -356,4 +356,4 @@ class SubTest(TestClass):
         from ..loopy_utils.loopy_utils import RateSpecialization
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
-        arc.NameStore(lp_opt, rate_info, self.store.test_size)
+        arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
