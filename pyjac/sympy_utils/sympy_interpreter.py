@@ -5,37 +5,41 @@ from __future__ import print_function
 # Standard libraries
 import os
 import re
+import logging
 
 # Non-standard libraries
 import sympy as sp
 
-#local includes
-from ..core.reaction_types import reaction_type, thd_body_type, falloff_form, reversible_type
+# local includes
+from ..core.reaction_types import (reaction_type, thd_body_type, falloff_form,
+                                   reversible_type)
 
-#class recognition for sympy import
+# class recognition for sympy import
+from sympy.tensor.indexed import Idx
 from . import sympy_addons as sp_add
 from . import custom_sympy_classes as sp_cust
 local_dict = vars(sp_cust)
-from sympy.tensor.indexed import Idx, Indexed, IndexedBase
+local_dict.update(vars(sp_add))
 local_dict['Idx'] = Idx
 local_dict['MyIndexedFuncValue'] = sp_cust.MyIndexedFunc.MyIndexedFuncValue
 local_dict['IndexedFuncValue'] = sp_add.IndexedFunc.IndexedFuncValue
 
 enum_map = [reaction_type, thd_body_type, falloff_form, reversible_type]
-enum_map = {str(m.__name__) : m for m in enum_map}
+enum_map = {str(m.__name__): m for m in enum_map}
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
+
 
 def enum_from_str(condition):
     enum_class, enum_name = condition.split('.')
     if enum_class not in enum_map:
-        raise Exception('Enum {} not found in reaction_types.'.format(enum_class))
+        raise Exception(
+            'Enum {} not found in reaction_types.'.format(enum_class))
 
     return enum_map[enum_class][enum_name]
 
 
-
-def load_equations(conp=True, check=False):
+def load_equations(conp=True, check=False, raise_missing=False):
     """
     Returns equation/symbol lists from pre-derived sympy output
 
@@ -47,6 +51,9 @@ def load_equations(conp=True, check=False):
     check : bool
         If true, the equations input will be checked to ensure that
         all variables within are defined (slower, used for testing)
+    raise_missing : bool
+        If true, raise failed checks as exceptions.
+        If false, simply issue warnings
 
     Returns
     -------
@@ -61,84 +68,91 @@ def load_equations(conp=True, check=False):
     var_list = []
     eqn_list = {}
     with open(os.path.join(script_dir, 'con{}_derivation.sympy'.format(
-        'p' if conp else 'v')), 'r') as file:
+            'p' if conp else 'v')), 'r') as file:
         lines = [line.strip() for line in file.readlines()]
 
-    #first we read the variables
+    # first we read the variables
     for i, line in enumerate(lines):
-        if not line: #reached the end of the var list
+        if not line:  # reached the end of the var list
             break
         var_list.append(sp.sympify(lines[i], locals=local_dict))
 
-    #increment to next good line
+    # increment to next good line
     i += 1
 
-    #now we must parse the equations
+    # now we must parse the equations
     while i < len(lines):
         try:
             sym = sp.sympify(lines[i], locals=local_dict)
         except Exception as e:
-            raise Exception('Error parsing at line: {}\n{}'.format(i, lines[i]))
+            raise Exception(
+                'Error parsing at line: {}\n{}'.format(i, lines[i]))
 
         if sym in eqn_list:
             raise Exception('Sympy parsing error at line {},'.format(i) +
-                'duplicate definition found')
+                            'duplicate definition found')
 
-        #bump to definition
+        # bump to definition
         i += 1
 
-        #the next line is either an if statement
+        # the next line is either an if statement
         conditional = None
         while True:
             if i >= len(lines) or not lines[i]:
                 break
             match = re.search('^if (.+)$', lines[i])
             if match:
-                #check
-                if conditional == False:
+                # check
+                if conditional is False:
                     raise Exception('Sympy parsing error at line {},'.format(i) +
-                        'conditional definition found in non-conditional block')
-                #map conditionals to enums
+                                    'conditional definition found in non-conditional block')
+                # map conditionals to enums
                 conditional = True
                 conditions = match.group(1).split(',')
-                enums = tuple(enum_from_str(condition) for condition in conditions)
+                enums = tuple(enum_from_str(condition)
+                              for condition in conditions)
 
-                #place sympified equation in eqn_list
+                # place sympified equation in eqn_list
                 if sym not in eqn_list:
                     eqn_list[sym] = {}
-                try:
-                    eqn_list[sym][enums] = sp.sympify(lines[i + 1], locals=local_dict)
-                except Exception as e:
-                    raise Exception('Error parsing at line: {}\n{}'.format(i, lines[i]))
+                # try:
+                eqn_list[sym][enums] = sp.sympify(
+                    lines[i + 1], locals=local_dict)
+                # except Exception as e:
+                #    raise Exception(
+                #        'Error parsing at line: {}\n{}'.format(i, lines[i + 1]))
 
                 i += 2
             else:
-                #check
+                # check
                 if conditional:
                     raise Exception('Sympy parsing error at line {},'.format(i) +
-                        'non-conditional definition found in conditional block')
+                                    'non-conditional definition found in conditional block')
                 conditional = False
-                #place sympified equation in eqn_list
+                # place sympified equation in eqn_list
                 try:
                     eqn_list[sym] = sp.sympify(lines[i], locals=local_dict)
                 except Exception as e:
-                    raise Exception('Error parsing at line: {}\n{}'.format(i, lines[i]))
+                    raise Exception(
+                        'Error parsing at line: {}\n{}'.format(i, lines[i]))
                 i += 1
         i += 1
 
-    #populate variable list
+    # populate variable list
     var_list = set()
     time = sp.Symbol('t')
     conc = sp_cust.IndexedConc('[C]', time)
     blacklist = set([
         sp.Symbol('P'), sp.Symbol('V'),
-        sp_cust.MyImplicitSymbol('P', time), sp_cust.MyImplicitSymbol('V', time),
+        sp_cust.MyImplicitSymbol(
+            'P', time), sp_cust.MyImplicitSymbol('V', time),
         sp.Symbol('R_u'), sp.Symbol('P_{atm}'),
         time,
         sp_cust.MyImplicitSymbol('T', time),
         conc, conc[sp.Idx('k')], conc[sp.Idx('j')], conc[sp.Idx('m')]])
     for x in eqn_list:
-        var_list = var_list.union([y for y in x.free_symbols if not (isinstance(y, Idx))])
+        var_list = var_list.union(
+            [y for y in x.free_symbols if not (isinstance(y, Idx))])
     var_list = var_list - blacklist
 
     var_list = list(var_list)
@@ -148,6 +162,11 @@ def load_equations(conp=True, check=False):
             assert all(x in eqn_list for x in var_list)
         except AssertionError as e:
             missing = next(x for x in var_list if x not in eqn_list)
-            raise Exception('On check, missing equation for variable {}.'.format(missing))
+            err_str = 'On check, missing equation for variable {}.'.format(
+                        missing)
+            if raise_missing:
+                raise Exception(err_str)
+            else:
+                logging.warn(err_str)
 
     return var_list, eqn_list
