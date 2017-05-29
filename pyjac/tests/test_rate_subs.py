@@ -926,13 +926,17 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_get_extra_var_rates(self):
+        dphi = np.zeros_like(self.store.dphi_cp)
+        dphi[:, 0] = self.store.conp_temperature_rates[:]
         args = {
             'phi': lambda x: np.array(
                 self.store.phi_cp, order=x, copy=True),
             'wdot': lambda x: np.array(
                 self.store.species_rates, order=x, copy=True),
             'P_arr': lambda x: np.array(
-                self.store.P, order=x, copy=True)}
+                self.store.P, order=x, copy=True),
+            'dphi': lambda x: np.array(
+                dphi, order=x, copy=True)}
 
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
@@ -944,13 +948,18 @@ class SubTest(TestClass):
                                    do_spec_per_reac=True,
                                    conp=True)
 
+        dphi = np.zeros_like(self.store.dphi_cv)
+        dphi[:, 0] = self.store.conv_temperature_rates[:]
         args = {
             'phi': lambda x: np.array(
                 self.store.phi_cv, order=x, copy=True),
             'V_arr': lambda x: np.array(
                 self.store.V, order=x, copy=True),
             'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)}
+                self.store.species_rates, order=x, copy=True),
+            'dphi': lambda x: np.array(
+                dphi, order=x, copy=True)}
+
         # test conv
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],

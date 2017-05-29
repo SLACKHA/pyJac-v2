@@ -200,7 +200,7 @@ class storage(object):
 
         self.P_dot = (self.T * ct.gas_constant *
                       np.dot(self.species_rates[:, :-1], mws) +
-                      self.conp_temperature_rates * self.P / self.T)
+                      self.conv_temperature_rates * self.P / self.T)
 
         self.dphi_cp = np.concatenate((
             self.conp_temperature_rates.reshape(-1, 1),
