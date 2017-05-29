@@ -920,10 +920,16 @@ ${name} : ${type}
 
         extra_kernel_data += self.extra_kernel_data[:]
 
+        # check for duplicate kernel data (e.g. multiple phi arguements)
+        kernel_data = []
+        for k in info.kernel_data:
+            if k not in kernel_data:
+                kernel_data.append(k)
+
         # make the kernel
         knl = lp.make_kernel(iname_arr,
                              kernel_str,
-                             kernel_data=info.kernel_data + extra_kernel_data,
+                             kernel_data=kernel_data + extra_kernel_data,
                              name=info.name,
                              target=target,
                              assumptions=' and '.join(assumptions)

@@ -459,6 +459,10 @@ def assign_rates(reacs, specs, rate_spec):
         pp_plog_params[np.where(np.isinf(pp_plog_params))] = 0
         np.seterr(**hold)
 
+    # molecular weights
+    mws = np.array([spec.mw for spec in specs])
+    mw_post = 1.0 - mws[:-1] / mws[-1]
+
     return {'simple': {'A': A, 'b': b, 'Ta': Ta, 'type': simple_rate_type,
                        'num': num_simple, 'map': simple_map},
             'plog': {'map': plog_map, 'num': num_plog,
@@ -528,7 +532,10 @@ def assign_rates(reacs, specs, rate_spec):
                 'a_lo': a_lo,
                 'a_hi': a_hi,
                 'T_mid': T_mid
-    }}
+            },
+            'mws': mws,
+            'mw_post': mw_post
+            }
 
 
 def default_pre_instructs(result_name, var_str, INSN_KEY):
@@ -590,8 +597,8 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
     """
 
     mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs)
+                            namestore.num_specs_no_ns,
+                            namestore.num_specs_no_ns)
 
     fixed_inds = (global_ind,)
 
@@ -606,13 +613,13 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     # add / apply maps
     mapstore.check_and_add_transform(namestore.n_arr,
-                                     namestore.num_specs,
+                                     namestore.phi_spec_inds,
                                      force_inline=True)
     mapstore.check_and_add_transform(namestore.conc_arr,
-                                     namestore.num_specs,
+                                     namestore.num_specs_no_ns,
                                      force_inline=True)
     mapstore.check_and_add_transform(namestore.conc_ns_arr,
-                                     namestore.num_specs,
+                                     namestore.num_specs_no_ns,
                                      force_inline=True)
 
     n_arr, n_str = mapstore.apply_maps(namestore.n_arr, *default_inds)
@@ -628,7 +635,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     pre_instructions = Template(
         """
-            <>n = ${P_str} * ${V_str} / (Ru * ${T_str})
+            <>n = ${P_str} * ${V_str} / (R_u * ${T_str})
             <>V_inv = 1.0d / ${V_str}
             <>n_sum = 0 {id=n_init}
         """).substitute(
@@ -655,19 +662,230 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     def __vec_spec_deep(knl):
         # do a dummy split
-        return lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+        for insn in knl.instructions:
+            if not insn.within_inames & frozenset(['i_inner', 'i_outer']):
+                # add a fake dependency on the split iname
+                insn.within_inames |= frozenset(['i_inner'])
+
+        return knl.copy(instructions=knl.instructions[:])
 
     vec_spec = None if not loopy_opts.depth else __vec_spec_deep
 
-    return k_gen.knl_info(name='temperature_rate',
+    return k_gen.knl_info(name='get_concentrations',
+                          pre_instructions=[pre_instructions],
+                          instructions=instructions,
+                          post_instructions=[post_instructions],
+                          mapstore=mapstore,
+                          var_name='i',
+                          kernel_data=kernel_data,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec,
+                          parameters={'R_u': np.float64(chem.RU)})
+
+
+def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
+                    test_size=None):
+    """Generates instructions, kernel arguements, and data for the
+       molar derivatives
+    kernel
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    conp : bool
+        If true, generate equations using constant pressure assumption
+        If false, use constant volume equations
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator for both
+        equation types
+    """
+
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs_no_ns,
+                            namestore.num_specs_no_ns)
+
+    # first, create all arrays
+    kernel_data = []
+
+    # add problem size
+    if namestore.problem_size is not None:
+        kernel_data.append(namestore.problem_size)
+
+    fixed_inds = (global_ind,)
+
+    # wdot, dphi, V
+
+    # add / apply maps
+    mapstore.check_and_add_transform(namestore.n_dot,
+                                     namestore.phi_spec_inds,
+                                     force_inline=True)
+
+    mapstore.check_and_add_transform(namestore.spec_rates,
+                                     namestore.num_specs_no_ns,
+                                     force_inline=True)
+
+    wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
+                                            *default_inds)
+
+    ndot_lp, ndot_str = mapstore.apply_maps(namestore.n_dot,
+                                            *default_inds)
+
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr,
+                                      *fixed_inds)
+
+    V_val = 'V_val'
+    pre_instructions = default_pre_instructs(V_val, V_str, 'VAL')
+
+    kernel_data.extend([V_lp, ndot_lp, wdot_lp])
+
+    instructions = Template(
+        """
+        ${ndot_str} = ${V_val} * ${wdot_str}
+        """
+        ).substitute(
+            ndot_str=ndot_str,
+            V_val=V_val,
+            wdot_str=wdot_str
+            )
+
+    return k_gen.knl_info(name='get_molar_rates',
+                          pre_instructions=[pre_instructions],
+                          instructions=instructions,
+                          mapstore=mapstore,
+                          var_name='i',
+                          kernel_data=kernel_data)
+
+
+def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
+                        test_size=None):
+    """Generates instructions, kernel arguements, and data for the
+       derivative of the "extra" variable -- P or V depending on conV/conP
+       assumption respectively
+    kernel
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    conp : bool
+        If true, generate equations using constant pressure assumption
+        If false, use constant volume equations
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator for both
+        equation types
+    """
+
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs_no_ns,
+                            namestore.num_specs_no_ns)
+
+    # first, create all arrays
+    kernel_data = []
+
+    # add problem size
+    if namestore.problem_size is not None:
+        kernel_data.append(namestore.problem_size)
+
+    fixed_inds = (global_ind,)
+
+    # get arrays
+
+    mapstore.check_and_add_transform(namestore.spec_rates,
+                                     namestore.num_specs_no_ns,
+                                     force_inline=True)
+
+    mapstore.check_and_add_transform(namestore.mw_post_arr,
+                                     namestore.num_specs_no_ns,
+                                     force_inline=True)
+
+    wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
+                                            *default_inds)
+
+    Edot_lp, Edot_str = mapstore.apply_maps(namestore.E_dot,
+                                            *fixed_inds)
+
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr,
+                                      *fixed_inds)
+    P_lp, P_str = mapstore.apply_maps(namestore.P_arr,
+                                      *fixed_inds)
+    Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot,
+                                            *fixed_inds)
+    mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr,
+                                        *(var_name,))
+
+    kernel_data.extend([wdot_lp, Edot_lp, T_lp, P_lp, Tdot_lp, mw_lp])
+
+    pre_instructions = ['<>dE = 0.0d {id=init}']
+
+    instructions = Template(
+            """
+            dE = dE + ${mw_str} * ${wdot_str} {id=sum, dep=init}
+            """
+        ).substitute(
+            mw_str=mw_str,
+            wdot_str=wdot_str)
+
+    if conp:
+        V_lp, V_str = mapstore.apply_maps(namestore.V_arr,
+                                          *fixed_inds)
+        kernel_data.append(V_lp)
+
+        post_instructions = [Template(
+            """
+            dE = ${V_str} * ((${T_str} * R_u / ${P_str}) * dE + ${Tdot_str} / ${T_str}) {id=end, dep=init}
+            """
+            ).substitute(
+                V_str=V_str,
+                T_str=T_str,
+                P_str=P_str,
+                Tdot_str=Tdot_str
+                )
+        ]
+    else:
+        post_instructions = [Template(
+            """
+            dE = ${T_str} * R_u * dE + ${Tdot_str} * ${P_str} / ${T_str} {id=end, dep=init}
+            """
+            ).substitute(
+                T_str=T_str,
+                P_str=P_str,
+                Tdot_str=Tdot_str
+                )
+        ]
+
+    return k_gen.knl_info(name='get_molar_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,
                           post_instructions=post_instructions,
                           mapstore=mapstore,
                           var_name='i',
                           kernel_data=kernel_data,
-                          can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec)
+                          parameters={'R_u': np.float64(chem.RU)})
+
 
 def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
                          test_size=None):
@@ -740,7 +958,6 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
 
     conc_lp, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
     Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, *fixed_inds)
-    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, fixed_inds)
     wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
                                             *default_inds)
 
@@ -753,7 +970,6 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
             'dot{omega}[k]': wdot_str,
             '[C][k]': conc_str,
             '{C_p}[k]': cp_str,
-            'V': V_str
         })
     else:
         term = sp_utils.sanitize(term, subs={
@@ -761,7 +977,6 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
             'dot{omega}[k]': wdot_str,
             '[C][k]': conc_str,
             '{C_v}[k]': cv_str,
-            'V': V_str
         })
     # now split into upper / lower halves
     factor = -1
@@ -911,14 +1126,12 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                                 spec_map)
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
                                                       *default_inds)
-        dphi_lp, dphi_str = mapstore.apply_maps(namestore.conc_dot,
-                                                global_ind, spec_ind, affine={
-                                                    spec_ind: 1
-                                                })
+        wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
+                                                global_ind, spec_ind)
 
         # update kernel args
         kernel_data.extend(
-            [spec_lp, num_spec_offsets_lp, net_nu_lp, rop_net_lp, dphi_lp])
+            [spec_lp, num_spec_offsets_lp, net_nu_lp, rop_net_lp, wdot_lp])
 
         # now the instructions
         instructions = Template(
@@ -930,14 +1143,14 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
             <> ${spec_map} = offset + ispec
             <> ${spec_ind} = ${spec_str} # (offset handled in wdot str)
             <> nu = ${nu_str}
-            ${dphi_str} = ${dphi_str} + nu * net_rate
+            ${wdot_str} = ${wdot_str} + nu * net_rate
         end
         """).safe_substitute(rop_net_str=rop_net_str,
                              spec_str=spec_str,
                              spec_map=spec_map,
                              nu_str=net_nu_str,
                              spec_ind=spec_ind,
-                             dphi_str=dphi_str,
+                             wdot_str=wdot_str,
                              num_spec_offsets_str=num_spec_offsets_str,
                              num_spec_offsets_next_str=num_spec_offsets_next_str)
 
@@ -955,8 +1168,8 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                                 namestore.net_nonzero_spec)
 
         # add mappings
-        mapstore.check_and_add_transform(namestore.conc_dot,
-                                         namestore.net_nonzero_phi)
+        mapstore.check_and_add_transform(namestore.spec_rates,
+                                         namestore.net_nonzero_spec)
 
         # create arrays
 
@@ -978,10 +1191,10 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
                                                       global_ind, reac_ind)
         # dphi dep
-        dphi_lp, dphi_str = mapstore.apply_maps(namestore.conc_dot,
+        wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
                                                 *default_inds)
         kernel_data.extend(
-            [reac_lp, net_nu_lp, num_reac_offsets_lp, dphi_lp, rop_net_lp])
+            [reac_lp, net_nu_lp, num_reac_offsets_lp, wdot_lp, rop_net_lp])
 
         # now the instructions
         instructions = Template(
@@ -991,7 +1204,7 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         for irxn
             <>${reac_map} = rxn_offset + irxn
             <>${reac_ind} = ${reac_str}
-            ${dphi_str} = ${dphi_str} + ${net_nu_str} * ${rop_net_str}
+            ${wdot_str} = ${wdot_str} + ${net_nu_str} * ${rop_net_str}
         end
         """).safe_substitute(reac_map=reac_map,
                              reac_ind=reac_ind,
@@ -1000,7 +1213,7 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                              reac_str=reac_str,
                              rop_net_str=rop_net_str,
                              net_nu_str=net_nu_str,
-                             dphi_str=dphi_str)
+                             wdot_str=wdot_str)
 
         extra_inames = [('irxn', '0 <= irxn < num_rxn')]
 
@@ -1314,7 +1527,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # concentrations in ispec loop, also use offset for phi
         concs_lp, concs_str = themap.apply_maps(
-            namestore.conc_arr, global_ind, spec_ind, affine={spec_ind: 1})
+            namestore.conc_arr, global_ind, spec_ind)
 
         # and finally the ROP values in the mainloop, no map
         rop = getattr(namestore, 'rop_' + direction)
@@ -1590,8 +1803,8 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
 
     # modify Kc equation
     Kc_eqn = sp_utils.sanitize(conp_eqs[Kc_sym],
-                               symlist={'nu[k, i]': nu_sym,
-                                        'B[k]': B_sym},
+                               symlist={'nu': nu_sym,
+                                        'B': B_sym},
                                subs={
         sp.Sum(nu_sym, (sp.Idx('k'), 1, sp.Symbol('N_s'))): nu_sum_str})
 
@@ -1600,8 +1813,8 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
         x for x in sp.Mul.make_args(Kc_eqn) if x.has(sp.Symbol('R_u')))
     Kc_eqn_exp = Kc_eqn / Kc_eqn_Pres
     Kc_eqn_exp = sp_utils.sanitize(Kc_eqn_exp,
-                                   symlist={'nu[k, i]': nu_sym,
-                                            'B[k]': B_sym},
+                                   symlist={'nu': nu_sym,
+                                            'B': B_sym},
                                    subs={
                                        sp.Sum(B_sym * nu_sym,
                                               (sp.Idx('k'), 1, sp.Symbol('N_s')
@@ -1744,7 +1957,7 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
     # get concentrations
     # in species loop
     concs_lp, concs_str = mapstore.apply_maps(
-        namestore.conc_arr, global_ind, spec_ind, affine={spec_ind: 1})
+        namestore.conc_arr, global_ind, spec_ind)
 
     # get third body concentrations (by defn same as third reactions)
     thd_lp, thd_str = mapstore.apply_maps(namestore.thd_conc, *default_inds)
@@ -1776,8 +1989,8 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    # don't add T_arr for now as it is same as concs
-    kernel_data.extend([P_arr, concs_lp, thd_lp,
+    # add arrays
+    kernel_data.extend([P_arr, T_arr, concs_lp, thd_lp,
                         thd_eff_lp, thd_spec_lp, thd_offset_lp,
                         thd_eff_ns_lp])
 

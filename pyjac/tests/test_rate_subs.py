@@ -13,7 +13,8 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
                               get_reduced_pressure_kernel, get_sri_kernel,
                               get_troe_kernel, get_rev_rates, get_rxn_pres_mod,
                               get_rop, get_rop_net, get_spec_rates,
-                              get_temperature_rate)
+                              get_temperature_rate, get_concentrations,
+                              get_molar_rates, get_extra_var_rates)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list, populate,
@@ -403,7 +404,8 @@ class SubTest(TestClass):
         return eqs, oploop
 
     def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False, do_ropsplit=None,
-                              do_spec_per_reac=False, **kw_args):
+                              do_spec_per_reac=False, do_conp=False,
+                              **kw_args):
         """
         A generic testing method that can be used for rate constants, third bodies, ...
 
@@ -422,20 +424,27 @@ class SubTest(TestClass):
         """
 
         eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_spec_per_reac)
+            do_ratespec, do_ropsplit, do_spec_per_reac, do_conp=do_conp)
 
         reacs = self.store.reacs
         specs = self.store.specs
+
+        exceptions = ['device', 'conp']
 
         for i, state in enumerate(oploop):
             if state['width'] is not None and state['depth'] is not None:
                 continue
             opt = loopy_options(**{x: state[x] for x in
-                                   state if x != 'device'})
+                                   state if x not in exceptions})
             # find rate info
             rate_info = assign_rates(reacs, specs, opt.rate_spec)
+
+            conp = True
+            if 'conp' in kw_args:
+                conp = kw_args['conp']
+
             # create namestore
-            namestore = arc.NameStore(opt, rate_info, state['conp'],
+            namestore = arc.NameStore(opt, rate_info, conp,
                                       self.store.test_size)
             # create the kernel info
             infos = func(eqs, opt, namestore,
@@ -476,7 +485,7 @@ class SubTest(TestClass):
             The reaction type to test
         """
 
-        phi = self.store.phi
+        phi = self.store.phi_cp
         P = self.store.P
         ref_const = self.store.fwd_rate_constants
 
@@ -484,18 +493,18 @@ class SubTest(TestClass):
         masks = {
             'simple': (
                 [np.array([i for i, x in enumerate(reacs)
-                          if x.match((
-                            reaction_type.elementary,
-                            reaction_type.fall,
-                            reaction_type.chem))])],
+                           if x.match((
+                               reaction_type.elementary,
+                               reaction_type.fall,
+                               reaction_type.chem))])],
                 get_simple_arrhenius_rates),
             'plog': (
                 [np.array([i for i, x in enumerate(reacs)
-                          if x.match((reaction_type.plog,))])],
+                           if x.match((reaction_type.plog,))])],
                 get_plog_arrhenius_rates),
             'cheb': (
                 [np.array([i for i, x in enumerate(reacs)
-                          if x.match((reaction_type.cheb,))])],
+                           if x.match((reaction_type.cheb,))])],
                 get_cheb_arrhenius_rates)}
 
         args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
@@ -546,11 +555,37 @@ class SubTest(TestClass):
         self.__test_rateconst_type('cheb')
 
     @attr('long')
+    def test_set_concentrations(self):
+        phi = self.store.phi_cp
+        P = self.store.P
+        V = self.store.V
+        ref_ans = self.store.concs.copy()
+
+        # do conp
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                'P_arr': lambda x: np.array(P, order=x, copy=True)}
+
+        # create the kernel call
+        kc = kernel_call('eval_', ref_ans, **args)
+        self.__generic_rate_tester(get_concentrations, kc, conp=True)
+
+        # do conv
+        phi = self.store.phi_cv
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                'V_arr': lambda x: np.array(V, order=x, copy=True)}
+
+        # create the kernel call
+        kc = kernel_call('eval_', ref_ans, **args)
+        self.__generic_rate_tester(get_concentrations, kc, conp=False)
+
+    @attr('long')
     def test_thd_body_concs(self):
-        phi = self.store.phi
+        phi = self.store.phi_cp
+        concs = self.store.concs
         P = self.store.P
         ref_ans = self.store.ref_thd.copy()
-        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+        args = {'conc': lambda x: np.array(concs, order=x, copy=True),
+                'phi': lambda x: np.array(phi, order=x, copy=True),
                 'P_arr': lambda x: np.array(P, order=x, copy=True)}
 
         # create the kernel call
@@ -559,7 +594,7 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_reduced_pressure(self):
-        phi = self.store.phi.copy()
+        phi = self.store.phi_cp.copy()
         ref_thd = self.store.ref_thd.copy()
         ref_ans = self.store.ref_Pr.copy()
         kf_val = []
@@ -628,8 +663,8 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_sri_falloff(self):
-        ref_phi = self.store.phi
-        ref_Pr = self.store.ref_Pr.copy()
+        ref_phi = self.store.phi_cp
+        ref_Pr = self.store.ref_Pr
         ref_ans = self.store.ref_Sri.copy().squeeze()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(ref_phi, order=x, copy=True),
@@ -647,8 +682,8 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_troe_falloff(self):
-        phi = self.store.phi.copy()
-        ref_Pr = self.store.ref_Pr.copy()
+        phi = self.store.phi_cp
+        ref_Pr = self.store.ref_Pr
         ref_ans = self.store.ref_Troe.copy().squeeze()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
@@ -709,8 +744,9 @@ class SubTest(TestClass):
                 'thd_conc': lambda x: np.array(ref_thd, order=x, copy=True),
                 'Pr': lambda x: np.array(ref_Pr, order=x, copy=True)}
 
-        thd_only_inds = np.where(np.logical_not(np.in1d(self.store.thd_inds,
-                                                        self.store.fall_inds)))[0]
+        thd_only_inds = np.where(
+            np.logical_not(np.in1d(self.store.thd_inds,
+                                   self.store.fall_inds)))[0]
         fall_only_inds = np.where(np.in1d(self.store.thd_inds,
                                           self.store.fall_inds))[0]
 
@@ -733,7 +769,7 @@ class SubTest(TestClass):
         rev_rate_constants = self.store.rev_rate_constants.copy()
         fwd_rxn_rate = self.store.fwd_rxn_rate.copy()
         rev_rxn_rate = self.store.rev_rxn_rate.copy()
-        phi = self.store.phi.copy()
+        conc = self.store.concs.copy()
 
         # create the dictionary for nu values stating if all integer
         allint = {'fwd':
@@ -747,8 +783,8 @@ class SubTest(TestClass):
                 np.array(fwd_rate_constants, order=x, copy=True),
                 'kr': lambda x:
                 np.array(rev_rate_constants, order=x, copy=True),
-                'phi': lambda x:
-                np.array(phi, order=x, copy=True)}
+                'conc': lambda x:
+                np.array(conc, order=x, copy=True)}
 
         kc = [kernel_call('rop_eval_fwd', [fwd_rxn_rate],
                           input_mask=['kr'],
@@ -805,16 +841,14 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_spec_rates(self):
-        wdot_init = np.zeros((self.store.test_size,
-                              1 + self.store.gas.n_species))
         args = {'rop_net': lambda x: np.array(self.store.rxn_rates, order=x,
                                               copy=True),
-                'dphi': lambda x: np.array(wdot_init, order=x, copy=True)}
-        wdot = np.concatenate((np.zeros((self.store.test_size, 1)),
-                               self.store.species_rates), axis=1)
+                'wdot': lambda x: np.zeros_like(self.store.species_rates,
+                                                order=x)}
+        wdot = self.store.species_rates
         kc = kernel_call('spec_rates', [wdot],
                          compare_mask=[
-                             1 + np.arange(self.store.gas.n_species)],
+                            np.arange(self.store.gas.n_species)],
                          **args)
 
         # test regularly
@@ -822,11 +856,8 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_temperature_rates(self):
-        wdot = np.concatenate(
-            (np.zeros((self.store.test_size, 1)),
-                self.store.species_rates.copy()), axis=1)
-        args = {'dphi': lambda x: np.array(wdot, order=x, copy=True),
-                'phi': lambda x: np.array(self.store.phi, order=x, copy=True),
+        args = {'wdot': lambda x: np.array(self.store.species_rates.copy(), order=x, copy=True),
+                'conc': lambda x: np.array(self.store.concs, order=x, copy=True),
                 'cp': lambda x: np.array(self.store.spec_cp, order=x, copy=True),
                 'h': lambda x: np.array(self.store.spec_h, order=x, copy=True),
                 'cv': lambda x: np.array(self.store.spec_cv, order=x, copy=True),
@@ -844,7 +875,8 @@ class SubTest(TestClass):
                           **args)]
 
         # test conp
-        self.__generic_rate_tester(get_temperature_rate, kc, do_spec_per_reac=True,
+        self.__generic_rate_tester(get_temperature_rate, kc,
+                                   do_spec_per_reac=True,
                                    conp=True)
 
         # test conv
@@ -854,6 +886,78 @@ class SubTest(TestClass):
                           **args)]
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc,
+                                   do_spec_per_reac=True,
+                                   conp=False)
+
+    @attr('long')
+    def test_get_molar_rates(self):
+        args = {
+            'phi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True),
+            'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True)}
+
+        kc = [kernel_call('get_molar_rates', [self.store.dphi_cp],
+                          input_mask=['cv', 'u'],
+                          compare_mask=[2 + np.arange(
+                            self.store.gas.n_species - 1)],
+                          **args)]
+
+        # test conp
+        self.__generic_rate_tester(get_molar_rates, kc,
+                                   do_spec_per_reac=True,
+                                   conp=True)
+
+        args = {
+            'V_arr': lambda x: np.array(
+                self.store.V, order=x, copy=True),
+            'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True)}
+        # test conv
+        kc = [kernel_call('get_molar_rates', [self.store.dphi_cv],
+                          input_mask=['cp', 'h'],
+                          compare_mask=[2 + np.arange(
+                            self.store.gas.n_species - 1)],
+                          **args)]
+        # test conv
+        self.__generic_rate_tester(get_molar_rates, kc,
+                                   do_spec_per_reac=True,
+                                   conp=False)
+
+    @attr('long')
+    def test_get_extra_var_rates(self):
+        args = {
+            'phi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True),
+            'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True),
+            'P_arr': lambda x: np.array(
+                self.store.P, order=x, copy=True)}
+
+        kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
+                          input_mask=['cv', 'u'],
+                          compare_mask=[1],
+                          **args)]
+
+        # test conp
+        self.__generic_rate_tester(get_extra_var_rates, kc,
+                                   do_spec_per_reac=True,
+                                   conp=True)
+
+        args = {
+            'phi': lambda x: np.array(
+                self.store.phi_cv, order=x, copy=True),
+            'V_arr': lambda x: np.array(
+                self.store.V, order=x, copy=True),
+            'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True)}
+        # test conv
+        kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
+                          input_mask=['cp', 'h'],
+                          compare_mask=[1],
+                          **args)]
+        # test conv
+        self.__generic_rate_tester(get_extra_var_rates, kc,
                                    do_spec_per_reac=True,
                                    conp=False)
 
@@ -917,7 +1021,7 @@ class SubTest(TestClass):
 
             # get arrays
             phi = np.array(
-                    self.store.phi, order=opts.order, copy=True).flatten('K')
+                self.store.phi, order=opts.order, copy=True).flatten('K')
 
             dphi = self.store.dphi_cp if conp else self.store.dphi_cv
             # put together species rates
