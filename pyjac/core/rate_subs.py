@@ -566,6 +566,25 @@ def default_pre_instructs(result_name, var_str, INSN_KEY):
         value=default_preinstructs[INSN_KEY])
 
 
+class dummy_deep_sepecialzation(object):
+    """
+    A reusable-class to enable serialized deep vectorizations (i.e. reductions
+    on a single OpenCL lane)
+    """
+    def __init__(self):
+        pass
+
+    def __call__(self, knl):
+        # do a dummy split
+        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+        for insn in knl.instructions:
+            if not insn.within_inames & frozenset(['i_inner', 'i_outer']):
+                # add a fake dependency on the split iname
+                insn.within_inames |= frozenset(['i_inner'])
+
+        return knl.copy(instructions=knl.instructions[:])
+
+
 def get_concentrations(eqs, loopy_opts, namestore, conp=True,
                        test_size=None):
     """Determines concentrations from moles and state variables depending
@@ -659,18 +678,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
-
-    def __vec_spec_deep(knl):
-        # do a dummy split
-        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
-        for insn in knl.instructions:
-            if not insn.within_inames & frozenset(['i_inner', 'i_outer']):
-                # add a fake dependency on the split iname
-                insn.within_inames |= frozenset(['i_inner'])
-
-        return knl.copy(instructions=knl.instructions[:])
-
-    vec_spec = None if not loopy_opts.depth else __vec_spec_deep
+    vec_spec = None if not loopy_opts.depth else dummy_deep_sepecialzation()
 
     return k_gen.knl_info(name='get_concentrations',
                           pre_instructions=[pre_instructions],
@@ -856,35 +864,42 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
 
         post_instructions = [Template(
             """
-            dE = ${V_str} * ((${T_str} * R_u / ${P_str}) * dE + ${Tdot_str} / ${T_str}) {id=end, dep=init}
+            ${Edot_str} = ${V_str} * ((${T_str} * R_u / ${P_str}) * dE + ${Tdot_str} / ${T_str}) {id=end, dep=sum}
             """
             ).substitute(
                 V_str=V_str,
                 T_str=T_str,
                 P_str=P_str,
-                Tdot_str=Tdot_str
+                Tdot_str=Tdot_str,
+                Edot_str=Edot_str
                 )
         ]
     else:
         post_instructions = [Template(
             """
-            dE = ${T_str} * R_u * dE + ${Tdot_str} * ${P_str} / ${T_str} {id=end, dep=init}
+            ${Edot_str} = ${T_str} * R_u * dE + ${Tdot_str} * ${P_str} / ${T_str} {id=end, dep=sum}
             """
             ).substitute(
                 T_str=T_str,
                 P_str=P_str,
-                Tdot_str=Tdot_str
+                Tdot_str=Tdot_str,
+                Edot_str=Edot_str
                 )
         ]
 
-    return k_gen.knl_info(name='get_molar_rates',
+    can_vectorize = loopy_opts.depth is None
+    # finally do vectorization ability and specializer
+    vec_spec = None if not loopy_opts.depth else dummy_deep_sepecialzation()
+    return k_gen.knl_info(name='get_extra_var_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,
                           post_instructions=post_instructions,
                           mapstore=mapstore,
                           var_name='i',
                           kernel_data=kernel_data,
-                          parameters={'R_u': np.float64(chem.RU)})
+                          parameters={'R_u': np.float64(chem.RU)},
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec)
 
 
 def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
