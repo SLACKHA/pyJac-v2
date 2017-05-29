@@ -758,6 +758,12 @@ class NameStore(object):
                                  dtype=np.int32, order=self.order,
                                  initializer=np.arange(rate_info['Ns'],
                                                        dtype=np.int32))
+        self.num_specs_no_ns = creator('num_specs_no_ns',
+                                       shape=(rate_info['Ns'] - 1,),
+                                       dtype=np.int32, order=self.order,
+                                       initializer=np.arange(
+                                        rate_info['Ns'] - 1,
+                                        dtype=np.int32))
         self.num_reacs = creator('num_reacs', shape=(rate_info['Nr'],),
                                  dtype=np.int32, order=self.order,
                                  initializer=np.arange(rate_info['Nr'],
@@ -805,6 +811,17 @@ class NameStore(object):
         self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
                                   dtype=np.float64, order=self.order)
 
+        # molecular weights
+        self.mw_arr = creator('mw', shape=(rate_info['Ns'],),
+                              initializer=rate_info['mws'],
+                              dtype=np.float64,
+                              order=self.order)
+
+        self.mw_post_arr = creator('mw_factor', shape=(rate_info['Ns'] - 1,),
+                                   initializer=rate_info['mw_post'],
+                                   dtype=np.float64,
+                                   order=self.order)
+
         # thermo arrays
         self.h_arr = creator('h', shape=(test_size, rate_info['Ns']),
                              dtype=np.float64, order=self.order)
@@ -850,7 +867,7 @@ class NameStore(object):
                                        shape=rate_info['net_per_spec'][
                                            'map'].shape,
                                        initializer=rate_info[
-                                           'net_per_spec']['map'] + 1,
+                                           'net_per_spec']['map'] + 2,
                                        order=self.order)
 
         self.net_spec_to_reac = creator('net_spec_to_reac', dtype=np.int32,

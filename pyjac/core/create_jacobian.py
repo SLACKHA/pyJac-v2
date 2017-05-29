@@ -21,7 +21,7 @@ from ..sympy_utils import sympy_interpreter as sp_interp
 from ..loopy_utils import loopy_utils as lp_utils
 
 
-def dX_sri_dT
+#def dX_sri_dT
 
 
 def create_jacobian(lang,

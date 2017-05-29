@@ -644,10 +644,12 @@ class kernel_call(object):
         """
 
         try:
-            if isinstance(knl.target, lp.CTarget):
+            if isinstance(knl.target, lp.PyOpenCLTarget):
+                evt, out = knl(queue, out_host=True, **self.kernel_args)
+            elif isinstance(knl.target, lp.CTarget):
                 evt, out = knl(**self.kernel_args)
             else:
-                evt, out = knl(queue, out_host=True, **self.kernel_args)
+                raise NotImplementedError
         except Exception as e:
             raise e
 
