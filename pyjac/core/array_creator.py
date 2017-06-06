@@ -409,7 +409,8 @@ class MapStore(object):
 
         Returns
         -------
-        None
+        transform : :class:`domain_transform`
+            The resulting transform, or None if not added
         """
 
         # make sure this domain is valid
@@ -433,6 +434,8 @@ class MapStore(object):
             else:
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
+
+        return transform
 
     def apply_maps(self, variable, *indicies, **kwargs):
         """
