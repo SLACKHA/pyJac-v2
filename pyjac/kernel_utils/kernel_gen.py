@@ -938,10 +938,15 @@ ${name} : ${type}
         if info.parameters:
             knl = lp.fix_parameters(knl, **info.parameters)
         # prioritize and return
-        knl = lp.prioritize_loops(knl, inames)
+        knl = lp.prioritize_loops(knl, [y for x in inames
+                                        for y in x.split(',')])
         # check manglers
         if info.manglers:
             knl = lp.register_function_manglers(knl, info.manglers)
+
+        # check preambles
+        if info.preambles:
+            knl = lp.register_preamble_generators(knl, info.preambles)
         return knl
 
     def apply_specialization(self, loopy_opts, inner_ind, knl, vecspec=None,
@@ -1387,6 +1392,8 @@ class knl_info(object):
     vectorization_specializer : function
         If specified, use this specialization function to fix problems that would arise
         in vectorization
+    preambles : :class:`preamble.PreambleGen`
+        A list of preamble generators to insert code into loopy / opencl
     """
 
     def __init__(self, name, instructions, mapstore, pre_instructions=[],
@@ -1397,7 +1404,8 @@ class knl_info(object):
                  extra_subs={},
                  vectorization_specializer=None,
                  can_vectorize=True,
-                 manglers=[]):
+                 manglers=[],
+                 preambles=[]):
         self.name = name
         self.instructions = instructions
         self.mapstore = mapstore
@@ -1414,6 +1422,7 @@ class knl_info(object):
         self.can_vectorize = can_vectorize
         self.vectorization_specializer = vectorization_specializer
         self.manglers = manglers[:]
+        self.preambles = preambles[:]
 
 
 class MangleGen(object):
