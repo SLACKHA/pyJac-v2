@@ -469,7 +469,9 @@ class MapStore(object):
                     aff = affine[iname]
             elif affine is not None:
                 aff = affine
-            if aff is not None:
+            if isinstance(aff, str):
+                return iname + ' + {}'.format(aff)
+            elif aff is not None:
                 return iname + ' {} {}'.format('+' if aff >= 0 else '-',
                                                np.abs(aff))
             return iname
@@ -765,8 +767,8 @@ class NameStore(object):
                                        shape=(rate_info['Ns'] - 1,),
                                        dtype=np.int32, order=self.order,
                                        initializer=np.arange(
-                                        rate_info['Ns'] - 1,
-                                        dtype=np.int32))
+                                           rate_info['Ns'] - 1,
+                                           dtype=np.int32))
         self.num_reacs = creator('num_reacs', shape=(rate_info['Nr'],),
                                  dtype=np.int32, order=self.order,
                                  initializer=np.arange(rate_info['Nr'],
@@ -810,6 +812,11 @@ class NameStore(object):
         self.E_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 1)])
+
+        self.jac = creator('jac',
+                           shape=(test_size, rate_info['Ns'] + 1, rate_info['Ns'] + 1),
+                           order=self.order,
+                           dtype=np.float64)
 
         self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
                                   dtype=np.float64, order=self.order)
@@ -858,6 +865,12 @@ class NameStore(object):
                                                'net']['nu'].shape,
                                            initializer=rate_info['net']['nu'],
                                            order=self.order)
+
+        self.reac_has_ns = creator('reac_has_ns',
+                                   dtype=np.int32,
+                                   shape=(rate_info['Nr'] * 2,),
+                                   initializer=rate_info['reac_has_ns'],
+                                   order=self.order)
 
         # per species
         self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
