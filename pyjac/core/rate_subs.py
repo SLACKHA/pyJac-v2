@@ -122,6 +122,7 @@ def assign_rates(reacs, specs, rate_spec):
     net_num_spec = []
     net_nu = []
     net_spec = []
+    reac_has_ns = []
     fwd_allnu_integer = True
     rev_allnu_integer = True
     for rxn in reacs:
@@ -143,7 +144,17 @@ def assign_rates(reacs, specs, rate_spec):
         # and nu sum for equilibrium constants
         nu_sum.append(sum(nu))
 
+        # handle fwd / rev nu for last species indicator
+        ns_fwd_ind = next((i for i, x in enumerate(rxn.reac[:])
+                          if x == len(specs) - 1), None)
+        ns_fwd_nu = rxn.reac_nu[ns_fwd_ind] if ns_fwd_ind is not None else 0
+        ns_rev_ind = next((i for i, x in enumerate(rxn.prod[:])
+                          if x == len(specs) - 1), None)
+        ns_rev_nu = rxn.reac_nu[ns_rev_ind] if ns_rev_ind is not None else 0
+        reac_has_ns.extend([ns_fwd_nu, ns_rev_nu])
+
     # create numpy versions
+    reac_has_ns = np.array(reac_has_ns, dtype=np.int32)
     fwd_spec = np.array(fwd_spec, dtype=np.int32)
     fwd_num_spec = np.array(fwd_num_spec, dtype=np.int32)
     if any(not utils.is_integer(nu) for nu in fwd_nu):
@@ -534,7 +545,8 @@ def assign_rates(reacs, specs, rate_spec):
                 'T_mid': T_mid
             },
             'mws': mws,
-            'mw_post': mw_post
+            'mw_post': mw_post,
+            'reac_has_ns': reac_has_ns
             }
 
 
@@ -1560,7 +1572,6 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
     <>spec_offset = ${num_spec_offsets_str}
     <>num_spec = ${num_spec_offsets_next_str} - spec_offset
     for ${spec_loop}
-        <>spec_map = spec_offset + ispec
         <>${spec_ind} = ${spec_str} {id=spec_ind}
         ${rop_temp_eval}
     end
@@ -1575,19 +1586,15 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # if all integers, it's much faster to use multiplication
         allint_eval = Template(
-            """
-    <>conc_temp = 1.0d {id=conc_init}
-    <>nu = ${nu_str}
-    for inu
-        conc_temp = conc_temp * ${concs_str} {id=conc_update, dep=spec_ind:conc_init}
-    end
-    rop_temp = rop_temp * conc_temp {id=rop_fin, dep=conc_update}""").safe_substitute(
+    """
+    rop_temp = rop_temp * pown(${concs_str}, ${nu_str}) {id=rop_fin}
+    """).safe_substitute(
             nu_str=nu_str,
             concs_str=concs_str)
 
         # if we need to use powers, do so
         fractional_eval = Template(
-            """
+    """
     if int(${nu_str}) == ${nu_str}
         ${allint}
     else
@@ -1608,8 +1615,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
                                                     allint_eval)
 
         # and finally extra inames
-        extra_inames = [(spec_loop, 'spec_offset <= {} < spec_offset + num_spec'.format(spec_loop)),
-                        ('inu', '0 <= inu < nu')]
+        extra_inames = [(spec_loop, 'spec_offset <= {} < spec_offset + num_spec'.format(spec_loop))]
 
         # and return the rateconst
         return k_gen.knl_info(name='rop_eval_{}'.format(direction),
@@ -1617,7 +1623,11 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
                               var_name=var_name,
                               kernel_data=kernel_data,
                               extra_inames=extra_inames,
-                              mapstore=maps[direction])
+                              mapstore=maps[direction],
+                              manglers=[
+                               k_gen.MangleGen('pown',
+                                               (np.float64, np.int32),
+                                               np.float64)])
 
     infos = [__rop_create('fwd')]
     if namestore.rop_rev is not None:
@@ -1870,9 +1880,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     else
         P_val = R_u / P_a {id=P_val_decl1}
     end
-    for P_sum_ind
-        P_sum = P_sum * P_val {id=P_accum, dep=P_val_decl:P_val_decl1:P_bound:P_init}
-    end
+    P_sum = pown(P_val, P_sum_end)
     """).safe_substitute(nu_sum=nu_sum_str)
 
     if not allint['net']:
@@ -1922,8 +1930,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     instructions = '\n'.join([Bsum_inst, pressure_prod, Rate_assign])
 
     # create the extra inames
-    extra_inames = [('P_sum_ind', '0 <= P_sum_ind < P_sum_end'),
-                    (spec_loop, 'offset <= {} < spec_end'.format(spec_loop))]
+    extra_inames = [(spec_loop, 'offset <= {} < spec_end'.format(spec_loop))]
 
     # and return the rateinfo
     return k_gen.knl_info(name='rateconst_Kc',
@@ -1933,8 +1940,12 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                           mapstore=rev_map,
                           extra_inames=extra_inames,
                           parameters={
-                              'P_a': np.float64(chem.PA),
-                              'R_u': np.float64(chem.RU)})
+                                'P_a': np.float64(chem.PA),
+                                'R_u': np.float64(chem.RU)},
+                          manglers=[k_gen.MangleGen(
+                                'pown',
+                                (np.float64, np.int32),
+                                np.float64)])
 
 
 def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
@@ -3068,7 +3079,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                                              'beta[i]': b_str,
                                          })
 
-        extra_inames = []
+        manglers = []
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
             retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
@@ -3080,12 +3091,12 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             if beta_iter > 1:
                 beta_iter_str = Template("""
                 <> b_end = abs(${b_str})
-                for k
-                    kf_temp = kf_temp * T_iter {id=a4, dep=a3:a2:a1}
-                end
+                <> ${kf_str} = kf_temp * pown(T_iter, b_end) {id=a4, dep=a3:a2:a1}
                 ${kf_str} = kf_temp {dep=a4}
                 """).safe_substitute(b_str=b_str)
-                extra_inames.append(('k', '0 <= k < {}'.format(beta_iter)))
+                manglers.append(k_gen.MangleGen('pown',
+                                               (np.float64, np.int32),
+                                               np.float64))
             else:
                 beta_iter_str = ("${kf_str} = kf_temp * T_iter"
                                  " {id=a4, dep=a3:a2:a1}")
@@ -3107,7 +3118,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             retv = expkf_assign.safe_substitute(
                 rate=str(rate_eqn_pre.subs(b_str, 0)))
 
-        return Template(retv).safe_substitute(kf_str=kf_str), extra_inames
+        return Template(retv).safe_substitute(kf_str=kf_str), manglers
 
     # various specializations of the rate form
     specializations = {}
@@ -3176,11 +3187,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         # need to enclose each branch in it's own if statement
         if len(specializations) > 1:
             instruction_list = []
-            extra_inames = []
+            func_manglers = []
             for i in specializations:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                insns, inames = get_instructions(
+                insns, manglers = get_instructions(
                         -1,
                         mapstore,
                         specializations[i].kernel_data,
@@ -3189,8 +3200,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 instruction_list.extend([
                     '\t' + x for x in insns.split('\n') if x.strip()])
                 instruction_list.append('end')
-                if inames:
-                    extra_inames.extend(inames)
+                if manglers:
+                    func_manglers.extend(manglers)
         # and combine them
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
@@ -3200,7 +3211,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                            mapstore=mapstore,
                            kernel_data=specializations[0].kernel_data,
                            var_name=var_name,
-                           extra_inames=extra_inames)}
+                           manglers=func_manglers)}
 
     out_specs = {}
     # and do some finalizations for the specializations
@@ -3224,7 +3235,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
         # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions, info.extra_inames = get_instructions(
+            info.instructions, info.manglers = get_instructions(
                 rtype, mapper, info.kernel_data, beta_iter)
 
         out_specs[rtype] = info
