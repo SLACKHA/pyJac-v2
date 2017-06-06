@@ -278,7 +278,7 @@ def set_editor(knl):
 
 
 def set_adept_editor(knl,
-                     single_kernel,
+                     base_kernels,
                      problem_size=8192,
                      independent_variable=None,
                      dependent_variable=None,
@@ -291,9 +291,10 @@ def set_adept_editor(knl,
     ----------
     knl : :class:`loopy.LoopKernel`
         The kernel to generate code for
-    single_kernel : :class:`loopy.LoopKernel`
-        The same as knl, except generated for a problem_size of 1 to facilitate
-        indexing in the wrapped kernel
+    base_kernels : :class:`loopy.LoopKernel`
+        The kernel :param:`knl` and all dependencies required for Jacobian
+        evaluation. These kernels, should be generated for a problem_size of 1
+        to facilitate indexing in the wrapped kernel
     problem_size : int
         The size of the testing problem
     independent_variable : :class:`array_creator.creator`
@@ -320,6 +321,7 @@ def set_adept_editor(knl,
     def __get_size_and_stringify(variable):
         sizes = variable.shape
         indicies = ['ad_j', 'i']
+        out_str = variable.name + '[{index}]'
         from ..core.array_creator import creator
         if isinstance(variable, creator):
             if variable.order == 'C':
@@ -336,13 +338,14 @@ def set_adept_editor(knl,
                 sizes = reversed(sizes)
                 indicies = reversed(indicies)
 
-        if len(variable.shape) != 2:
+        if len(variable.shape) == 1:
+            return 1, out_str.format(index='ad_j')
+        if len(variable.shape) > 2:
             assert variable.name == 'jac'
             size = np.product([x for x in sizes if x != problem_size])
             # can't operate on this
             return None, None
 
-        out_str = variable.name + '[{index}]'
         out_index = ''
         offset = 1
         out_size = None
@@ -374,6 +377,12 @@ def set_adept_editor(knl,
             ad_${name}[i].set_value(${indexed});
         }
         """)
+
+    # get set of written vars
+    written_vars = knl.get_written_variables()
+    for k in base_kernels:
+        written_vars |= k.get_written_variables()
+
     initializers = []
     for arg in knl.args:
         if arg.name != dependent_variable.name \
@@ -385,8 +394,7 @@ def set_adept_editor(knl,
                     name=arg.name,
                     size=size,
                     ))
-                if indexed is not None and not next((
-                        a for a in do_not_set if a.name == arg.name), None):
+                if indexed is not None and arg.name not in written_vars:
                     initializers.append(set_template.substitute(
                         name=arg.name,
                         indexed=indexed,
@@ -424,18 +432,20 @@ def set_adept_editor(knl,
 
     # and function call
 
-    arg_list = [arg.name for arg in knl.args]
-    for i, arg in enumerate(arg_list):
-        name = arg[:]
-        if arg != output.name:
-            name = 'ad_' + name
-        if arg != 'j':
-            name = '&' + name + '[0]'
-        arg_list[i] = name
+    kernel_calls = []
+    for k in base_kernels:
+        arg_list = [arg.name for arg in k.args]
+        for i, arg in enumerate(arg_list):
+            name = arg[:]
+            if arg != output.name:
+                name = 'ad_' + name
+            if arg != 'j':
+                name = '&' + name + '[0]'
+            arg_list[i] = name
 
-    kernel_call = 'ad_{name}({args});'.format(
-                name=knl.name,
-                args=', '.join(arg_list))
+        kernel_calls.append('ad_{name}({args});'.format(
+                    name=k.name,
+                    args=', '.join(arg_list)))
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
@@ -453,9 +463,9 @@ def set_adept_editor(knl,
             jac_size=jac_size,
             jac_name=output.name,
             function_defn=header,
-            kernel_call=kernel_call,
+            kernel_calls='\n'.join(kernel_calls),
             initializers='\n'.join(initializers),
-            single_kernel=get_code(single_kernel),
+            base_kernels='\n'.join([get_code(x) for x in base_kernels]),
             setters=setters
         ))
 

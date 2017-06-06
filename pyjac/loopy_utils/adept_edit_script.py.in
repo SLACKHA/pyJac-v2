@@ -29,35 +29,64 @@ def substitute(filename, text_in=None):
     # first replace what will become the inner kernel with the single indexed
     # version
 
-    lines = """${single_kernel}""".splitlines(True)
+    lines = """${base_kernels}""".splitlines(True)
 
-    # search for body
-    body_at = None
-    for i, line in enumerate(lines):
-        if line.strip() == '{':
-            body_at = i
+    first_body = None
+    index = 0
+    while index < len(lines):
+        # search for next function body
+        body_at = None
+        for i, line in enumerate(lines[index:]):
+            if line.strip() == '{':
+                body_at = i + index
+                break
+
+        if body_at is None:
             break
+        if index == 0:
+            first_body = body_at
 
-    # first, replace all double's with adoubles
-    # and substitute problem_size and j for zero, to correct indexing
-    for i in range(body_at - 1, len(lines)):
-        lines[i] = re.sub(r'double\b(?![^,]+${jac_name})', 'adouble', lines[i])
-        if i >= body_at:
-            lines[i] = lines[i].replace(str(${problem_size} - 1), '0')
-            lines[i] = lines[i].replace('j', '0')
+        nest_level = 1
+        # first, replace all double's with adoubles
+        # and substitute problem_size and j for zero, to correct indexing
+        for i in range(body_at - 1, len(lines)):
+            # track brace nesting level
+            if lines[i].strip() == '{' and i != body_at:
+                nest_level += 1
+            elif lines[i].strip() == '}':
+                nest_level -= 1
+            # see if we've reached the end of the function
+            if nest_level == 0:
+                index = i + 1
+                break
+            # replace double in func defn w/ adouble
+            lines[i] = re.sub(r'double\b(?![^,]+${jac_name})', 'adouble', lines[i])
+            if i >= body_at:
+                # replace j's in function body with zeros as we're passing
+                # a single vector at a time
+                lines[i] = lines[i].replace(str(${problem_size} - 1), '0')
+                lines[i] = lines[i].replace('j', '0')
 
-            # check for fmax
-            lines[i] = re.sub(r'(fmax\(.+)\);', r'\1.value());', lines[i])
+                # check for fmax
+                lines[i] = re.sub(r'(fmax\(.+)\);', r'\1.value());', lines[i])
 
-    # next we have to rename the inner function
-    lines[body_at - 1] = re.sub(r'void\s*([\w_]+)', r'void ad_\1',
-                                lines[body_at - 1])
+        # next we have to rename the inner function
+        lines[body_at - 1] = re.sub(r'void\s*([\w_]+)', r'void ad_\1',
+                                    lines[body_at - 1])
+
+    # and place integer power function before first body
+    lines.insert(first_body - 1, """
+adouble pown(adouble base, int exp)
+{
+    return pow(base, exp);
+}
+    """)
 
     # add adouble stuff
     lines.insert(0, '#include "adept.h"\n#include<iostream>\n')
     lines.insert(1, 'using adept::adouble; // Import Stack and adouble from adept\n')
 
-    # now insert new calling function
+    # insert new calling function after last body
 
     lines.append("""
 
@@ -71,7 +100,7 @@ ${function_defn}{
         ${initializers}
         stack.new_recording(); // Start recording
         std::vector<adouble> ${ad_dep_name}(${dep_size}); // Create vector of active output variables
-        ${kernel_call} // Run algorithm
+        ${kernel_calls} // Run algorithm
         stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
         stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
         stack.jacobian(${jac_base_offset}); // Compute & store Jacobian in jac
@@ -85,8 +114,22 @@ ${function_defn}{
     for i in range(len(lines)):
         lines[i] = re.sub(r'restrict\b', '__restrict__', lines[i])
 
-    __save_file(filename, lines)
-    return '\n'.join(lines)
+    # and finally, remove any identical lines outside of function bodies
+    nest_level = 0
+    new_lines = []
+    for i in range(len(lines)):
+        # track brace nesting level
+        if lines[i].strip() == '{':
+            nest_level += 1
+        elif lines[i].strip() == '}':
+            nest_level -= 1
+        elif nest_level == 0:
+            if any(l.strip() == lines[i].strip() for l in new_lines):
+                continue
+        new_lines.append(lines[i])
+
+    __save_file(filename, new_lines)
+    return '\n'.join(new_lines)
 
 
 if __name__ == '__main__':
