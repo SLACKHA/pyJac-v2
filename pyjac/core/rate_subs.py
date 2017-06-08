@@ -2746,9 +2746,9 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            manglers=[
-                               k_gen.MangleGen('fmax',
-                                               (np.float64, np.float64),
-                                               np.float64)])]
+                               lp_pregen.MangleGen('fmax',
+                                                   (np.float64, np.float64),
+                                                    np.float64)])]
 
 
 def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
@@ -2877,9 +2877,9 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            manglers=[
-                               k_gen.MangleGen('fmax',
-                                               (np.float64, np.float64),
-                                               np.float64)])]
+                               lp_pregen.MangleGen('fmax',
+                                                   (np.float64, np.float64),
+                                                   np.float64)])]
 
 
 def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
