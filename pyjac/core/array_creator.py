@@ -479,7 +479,7 @@ class MapStore(object):
                 if var_affine:
                     aff += ' + {}'.format(var_affine)
                 return iname + ' + {}'.format(aff)
-            elif aff is not None:
+            elif aff or var_affine:
                 aff += var_affine
                 return iname + ' {} {}'.format('+' if aff >= 0 else '-',
                                                np.abs(aff))
