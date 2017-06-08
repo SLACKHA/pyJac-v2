@@ -210,4 +210,6 @@ CHEB / 2.4252000e-02 2.5921000e-02 6.7084000e-03 /
 !this should be last to test non-zero last efficiency (N2)
 H+O2+M<=>HO2+M                           2.800E+18    -.860        .00
 O2/ .00/ H2O/ .00/ CO/ .75/ CO2/1.50/ C2H6/1.50/ N2/ 3.00/ AR/ .00/
+! and this one should test the last species (Ns) present in a reaction
+H+O2+N2<=>HO2+N2                         2.800E+18    -.860        .00
 END
