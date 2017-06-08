@@ -510,3 +510,7 @@ chebyshev_reaction('C8H6 + C2H (+ M) <=> C6H5 + C4H2 (+ M)',
 # Reaction 19
 three_body_reaction('H + O2 + M <=> HO2 + M', [2.800000e+18, -0.86, 0.0],
                     efficiencies='CO2:1.5 CO:0.75 H2O:0.0 AR:0.0 C2H6:1.5 N2:3.0 O2:0.0')
+#  and this one should test the last species (Ns) present in a reaction
+
+# Reaction 20
+reaction('H + O2 + N2 <=> HO2 + N2', [2.800000e+18, -0.86, 0.0])
