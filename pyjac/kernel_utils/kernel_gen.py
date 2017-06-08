@@ -946,7 +946,11 @@ ${name} : ${type}
 
         # check preambles
         if info.preambles:
+            # register custom preamble functions
             knl = lp.register_preamble_generators(knl, info.preambles)
+            # also register their function manglers
+            knl = lp.register_function_manglers(knl, [
+                p.get_func_mangler() for p in info.preambles])
         return knl
 
     def apply_specialization(self, loopy_opts, inner_ind, knl, vecspec=None,
@@ -1425,34 +1429,6 @@ class knl_info(object):
         self.preambles = preambles[:]
 
 
-class MangleGen(object):
-
-    def __tuple_gen(self, vals):
-        if isinstance(vals, tuple):
-            return vals
-        return (vals,)
-
-    def __init__(self, name, arg_dtypes, result_dtypes):
-        self.name = name
-        self.arg_dtypes = self.__tuple_gen(arg_dtypes)
-        self.result_dtypes = self.__tuple_gen(result_dtypes)
-
-    def __call__(self, kernel, name, arg_dtypes):
-        if name != self.name:
-            return None
-        from loopy.types import to_loopy_type
-        from loopy.kernel.data import CallMangleInfo
-        # check types
-        assert tuple(to_loopy_type(x) for x in self.arg_dtypes) == arg_dtypes
-        # get target for creation
-        target = arg_dtypes[0].target
-        return CallMangleInfo(
-            target_name=self.name,
-            result_dtypes=tuple(to_loopy_type(x, target=target) for x in
-                                self.result_dtypes),
-            arg_dtypes=arg_dtypes)
-
-
 def create_function_mangler(kernel, return_dtypes=()):
     """
     Returns a function mangler to interface loopy kernels with function calls
@@ -1470,6 +1446,7 @@ def create_function_mangler(kernel, return_dtypes=()):
         A function that will return a :class:`loopy.kernel.data.CallMangleInfo` to
         interface with the calling :class:`loopy.LoopKernel`
     """
+    from ..loopy_utils.preambles_and_manglers import MangleGen
 
     dtypes = []
     for arg in kernel.args:

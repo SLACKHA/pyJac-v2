@@ -29,6 +29,7 @@ from ..sympy_utils import sympy_utils as sp_utils
 from . reaction_types import reaction_type, falloff_form, thd_body_type, \
     reversible_type
 from . import array_creator as arc
+from ..loopy_utils import preambles_and_manglers as lp_pregen
 
 global_ind = 'j'
 """str: The global initial condition index
@@ -112,71 +113,56 @@ def assign_rates(reacs, specs, rate_spec):
                        dtype=np.int32)
     num_rev = len(rev_map)
     # next, find the species / nu values
-    fwd_spec = []
-    fwd_num_spec = []
-    fwd_nu = []
-    rev_spec = []
-    rev_num_spec = []
-    rev_nu = []
     nu_sum = []
     net_num_spec = []
-    net_nu = []
     net_spec = []
+    net_nu = []
     reac_has_ns = []
-    fwd_allnu_integer = True
-    rev_allnu_integer = True
-    for rxn in reacs:
-        # fwd
-        fwd_spec.extend(rxn.reac[:])
-        fwd_num_spec.append(len(rxn.reac))
-        fwd_nu.extend(rxn.reac_nu[:])
-        if rxn.rev:
-            # and rev
-            rev_spec.extend(rxn.prod[:])
-            rev_num_spec.append(len(rxn.prod))
-            rev_nu.extend(rxn.prod_nu[:])
-        # finally, net values
-        spec = list(sorted(set(rxn.reac + rxn.prod)))
-        net_spec.extend(spec)
-        net_num_spec.append(len(spec))
-        nu = [utils.get_nu(isp, rxn) for isp in spec]
-        net_nu.extend(nu)
+    ns_nu = []
+    for i_rxn, rxn in enumerate(reacs):
+        # get list of species in reaction
+        spec_list = sorted(set(rxn.reac[:] + rxn.prod[:]))
+        # add species / num
+        net_spec.extend(spec_list)
+        net_num_spec.append(len(spec_list))
+        # get fwd / reverse nu for species
+        for spec in spec_list:
+            # get reactant index
+            ind = next((i for i, x in enumerate(rxn.reac) if x == spec), None)
+            reac_nu = rxn.reac_nu[ind] if ind is not None else 0
+
+            # get product index
+            ind = next((i for i, x in enumerate(rxn.prod) if x == spec), None)
+            prod_nu = rxn.prod_nu[ind] if ind is not None else 0
+
+            # and add nu values
+            net_nu.extend([prod_nu, reac_nu])
+
         # and nu sum for equilibrium constants
-        nu_sum.append(sum(nu))
+        nu_sum.append(sum([utils.get_nu(isp, rxn) for isp in spec_list]))
 
         # handle fwd / rev nu for last species indicator
-        ns_fwd_ind = next((i for i, x in enumerate(rxn.reac[:])
-                          if x == len(specs) - 1), None)
-        ns_fwd_nu = rxn.reac_nu[ns_fwd_ind] if ns_fwd_ind is not None else 0
-        ns_rev_ind = next((i for i, x in enumerate(rxn.prod[:])
-                          if x == len(specs) - 1), None)
-        ns_rev_nu = rxn.reac_nu[ns_rev_ind] if ns_rev_ind is not None else 0
-        reac_has_ns.extend([ns_fwd_nu, ns_rev_nu])
+        ns_reac_ind = next((i for i, x in enumerate(rxn.reac[:])
+                            if x == len(specs) - 1), None)
+        ns_reac_nu = rxn.reac_nu[ns_reac_ind] if ns_reac_ind is not None else 0
+        ns_prod_ind = next((i for i, x in enumerate(rxn.prod[:])
+                            if x == len(specs) - 1), None)
+        ns_prod_nu = rxn.prod_nu[ns_prod_ind] if ns_prod_ind is not None else 0
+        if ns_reac_nu or ns_prod_nu:
+            reac_has_ns.append(i_rxn)
+            ns_nu.extend([ns_prod_nu, ns_reac_nu])
 
     # create numpy versions
     reac_has_ns = np.array(reac_has_ns, dtype=np.int32)
-    fwd_spec = np.array(fwd_spec, dtype=np.int32)
-    fwd_num_spec = np.array(fwd_num_spec, dtype=np.int32)
-    if any(not utils.is_integer(nu) for nu in fwd_nu):
-        fwd_nu = np.array(fwd_nu)
-        fwd_allnu_integer = False
-    else:
-        fwd_nu = np.array(fwd_nu, dtype=np.int32)
-    rev_spec = np.array(rev_spec, dtype=np.int32)
-    rev_num_spec = np.array(rev_num_spec, dtype=np.int32)
-    if any(not utils.is_integer(nu) for nu in rev_nu):
-        rev_nu = np.array(rev_nu)
-        fwd_allnu_integer = False
-    else:
-        rev_nu = np.array(rev_nu, dtype=np.int32)
-
     net_nu_integer = all(utils.is_integer(nu) for nu in net_nu)
     if net_nu_integer:
         nu_sum = np.array(nu_sum, dtype=np.int32)
         net_nu = np.array(net_nu, dtype=np.int32)
+        ns_nu = np.array(ns_nu, dtype=np.int32)
     else:
         nu_sum = np.array(nu_sum)
         net_nu = np.array(net_nu)
+        ns_nu = np.array(ns_nu)
     net_num_spec = np.array(net_num_spec, dtype=np.int32)
     net_spec = np.array(net_spec, dtype=np.int32)
 
@@ -523,14 +509,8 @@ def assign_rates(reacs, specs, rate_spec):
                         'spec': pp_thd_spec,
                         'eff': pp_thd_eff
                     }},
-            'fwd': {'map': np.arange(len(reacs)), 'num': len(reacs),
-                    'num_reac_to_spec':  fwd_num_spec,
-                    'reac_to_spec': fwd_spec,
-                    'nu': fwd_nu, 'allint': fwd_allnu_integer},
-            'rev': {'map': rev_map, 'num': num_rev,
-                    'num_reac_to_spec':  rev_num_spec,
-                    'reac_to_spec': rev_spec,
-                    'nu': rev_nu, 'allint': rev_allnu_integer},
+            'fwd': {'map': np.arange(len(reacs)), 'num': len(reacs)},
+            'rev': {'map': rev_map, 'num': num_rev},
             'net': {'num_reac_to_spec': net_num_spec, 'nu_sum': nu_sum,
                     'nu': net_nu, 'reac_to_spec': net_spec,
                     'allint': net_nu_integer},
@@ -543,11 +523,12 @@ def assign_rates(reacs, specs, rate_spec):
                 'a_lo': a_lo,
                 'a_hi': a_hi,
                 'T_mid': T_mid
-            },
-            'mws': mws,
-            'mw_post': mw_post,
-            'reac_has_ns': reac_has_ns
-            }
+    },
+        'mws': mws,
+        'mw_post': mw_post,
+        'reac_has_ns': reac_has_ns,
+        'ns_nu': ns_nu
+    }
 
 
 def default_pre_instructs(result_name, var_str, INSN_KEY):
@@ -579,10 +560,12 @@ def default_pre_instructs(result_name, var_str, INSN_KEY):
 
 
 class dummy_deep_sepecialzation(object):
+
     """
     A reusable-class to enable serialized deep vectorizations (i.e. reductions
     on a single OpenCL lane)
     """
+
     def __init__(self):
         pass
 
@@ -681,7 +664,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
         """).substitute(
             conc_str=conc_str,
             n_str=n_str
-        )
+    )
 
     post_instructions = Template(
         """
@@ -775,11 +758,11 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
         """
         ${ndot_str} = ${V_val} * ${wdot_str}
         """
-        ).substitute(
-            ndot_str=ndot_str,
-            V_val=V_val,
-            wdot_str=wdot_str
-            )
+    ).substitute(
+        ndot_str=ndot_str,
+        V_val=V_val,
+        wdot_str=wdot_str
+    )
 
     return k_gen.knl_info(name='get_molar_rates',
                           pre_instructions=[pre_instructions],
@@ -862,12 +845,12 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
     pre_instructions = ['<>dE = 0.0d {id=init}']
 
     instructions = Template(
-            """
+        """
             dE = dE + ${mw_str} * ${wdot_str} {id=sum, dep=init}
             """
-        ).substitute(
-            mw_str=mw_str,
-            wdot_str=wdot_str)
+    ).substitute(
+        mw_str=mw_str,
+        wdot_str=wdot_str)
 
     if conp:
         V_lp, V_str = mapstore.apply_maps(namestore.V_arr,
@@ -878,25 +861,25 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
             """
             ${Edot_str} = ${V_str} * ((${T_str} * R_u / ${P_str}) * dE + ${Tdot_str} / ${T_str}) {id=end, dep=sum}
             """
-            ).substitute(
-                V_str=V_str,
-                T_str=T_str,
-                P_str=P_str,
-                Tdot_str=Tdot_str,
-                Edot_str=Edot_str
-                )
+        ).substitute(
+            V_str=V_str,
+            T_str=T_str,
+            P_str=P_str,
+            Tdot_str=Tdot_str,
+            Edot_str=Edot_str
+        )
         ]
     else:
         post_instructions = [Template(
             """
             ${Edot_str} = ${T_str} * R_u * dE + ${Tdot_str} * ${P_str} / ${T_str} {id=end, dep=sum}
             """
-            ).substitute(
-                T_str=T_str,
-                P_str=P_str,
-                Tdot_str=Tdot_str,
-                Edot_str=Edot_str
-                )
+        ).substitute(
+            T_str=T_str,
+            P_str=P_str,
+            Tdot_str=Tdot_str,
+            Edot_str=Edot_str
+        )
         ]
 
     can_vectorize = loopy_opts.depth is None
@@ -1131,7 +1114,7 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
     if over_reac:
         # various indicies
         spec_ind = 'spec_ind'
-        spec_map = 'spec_map'
+        ispec = 'ispec'
 
         # create map store
         mapstore = arc.MapStore(loopy_opts,
@@ -1139,18 +1122,19 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                                 namestore.num_reacs)
 
         # create arrays
-        spec_lp, spec_str = mapstore.apply_maps(namestore.net_reac_to_spec_map,
-                                                spec_map)
+        spec_lp, spec_str = mapstore.apply_maps(namestore.rxn_to_spec,
+                                                ispec)
         num_spec_offsets_lp, \
             num_spec_offsets_str = \
-            mapstore.apply_maps(namestore.net_reac_to_spec_offsets, var_name)
+            mapstore.apply_maps(namestore.rxn_to_spec_offsets, var_name)
         num_spec_offsets_next_lp, \
             num_spec_offsets_next_str = \
-            mapstore.apply_maps(namestore.net_reac_to_spec_offsets,
+            mapstore.apply_maps(namestore.rxn_to_spec_offsets,
                                 var_name, affine=1)
-        net_nu_lp, net_nu_str = \
-            mapstore.apply_maps(namestore.net_reac_to_spec_nu,
-                                spec_map)
+        nu_lp, prod_nu_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_prod_nu, ispec, affine=ispec)
+        _, reac_nu_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_reac_nu, ispec, affine=ispec)
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
                                                       *default_inds)
         wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
@@ -1158,31 +1142,30 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
 
         # update kernel args
         kernel_data.extend(
-            [spec_lp, num_spec_offsets_lp, net_nu_lp, rop_net_lp, wdot_lp])
+            [spec_lp, num_spec_offsets_lp, nu_lp, rop_net_lp, wdot_lp])
 
         # now the instructions
         instructions = Template(
             """
         <>net_rate = ${rop_net_str} {id=rate_init}
         <>offset = ${num_spec_offsets_str}
-        <>num_spec = ${num_spec_offsets_next_str} - offset
+        <>offset_next = ${num_spec_offsets_next_str}
         for ispec
-            <> ${spec_map} = offset + ispec
             <> ${spec_ind} = ${spec_str} # (offset handled in wdot str)
-            <> nu = ${nu_str}
+            <> nu = ${prod_nu_str} - ${reac_nu_str}
             ${wdot_str} = ${wdot_str} + nu * net_rate
         end
         """).safe_substitute(rop_net_str=rop_net_str,
                              spec_str=spec_str,
-                             spec_map=spec_map,
-                             nu_str=net_nu_str,
+                             prod_nu_str=prod_nu_str,
+                             reac_nu_str=reac_nu_str,
                              spec_ind=spec_ind,
                              wdot_str=wdot_str,
                              num_spec_offsets_str=num_spec_offsets_str,
                              num_spec_offsets_next_str=num_spec_offsets_next_str)
 
         # extra inames
-        extra_inames = [('ispec', '0 <= ispec < num_spec')]
+        extra_inames = [('ispec', 'offset <= ispec < offset_next')]
 
     else:
         # various indicies
@@ -1201,18 +1184,18 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         # create arrays
 
         # inner loop vars depend on reac_map
-        reac_lp, reac_str = mapstore.apply_maps(namestore.net_spec_to_reac,
+        reac_lp, reac_str = mapstore.apply_maps(namestore.spec_to_rxn,
                                                 reac_map)
         net_nu_lp, net_nu_str = \
-            mapstore.apply_maps(namestore.net_spec_to_reac_nu,
+            mapstore.apply_maps(namestore.spec_to_rxn_nu,
                                 reac_map)
         # offsets depend on 'i'
         num_reac_offsets_lp, \
             num_reac_offsets_str = \
-            mapstore.apply_maps(namestore.net_spec_to_reac_offsets, var_name)
+            mapstore.apply_maps(namestore.spec_to_rxn_offsets, var_name)
         num_reac_offsets_next_lp, \
             num_reac_offsets_next_str = \
-            mapstore.apply_maps(namestore.net_spec_to_reac_offsets,
+            mapstore.apply_maps(namestore.spec_to_rxn_offsets,
                                 var_name, affine=1)
         # rop net depends on reac_ind
         rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
@@ -1528,24 +1511,29 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
         maps[direction] = arc.MapStore(loopy_opts, inds, mapinds)
         themap = maps[direction]
 
+        # add transforms for the offsets
+        themap.check_and_add_transform(
+            namestore.rxn_to_spec_offsets, inds)
+
         # we need species lists, nu lists, etc.
 
         # offsets are on main loop, no map
-        offsets = getattr(namestore, direction + '_reac_to_spec_offsets')
         num_spec_offsets_lp, num_spec_offsets_str = themap.apply_maps(
-            offsets, var_name)
+            namestore.rxn_to_spec_offsets, var_name)
 
         # next offset to calculate num species
         _, num_spec_offsets_next_str = themap.apply_maps(
-            offsets, var_name, affine=1)
+            namestore.rxn_to_spec_offsets, var_name, affine=1)
 
         # nu lists are on main loop, no map
-        nu = getattr(namestore, 'nu_' + direction)
-        nu_lp, nu_str = themap.apply_maps(nu, spec_loop)
+        nus = 'rxn_to_spec_reac_nu' if direction == 'fwd'\
+            else 'rxn_to_spec_prod_nu'
+        nu = getattr(namestore, nus)
+        nu_lp, nu_str = themap.apply_maps(nu, spec_loop, affine=spec_loop)
 
         # species lists are in ispec loop, use that iname
-        speclist = getattr(namestore, direction + '_reac_to_spec')
-        spec_lp, spec_str = themap.apply_maps(speclist, spec_loop)
+        spec_lp, spec_str = themap.apply_maps(
+            namestore.rxn_to_spec, spec_loop)
 
         # rate constants on main loop, no map
         rateconst = namestore.kf if direction == 'fwd' else namestore.kr
@@ -1570,7 +1558,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
             """
     <>rop_temp = ${rateconst_str} {id=rop_init}
     <>spec_offset = ${num_spec_offsets_str}
-    <>num_spec = ${num_spec_offsets_next_str} - spec_offset
+    <>spec_offset_next = ${num_spec_offsets_next_str}
     for ${spec_loop}
         <>${spec_ind} = ${spec_str} {id=spec_ind}
         ${rop_temp_eval}
@@ -1586,19 +1574,19 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # if all integers, it's much faster to use multiplication
         allint_eval = Template(
-    """
-    rop_temp = rop_temp * pown(${concs_str}, ${nu_str}) {id=rop_fin}
+            """
+    rop_temp = rop_temp * fast_powi(${concs_str}, ${nu_str}) {id=rop_fin}
     """).safe_substitute(
             nu_str=nu_str,
             concs_str=concs_str)
 
         # if we need to use powers, do so
         fractional_eval = Template(
-    """
+            """
     if int(${nu_str}) == ${nu_str}
         ${allint}
     else
-        rop_temp = rop_temp * (${concs_str})**(${nu_str}) {id=rop_fin2}
+        rop_temp = rop_temp * fast_powf(${concs_str}, ${nu_str}) {id=rop_fin2}
     end
     """).safe_substitute(nu_str=nu_str,
                          concs_str=concs_str)
@@ -1615,7 +1603,8 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
                                                     allint_eval)
 
         # and finally extra inames
-        extra_inames = [(spec_loop, 'spec_offset <= {} < spec_offset + num_spec'.format(spec_loop))]
+        extra_inames = [
+            (spec_loop, 'spec_offset <= {} < spec_offset_next'.format(spec_loop))]
 
         # and return the rateconst
         return k_gen.knl_info(name='rop_eval_{}'.format(direction),
@@ -1624,10 +1613,9 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
                               kernel_data=kernel_data,
                               extra_inames=extra_inames,
                               mapstore=maps[direction],
-                              manglers=[
-                               k_gen.MangleGen('pown',
-                                               (np.float64, np.int32),
-                                               np.float64)])
+                              preambles=[
+            lp_pregen.fastpowi_PreambleGen(),
+            lp_pregen.fastpowf_PreambleGen()])
 
     infos = [__rop_create('fwd')]
     if namestore.rop_rev is not None:
@@ -1797,31 +1785,35 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     # create nu_sum on main loop
     # this may require a map
     rev_map.check_and_add_transform(
-        namestore.reac_to_spec_nu_sum, namestore.rev_map)
-    nu_sum_lp, nu_sum_str = rev_map.apply_maps(namestore.reac_to_spec_nu_sum,
+        namestore.nu_sum, namestore.rev_map)
+    nu_sum_lp, nu_sum_str = rev_map.apply_maps(namestore.nu_sum,
                                                var_name)
 
     # all species in reaction on spec loop
-    spec_lp, spec_str = rev_map.apply_maps(namestore.net_reac_to_spec_map,
+    rev_map.check_and_add_transform(
+        namestore.rxn_to_spec, namestore.rev_map)
+    spec_lp, spec_str = rev_map.apply_maps(namestore.rxn_to_spec,
                                            spec_loop)
 
     # species offsets on main loop
     # this may require a map
     rev_map.check_and_add_transform(
-        namestore.net_reac_to_spec_offsets, namestore.rev_map)
+        namestore.rxn_to_spec_offsets, namestore.rev_map)
     num_spec_offsets_lp, num_spec_offsets_str = rev_map.apply_maps(
-        namestore.net_reac_to_spec_offsets, var_name)
+        namestore.rxn_to_spec_offsets, var_name)
 
     # species offset on main loop with offset of 1
     _, num_spec_offsets_next_str = rev_map.apply_maps(
-        namestore.net_reac_to_spec_offsets, var_name, affine=1)
+        namestore.rxn_to_spec_offsets, var_name, affine=1)
 
     # B array on spec_ind
     B_lp, B_str = rev_map.apply_maps(namestore.b_arr, global_ind, spec_ind)
 
     # net nu on species loop
-    net_nu_lp, net_nu_str = rev_map.apply_maps(namestore.net_reac_to_spec_nu,
-                                               spec_loop)
+    nu_lp, prod_nu_str = rev_map.apply_maps(namestore.rxn_to_spec_prod_nu,
+                                            spec_loop, affine=spec_loop)
+    _, reac_nu_str = rev_map.apply_maps(namestore.rxn_to_spec_reac_nu,
+                                        spec_loop, affine=spec_loop)
 
     # the Kc array on the main loop, no map as this is only reversible
     Kc_lp, Kc_str = rev_map.apply_maps(namestore.Kc, *default_inds)
@@ -1869,29 +1861,34 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
 
     # update kernel data
     kernel_data.extend([nu_sum_lp, spec_lp, num_spec_offsets_lp,
-                        B_lp, Kc_lp, net_nu_lp, kf_arr, kr_arr])
+                        B_lp, Kc_lp, nu_lp, kf_arr, kr_arr])
 
     # create the pressure product loop
     pressure_prod = Template("""
     <> P_sum_end = abs(${nu_sum}) {id=P_bound}
-    <> P_sum = 1.0d {id=P_init}
     if ${nu_sum} > 0
         <> P_val = P_a / R_u {id=P_val_decl}
     else
         P_val = R_u / P_a {id=P_val_decl1}
     end
-    P_sum = pown(P_val, P_sum_end)
-    """).safe_substitute(nu_sum=nu_sum_str)
+    <> P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
+    """).substitute(nu_sum=nu_sum_str)
 
     if not allint['net']:
         # if not all integers, need to add outer if statment to check integer
         # status
         pressure_prod_temp = Template("""
-    if int(${nu_sum}) == ${nu_sum}
-        ${pprod}
+    <> P_sum_end = abs(${nu_sum}) {id=P_bound}
+    if ${nu_sum} > 0
+        <> P_val = P_a / R_u {id=P_val_decl}
     else
-        P_sum = (P_a / R_u)**(${nu_sum}) {id=P_accum}
-    end""").safe_substitute(nu_sum=nu_sum_str)
+        P_val = R_u / P_a {id=P_val_decl1}
+    end
+    if (int)${nu_sum} == ${nu_sum}
+        P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
+    else
+        P_sum = fast_powf(P_val, ${nu_sum}) {id=P_accum2, dep=P_val_decl*}
+    end""").substitute(nu_sum=nu_sum_str)
 
         pressure_prod = k_gen.subs_at_indent(pressure_prod_temp, 'pprod',
                                              pressure_prod)
@@ -1903,23 +1900,25 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     <>B_sum = 0 {id=B_init}
     for ${spec_loop}
         <>${spec_ind} = ${spec_mapper} {dep=offset:B_bound}
-        if ${net_nu} != 0
-            B_sum = B_sum + ${net_nu} * ${B_val} {id=B_accum, dep=B_init}
+        <>net_nu = ${prod_nu_str} - ${reac_nu_str}
+        if net_nu != 0
+            B_sum = B_sum + net_nu * ${B_val} {id=B_accum, dep=B_init}
         end
     end
     B_sum = exp(B_sum) {id=B_final, dep=B_accum}
-    """).safe_substitute(spec_offset=num_spec_offsets_str,
-                         spec_offset_next=num_spec_offsets_next_str,
-                         spec_loop=spec_loop,
-                         spec_ind=spec_ind,
-                         spec_mapper=spec_str,
-                         nu_val=nu_sum_str,
-                         net_nu=net_nu_str,
-                         B_val=B_str
-                         )
+    """).substitute(spec_offset=num_spec_offsets_str,
+                    spec_offset_next=num_spec_offsets_next_str,
+                    spec_loop=spec_loop,
+                    spec_ind=spec_ind,
+                    spec_mapper=spec_str,
+                    nu_val=nu_sum_str,
+                    prod_nu_str=prod_nu_str,
+                    reac_nu_str=reac_nu_str,
+                    B_val=B_str
+                    )
 
     Rate_assign = Template("""
-    <>${Kc_temp_str} = P_sum * B_sum {dep=P_accum:B_final}
+    <>${Kc_temp_str} = P_sum * B_sum {dep=P_accum*:B_final}
     ${Kc_val} = ${Kc_temp_str}
     ${kr_val} = ${rev_eqn}
     """).safe_substitute(Kc_val=Kc_str,
@@ -1940,12 +1939,10 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                           mapstore=rev_map,
                           extra_inames=extra_inames,
                           parameters={
-                                'P_a': np.float64(chem.PA),
-                                'R_u': np.float64(chem.RU)},
-                          manglers=[k_gen.MangleGen(
-                                'pown',
-                                (np.float64, np.int32),
-                                np.float64)])
+                              'P_a': np.float64(chem.PA),
+                              'R_u': np.float64(chem.RU)},
+                          preambles=[lp_pregen.fastpowi_PreambleGen(),
+                                     lp_pregen.fastpowf_PreambleGen()])
 
 
 def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
@@ -2875,7 +2872,7 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                            default_pre_instructs('T', T_str, 'VAL')],
+                               default_pre_instructs('T', T_str, 'VAL')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -3095,8 +3092,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 ${kf_str} = kf_temp {dep=a4}
                 """).safe_substitute(b_str=b_str)
                 manglers.append(k_gen.MangleGen('pown',
-                                               (np.float64, np.int32),
-                                               np.float64))
+                                                (np.float64, np.int32),
+                                                np.float64))
             else:
                 beta_iter_str = ("${kf_str} = kf_temp * T_iter"
                                  " {id=a4, dep=a3:a2:a1}")
@@ -3192,11 +3189,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
                 insns, manglers = get_instructions(
-                        -1,
-                        mapstore,
-                        specializations[i].kernel_data,
-                        beta_iter,
-                        single_kernel_rtype=i)
+                    -1,
+                    mapstore,
+                    specializations[i].kernel_data,
+                    beta_iter,
+                    single_kernel_rtype=i)
                 instruction_list.extend([
                     '\t' + x for x in insns.split('\n') if x.strip()])
                 instruction_list.append('end')
@@ -3408,15 +3405,15 @@ def write_specrates_kernel(eqs, reacs, specs,
 
     # get a wrapper for the dependecies
     thermo_wrap = k_gen.make_kernel_generator(name='chem_utils_kernel',
-                                                  loopy_opts=loopy_opts,
-                                                  kernels=depends_on,
-                                                  input_arrays=['T_arr'],
-                                                  output_arrays=[
-                                                      'h', 'cp'] if conp else
-                                                      ['u', 'cv'],
-                                                  auto_diff=auto_diff,
-                                                  test_size=test_size
-                                                  )
+                                              loopy_opts=loopy_opts,
+                                              kernels=depends_on,
+                                              input_arrays=['T_arr'],
+                                              output_arrays=[
+                                                  'h', 'cp'] if conp else
+                                              ['u', 'cv'],
+                                              auto_diff=auto_diff,
+                                              test_size=test_size
+                                              )
 
     barriers = []
     if loopy_opts.depth:

@@ -462,16 +462,25 @@ class MapStore(object):
 
         affine = kwargs.pop('affine', None)
 
+        var_affine = 0
+        if variable.affine is not None:
+            var_affine = variable.affine
+
+        have_affine = var_affine or affine
+
         def __get_affine(iname):
-            aff = None
+            aff = 0
             if isinstance(affine, dict):
                 if iname in affine:
                     aff = affine[iname]
             elif affine is not None:
                 aff = affine
             if isinstance(aff, str):
+                if var_affine:
+                    aff += ' + {}'.format(var_affine)
                 return iname + ' + {}'.format(aff)
             elif aff is not None:
+                aff += var_affine
                 return iname + ' {} {}'.format('+' if aff >= 0 else '-',
                                                np.abs(aff))
             return iname
@@ -482,13 +491,13 @@ class MapStore(object):
                              __get_affine(
                                  self.transformed_variables[variable].new_iname)
                              for x in indicies)
-        elif affine and len(indicies) == 1:
+        elif have_affine and len(indicies) == 1:
             # if we don't have a map, but we do have an affine index
             # and it's obvious who to apply to
             indicies = (__get_affine(indicies[0]),)
-        elif isinstance(affine, dict):
+        elif have_affine and isinstance(affine, dict):
             indicies = tuple(__get_affine(i) for i in indicies)
-        elif affine:
+        elif have_affine:
             raise Exception("Can't apply affine transformation to indicies, {}"
                             " as the index to apply to cannot be"
                             " determined".format(indicies))
@@ -581,7 +590,8 @@ class creator(object):
                  initializer=None,
                  scope=scopes.GLOBAL,
                  fixed_indicies=None,
-                 is_temporary=False):
+                 is_temporary=False,
+                 affine=None):
         """
         Initializes the creator object
 
@@ -604,6 +614,9 @@ class creator(object):
             The row/column-major data format to use in storage
         is_temporary : bool
             If true, this should be a temporary variable
+        affine : int
+            If supplied, this represents an offset that should be applied to
+            the creator upon indexing
         """
 
         self.name = name
@@ -616,6 +629,7 @@ class creator(object):
         self.fixed_indicies = None
         self.num_indicies = len(shape)
         self.order = order
+        self.affine = affine
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
         if is_temporary or initializer is not None:
@@ -814,7 +828,8 @@ class NameStore(object):
                              fixed_indicies=[(1, 1)])
 
         self.jac = creator('jac',
-                           shape=(test_size, rate_info['Ns'] + 1, rate_info['Ns'] + 1),
+                           shape=(
+                               test_size, rate_info['Ns'] + 1, rate_info['Ns'] + 1),
                            order=self.order,
                            dtype=np.float64)
 
@@ -847,30 +862,36 @@ class NameStore(object):
         # net species rates data
 
         # per reaction
-        self.net_reac_to_spec_map = creator('net_reac_to_spec',
-                                            dtype=np.int32,
-                                            shape=rate_info['net'][
-                                                'reac_to_spec'].shape,
-                                            initializer=rate_info[
-                                                'net']['reac_to_spec'],
-                                            order=self.order)
+        self.rxn_to_spec = creator('rxn_to_spec',
+                                   dtype=np.int32,
+                                   shape=rate_info['net'][
+                                       'reac_to_spec'].shape,
+                                   initializer=rate_info[
+                                       'net']['reac_to_spec'],
+                                   order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
-        self.net_reac_to_spec_offsets = creator('net_reac_to_spec_offsets',
-                                                dtype=np.int32,
-                                                shape=off.shape,
-                                                initializer=off,
-                                                order=self.order)
-        self.net_reac_to_spec_nu = creator('net_reac_to_spec_nu',
+        self.rxn_to_spec_offsets = creator('net_reac_to_spec_offsets',
+                                           dtype=np.int32,
+                                           shape=off.shape,
+                                           initializer=off,
+                                           order=self.order)
+        self.rxn_to_spec_reac_nu = creator('reac_to_spec_nu',
+                                           dtype=np.int32, shape=rate_info[
+                                               'net']['nu'].shape,
+                                           initializer=rate_info['net']['nu'],
+                                           order=self.order,
+                                           affine=1)
+        self.rxn_to_spec_prod_nu = creator('reac_to_spec_nu',
                                            dtype=np.int32, shape=rate_info[
                                                'net']['nu'].shape,
                                            initializer=rate_info['net']['nu'],
                                            order=self.order)
 
-        self.reac_has_ns = creator('reac_has_ns',
-                                   dtype=np.int32,
-                                   shape=(rate_info['Nr'] * 2,),
-                                   initializer=rate_info['reac_has_ns'],
-                                   order=self.order)
+        self.rxn_has_ns = creator('rxn_has_ns',
+                                  dtype=np.int32,
+                                  shape=rate_info['reac_has_ns'].shape,
+                                  initializer=rate_info['reac_has_ns'],
+                                  order=self.order)
 
         # per species
         self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
@@ -886,24 +907,24 @@ class NameStore(object):
                                            'net_per_spec']['map'] + 2,
                                        order=self.order)
 
-        self.net_spec_to_reac = creator('net_spec_to_reac', dtype=np.int32,
-                                        shape=rate_info['net_per_spec'][
-                                            'reacs'].shape,
-                                        initializer=rate_info[
-                                            'net_per_spec']['reacs'],
-                                        order=self.order)
+        self.spec_to_rxn = creator('spec_to_rxn', dtype=np.int32,
+                                   shape=rate_info['net_per_spec'][
+                                       'reacs'].shape,
+                                   initializer=rate_info[
+                                       'net_per_spec']['reacs'],
+                                   order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
-        self.net_spec_to_reac_offsets = creator('net_spec_to_reac_offsets',
-                                                dtype=np.int32,
-                                                shape=off.shape,
-                                                initializer=off,
-                                                order=self.order)
-        self.net_spec_to_reac_nu = creator('net_spec_to_reac_nu',
-                                           dtype=np.int32, shape=rate_info[
-                                               'net_per_spec']['nu'].shape,
-                                           initializer=rate_info[
-                                               'net_per_spec']['nu'],
+        self.spec_to_rxn_offsets = creator('spec_to_rxn_offsets',
+                                           dtype=np.int32,
+                                           shape=off.shape,
+                                           initializer=off,
                                            order=self.order)
+        self.spec_to_rxn_nu = creator('spec_to_rxn_nu',
+                                      dtype=np.int32, shape=rate_info[
+                                          'net_per_spec']['nu'].shape,
+                                      initializer=rate_info[
+                                          'net_per_spec']['nu'],
+                                      order=self.order)
 
         # rop's and fwd / rev / thd maps
         self.rop_net = creator('rop_net',
@@ -964,50 +985,6 @@ class NameStore(object):
                                     shape=thd_inds.shape,
                                     initializer=thd_inds,
                                     order=self.order)
-
-        # fwd / rev rop data
-        self.nu_fwd = creator('nu_fwd',
-                              dtype=np.int32,
-                              shape=rate_info['fwd']['nu'].shape,
-                              initializer=rate_info['fwd']['nu'],
-                              order=self.order)
-
-        off = self.__make_offset(rate_info['fwd']['num_reac_to_spec'])
-        self.fwd_reac_to_spec_offsets = creator('fwd_reac_to_spec_offset',
-                                                dtype=np.int32,
-                                                shape=off.shape,
-                                                initializer=off,
-                                                order=self.order)
-
-        self.fwd_reac_to_spec = creator('fwd_reac_to_spec',
-                                        dtype=np.int32,
-                                        shape=rate_info['fwd'][
-                                            'reac_to_spec'].shape,
-                                        initializer=rate_info[
-                                            'fwd']['reac_to_spec'],
-                                        order=self.order)
-
-        if rate_info['rev']['num']:
-            self.nu_rev = creator('nu_rev',
-                                  dtype=np.int32,
-                                  shape=rate_info['rev']['nu'].shape,
-                                  initializer=rate_info['rev']['nu'],
-                                  order=self.order)
-
-            off = self.__make_offset(rate_info['rev']['num_reac_to_spec'])
-            self.rev_reac_to_spec_offsets = creator('rev_reac_to_spec_offset',
-                                                    dtype=np.int32,
-                                                    shape=off.shape,
-                                                    initializer=off,
-                                                    order=self.order)
-
-            self.rev_reac_to_spec = creator('rev_reac_to_spec',
-                                            dtype=np.int32,
-                                            shape=rate_info['rev'][
-                                                'reac_to_spec'].shape,
-                                            initializer=rate_info[
-                                                'rev']['reac_to_spec'],
-                                            order=self.order)
 
         # reaction data (fwd / rev rates, KC)
         self.kf = creator('kf',
@@ -1108,14 +1085,14 @@ class NameStore(object):
                               shape=(test_size, rate_info['rev']['num']),
                               order=self.order)
 
-            self.reac_to_spec_nu_sum = creator('reac_to_spec_nu_sum',
-                                               dtype=rate_info['net'][
-                                                   'nu_sum'].dtype,
-                                               shape=rate_info['net'][
-                                                   'nu_sum'].shape,
-                                               initializer=rate_info[
-                                                   'net']['nu_sum'],
-                                               order=self.order)
+            self.nu_sum = creator('nu_sum',
+                                  dtype=rate_info['net'][
+                                      'nu_sum'].dtype,
+                                  shape=rate_info['net'][
+                                      'nu_sum'].shape,
+                                  initializer=rate_info[
+                                      'net']['nu_sum'],
+                                  order=self.order)
 
         # third body concs, maps, efficiencies, types, species
         if rate_info['thd']['num']:
