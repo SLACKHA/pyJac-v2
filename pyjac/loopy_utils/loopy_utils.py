@@ -377,6 +377,12 @@ def set_adept_editor(knl,
             ad_${name}[i].set_value(${indexed});
         }
         """)
+    zero_template = Template("""
+        for(int i = 0; i < ${size}; ++i)
+        {
+            ad_${name}[i].set_value(0.0);
+        }
+        """)
 
     # get set of written vars
     written_vars = knl.get_written_variables()
@@ -400,6 +406,12 @@ def set_adept_editor(knl,
                         indexed=indexed,
                         size=size
                         ))
+                else:
+                    initializers.append(zero_template.substitute(
+                        name=arg.name,
+                        size=size
+                        ))
+
     dep_set_template = Template("""
         for (int i = 0; i < ${size}; ++i)
         {
