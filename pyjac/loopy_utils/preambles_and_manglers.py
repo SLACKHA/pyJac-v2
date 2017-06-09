@@ -117,7 +117,11 @@ class fastpowf_PreambleGen(PreambleGen):
         double retval = 1;
         for (int i = 0; i < pow; ++i)
             retval *= val;
-        return retval * powf(val, pow - (int) pow);
+        if (pow != (int)pow)
+        {
+            retval *= powf(val, pow - (int) pow);
+        }
+        return retval;
    }
             """
 
