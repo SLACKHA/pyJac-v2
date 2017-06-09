@@ -772,11 +772,10 @@ class SubTest(TestClass):
         conc = self.store.concs.copy()
 
         # create the dictionary for nu values stating if all integer
-        allint = {'fwd':
-                  np.allclose(np.mod(self.store.gas.reactant_stoich_coeffs(),
-                                     1), 0),
-                  'rev':
+        allint = {'net':
                   np.allclose(np.mod(self.store.gas.product_stoich_coeffs(),
+                                     1), 0) and\
+                  np.allclose(np.mod(self.store.gas.reactant_stoich_coeffs(),
                                      1), 0)}
 
         args = {'kf': lambda x:

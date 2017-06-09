@@ -1462,7 +1462,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
         return infos
 
 
-def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
+def get_rop(eqs, loopy_opts, namestore, allint={'net': True}, test_size=None):
     """Generates instructions, kernel arguements, and data for the Rate of Progress
     kernels
 
@@ -1476,9 +1476,8 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
     namestore : :class:`array_creator.NameStore`
         The namestore / creator for this method
     allint : dict
-        Contains keys 'fwd' and 'rev', with booleans corresponding to whether
-        all nu values for that direction are integers.  If True, powers of
-        concentrations will be evaluated using multiplications
+        If allint['net'] is True, powers of concentrations
+        will be evaluated using multiplications
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
@@ -1593,7 +1592,7 @@ def get_rop(eqs, loopy_opts, namestore, allint, test_size=None):
         fractional_eval = k_gen.subs_at_indent(fractional_eval, 'allint',
                                                allint_eval)
 
-        if not allint[direction]:
+        if not allint['net']:
             rop_instructions = k_gen.subs_at_indent(rop_instructions,
                                                     'rop_temp_eval',
                                                     fractional_eval)
