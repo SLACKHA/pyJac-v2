@@ -74,14 +74,6 @@ def substitute(filename, text_in=None):
         lines[body_at - 1] = re.sub(r'void\s*([\w_]+)', r'void ad_\1',
                                     lines[body_at - 1])
 
-    # and place integer power function before first body
-    lines.insert(first_body - 1, """
-adouble pown(adouble base, int exp)
-{
-    return pow(base, exp);
-}
-    """)
-
     # add adouble stuff
     lines.insert(0, '#include "adept.h"\n#include<iostream>\n')
     lines.insert(1, 'using adept::adouble; // Import Stack and adouble from adept\n')
@@ -116,17 +108,49 @@ ${function_defn}{
 
     # and finally, remove any identical lines outside of function bodies
     nest_level = 0
-    new_lines = []
+
+    # first, go through and find all beginnings and endings of functions
+    funcs = []
+    in_func = False
     for i in range(len(lines)):
         # track brace nesting level
         if lines[i].strip() == '{':
+            if nest_level == 0:
+                funcs.append((i - 1, None))
             nest_level += 1
         elif lines[i].strip() == '}':
             nest_level -= 1
-        elif nest_level == 0:
-            if any(l.strip() == lines[i].strip() for l in new_lines):
-                continue
-        new_lines.append(lines[i])
+            if nest_level == 0:
+                funcs[-1] = (funcs[-1][0], i)
+
+    # next, check for duplicates of lines outside of functions
+    mask = [True] * len(lines)
+    check = set()
+    func_ind = 0
+    in_func = False
+    for i in range(len(lines)):
+        if in_func and i > funcs[func_ind][1]:
+            # reached end of function
+            in_func = False
+            func_ind += 1
+        elif not in_func and i >= funcs[func_ind][0]:
+            # beginning of function
+            in_func = True
+        elif not in_func:
+            # check for duplicates
+            mask[i] = lines[i].strip() not in check
+            check.add(lines[i].strip())
+
+    # and finally check for duplicate functions
+    func_strs = [lines[func[0]:func[1] + 1] for func in funcs]
+    for i, func_str in reversed(list(enumerate(func_strs))):
+        # if function defined before this
+        if func_str in func_strs[:i]:
+            # mark the mask
+            mask[funcs[i][0]:funcs[i][1] + 1] = [False] * (funcs[i][1] + 1 - funcs[i][0])
+
+    # and take the non masked lines
+    new_lines = [lines[i] for i in range(len(lines)) if mask[i]]
 
     __save_file(filename, new_lines)
     return '\n'.join(new_lines)
