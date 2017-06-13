@@ -229,10 +229,10 @@ class MapStore(object):
         Returns
         -------
         new_domain : :class:`creator`
-            If not None, this is the mapping that mus be used
-        None if domains are equivalent
-        Affine `str` map if an affine transform is possible
-        :class:`creator` if a more complex map is required
+        If not None, this is the mapping that must be used
+            - None if domains are equivalent
+            - `str` map if an affine transform is possible
+            - :class:`creator` if a more complex map is required
         """
 
         try:
