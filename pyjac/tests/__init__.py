@@ -10,11 +10,10 @@ import os
 # local imports
 from ..sympy_utils.sympy_interpreter import load_equations
 from ..core.mech_interpret import read_mech_ct
+from .. import utils
 import logging
 
 logging.getLogger('root').setLevel(logging.WARNING)
-
-from .. import utils
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
