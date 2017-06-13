@@ -486,7 +486,7 @@ class MapStore(object):
             return iname
 
         if variable in self.transformed_variables:
-            indicies = tuple(x if x !=
+            indicies = tuple(__get_affine(x) if x !=
                              self.transformed_variables[variable].iname else
                              __get_affine(
                                  self.transformed_variables[variable].new_iname)
