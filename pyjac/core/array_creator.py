@@ -228,6 +228,8 @@ class MapStore(object):
 
         Returns
         -------
+        new_domain : :class:`creator`
+            If not None, this is the mapping that mus be used
         None if domains are equivalent
         Affine `str` map if an affine transform is possible
         :class:`creator` if a more complex map is required
@@ -456,8 +458,6 @@ class MapStore(object):
             The generated variable
         lp_str : str
             The string indexed variable
-        transform_str : str
-            The transform instruction string
         """
 
         affine = kwargs.pop('affine', None)
