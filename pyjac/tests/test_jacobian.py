@@ -63,7 +63,7 @@ class SubTest(TestClass):
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
                              do_spec_per_reac=False,
-                             use_platform_instead=False,
+                             use_platform_instead=True,
                              do_conp=True,
                              do_vector=True,
                              langs=['opencl']):
@@ -89,7 +89,7 @@ class SubTest(TestClass):
             oploop += [
                 ('spec_rates_sum_over_reac', [True, False])]
         if use_platform_instead:
-            oploop += [('platform', ['CPU', 'GPU'])]
+            oploop += [('platform', ['CPU'])]
         else:
             oploop += [('device', get_device_list())]
         if do_conp:
@@ -133,7 +133,7 @@ class SubTest(TestClass):
         for i, state in enumerate(oploop):
             if state['width'] is not None and state['depth'] is not None:
                 continue
-            opt = loopy_options(platform='CPU',
+            opt = loopy_options(#platform='CPU',
                                 **{x: state[x] for x in
                                    state if x not in exceptions})
             # find rate info

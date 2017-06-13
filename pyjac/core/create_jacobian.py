@@ -102,15 +102,15 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
         # get net offsets
 
-        # may need offset on all arrays on the main loop if do_ns, hence check for transforms
-        transform = mapstore.check_and_add_transform(
+        # may need offset on all arrays on the main loop if do_ns,
+        # hence check for transforms
+        mapstore.check_and_add_transform(
             namestore.rxn_to_spec_offsets, rxn_range)
-        my_var = var_name if transform is None else transform.new_iname
 
         rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_offsets, my_var)
+            namestore.rxn_to_spec_offsets, var_name)
         _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_offsets, my_var, affine=1)
+            namestore.rxn_to_spec_offsets, var_name, affine=1)
 
         # get net species
         net_specs_lp, net_spec_k_str = mapstore.apply_maps(
@@ -123,35 +123,47 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         _, reac_nu_k_str = mapstore.apply_maps(
             namestore.rxn_to_spec_reac_nu, net_ind_k, affine=net_ind_k)
 
-        # reverse rates are on main loop, hence may need map for reverse parameters
+        # Check for forward / rev / third body maps with/without NS
+        rev_mask_lp, rev_mask_str = mapstore.apply_maps(
+                    namestore.rev_mask, var_name)
+        kr_lp = None
+        pres_mod_lp = None
         if do_ns:
-            mapstore.check_and_add_transform(namestore.rev_mask, rxn_range)
+            # check for transform on forward
+            mapstore.check_and_add_transform(namestore.kf, rxn_range)
+
+            # and reverse
+            transform = mapstore.check_and_add_transform(
+                namestore.rev_mask, rxn_range)
+            # create mask string and use as kr index
             rev_mask_lp, rev_mask_str = mapstore.apply_maps(
                 namestore.rev_mask, var_name)
             kr_lp, kr_str = mapstore.apply_maps(
                 namestore.kr, global_ind, rev_mask_str)
 
             # check and add transforms for pressure mod
-            mapstore.check_and_add_transform(namestore.thd_mask, rxn_range)
+            transform = mapstore.check_and_add_transform(
+                namestore.thd_mask, rxn_range)
+            # create mask string and use as pmod index
             pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
                 namestore.thd_mask, var_name)
             pres_mod_lp, pres_mod_str = mapstore.apply_maps(
                 namestore.pres_mod, global_ind, pmod_mask_str)
-
-            kernel_data.extend([pmod_mask_lp, rev_mask_lp])
         else:
-            transform = mapstore.check_and_add_transform(
-                namestore.rev_reac_to_spec_offsets, namestore.rev_mask)
-            rev_mask_str = transform.new_iname if transform is not None else '1'
-            mapstore.check_and_add_transform(namestore.kr, namestore.rev_mask)
-            # kr needs to be indexed based on the reverse index
+            # add default transforms
+            mapstore.check_and_add_transform(
+                namestore.kr, namestore.rev_mask)
+            mapstore.check_and_add_transform(
+                namestore.pres_mod, namestore.thd_mask)
+
+            # default creators:
+            rev_mask_lp, rev_mask_str = mapstore.apply_maps(
+                namestore.rev_mask, var_name)
             kr_lp, kr_str = mapstore.apply_maps(
                 namestore.kr, *default_inds)
 
-            # check and add transforms for pressure mod
-            transform = mapstore.check_and_add_transform(
-                namestore.pres_mod, namestore.thd_mask)
-            pmod_mask_str = transform.new_iname if transform is not None else '1'
+            pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
+                namestore.thd_mask, var_name)
             pres_mod_lp, pres_mod_str = mapstore.apply_maps(
                 namestore.pres_mod, *default_inds)
 
@@ -184,7 +196,8 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         )
 
         kernel_data.extend([rxn_to_spec_offsets_lp, net_specs_lp, net_nu_lp,
-                            pres_mod_lp, kf_lp, kr_lp, conc_lp, jac_lp])
+                            pres_mod_lp, kf_lp, kr_lp, conc_lp, jac_lp,
+                            pmod_mask_lp, rev_mask_lp])
 
         # now start creating the instructions
 
