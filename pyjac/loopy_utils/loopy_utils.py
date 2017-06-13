@@ -517,7 +517,7 @@ class kernel_call(object):
     for calling / executing a loopy kernel
     """
 
-    def __init__(self, name, ref_answer, compare_axis=0, compare_mask=None,
+    def __init__(self, name, ref_answer, compare_axis=1, compare_mask=None,
                  out_mask=None, input_mask=[], strict_name_match=False,
                  chain=None, check=True, post_process=None,
                  **input_args):
@@ -626,7 +626,6 @@ class kernel_call(object):
             The memory layout of the arrays, C (row major) or
             Fortran (column major)
         """
-        self.compare_axis = 1  # always C order now (in numpy comparisons)
         self.current_order = order
 
         # filter out bad input
@@ -680,6 +679,27 @@ class kernel_call(object):
         else:
             return [out[0]]
 
+    def __get_comparable(self, variable, index):
+        """
+        Selects the data to compare from the supplied variable depending on
+        the compare mask / axes supplied
+        """
+
+        # if no mask
+        if self.compare_mask[index] is None:
+            return variable
+
+        try:
+            # multiple axes
+            outv = variable
+            for i, ax in enumerate(self.compare_axis):
+                outv = np.take(outv, self.compare_mask[index][i], axis=ax)
+            return outv.squeeze()
+        except:
+            # if simple mask
+            return np.take(variable, self.compare_mask[index],
+                           self.compare_axis).squeeze()
+
     def compare(self, output_variables):
         """
         Compare the output variables to the given reference answer
@@ -704,12 +724,10 @@ class kernel_call(object):
             outv = output_variables[i].copy().squeeze()
             ref_answer = self.transformed_ref_ans[i].copy().squeeze()
             if self.compare_mask[i] is not None:
-                outv = np.take(output_variables[i],
-                               self.compare_mask[i], self.compare_axis).squeeze()
+                outv = self.__get_comparable(outv, i)
                 if outv.shape != ref_answer.shape:
                     # apply the same transformation to the answer
-                    ref_answer = np.take(ref_answer,
-                                         self.compare_mask[i], self.compare_axis).squeeze()
+                    ref_answer = self.__get_comparable(ref_answer, i)
             allclear = allclear and np.allclose(outv, ref_answer)
         if not allclear:
             import pdb; pdb.set_trace()
