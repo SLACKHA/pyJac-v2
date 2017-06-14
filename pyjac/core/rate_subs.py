@@ -338,15 +338,24 @@ def assign_rates(reacs, specs, rate_spec):
     # find third body type
     thd_type = np.array([next(int(y) for y in x.type if isinstance(
         y, thd_body_type)) for x in thd_reacs], dtype=np.int32)
-    # find the species indicies
+
+    # first, we must do some surgery to get _our_ form of the thd-body
+    # efficiencies
+    last_spec = len(specs) - 1
     thd_spec_num = []
     thd_spec = []
     thd_eff = []
-    for x in thd_reacs:
+    thd_has_ns = []
+    thd_ns_eff = []
+    for i, x in enumerate(thd_reacs):
         if x.match(thd_body_type.species):
             thd_spec_num.append(1)
             thd_spec.append(x.pdep_sp)
             thd_eff.append(1)
+            if x.pdep_sp == last_spec:
+                thd_has_ns.append(i)
+                thd_ns_eff.append(1)
+
         elif x.match(thd_body_type.unity):
             thd_spec_num.append(0)
         else:
@@ -354,9 +363,17 @@ def assign_rates(reacs, specs, rate_spec):
             spec, eff = zip(*x.thd_body_eff)
             thd_spec.extend(spec)
             thd_eff.extend(eff)
+            ind = next((ind for ind, s in enumerate(spec) if s == last_spec),
+                       None)
+            if ind is not None:
+                thd_has_ns.append(i)
+                thd_ns_eff.append(eff[ind])
+
     thd_spec_num = np.array(thd_spec_num, dtype=np.int32)
     thd_spec = np.array(thd_spec, dtype=np.int32)
     thd_eff = np.array(thd_eff, dtype=np.float64)
+    thd_has_ns = np.array(thd_has_ns, dtype=np.int32)
+    thd_ns_eff = np.array(thd_ns_eff, dtype=np.float64)
 
     # thermo properties
     poly_dim = specs[0].hi.shape[0]
@@ -372,55 +389,6 @@ def assign_rates(reacs, specs, rate_spec):
         T_mid[ind] = spec.Trange[1]
 
     # post processing
-
-    # first, we must do some surgery to get _our_ form of the thd-body
-    # efficiencies
-    last_spec = len(specs) - 1
-    pp_thd_eff_ns = np.ones(num_thd)
-    pp_thd_num_specs = thd_spec_num.copy()
-    pp_thd_spec = thd_spec.copy()
-    pp_thd_eff = thd_eff.copy()
-    # go through the efficiency maps
-    for i in range(pp_thd_num_specs.size):
-        # get number of thd body species and offset
-        num = pp_thd_num_specs[i]
-        offset = np.sum(pp_thd_num_specs[:i])
-        is_spec = thd_type[i] == int(thd_body_type.species)
-        if is_spec:
-            # set ns efficiency to 0 to simplify sum
-            pp_thd_eff_ns[i] = 0
-        # check if Ns has a non-default efficiency
-        elif last_spec in pp_thd_spec[offset:offset+num]:
-            ind = np.where(pp_thd_spec[offset:offset+num] == last_spec)[0][0]
-            # set the efficiency
-            pp_thd_eff_ns[i] = pp_thd_eff[offset + ind]
-            # delete from the species list
-            pp_thd_spec = np.delete(pp_thd_spec, offset + ind)
-            # delete from effiency list
-            pp_thd_eff = np.delete(pp_thd_eff, offset + ind)
-            # subtract from species num
-            pp_thd_num_specs[i] -= 1
-        # and subtract from efficiencies
-        pp_thd_eff[offset:offset+pp_thd_num_specs[i]] -= pp_thd_eff_ns[i]
-        if not is_spec and pp_thd_eff_ns[i] != 1:
-            # we need to add all the other species :(
-            # get updated species list
-            to_add = np.array(range(len(specs) - 1), dtype=np.int32)
-            # set default efficiency
-            eff = np.full((len(specs) - 1,), 1 - pp_thd_eff_ns[i])
-            # fill in existing efficiencies
-            eff[pp_thd_spec[offset:offset+pp_thd_num_specs[i]]] = \
-                pp_thd_eff[offset:offset+pp_thd_num_specs[i]]
-            # delete from the species list / efficiencies
-            pp_thd_spec = np.delete(pp_thd_spec,
-                                    range(offset, offset+pp_thd_num_specs[i]))
-            pp_thd_eff = np.delete(pp_thd_eff,
-                                   range(offset, offset+pp_thd_num_specs[i]))
-            # insert new lists
-            pp_thd_spec = np.insert(pp_thd_spec, offset, to_add)
-            pp_thd_eff = np.insert(pp_thd_eff, offset, eff)
-            # and update number of species
-            pp_thd_num_specs[i] = to_add.size
 
     # chebyshev parameter reordering
     pp_cheb_coeff = None
@@ -503,12 +471,7 @@ def assign_rates(reacs, specs, rate_spec):
             'thd': {'map': thd_map, 'num': num_thd,
                     'type': thd_type, 'spec_num': thd_spec_num,
                     'spec': thd_spec, 'eff': thd_eff,
-                    'post_process': {
-                        'eff_ns': pp_thd_eff_ns,
-                        'spec_num': pp_thd_num_specs,
-                        'spec': pp_thd_spec,
-                        'eff': pp_thd_eff
-                    }},
+                    'has_ns': thd_has_ns, 'eff_ns': thd_ns_eff},
             'fwd': {'map': np.arange(len(reacs)), 'num': len(reacs)},
             'rev': {'map': rev_map, 'num': num_rev},
             'net': {'num_reac_to_spec': net_num_spec, 'nu_sum': nu_sum,
@@ -1993,15 +1956,15 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
     # efficiency list
     thd_eff_lp, thd_eff_str = mapstore.apply_maps(
         namestore.thd_eff, spec_loop)
-    # efficiency list of last species
-    thd_eff_ns_lp, thd_eff_ns_str = mapstore.apply_maps(
-        namestore.thd_eff_ns, var_name)
     # non-unity species in thd-body conc
     thd_spec_lp, thd_spec_str = mapstore.apply_maps(
         namestore.thd_spec, spec_loop)
     # offset to spec / efficiency arrays
     thd_offset_lp, thd_offset_str = mapstore.apply_maps(
         namestore.thd_offset, var_name)
+    # third body type
+    thd_type_lp, thd_type_str = mapstore.apply_maps(
+        namestore.thd_type, var_name)
     # get next offset to determine num of thd body eff's in rxnq
     _, thd_offset_next_str = mapstore.apply_maps(
         namestore.thd_offset, var_name, affine=1)
@@ -2012,9 +1975,8 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
         kernel_data.append(namestore.problem_size)
 
     # add arrays
-    kernel_data.extend([P_arr, T_arr, concs_lp, thd_lp,
-                        thd_eff_lp, thd_spec_lp, thd_offset_lp,
-                        thd_eff_ns_lp])
+    kernel_data.extend([P_arr, T_arr, concs_lp, thd_lp, thd_type_lp,
+                        thd_eff_lp, thd_spec_lp, thd_offset_lp])
 
     # maps
     # extra loops
@@ -2023,12 +1985,13 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
 
     # generate instructions and sub in instructions
     instructions = Template("""
+<int32> not_spec = ${thd_type} != ${species}
 <> ${offset_name} = ${offset} {id=offset}
 <> spec_end = ${offset_next} {id=num0}
-<> thd_temp = ${P_str} * ${thd_eff_ns_str} / (R * ${T_str}) {id=thd1, dep=num0}
+<> thd_temp = ${P_str} * not_spec / (R * ${T_str}) {id=thd1, dep=num0}
 for ${spec_loop}
     <> ${spec_ind} = ${thd_spec} {id=ind1}
-    thd_temp = thd_temp + ${thd_eff} * ${conc_thd_spec} {id=thdcalc, dep=ind1}
+    thd_temp = thd_temp + (${thd_eff} - not_spec) * ${conc_thd_spec} {id=thdcalc, dep=ind1}
 end
 ${thd_str} = thd_temp {dep=thd*}
 """).safe_substitute(
@@ -2038,12 +2001,13 @@ ${thd_str} = thd_temp {dep=thd*}
         thd_eff=thd_eff_str,
         conc_thd_spec=concs_str,
         thd_str=thd_str,
-        thd_eff_ns_str=thd_eff_ns_str,
         spec_loop=spec_loop,
         spec_ind=spec_ind,
         thd_spec=thd_spec_str,
         P_str=P_str,
         T_str=T_str,
+        thd_type=thd_type_str,
+        species=int(thd_body_type.species)
     )
 
     # create info

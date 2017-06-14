@@ -1121,12 +1121,11 @@ class NameStore(object):
                                              initializer=mask,
                                              order=self.order)
 
-            thd_eff_ns = rate_info['thd']['post_process']['eff_ns']
-            num_specs = rate_info['thd'][
-                'post_process']['spec_num'].astype(dtype=np.int32)
-            spec_list = rate_info['thd']['post_process']['spec'].astype(
+            thd_eff_ns = rate_info['thd']['eff_ns']
+            num_specs = rate_info['thd']['spec_num'].astype(dtype=np.int32)
+            spec_list = rate_info['thd']['spec'].astype(
                 dtype=np.int32)
-            thd_effs = rate_info['thd']['post_process']['eff']
+            thd_effs = rate_info['thd']['eff']
 
             # finally create arrays
             self.thd_eff = creator('thd_eff',
@@ -1138,6 +1137,19 @@ class NameStore(object):
                                       dtype=thd_eff_ns.dtype,
                                       shape=thd_eff_ns.shape,
                                       initializer=thd_eff_ns,
+                                      order=self.order)
+            num_thd = np.arange(rate_info['thd']['num'], dtype=np.int32)
+            self.num_thd = creator('num_thd',
+                                   dtype=num_thd.dtype,
+                                   shape=num_thd.shape,
+                                   initializer=num_thd,
+                                   order=self.order)
+            thd_has_ns = np.array(np.where(thd_eff_ns != 1.0)[0],
+                                  dtype=np.int32)
+            self.thd_has_ns = creator('thd_has_ns',
+                                      dtype=thd_has_ns.dtype,
+                                      shape=thd_has_ns.shape,
+                                      initializer=thd_has_ns,
                                       order=self.order)
             self.thd_type = creator('thd_type',
                                     dtype=rate_info['thd']['type'].dtype,
