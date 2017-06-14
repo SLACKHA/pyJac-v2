@@ -543,12 +543,12 @@ class MapStore(object):
             pass
 
         if not map_arr:
-            return '<>{newname} = {oldname}{affine}'.format(
+            return '<> {newname} = {oldname}{affine}'.format(
                 newname=newname,
                 oldname=oldname,
                 affine=affine)
 
-        return '<>{newname} = {mapper}[{oldname}]{affine}'.format(
+        return '<> {newname} = {mapper}[{oldname}]{affine}'.format(
             newname=newname,
             mapper=map_arr,
             oldname=oldname,
