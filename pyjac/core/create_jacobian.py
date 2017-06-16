@@ -21,6 +21,7 @@ from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen
 from . import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
+from . import reaction_types as rtypes
 
 # external packages
 
@@ -48,10 +49,303 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
+def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    derivatives of the third body concentrations with respect to the molar
+    quantity of a species
+
+    Notes
+    -----
+    This is method is split into two kernels, the first handles derivatives of
+    reactions with respect to the third body species in the reaction,
+    that is if reaction `i` contains species `k, k+1...k+n`, and third body
+    species `j, j+1... j+m`, it will consider the derivative of
+    species `k` with respect to `j, j+1...j+m`, and so on with `k+1`,etc.
+
+    The second kernel handles reactions where the last species in the mechanism
+    has a non-default (non-unity) third body efficiency.
+    In this case, using the strict formulation results in non-zero derivatives
+    for _all_ species in the mechanism due to the conservation of mass
+    formulation of the last species. That is, it will compute the derivative of
+    `k` w.r.t species `1, 2, ... Ns - 1` where Ns is the last species in the
+    mechanism.
+
+    This second kernel may be turned off to increase sparsity (at the expense)
+    of an incorrect jacobian.  This is often desired for implicit integrators
+    which often only need an approximation to the Jacobian anyways.
+
+    Additionally, we use a trick here to simplify the these methods for the
+    strict formulation.  Namely, we _assume_ that the third body efficiency of
+    the last species is unity in the first kernel.  In the second kernel, we
+    then update the derivative of _all_ species assuming the third body species
+    efficiency of a species `j` is unity.  By doing so, we obtain the correct
+    multiplier ($\alpha_{i,j} - \alpha_{i, N_s}$) in all cases, and we save
+    ourselves a fair bit of complicated indexing / looping.
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    allint : dict
+        Contains keys 'fwd', 'rev' and 'net', with booleans corresponding to
+        whether all nu values for that direction are integers.
+        If True, powers of concentrations will be evaluated using
+        multiplications
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # here we split the third body derivative into two kernels
+    # one which operates on the 'j' derivative, and another that handles
+    # third body efficiencies where the last species has a non-unity efficiency
+    def __dci_thd_dnj(do_ns=False):
+        rxn_range = namestore.num_thd if not do_ns else namestore.thd_has_ns
+
+        # main loop is over third body rxns (including falloff / chemically
+        # activated)
+        mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+
+        # indicies
+        kernel_data = []
+        if namestore.test_size == 'problem_size':
+            kernel_data.append(namestore.problem_size)
+
+        global_rxn_ind = var_name
+        if do_ns:
+            # need the thd_map explicitly
+            mapstore.check_and_add_transform(namestore.thd_type, rxn_range)
+            mapstore.check_and_add_transform(namestore.thd_map, rxn_range)
+            thd_map_lp, global_rxn_ind = mapstore.apply_maps(
+                namestore.thd_map, var_name)
+            kernel_data.append(thd_map_lp)
+            # and need to map the efficiency
+            mapstore.check_and_add_transform(
+                namestore.thd_eff_ns, namestore.num_thd_has_ns)
+        else:
+            # can add maps usual way
+            mapstore.check_and_add_transform(
+                namestore.rop_net, namestore.thd_map)
+            mapstore.check_and_add_transform(
+                namestore.rxn_to_spec_offsets, namestore.thd_map)
+
+        # third body efficiencies, types and offsets
+        thd_offset_lp, thd_offset_str = mapstore.apply_maps(
+            namestore.thd_offset, var_name)
+        _, thd_offset_next_str = mapstore.apply_maps(
+            namestore.thd_offset, var_name, affine=1)
+
+        # Ns efficiency is on main loop
+        thd_eff_ns_lp, thd_eff_ns_str = mapstore.apply_maps(
+            namestore.thd_eff_ns, var_name)
+
+        # third body type is on main loop
+        thd_type_lp, thd_type_str = mapstore.apply_maps(
+            namestore.thd_type, var_name)
+
+        # efficiencies / species are on the inner loop
+        spec_k = 'spec_k'
+        spec_j = 'spec_j'
+        spec_j_ind = 'spec_j_ind'
+        spec_k_ind = 'spec_k_ind'
+
+        # third body eff of species j
+        thd_eff_lp, thd_eff_j_str = mapstore.apply_maps(
+            namestore.thd_eff, spec_j_ind)
+
+        # species j
+        thd_spec_lp, spec_j_str = mapstore.apply_maps(
+            namestore.thd_spec, spec_j_ind)
+
+        # get net species
+        rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_offsets, global_rxn_ind)
+        _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_offsets, global_rxn_ind, affine=1)
+        # species 'k' is on k loop
+        specs_lp, spec_k_str = mapstore.apply_maps(
+            namestore.rxn_to_spec, spec_k_ind)
+        # get product nu
+        nu_lp, prod_nu_k_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_prod_nu, spec_k_ind, affine=spec_k_ind)
+        # and reac nu
+        _, reac_nu_k_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_reac_nu, spec_k_ind, affine=spec_k_ind)
+
+        jac_map = (spec_k, spec_j)
+
+        # rop
+        rop_net_lp, rop_net_str = mapstore.apply_maps(
+            namestore.rop_net, global_ind, global_rxn_ind)
+
+        # and jacobian
+        jac_lp, jac_str = mapstore.apply_maps(
+            namestore.jac, global_ind, *jac_map, affine={x: 2 for x in jac_map}
+        )
+
+        # update data and extra inames
+        kernel_data.extend([thd_offset_lp, thd_eff_ns_lp, thd_type_lp,
+                            thd_eff_lp, thd_spec_lp, rxn_to_spec_offsets_lp,
+                            specs_lp, nu_lp, rop_net_lp, jac_lp])
+
+        extra_inames = [
+            (spec_k_ind, 'rxn_off <= {} < rxn_off_next'.format(spec_k_ind))]
+        if not do_ns:
+            extra_inames.append(
+                (spec_j_ind, 'thd_off <= {} < thd_off_next'.format(spec_j_ind)))
+
+            instructions = Template("""
+            <> thd_off = ${thd_offset_str}
+            <> thd_off_next = ${thd_offset_next_str}
+            <> rxn_off = ${rxn_to_spec_offsets_str}
+            <> rxn_off_next = ${rxn_to_spec_offsets_next_str}
+            <> ropi = ${rop_net_str}
+            for ${spec_j_ind}
+                <> spec_j = ${spec_j_str}
+                if ${spec_j} != ${ns}
+                    <> dci = 0 {id=ci_init}
+                    if ${thd_type_str} == ${mix}
+                        # here we assume the last species has an efficiency of 1
+                        # if this is not true, it will be fixed in the Ns kernel
+                        dci = ${thd_eff_j_str} - 1.0 {id=ci_up, dep=ci_init}
+                    end
+                    if ${thd_type_str} == ${species}
+                        # if we get here, delta(j, m) is true by default
+                        # hence derivative is one
+                        dci = 1 {id=ci_up2, dep=ci_init}
+                    end
+                    for ${spec_k_ind}
+                        <> ${spec_k} = ${spec_k_str}
+                        <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
+                        if ${spec_k} != ${ns}
+                            ${jac_str} = ${jac_str} + nu_k * dci * ropi
+                        end
+                    end
+                end
+            end
+            """).substitute(
+                thd_offset_str=thd_offset_str,
+                thd_offset_next_str=thd_offset_next_str,
+                rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
+                rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
+                thd_eff_ns_str=thd_eff_ns_str,
+                rop_net_str=rop_net_str,
+                thd_eff_j_str=thd_eff_j_str,
+                spec_j_ind=spec_j_ind,
+                spec_j=spec_j,
+                spec_j_str=spec_j_str,
+                spec_k=spec_k,
+                spec_k_str=spec_k_str,
+                spec_k_ind=spec_k_ind,
+                prod_nu_k_str=prod_nu_k_str,
+                reac_nu_k_str=reac_nu_k_str,
+                jac_str=jac_str,
+                ns=namestore.num_specs.initializer[-1],
+                thd_type_str=thd_type_str,
+                mix=int(rtypes.thd_body_type.mix),
+                species=int(rtypes.thd_body_type.species),
+            )
+        else:
+            extra_inames.append((spec_j, '0 <= {} < {}'.format(
+                spec_j, namestore.num_specs.initializer[-1])))
+
+            instructions = Template("""
+            <> rxn_off = ${rxn_to_spec_offsets_str}
+            <> rxn_off_next = ${rxn_to_spec_offsets_next_str}
+            <> ns_thd_eff = ${thd_eff_ns_str}
+            <> ropi = ${rop_net_str}
+            <> dci = 0 {id=ci_init}
+            if ${thd_type_str} == ${mix}
+                # non-specified species have a efficiency of 1.0
+                # and we have already deducted an efficiency of 1.0 from the
+                # specified species
+                # Hence, this formulation accounts for both parts of \alpha_j - \alpha_ns
+                dci = 1.0 - ns_thd_eff {id=ci_up, dep=ci_init}
+            end
+            if ${thd_type_str} == ${species}
+                dci = -1 {id=ci_up2, dep=ci_init}
+            end
+            for ${spec_k_ind}
+                <> ${spec_k} = ${spec_k_str}
+                <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
+                if ${spec_k} != ${ns}
+                    for ${spec_j}
+                        ${jac_str} = ${jac_str} + nu_k * dci * ropi
+                    end
+                end
+            end
+            """).substitute(
+                thd_offset_str=thd_offset_str,
+                thd_offset_next_str=thd_offset_next_str,
+                rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
+                rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
+                thd_eff_ns_str=thd_eff_ns_str,
+                rop_net_str=rop_net_str,
+                thd_eff_j_str=thd_eff_j_str,
+                spec_j_ind=spec_j_ind,
+                spec_j=spec_j,
+                spec_j_str=spec_j_str,
+                spec_k=spec_k,
+                spec_k_str=spec_k_str,
+                spec_k_ind=spec_k_ind,
+                prod_nu_k_str=prod_nu_k_str,
+                reac_nu_k_str=reac_nu_k_str,
+                jac_str=jac_str,
+                ns=namestore.num_specs.initializer[-1],
+                thd_type_str=thd_type_str,
+                mix=int(rtypes.thd_body_type.mix),
+                species=int(rtypes.thd_body_type.species),
+            )
+
+        # join inames
+        inames, ranges = zip(*extra_inames)
+        extra_inames = [(','.join(inames),
+                         ' and '.join(ranges))]
+
+        return k_gen.knl_info(name='dci_thd_dnj{}'.format(
+            '_ns' if do_ns else ''),
+            instructions=instructions,
+            var_name=var_name,
+            kernel_data=kernel_data,
+            extra_inames=extra_inames,
+            mapstore=mapstore
+        )
+    return [__dci_thd_dnj(False), __dci_thd_dnj(True)]
+
+
 def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the Rate of Progress with respect to the molar quantity of
     a species
+
+    Notes
+    -----
+    This is method is split into two kernels, the first handles derivatives of
+    reactions with respect to the species in the reaction, that is if reaction
+    `i` contains species `k, k+1...k+n`, it will consider the derivative of
+    species `k` with respect to `k, k+1, k+2... k+n`, and so on with `k+1`,etc.
+
+    The second kernel handles reactions where the last species in the mechanism
+    is present in the reaction.  In this case, using the strict formulation
+    results in non-zero derivatives for _all_ species in the mechanism due to
+    the conservation of mass formulation of the last species. That is, it will
+    compute the derivative of `k` w.r.t species `1, 2, ... Ns - 1` where Ns is
+    the last species in the mechanism.
+
+    This second kernel may be turned off to increase sparsity (at the expense)
+    of an incorrect jacobian.  This is often desired for implicit integrators
+    which often only need an approximation to the Jacobian anyways.
 
     Parameters
     ----------
@@ -88,7 +382,8 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
 
         net_ind_inner = 'net_ind_inner'
         spec_inner = 'spec_inner'
-        inner_inds = (net_ind_j, net_ind_inner) if not do_ns else (net_ind_inner,)
+        inner_inds = (net_ind_j, net_ind_inner) if not do_ns else (
+            net_ind_inner,)
 
         jac_map = (spec_k, spec_j)
 
@@ -125,7 +420,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # Check for forward / rev / third body maps with/without NS
         rev_mask_lp, rev_mask_str = mapstore.apply_maps(
-                    namestore.rev_mask, var_name)
+            namestore.rev_mask, var_name)
         kr_lp = None
         pres_mod_lp = None
         if do_ns:
@@ -133,7 +428,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             mapstore.check_and_add_transform(namestore.kf, rxn_range)
 
             # and reverse
-            transform = mapstore.check_and_add_transform(
+            mapstore.check_and_add_transform(
                 namestore.rev_mask, rxn_range)
             # create mask string and use as kr index
             rev_mask_lp, rev_mask_str = mapstore.apply_maps(
@@ -142,7 +437,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                 namestore.kr, global_ind, rev_mask_str)
 
             # check and add transforms for pressure mod
-            transform = mapstore.check_and_add_transform(
+            mapstore.check_and_add_transform(
                 namestore.thd_mask, rxn_range)
             # create mask string and use as pmod index
             pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
@@ -232,7 +527,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             """)
         else:
             extra_inames.append((spec_j, '0 <= {} < {}'.format(
-                        spec_j, namestore.num_specs.initializer[-1])))
+                spec_j, namestore.num_specs.initializer[-1])))
             inner = ("""
                 <> Sns_fwd = 1.0d {id=Sns_fwd_init}
                 <> Sns_rev = 1.0d {id=Sns_rev_init}
@@ -433,7 +728,6 @@ def create_jacobian(lang,
     if auto_diff or not skip_jac:
         raise NotImplementedError()
 
-
     if lang != 'c' and auto_diff:
         print('Error: autodifferention only supported for C')
         sys.exit(2)
@@ -448,7 +742,7 @@ def create_jacobian(lang,
             print(l)
         sys.exit(2)
 
-    #configure options
+    # configure options
     width = None
     depth = None
     if wide:
@@ -457,25 +751,24 @@ def create_jacobian(lang,
         depth = vector_size
 
     rspec = ['fixed', 'hybrid', 'full']
-    rate_spec_val = next((i for i, x in enumerate(rspec) if rate_specialization.lower() == x), None)
+    rate_spec_val = next(
+        (i for i, x in enumerate(rspec) if rate_specialization.lower() == x), None)
     assert rate_spec_val is not None, 'Error: rate specialization value {} not recognized.\nNeeds to be one of: {}'.format(
-            rate_specialization, ', '.join(rspec))
+        rate_specialization, ', '.join(rspec))
     rate_spec_val = lp_utils.RateSpecialization(rate_spec_val)
 
-
-
-    #create the loopy options
+    # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
-                        depth=depth,
-                        ilp=False,
-                        unr=unr,
-                        lang=lang,
-                        order=data_order,
-                        rate_spec=rate_spec_val,
-                        rate_spec_kernels=split_rate_kernels,
-                        rop_net_kernels=split_rop_net_kernels,
-                        spec_rates_sum_over_reac=spec_rates_sum_over_reac,
-                        platform=platform)
+                                        depth=depth,
+                                        ilp=False,
+                                        unr=unr,
+                                        lang=lang,
+                                        order=data_order,
+                                        rate_spec=rate_spec_val,
+                                        rate_spec_kernels=split_rate_kernels,
+                                        rop_net_kernels=split_rop_net_kernels,
+                                        spec_rates_sum_over_reac=spec_rates_sum_over_reac,
+                                        platform=platform)
 
     # create output directory if none exists
     utils.create_dir(build_path)
@@ -552,24 +845,24 @@ def create_jacobian(lang,
     # specs[-1] = temp[last_spec]
     # specs[last_spec] = temp[-1]
 
-    #write headers
+    # write headers
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     eqs = {}
     eqs['conp'] = sp_interp.load_equations(conp)[1]
     eqs['conv'] = sp_interp.load_equations(not conp)[1]
 
-    ## now begin writing subroutines
+    # now begin writing subroutines
     kgen = rate.write_specrates_kernel(eqs, reacs, specs, loopy_opts,
-                    conp=conp, output_full_rop=output_full_rop)
+                                       conp=conp, output_full_rop=output_full_rop)
 
-    #generate
+    # generate
     kgen.generate(build_path, data_filename=data_filename)
 
     if skip_jac == False:
         # write Jacobian subroutine
         touched = write_jacobian(build_path, lang, specs,
-                                         reacs, seen_sp, smm)
+                                 reacs, seen_sp, smm)
 
         write_sparse_multiplier(build_path, lang, touched, len(specs))
 

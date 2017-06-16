@@ -1,7 +1,8 @@
 from . import TestClass
 from ..core.rate_subs import (
     get_sri_kernel, assign_rates, get_concentrations,
-    get_rop, get_rop_net, get_spec_rates, get_molar_rates)
+    get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
+    get_rxn_pres_mod)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list,
@@ -10,13 +11,14 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        populate
                                        )
 from ..core.create_jacobian import (
-    dRopi_dnj)
+    dRopi_dnj, dci_thd_dnj)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 
 import numpy as np
 import six
 import loopy as lp
+import cantera as ct
 
 from nose.plugins.attrib import attr
 from optionloop import OptionLoop
@@ -99,9 +101,9 @@ class SubTest(TestClass):
 
         return eqs, oploop
 
-    def __generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
-                             do_ropsplit=None, do_spec_per_reac=False,
-                             **kw_args):
+    def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
+                            do_ropsplit=None, do_spec_per_reac=False,
+                            **kw_args):
         """
         A generic testing method that can be used for rate constants,
         third bodies, ...
@@ -133,8 +135,7 @@ class SubTest(TestClass):
         for i, state in enumerate(oploop):
             if state['width'] is not None and state['depth'] is not None:
                 continue
-            opt = loopy_options(#platform='CPU',
-                                **{x: state[x] for x in
+            opt = loopy_options(**{x: state[x] for x in
                                    state if x not in exceptions})
             # find rate info
             rate_info = assign_rates(reacs, specs, opt.rate_spec)
@@ -175,7 +176,7 @@ class SubTest(TestClass):
             assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
                 'Evaluate {} rates failed'.format(func.__name__)
 
-    def __make_array(self, array):
+    def _make_array(self, array):
         """
         Creates an array for comparison to an autorun kernel from the result
         of __get_jacobian
@@ -200,9 +201,9 @@ class SubTest(TestClass):
 
         return array
 
-    def __get_jacobian(self, func, kernel_call, editor, ad_opts, conp,
-                       extra_funcs=[],
-                       **kw_args):
+    def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp,
+                      extra_funcs=[],
+                      **kw_args):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         # find rate info
@@ -314,9 +315,9 @@ class SubTest(TestClass):
             knl.kernels, kernel_call,
             editor=editor)
 
-        return self.__make_array(kernel_call.kernel_args[editor.output.name])
+        return self._make_array(kernel_call.kernel_args[editor.output.name])
 
-    def __make_namestore(self, conp):
+    def _make_namestore(self, conp):
         # get number of sri reactions
         reacs = self.store.reacs
         specs = self.store.specs
@@ -335,7 +336,7 @@ class SubTest(TestClass):
     def test_dropi_dnj(self):
 
         # test conp
-        namestore, rate_info = self.__make_namestore(True)
+        namestore, rate_info = self._make_namestore(True)
         ad_opts = namestore.loopy_opts
 
         # set up arguements
@@ -371,7 +372,7 @@ class SubTest(TestClass):
         # obtain the finite difference jacobian
         kc = kernel_call('dRopidnj', [self.store.rxn_rates], **args)
 
-        fd_jac = self.__get_jacobian(
+        fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, True,
             extra_funcs=[get_concentrations, get_rop, get_rop_net,
                          get_spec_rates],
@@ -380,7 +381,7 @@ class SubTest(TestClass):
                         namestore.presmod],
             allint=allint)
 
-        def __chainer(self, out_vals):
+        def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
@@ -403,10 +404,108 @@ class SubTest(TestClass):
               kernel_call('dRopidnj_ns', [fd_jac], compare_mask=[(
                   2 + np.arange(self.store.gas.n_species - 1),
                   2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(1, 2), chain=__chainer, strict_name_match=True,
+            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
             **args)]
 
-        return self.__generic_jac_tester(dRopi_dnj, kc, allint=allint)
+        return self._generic_jac_tester(dRopi_dnj, kc, allint=allint)
+
+    @attr('long')
+    def test_dci_thd_dnj(self):
+        # test conp
+        namestore, rate_info = self._make_namestore(True)
+        ad_opts = namestore.loopy_opts
+
+        # setup arguemetns
+        # create the editor
+        edit = editor(
+            namestore.n_arr, namestore.n_dot, self.store.test_size,
+            order=ad_opts.order)
+
+        args = {'rop_fwd': lambda x: np.array(
+            self.store.fwd_rxn_rate, order=x, copy=True),
+            'rop_rev': lambda x: np.array(
+            self.store.rev_rxn_rate, order=x, copy=True),
+            'pres_mod': lambda x: np.array(
+            self.store.ref_pres_mod, order=x, copy=True),
+            'rop_net': lambda x: np.zeros_like(
+            self.store.rxn_rates, order=x),
+            'phi': lambda x: np.array(
+            self.store.phi_cp, order=x, copy=True),
+            'P_arr': lambda x: np.array(
+            self.store.P, order=x, copy=True),
+            'kf': lambda x: np.array(
+            self.store.fwd_rate_constants, order=x, copy=True),
+            'kr': lambda x: np.array(
+            self.store.rev_rate_constants, order=x, copy=True),
+            'conc': lambda x: np.zeros_like(
+            self.store.concs, order=x),
+            'wdot': lambda x: np.zeros_like(
+            self.store.species_rates, order=x),
+            'thd_conc': lambda x: np.zeros_like(
+            self.store.ref_thd, order=x),
+            'Fi': lambda x: np.array(
+            self.store.ref_Fall, order=x, copy=True),
+            'Pr': lambda x: np.array(
+            self.store.ref_Pr, order=x, copy=True),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x)
+        }
+
+        # obtain the finite difference jacobian
+        kc = kernel_call('dci_thd_nj', [None], **args)
+
+        fd_jac = self._get_jacobian(
+            get_molar_rates, kc, edit, ad_opts, True,
+            extra_funcs=[get_concentrations, get_thd_body_concs,
+                         get_rxn_pres_mod, get_rop_net,
+                         get_spec_rates],
+            do_not_set=[
+                namestore.conc_arr, namestore.spec_rates, namestore.rop_net])
+
+        # setup args
+        jac_size = rate_info['Ns'] + 1
+        args = {
+            'rop_net': lambda x: np.array(
+                self.store.rxn_rates, order=x, copy=True),
+            'jac': lambda x: np.zeros(
+                (self.store.test_size, jac_size, jac_size), order=x)
+        }
+
+        # get list of species not in falloff / chemically activated
+        # to get the check mask
+        in_falloff = set()
+        for rxn in self.store.gas.reactions():
+            specs = set(rxn.products.keys()) | set(rxn.reactants.keys())
+            nonzero_specs = set()
+            if isinstance(rxn, ct.FalloffReaction):
+                for spec in specs:
+                    nu = 0
+                    if spec in rxn.products:
+                        nu += rxn.products[spec]
+                    if spec in rxn.reactants:
+                        nu -= rxn.reactants[spec]
+                    if nu != 0:
+                        nonzero_specs.update([spec])
+                if isinstance(rxn, ct.FalloffReaction):
+                    in_falloff.update(nonzero_specs)
+        not_in_falloff = set(self.store.gas.species_names) - in_falloff - \
+            set([self.store.gas.species_names[-1]])
+        not_in_falloff = np.array(sorted([self.store.gas.species_index(x)
+                                          for x in not_in_falloff])) + 2
+
+        def _chainer(self, out_vals):
+            self.kernel_args['jac'] = out_vals[-1][0].copy(
+                order=self.current_order)
+
+        # and get mask
+        kc = [kernel_call('dci_thd_dnj', [fd_jac], check=False,
+                          strict_name_match=True, **args),
+              kernel_call('dci_thd_dnj_ns', [fd_jac], compare_mask=[(
+                  not_in_falloff,
+                  2 + np.arange(self.store.gas.n_species - 1))],
+            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
+            **args)]
+
+        return self._generic_jac_tester(dci_thd_dnj, kc)
 
     @attr('long')
     def test_sri_derivatives(self):
@@ -420,7 +519,7 @@ class SubTest(TestClass):
         conp = True
 
         # get number of sri reactions
-        namestore, rate_info = self.__make_namestore(conp)
+        namestore, rate_info = self._make_namestore(conp)
         ad_opts = namestore.loopy_opts
 
         sri_inds = np.arange(rate_info['fall']['sri']['map'], dtype=np.int32)
@@ -435,6 +534,6 @@ class SubTest(TestClass):
                         self.store.test_size, order=ad_opts.order,
                         do_not_set=namestore.X_sri)
 
-        answer = self.__get_jacobian(get_sri_kernel, kc, myedit, conp, ad_opts)
+        answer = self._get_jacobian(get_sri_kernel, kc, myedit, conp, ad_opts)
 
         kc.ref_answer = answer
