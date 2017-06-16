@@ -156,6 +156,11 @@ DUPLICATE
 !third body mix
 O+H+M<=>OH+M                             5.000E+17   -1.000        .00
 H2/2.00/ H2O/6.00/ AR/ .70/
+!third body all unity
+O+H2+M<=>H2O+M                           5.000E+17   -1.000        .00
+!third body mix with last species efficiency
+O+CO+M<=>CO2+M                           5.000E+17   -1.000        .00
+H2/2.00/ H2O/6.00/ AR/ .70/ N2/ 5.0/
 !falloff single
 H+O2+(+AR)<=>HO2+(+AR)                   2.800E+18    -.860        .00
      LOW  /  2.300E+18    -.900  -1700.00/
