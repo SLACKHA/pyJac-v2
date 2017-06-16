@@ -232,6 +232,9 @@ class TestClass(unittest.TestCase):
     _is_setup = False
     _store = None
 
+    def runTest(self):
+        pass
+
     @property
     def store(self):
         return TestClass._store

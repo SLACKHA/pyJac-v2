@@ -1144,13 +1144,18 @@ class NameStore(object):
                                    shape=num_thd.shape,
                                    initializer=num_thd,
                                    order=self.order)
-            thd_has_ns = np.array(np.where(thd_eff_ns != 1.0)[0],
-                                  dtype=np.int32)
             self.thd_has_ns = creator('thd_has_ns',
-                                      dtype=thd_has_ns.dtype,
-                                      shape=thd_has_ns.shape,
-                                      initializer=thd_has_ns,
+                                      dtype=rate_info['thd']['has_ns'].dtype,
+                                      shape=rate_info['thd']['has_ns'].shape,
+                                      initializer=rate_info['thd']['has_ns'],
                                       order=self.order)
+            num_thd_has_ns = np.arange(rate_info['thd']['has_ns'].size,
+                                       dtype=np.int32)
+            self.num_thd_has_ns = creator('num_thd_has_ns',
+                                          dtype=num_thd_has_ns.dtype,
+                                          shape=num_thd_has_ns.shape,
+                                          initializer=num_thd_has_ns,
+                                          order=self.order)
             self.thd_type = creator('thd_type',
                                     dtype=rate_info['thd']['type'].dtype,
                                     shape=rate_info['thd']['type'].shape,
