@@ -234,7 +234,29 @@ def test_map_variable_creator(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_map]'
-    assert '<>i_map = domain[i]' in mstore.transform_insns
+    assert '<> i_map = domain[i]' in mstore.transform_insns
+
+
+@parameterized(['map'])
+def test_map_to_larger(maptype):
+    lp_opt = _dummy_opts(maptype)
+    c = arc.creator('base', np.int32, (5,), 'C',
+                    initializer=np.arange(5, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    assert len(mstore.transformed_domains) == 0
+
+    # add a variable
+    var = arc.creator('var', np.int32, (10,), 'C')
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+                         initializer=np.arange(10, dtype=np.int32))
+    # this should work
+    mstore.check_and_add_transform(var, domain, 'i')
+    var, var_str = mstore.apply_maps(var, 'i')
+
+    assert isinstance(var, lp.GlobalArg)
+    assert var_str == 'var[i_map]'
+    assert '<> i_map = domain[i]' in mstore.transform_insns
 
 
 @parameterized(['mask'])
@@ -257,7 +279,7 @@ def test_mask_variable_creator(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_mask]'
-    assert '<>i_mask = domain[i]' in mstore.transform_insns
+    assert '<> i_mask = domain[i]' in mstore.transform_insns
 
 
 @parameterized(['mask'])

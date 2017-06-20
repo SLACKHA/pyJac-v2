@@ -247,8 +247,9 @@ class MapStore(object):
         # first, we need to make sure that the domains are the same size,
         # non-sensical otherwise
 
-        assert dcheck.shape == ncheck.shape, (
-            "Can't map domains of differing sizes")
+        if dcheck.shape != ncheck.shape:
+            # Can't use affine map on domains of differing sizes
+            return new_domain, None
 
         # check equal
         if np.array_equal(dcheck, ncheck):
@@ -1107,19 +1108,18 @@ class NameStore(object):
             mapv = np.where(np.logical_not(np.in1d(rate_info['thd']['map'],
                                                    rate_info['fall']['map'])))[0]
             mapv = np.array(mapv, dtype=np.int32)
-            if not np.array_equal(mapv, rate_info['thd']['map']):
-                self.thd_only_map = creator('thd_only_map',
-                                            dtype=np.int32,
-                                            shape=mapv.shape,
-                                            initializer=mapv,
-                                            order=self.order)
+            self.thd_only_map = creator('thd_only_map',
+                                        dtype=np.int32,
+                                        shape=mapv.shape,
+                                        initializer=mapv,
+                                        order=self.order)
 
-                mask = _make_mask(mapv, rate_info['Nr'])
-                self.thd_only_mask = creator('thd_only_mask',
-                                             dtype=np.int32,
-                                             shape=mask.shape,
-                                             initializer=mask,
-                                             order=self.order)
+            mask = _make_mask(mapv, rate_info['Nr'])
+            self.thd_only_mask = creator('thd_only_mask',
+                                         dtype=np.int32,
+                                         shape=mask.shape,
+                                         initializer=mask,
+                                         order=self.order)
 
             thd_eff_ns = rate_info['thd']['eff_ns']
             num_specs = rate_info['thd']['spec_num'].astype(dtype=np.int32)
