@@ -387,7 +387,7 @@ class MapStore(object):
         else:
             raise NotImplementedError
 
-    def check_and_add_transform(self, variable, domain, iname='i',
+    def check_and_add_transform(self, variable, domain, iname=None,
                                 force_inline=False):
         """
         Check the domain of the variable given against the base domain of this
@@ -404,7 +404,8 @@ class MapStore(object):
             The domain of the variable to check.
             Note: this must be an initialized creator (i.e. temporary variable)
         iname : str
-            The iname to transform
+            The iname to transform.  If not specified, it will default to 'i'
+            _or_ the iname for the transform of this domain
         force_inline : bool
             If True, the developed transform (if any) must be expressed as an
             inline transform.  If the transform is not affine, an exception
@@ -419,6 +420,21 @@ class MapStore(object):
         # make sure this domain is valid
         self._check_is_valid_domain(domain)
 
+        if iname is None:
+            # check for transform in domains and transformed variables
+            trans = [self.transformed_variables[x]
+                     for x in self.transformed_variables if x == domain]
+            assert len(trans) <= 1, (
+                'Cannot automatically determine transform'
+                ' iname for domain {}, too many ({} > 1) transforms'
+                ' for this domain stored'.format(domain.name, len(trans)))
+
+            if len(trans):
+                iname = trans[0].new_iname
+            else:
+                # see if this domain is already the result of a trans
+                iname = 'i'
+
         transform = None
         if self.knl_type == 'map':
             transform = self._check_add_map(iname, domain,
@@ -432,13 +448,52 @@ class MapStore(object):
         if transform is not None:
             if isinstance(variable, list):
                 for var in variable:
+                    assert var not in self.transformed_variables, (
+                        'Already have a transform for variable: {}'.format(
+                            var.name))
                     # add all variable mappings
                     self.transformed_variables[var] = transform
             else:
+                assert variable not in self.transformed_variables, (
+                        'Already have a transform for variable: {}'.format(
+                            variable.name))
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
 
         return transform
+
+    def _resolve_iname(self, variable, iname):
+        """
+        A helper method that will recursively track down the correct iname to
+        use for chained maps / masks
+
+        Parameters
+        ----------
+        variable : :class:`creator`
+            The NameStore variable(s) to work with
+        iname : str
+            The iname to map
+        Returns
+        -------
+        iname : str
+            The resolved iname
+        """
+
+        # The goal here is to start with the variable's iname, and map back to
+        # the given iname.
+        # If successful, we return the variable's mapped/masked iname.
+        # If not, we return the given iname
+        def _chaser(var, ind):
+            # at this level, we check first that the variable has a transform
+            if var in self.transformed_variables:
+                return _chaser(self.transformed_variables[var].new_domain,
+                               self.transformed_variables[var].iname)
+            return ind
+
+        chased = _chaser(variable, None)
+        if chased is not None and chased == iname:
+            return self.transformed_variables[variable].new_iname
+        return iname
 
     def apply_maps(self, variable, *indicies, **kwargs):
         """
@@ -470,6 +525,8 @@ class MapStore(object):
         have_affine = var_affine or affine
 
         def __get_affine(iname):
+            if not have_affine:
+                return iname
             aff = 0
             if isinstance(affine, dict):
                 if iname in affine:
@@ -487,23 +544,18 @@ class MapStore(object):
             return iname
 
         if variable in self.transformed_variables:
-            indicies = tuple(__get_affine(x) if x !=
+            indicies = tuple(x if x !=
                              self.transformed_variables[variable].iname else
-                             __get_affine(
-                                 self.transformed_variables[variable].new_iname)
+                             self.transformed_variables[variable].new_iname
                              for x in indicies)
-        elif have_affine and len(indicies) == 1:
-            # if we don't have a map, but we do have an affine index
-            # and it's obvious who to apply to
-            indicies = (__get_affine(indicies[0]),)
-        elif have_affine and isinstance(affine, dict):
-            indicies = tuple(__get_affine(i) for i in indicies)
-        elif have_affine:
+            indicies = tuple(self._resolve_iname(variable, x)
+                             for x in indicies)
+        if have_affine and len(indicies) != 1 and not isinstance(affine, dict):
             raise Exception("Can't apply affine transformation to indicies, {}"
                             " as the index to apply to cannot be"
-                            " determined".format(indicies))
+                            " determined".format(','.join(indicies)))
 
-        return variable(*indicies, **kwargs)
+        return variable(*tuple(__get_affine(i) for i in indicies), **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
