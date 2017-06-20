@@ -259,6 +259,41 @@ def test_map_to_larger(maptype):
     assert '<> i_map = domain[i]' in mstore.transform_insns
 
 
+@parameterized(['map'])
+def test_chained_maps(maptype):
+    lp_opt = _dummy_opts(maptype)
+    c = arc.creator('base', np.int32, (5,), 'C',
+                    initializer=np.arange(5, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    assert len(mstore.transformed_domains) == 0
+
+    # add a variable
+    var = arc.creator('var', np.int32, (10,), 'C')
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+                         initializer=np.arange(10, dtype=np.int32))
+    # this should work
+    mstore.check_and_add_transform(var, domain, 'i')
+    var, var_str = mstore.apply_maps(var, 'i')
+
+    assert isinstance(var, lp.GlobalArg)
+    assert var_str == 'var[i_map]'
+    assert '<> i_map = domain[i]' in mstore.transform_insns
+
+    # now add a chained map
+    var2 = arc.creator('var2', np.int32, (10,), 'C')
+    domain2 = arc.creator('domain2', np.int32, (10,), 'C',
+                          initializer=np.arange(10, dtype=np.int32))
+
+    mstore.check_and_add_transform(domain2, domain)
+    mstore.check_and_add_transform(var2, domain2)
+    var, var_str = mstore.apply_maps(var2, 'i')
+
+    assert isinstance(var, lp.GlobalArg)
+    assert var_str == 'var2[i_map_0]'
+    assert '<> i_map_0 = domain2[i_map]' in mstore.transform_insns
+
+
 @parameterized(['mask'])
 def test_mask_variable_creator(maptype):
     lp_opt = _dummy_opts(maptype)
