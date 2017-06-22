@@ -42,7 +42,7 @@ def test_non_contiguous_input(maptype):
                                          dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
 
 @parameterized(['map', 'mask'])
@@ -52,7 +52,7 @@ def test_contiguous_input(maptype):
                     initializer=np.arange(10, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
 
 @parameterized(['mask'])
@@ -68,7 +68,7 @@ def test_invalid_mask_input(maptype):
 
     with assert_raises(AssertionError):
         mstore = arc.MapStore(lp_opt, c, c, 'i')
-        assert len(mstore.transformed_domains) == 0
+        assert len(mstore.transformed_variables) == 0
 
 
 # this test only makes sense for a map
@@ -79,15 +79,49 @@ def test_contiguous_offset_input(maptype):
                     initializer=np.arange(3, 13, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a creator
     c2 = arc.creator('', np.int32, (10,), 'C',
                      initializer=np.arange(10, dtype=np.int32))
     mstore.check_and_add_transform('x', c2, 'i')
 
-    assert len(mstore.transformed_domains) == 1
+    assert len(mstore.transformed_variables) == 1
     assert 'x' in mstore.transformed_variables
+
+
+def test_map_range_update():
+    lp_opt = _dummy_opts('map')
+    # create dummy map
+    c = arc.creator('', np.int32, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    assert len(mstore.transformed_variables) == 0
+
+    # next add a creator that doesn't need a map
+    c2 = arc.creator('', np.int32, (10,), 'C',
+                     initializer=np.arange(3, 13, dtype=np.int32))
+    mstore.check_and_add_transform('x', c2, 'i')
+    assert len(mstore.transformed_variables) == 0
+
+    # and a creator that only needs an affine map
+    c4 = arc.creator('', np.int32, (10,), 'C',
+                     initializer=np.arange(4, 14, dtype=np.int32))
+    mstore.check_and_add_transform('x3', c4, 'i')
+    assert len(mstore.transformed_variables) == 1
+    assert 'x3' in mstore.transformed_variables
+
+    # and add a creator that should force the base domain to change
+    c3 = arc.creator('', np.int32, (10,), 'C',
+                     initializer=np.arange(10, 0, -1, dtype=np.int32))
+    mstore.check_and_add_transform('x2', c3, 'i')
+
+    assert len(mstore.transformed_variables) == 3
+    assert 'x' in mstore.transformed_variables
+    assert 'x2' in mstore.transformed_variables
+    assert (mstore.transformed_variables['x3'].transform_insn ==
+            '<> i_map_0 = i + 4')
 
 
 @parameterized(['mask'])
@@ -102,7 +136,7 @@ def test_mask_input(maptype):
                     initializer=mask)
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     mask2 = mask[:]
     mask2[4] = 8
@@ -111,7 +145,7 @@ def test_mask_input(maptype):
                      initializer=mask2)
     mstore.check_and_add_transform('x', c2, 'i')
 
-    assert len(mstore.transformed_domains) == 1
+    assert len(mstore.transformed_variables) == 1
     assert 'x' in mstore.transformed_variables
 
 
@@ -122,21 +156,21 @@ def test_multiple_inputs(maptype):
                     initializer=np.arange(10, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     c2 = arc.creator('', np.int32, (10,), 'C',
                      initializer=np.arange(10, dtype=np.int32))
     mstore.check_and_add_transform('x', c2, 'i')
 
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a mapped variable
     c3 = arc.creator('', np.int32, (10,), 'C',
                      initializer=np.array(list(range(5)) + list(range(6, 11)),
                                           dtype=np.int32))
     mstore.check_and_add_transform('x', c3, 'i')
-    assert len(mstore.transformed_domains) == 1
+    assert len(mstore.transformed_variables) == 1
     assert np.array_equal(mstore.map_domain.initializer,
                           np.arange(10, dtype=np.int32))
     assert 'x' in mstore.transformed_variables
@@ -146,7 +180,7 @@ def test_multiple_inputs(maptype):
                      initializer=np.array(list(range(5)) + list(range(6, 11)),
                                           dtype=np.int32))
     mstore.check_and_add_transform('x3', c3, 'i')
-    assert len(mstore.transformed_domains) == 1
+    assert len(mstore.transformed_variables) == 2
     assert 'x3' in mstore.transformed_variables
 
     # add another mapped variable
@@ -154,7 +188,7 @@ def test_multiple_inputs(maptype):
                      initializer=np.array(list(range(4)) + list(range(5, 11)),
                                           dtype=np.int32))
     mstore.check_and_add_transform('x2', c4, 'i')
-    assert len(mstore.transformed_domains) == 2
+    assert len(mstore.transformed_variables) == 3
     assert 'x2' in mstore.transformed_variables
 
 
@@ -165,14 +199,14 @@ def test_multiple_mask_inputs(maptype):
                     initializer=np.arange(10, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     c2 = arc.creator('', np.int32, (10,), 'C',
                      initializer=np.arange(10, dtype=np.int32))
     mstore.check_and_add_transform('x', c2, 'i')
 
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a masked variable
     mask = np.full((10,), -1, np.int32)
@@ -180,7 +214,7 @@ def test_multiple_mask_inputs(maptype):
     c3 = arc.creator('', np.int32, (10,), 'C',
                      initializer=mask)
     mstore.check_and_add_transform('x', c3, 'i')
-    assert len(mstore.transformed_domains) == 1
+    assert len(mstore.transformed_variables) == 1
     assert 'x' in mstore.transformed_variables
 
     # add another mapped variable
@@ -189,7 +223,7 @@ def test_multiple_mask_inputs(maptype):
     c4 = arc.creator('', np.int32, (10,), 'C',
                      initializer=mask2)
     mstore.check_and_add_transform('x2', c4, 'i')
-    assert len(mstore.transformed_domains) == 2
+    assert len(mstore.transformed_variables) == 2
     assert 'x2' in mstore.transformed_variables
 
 
@@ -200,7 +234,7 @@ def test_offset_base(maptype):
                     initializer=np.arange(3, 13, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     c2 = arc.creator('', np.int32, (10,), 'C',
@@ -208,7 +242,7 @@ def test_offset_base(maptype):
                                           dtype=np.int32))
     mstore.check_and_add_transform('x', c2, 'i')
 
-    assert len(mstore.transformed_domains) == 1
+    assert len(mstore.transformed_variables) == 1
     assert np.array_equal(mstore.map_domain.initializer,
                           np.arange(10, dtype=np.int32))
     assert 'x' in mstore.transformed_variables
@@ -221,7 +255,7 @@ def test_map_variable_creator(maptype):
                     initializer=np.arange(3, 13, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     var = arc.creator('var', np.int32, (10,), 'C')
@@ -244,7 +278,7 @@ def test_map_to_larger(maptype):
                     initializer=np.arange(5, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     var = arc.creator('var', np.int32, (10,), 'C')
@@ -266,7 +300,7 @@ def test_chained_maps(maptype):
                     initializer=np.arange(5, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     var = arc.creator('var', np.int32, (10,), 'C')
@@ -301,7 +335,7 @@ def test_mask_variable_creator(maptype):
                     initializer=np.arange(10, dtype=np.int32))
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
+    assert len(mstore.transformed_variables) == 0
 
     # add a variable
     mask = np.full((10,), -1, np.int32)
