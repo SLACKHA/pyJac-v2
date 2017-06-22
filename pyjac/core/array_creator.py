@@ -7,6 +7,7 @@ and indexing / mapping
 import loopy as lp
 import numpy as np
 import copy
+import six
 from loopy.kernel.data import temp_var_scope as scopes
 
 problem_size = lp.ValueArg('problem_size', dtype=np.int32)
@@ -35,17 +36,24 @@ class domain_transform(object):
         The iname to map
     transform_insn : str
         The tranform instruction
+    old_domain : :class:`creator`
+        The old domain, to be transformed from
     new_domain : :class:`creator`
         The new domain, to be transformed to
     new_iname : str
         The updated 'iname'
+    affine : int
+        If is not None, the affine offset used
     """
 
-    def __init__(self, iname, transform_insn, new_domain, new_iname):
+    def __init__(self, iname, transform_insn, old_domain,
+                 new_domain, new_iname, affine):
         self.iname = iname
         self.transform_insn = transform_insn
         self.new_domain = new_domain
+        self.old_domain = old_domain
         self.new_iname = new_iname
+        self.affine = affine
 
 
 class MapStore(object):
@@ -56,11 +64,13 @@ class MapStore(object):
     Attributes
     ----------
 
-    transformed_domains : list of :class:`domain_transform`
-        used in string index / map intruction / mask instruction creation
     transformed_variables : dict
         Dictionary of :class:`creator` to
         :class:`domain_transform` that represents the developed maps
+    untransformed_variables : list
+        List of (:class:`creator`, :class:`creator`) that stores variables
+        and domains that have been checked for a transform. In the case that
+        an input map is added mid creation, these may be re-examined
     loopy_opts : :class:`LoopyOptions`
         The loopy options for kernel creation
     knl_type : ['map', 'mask']
@@ -85,8 +95,8 @@ class MapStore(object):
         self.mask_domain = mask_domain.copy()
         self._check_is_valid_domain(self.map_domain)
         self._check_is_valid_domain(self.mask_domain)
-        self.transformed_domains = []
         self.transformed_variables = {}
+        self.untransformed_variables = []
         from pytools import UniqueNameGenerator
         self.taken_transform_names = UniqueNameGenerator()
         self.loop_index = loop_index
@@ -118,11 +128,28 @@ class MapStore(object):
         new_map_domain.initializer = \
             np.arange(self.map_domain.initializer.size, dtype=np.int32)
 
+        # finally, go through all the existing transforms,
+        # see if any need an update
+        for var, trans in six.iteritems(self.transformed_variables):
+            if trans.old_domain == self.map_domain:
+                dt = self._check_add_map(trans.iname, trans.new_domain,
+                                         base=new_map_domain)
+
+                if dt is not None:
+                    # remove old transform instruction
+                    self.transform_insns.remove(trans.transform_insn)
+                    # and replace
+                    self.transformed_variables[var] = dt
+
         # update
         self.map_domain = new_map_domain
 
-    def _add_transform(self, map_domain, iname, affine=None,
-                       force_inline=False):
+        # and check untransformed domains
+        for var, domain in self.untransformed_variables:
+            self.check_and_add_transform(var, domain)
+
+    def _create_transform(self, old_domain, new_domain, iname, affine=None,
+                          force_inline=False):
         """
         Convertes the map_domain (affine int or :class:`creator`)
         to a :class:`domain_transform` and adds it to this object
@@ -141,7 +168,7 @@ class MapStore(object):
                             " transformation.")
         else:
             transform_insn = self.generate_transform_instruction(
-                iname, new_iname, map_domain.name)
+                iname, new_iname, new_domain.name)
 
         # update instruction list
         if not force_inline:
@@ -154,8 +181,7 @@ class MapStore(object):
 
         # and store
         dt = domain_transform(
-            iname, transform_insn, map_domain, new_iname)
-        self.transformed_domains.append(dt)
+            iname, transform_insn, old_domain, new_domain, new_iname, affine)
         return dt
 
     def _get_transform_iname(self, iname):
@@ -264,7 +290,7 @@ class MapStore(object):
 
     def _check_is_valid_domain(self, domain):
         """Makes sure the domain passed is a valid :class:`creator`"""
-        assert domain is not None, 'Invalide domain'
+        assert domain is not None, 'Invalid domain'
         assert isinstance(domain, creator), ('Domain'
                                              ' must be of type `creator`')
         assert domain.name is not None, ('Domain must have initialized name')
@@ -286,12 +312,14 @@ class MapStore(object):
         indicies = domain.initializer
         return indicies[0] + indicies.size - 1 == indicies[-1]
 
-    def _get_transform_if_exists(self, iname, domain):
-        return next((x for x in self.transformed_domains if
+    def _get_transform_if_exists(self, iname, domain, affine):
+        return next((x for x in self.transformed_variables.values() if
                      np.array_equal(domain, x.new_domain) and
-                     iname == x.iname), None)
+                     iname == x.iname
+                     and affine == x.affine), None)
 
-    def _check_add_map(self, iname, domain, force_inline=False):
+    def _check_add_map(self, iname, domain, force_inline=False,
+                       base=None):
         """
         Checks and adds a map if necessary
 
@@ -310,7 +338,9 @@ class MapStore(object):
         transform : :class:`domain_transform`
             The resulting transform, or None if not added
         """
-        base = self._get_base_domain()
+        # by default we transform from the base domain
+        if base is None:
+            base = self._get_base_domain()
 
         # get mapping
         mapping, affine = self._get_map_transform(base, domain)
@@ -318,7 +348,7 @@ class MapStore(object):
         # if we actually need a mapping
         if mapping is not None:
             # see if this map already exists
-            mapv = self._get_transform_if_exists(iname, mapping)
+            mapv = self._get_transform_if_exists(iname, mapping, affine)
 
             # if no map
             if mapv is None:
@@ -328,13 +358,15 @@ class MapStore(object):
                     self._add_input_map()
 
                     # recheck map
-                    mapv = self._get_transform_if_exists(iname, mapping)
+                    mapv = self._get_transform_if_exists(iname, mapping,
+                                                         affine)
                     if mapv is not None:
                         return mapv
 
                 # need a new map, so add
-                return self._add_transform(mapping, iname, affine=affine,
-                                           force_inline=force_inline)
+                return self._create_transform(base, mapping, iname,
+                                              affine=affine,
+                                              force_inline=force_inline)
             return mapv
 
         return None
@@ -366,12 +398,13 @@ class MapStore(object):
         # check if the masks match
         if masking is not None:
             # check if we have an matching mask
-            maskv = self._get_transform_if_exists(iname, domain)
+            maskv = self._get_transform_if_exists(iname, domain, affine)
 
             if not maskv:
                 # need to add a mask
-                maskv = self._add_transform(domain, iname, affine=affine,
-                                            force_inline=force_inline)
+                maskv = self._create_transform(base, domain, iname,
+                                               affine=affine,
+                                               force_inline=force_inline)
             return maskv
 
         return None
@@ -459,6 +492,8 @@ class MapStore(object):
                             variable.name))
                 # add this variable mapping
                 self.transformed_variables[variable] = transform
+        else:
+            self.untransformed_variables.append((variable, domain))
 
         return transform
 
@@ -1523,6 +1558,13 @@ class NameStore(object):
                                          dtype=lind_mask.dtype,
                                          initializer=lind_mask,
                                          order=self.order)
+                num_lind = np.arange(rate_info['fall']['lind']['num'],
+                                     dtype=np.int32)
+                self.num_lind = creator('num_lind',
+                                        shape=num_lind.shape,
+                                        dtype=num_lind.dtype,
+                                        initializer=num_lind,
+                                        order=self.order)
 
         # chebyshev
         if rate_info['cheb']['num']:
