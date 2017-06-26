@@ -4,10 +4,10 @@ and indexing / mapping
 """
 
 
+import logging
 import loopy as lp
 import numpy as np
 import copy
-import six
 from loopy.kernel.data import temp_var_scope as scopes
 
 problem_size = lp.ValueArg('problem_size', dtype=np.int32)
@@ -16,44 +16,112 @@ problem_size = lp.ValueArg('problem_size', dtype=np.int32)
 """
 
 
-class domain_transform(object):
-
+class tree_node(object):
     """
-    A searchable representation of a domain transformation
-
-    The idea here is that we have a current domain (A).
-    If some other variable needs a different domain (B), we store:
-
-        iname - The iname this transform operates on
-        new_domain - the transformed domain
-        insn - The transform instruction
-        new_iname - The new transformed iname
-
+        A node in the :class:`MapStore`'s domain tree.
+        Contains a base domain, a list of child domains, and a list of
+        variables depending on this domain
 
     Parameters
     ----------
+    owner: :class:`MapStore`
+        The owning mapstore, used for iname creation
+    parent : :class:`tree_node`
+        The parent domain of this tree node
+    domain : :class:`creator`
+        The domain this :class:`tree_node` represents
+    children : list of :class:`tree_node`
+        The leaves of this node
     iname : str
-        The iname to map
-    transform_insn : str
-        The tranform instruction
-    old_domain : :class:`creator`
-        The old domain, to be transformed from
-    new_domain : :class:`creator`
-        The new domain, to be transformed to
-    new_iname : str
-        The updated 'iname'
-    affine : int
-        If is not None, the affine offset used
+        The iname of this :class:`tree_node`
     """
 
-    def __init__(self, iname, transform_insn, old_domain,
-                 new_domain, new_iname, affine):
+    def __add_to_owner(self, domain):
+        assert domain not in self.owner.domain_to_nodes, (
+            'Domain {} is already present in the tree!'.format(
+                domain.name))
+        self.owner.domain_to_nodes[self.domain] = self
+
+    def __init__(self, owner, domain, children=[],
+                 parent=None, iname=None):
+        self.domain = domain
+        self.owner = owner
+        try:
+            self.children = set(children)
+        except:
+            self.children = set([children])
+        self.parent = parent
+        self.transform = None
+        self._iname = iname
+
+        self.insn = None
+        self.domain_transform = None
+
+        # book keeping
+        self.__add_to_owner(domain)
+        for child in self.children:
+            self.__add_to_owner(child)
+
+    @property
+    def iname(self):
+        return self._iname
+
+    @iname.setter
+    def iname(self, value):
+        if value is None:
+            assert self.parent is not None, (
+                "Can't set empty (untransformed) iname for root!")
+            self._iname = self.parent.iname
+        else:
+            self._iname = value
+
+    def set_transform(self, iname, insn, domain_transform):
         self.iname = iname
-        self.transform_insn = transform_insn
-        self.new_domain = new_domain
-        self.old_domain = old_domain
-        self.new_iname = new_iname
+        self.insn = insn
+        self.domain_transform = domain_transform
+
+    def add_child(self, domain):
+        """
+        Adds a child domain (if not already present) to this node
+
+        Parameters
+        ----------
+        domain : :class:`creator`
+            The domain to create a the child node with
+
+        Returns
+        -------
+        child : :class:`tree_node`
+            The newly created tree node
+        """
+
+        # check for existing child
+        child = next((x for x in self.children if x.domain == domain), None)
+
+        if child is None:
+            child = tree_node(self.owner, domain, parent=self)
+            self.children.add(child)
+            self.__add_to_owner(child)
+
+        return child
+
+    def __repr__(self):
+        return ', '.join(['{}'.format(x) for x in
+                          (self.domain.name, self.iname, self.insn)])
+
+
+class domain_transform(object):
+    """
+    Simple helper class to keep track of transform variables to test for
+    equality
+    """
+
+    def __init__(self, mapping, affine):
+        self.mapping = mapping
         self.affine = affine
+
+    def __eq__(self, other):
+        return self.mapping == other.mapping and self.affine == other.affine
 
 
 class MapStore(object):
@@ -80,28 +148,34 @@ class MapStore(object):
         The domain of the iname to use for a mapped kernel
     mask_domain : :class:`creator`
         The domain of the iname to use for a masked kernel
-    loop_index : str
+    iname : str
         The loop index to work with
     have_input_map : bool
         If true, the input map domain needs a map for expression
     transform_insns : set
         A set of transform instructions generated for this :class:`MapStore`
+    raise_on_final : bool
+        If true, raise an exception if a variable / domain is added to the
+        domain tree after this :class:`MapStore` has been finalized
     """
 
-    def __init__(self, loopy_opts, map_domain, mask_domain, loop_index='i'):
+    def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
+                 raise_on_final=True):
         self.loopy_opts = loopy_opts
         self.knl_type = loopy_opts.knl_type
-        self.map_domain = map_domain.copy()
-        self.mask_domain = mask_domain.copy()
+        self.map_domain = map_domain
+        self.mask_domain = mask_domain
         self._check_is_valid_domain(self.map_domain)
         self._check_is_valid_domain(self.mask_domain)
-        self.transformed_variables = {}
-        self.untransformed_variables = []
+        self.domain_to_nodes = {}
+        self.transformed_domains = set()
+        self.tree = tree_node(self, self._get_base_domain(), iname=iname)
         from pytools import UniqueNameGenerator
-        self.taken_transform_names = UniqueNameGenerator()
-        self.loop_index = loop_index
+        self.taken_transform_names = UniqueNameGenerator(set([iname]))
+        self.iname = iname
         self.have_input_map = False
-        self.transform_insns = set()
+        self.raise_on_final = raise_on_final
+        self.is_finalized = False
 
         if self._is_map() and not self._is_contiguous(self.map_domain):
             # need an input map
@@ -113,6 +187,11 @@ class MapStore(object):
         """
 
         return self.knl_type == 'map'
+
+    @property
+    def transform_insns(self):
+        return set(val.insn for val in
+                   self.transformed_domains if val.insn)
 
     def _add_input_map(self):
         """
@@ -128,61 +207,89 @@ class MapStore(object):
         new_map_domain.initializer = \
             np.arange(self.map_domain.initializer.size, dtype=np.int32)
 
-        # finally, go through all the existing transforms,
-        # see if any need an update
-        for var, trans in six.iteritems(self.transformed_variables):
-            if trans.old_domain == self.map_domain:
-                dt = self._check_add_map(trans.iname, trans.new_domain,
-                                         base=new_map_domain)
+        # change the base of the tree
+        new_base = tree_node(self, new_map_domain, iname=self.iname,
+                             children=self.tree)
 
-                if dt is not None:
-                    # remove old transform instruction
-                    self.transform_insns.remove(trans.transform_insn)
-                    # and replace
-                    self.transformed_variables[var] = dt
+        # and parent
 
-        # update
+        # to maintain consistency/sanity, we always consider the original tree
+        # the 'base', even if the true base is being replaced
+        # This will be accounted for in :meth:`finalize`
+        self.tree.parent = new_base
+
+        # reset iname
+        self.tree.iname = None
+
+        # update domain
         self.map_domain = new_map_domain
 
-        # and check untransformed domains
-        for var, domain in self.untransformed_variables:
-            self.check_and_add_transform(var, domain)
+        # and finally set tree
+        self.domain_to_nodes[new_map_domain] = new_base
 
-    def _create_transform(self, old_domain, new_domain, iname, affine=None,
-                          force_inline=False):
+        # finally, check the tree's offspring.  If they can be moved to the
+        # new base without mapping, do so
+
+        for child in list(self.tree.children):
+            mapping, affine = self._get_map_transform(
+                new_map_domain, child.domain)
+            if not mapping:
+                # set parent
+                child.parent = new_base
+                # remove from old parent's child list
+                self.tree.children.remove(child)
+                # and add to new parent's child list
+                new_base.children.add(child)
+
+        self.have_input_map = True
+
+    def _create_transform(self, node, transform, affine=None):
         """
-        Convertes the map_domain (affine int or :class:`creator`)
-        to a :class:`domain_transform` and adds it to this object
+        Creates a transform from the :class:`tree_node` node based on
+        it's parent and any affine mapping supplied
+
+        Parameters
+        ----------
+        node : :class:`tree_node`
+            The node to create a transform for
+        transform : :class:`domain_transform`
+            The domain transform to store the base iname in
+        affine : int or dict
+            An integer or dictionary offset
+
+        Returns
+        -------
+        new_iname : str
+            The iname created for this transform
+        transform_insn : str or None
+            The loopy transform instruction to use.  If None, this is an
+            affine transformation that doesn't require a separate instruction
         """
+
+        assert node.parent is not None, (
+            'Cannot create a transform for node'
+            ' {} without parent'.format(node.domain.name))
+
+        assert node.parent.iname, (
+            'Cannot create a transform starting from parent node'
+            ' {}, as it has no assigned iname'.format(node.parent.domain.name))
 
         # add the transformed inames, instruction and map
-        new_iname = self._get_transform_iname(self.loop_index +
-                                              ('_map' if self._is_map()
-                                               else '_mask'))
+        new_iname = self._get_transform_iname(self.iname)
 
-        if affine is not None:
-            transform_insn = self.generate_transform_instruction(
-                iname, new_iname, affine=affine, force_inline=force_inline)
-        elif force_inline:
-            raise Exception("Can't force inline for a non-affine"
-                            " transformation.")
-        else:
-            transform_insn = self.generate_transform_instruction(
-                iname, new_iname, new_domain.name)
+        # and use the parent's "iname" (i.e. with affine mapping)
+        # to generate the transform
+        transform_insn = self.generate_transform_instruction(
+            node.parent.iname, new_iname, map_arr=node.parent.domain.name,
+            affine=affine
+        )
 
-        # update instruction list
-        if not force_inline:
-            self.transform_insns |= set([transform_insn])
-        else:
-            # directly place the transform in the new iname for inline access
+        if affine:
+            # store this as the new iname instead of issuing a new instruction
             new_iname = transform_insn
-            # and update transform insn
-            transform_insn = ''
+            transform_insn = None
 
-        # and store
-        dt = domain_transform(
-            iname, transform_insn, old_domain, new_domain, new_iname, affine)
-        return dt
+        return new_iname, transform_insn
 
     def _get_transform_iname(self, iname):
         """Returns a new iname"""
@@ -216,6 +323,10 @@ class MapStore(object):
             ncheck = new_domain.initializer
         except AttributeError:
             ncheck = new_domain
+
+        # no domain, hence this is a variable and needs mapping to parent only
+        if ncheck is None:
+            return None, None
 
         # check equal
         if np.array_equal(dcheck, ncheck):
@@ -270,6 +381,10 @@ class MapStore(object):
         except AttributeError:
             ncheck = new_domain
 
+        # no domain, hence this is a variable and needs mapping to parent only
+        if ncheck is None:
+            return None, None
+
         # first, we need to make sure that the domains are the same size,
         # non-sensical otherwise
 
@@ -287,6 +402,10 @@ class MapStore(object):
 
         # finally return map
         return new_domain, None
+
+    def _get_transform(self, base, domain):
+        return self._get_map_transform(base, domain) if self._is_map()\
+            else self._get_mask_transform(base, domain)
 
     def _check_is_valid_domain(self, domain):
         """Makes sure the domain passed is a valid :class:`creator`"""
@@ -312,102 +431,49 @@ class MapStore(object):
         indicies = domain.initializer
         return indicies[0] + indicies.size - 1 == indicies[-1]
 
-    def _get_transform_if_exists(self, iname, domain, affine):
-        return next((x for x in self.transformed_variables.values() if
-                     np.array_equal(domain, x.new_domain) and
-                     iname == x.iname
-                     and affine == x.affine), None)
-
-    def _check_add_map(self, iname, domain, force_inline=False,
-                       base=None):
+    def _check_create_transform(self, node):
         """
-        Checks and adds a map if necessary
+        Checks and creates a transform between the node and the
+        parent node if necessary
 
         Parameters
         ----------
-        iname : str
-            The index to map
-        domain : :class:`creator`
+        node : :class:`tree_node`
             The domain to check
-        force_inline : bool
-            If true, the resulting transform should be an inline, affine
-            transformation
 
         Returns
         -------
+        new_iname : str
+            The iname created for this transform
+        transform_insn : str or None
+            The loopy transform instruction to use.  If None, this is an
+            affine transformation that doesn't require a separate instruction
         transform : :class:`domain_transform`
-            The resulting transform, or None if not added
+            The representation of the transform used, for equality testing
         """
-        # by default we transform from the base domain
-        if base is None:
-            base = self._get_base_domain()
+
+        domain = node.domain
+        # check to see if root
+        if node.parent is None:
+            return None, None, None
+        base = node.parent.domain
 
         # get mapping
-        mapping, affine = self._get_map_transform(base, domain)
+        mapping, affine = self._get_transform(base, domain)
 
         # if we actually need a mapping
         if mapping is not None:
+            dt = domain_transform(mapping, affine)
             # see if this map already exists
-            mapv = self._get_transform_if_exists(iname, mapping, affine)
+            if node in self.transformed_domains:
+                if dt == node.domain_transform:
+                    return node.iname, node.insn, node.domain_transform
 
-            # if no map
-            if mapv is None:
-                # check if we need an input mapping
-                if not self.have_input_map and affine is None and \
-                        self.map_domain.initializer[0] != 0:
-                    self._add_input_map()
+            # need a new map, so add
+            iname, insn = self._create_transform(node, dt, affine=affine)
+            return iname, insn, dt
 
-                    # recheck map
-                    mapv = self._get_transform_if_exists(iname, mapping,
-                                                         affine)
-                    if mapv is not None:
-                        return mapv
-
-                # need a new map, so add
-                return self._create_transform(base, mapping, iname,
-                                              affine=affine,
-                                              force_inline=force_inline)
-            return mapv
-
-        return None
-
-    def _check_add_mask(self, iname, domain, force_inline=False):
-        """
-        Checks and adds a mask if necessary
-
-        Parameters
-        ----------
-        iname : str
-            The index to map
-        domain : :class:`creator`
-            The domain to check
-        force_inline : bool
-            If true, the resulting transform should be an inline, affine
-            transformation
-
-        Returns
-        -------
-        transform : :class:`domain_transform`
-            The resulting transform, or None if not added
-        """
-        base = self._get_base_domain()
-
-        # get mask transform
-        masking, affine = self._get_mask_transform(base, domain)
-
-        # check if the masks match
-        if masking is not None:
-            # check if we have an matching mask
-            maskv = self._get_transform_if_exists(iname, domain, affine)
-
-            if not maskv:
-                # need to add a mask
-                maskv = self._create_transform(base, domain, iname,
-                                               affine=affine,
-                                               force_inline=force_inline)
-            return maskv
-
-        return None
+        return None, None, None
 
     def _get_base_domain(self):
         """
@@ -450,85 +516,93 @@ class MapStore(object):
             The resulting transform, or None if not added
         """
 
+        if self.is_finalized:
+            if self.raise_on_final:
+                raise Exception(
+                    'Cannot add domain {} for variable {} to the tree as this'
+                    ' mapstore is finalized, which may invalidate '
+                    ' previously calculated transform data'.format(
+                        domain.name,
+                        variable.name))
+            else:
+                logging.warn(
+                    'Adding domain {} for variable {} to tree after'
+                    ' finalization, this should not be used outside of unit'
+                    ' testing'.format(domain.name, variable.name))
+
         # make sure this domain is valid
         self._check_is_valid_domain(domain)
 
-        if iname is None:
-            # check for transform in domains and transformed variables
-            trans = [self.transformed_variables[x]
-                     for x in self.transformed_variables if x == domain]
-            assert len(trans) <= 1, (
-                'Cannot automatically determine transform'
-                ' iname for domain {}, too many ({} > 1) transforms'
-                ' for this domain stored'.format(domain.name, len(trans)))
+        # check to see if this domain is already in the tree
+        try:
+            node = self.domain_to_nodes[domain]
+            assert node.domain.initializer is not None, (
+                "Can't use non-initialized creator {} as a transform domain".
+                format(node.domain.name))
+        except:
+            # add the domain to the base of the tree
+            node = self.tree.add_child(domain)
 
-            if len(trans):
-                iname = trans[0].new_iname
-            else:
-                # see if this domain is already the result of a trans
-                iname = 'i'
+        # add variable to the new tree node
+        node.add_child(variable)
 
-        transform = None
-        if self.knl_type == 'map':
-            transform = self._check_add_map(iname, domain,
-                                            force_inline=force_inline)
-        elif self.knl_type == 'mask':
-            transform = self._check_add_mask(iname, domain,
-                                             force_inline=force_inline)
-        else:
-            raise NotImplementedError
-
-        if transform is not None:
-            if isinstance(variable, list):
-                for var in variable:
-                    assert var not in self.transformed_variables, (
-                        'Already have a transform for variable: {}'.format(
-                            var.name))
-                    # add all variable mappings
-                    self.transformed_variables[var] = transform
-            else:
-                assert variable not in self.transformed_variables, (
-                        'Already have a transform for variable: {}'.format(
-                            variable.name))
-                # add this variable mapping
-                self.transformed_variables[variable] = transform
-        else:
-            self.untransformed_variables.append((variable, domain))
-
-        return transform
-
-    def _resolve_iname(self, variable, iname):
+    def finalize(self):
         """
-        A helper method that will recursively track down the correct iname to
-        use for chained maps / masks
+        Turns the developed domain tree into transforms and instructions
+        so that variables can begin to be created.  Called automatically on
+        first use of :meth:`apply_maps`
 
         Parameters
         ----------
-        variable : :class:`creator`
-            The NameStore variable(s) to work with
-        iname : str
-            The iname to map
+        None
+
         Returns
         -------
-        iname : str
-            The resolved iname
+        None
+
         """
 
-        # The goal here is to start with the variable's iname, and map back to
-        # the given iname.
-        # If successful, we return the variable's mapped/masked iname.
-        # If not, we return the given iname
-        def _chaser(var, ind):
-            # at this level, we check first that the variable has a transform
-            if var in self.transformed_variables:
-                return _chaser(self.transformed_variables[var].new_domain,
-                               self.transformed_variables[var].iname)
-            return ind
+        # need to check the first level to see if we need an input map
+        if self._is_map() and not self.have_input_map:
+            base = self.tree.domain
+            for child in list(self.tree.children):
+                if not self.have_input_map:
+                    mapping, affine = self._get_map_transform(
+                        base, child.domain)
+                    if mapping and not affine and base.initializer[0] != 0:
+                        # need and input map
+                        self._add_input_map()
 
-        chased = _chaser(variable, None)
-        if chased is not None and chased == iname:
-            return self.transformed_variables[variable].new_iname
-        return iname
+        # next, we need to create our transforms
+        # the goal here is to recursively transverse the tree checking whether
+        # a transform is needed, such that any applied maps pick up the
+        # right combination of transforms / inames
+
+        base = self.tree if self.tree.parent is None else self.tree.parent
+        branches = [[base]]
+
+        while branches:
+            # grab the current nodes under consideration
+            branch = branches.pop()
+
+            # for each sub domain in this branch
+            for node in branch:
+                if node != base:
+                    # check for transform
+                    iname, insn, dt = self._check_create_transform(node)
+                    # and update node (empty transform will take the parent's)
+                    # iname
+                    node.set_transform(iname, insn, dt)
+
+                    if not (iname is None and insn is None and dt is None):
+                        # have a transform, add to the variable list
+                        self.transformed_domains.add(node)
+                    else:
+                        # carry the parent's iname
+                        node.iname = node.parent.iname
+
+                # and update the branch lists
+                branches.append(list(node.children))
 
     def apply_maps(self, variable, *indicies, **kwargs):
         """
@@ -550,6 +624,9 @@ class MapStore(object):
         lp_str : str
             The string indexed variable
         """
+
+        if not self.is_finalized:
+            self.finalize()
 
         affine = kwargs.pop('affine', None)
 
@@ -578,12 +655,12 @@ class MapStore(object):
                                                np.abs(aff))
             return iname
 
-        if variable in self.transformed_variables:
-            indicies = tuple(x if x !=
-                             self.transformed_variables[variable].iname else
-                             self.transformed_variables[variable].new_iname
-                             for x in indicies)
-            indicies = tuple(self._resolve_iname(variable, x)
+        if variable in self.domain_to_nodes:
+            # get the node this belongs to
+            node = self.domain_to_nodes[variable]
+            # this belongs to a transformed domain, hence fiddle with
+            # indicies
+            indicies = tuple(x if x != self.iname else node.iname
                              for x in indicies)
         if have_affine and len(indicies) != 1 and not isinstance(affine, dict):
             raise Exception("Can't apply affine transformation to indicies, {}"
@@ -595,12 +672,12 @@ class MapStore(object):
     def copy(self):
         return copy.deepcopy(self)
 
-    def generate_transform_instruction(self, oldname, newname, map_arr='',
+    def generate_transform_instruction(self, oldname, newname, map_arr,
                                        affine='',
                                        force_inline=False):
         """
         Generates a loopy instruction that maps oldname -> newname via the
-        mapping array
+        mapping array (non-affine), or a simple affine transformation
 
         Parameters
         ----------
@@ -619,22 +696,16 @@ class MapStore(object):
         Returns
         -------
         map_inst : str
-            A strings to be used `loopy.Instruction`'s) for
-                    given mapping
+            A string to be used as a `loopy.Instruction`
         """
 
         try:
             affine = ' + ' + str(int(affine))
-            if force_inline:
-                return oldname + affine
+            return oldname + affine
         except:
+            if affine is None:
+                affine = ''
             pass
-
-        if not map_arr:
-            return '<> {newname} = {oldname}{affine}'.format(
-                newname=newname,
-                oldname=oldname,
-                affine=affine)
 
         return '<> {newname} = {mapper}[{oldname}]{affine}'.format(
             newname=newname,
@@ -656,13 +727,13 @@ class MapStore(object):
         fmt_str = '{start} <= {ind} <= {end}'
 
         if self._is_map():
-            return (self.loop_index, fmt_str.format(
-                    ind=self.loop_index,
+            return (self.iname, fmt_str.format(
+                    ind=self.iname,
                     start=base.initializer[0],
                     end=base.initializer[-1]))
         else:
-            return (self.loop_index, fmt_str.format(
-                    ind=self.loop_index,
+            return (self.iname, fmt_str.format(
+                    ind=self.iname,
                     start=0,
                     end=base.initializer.size - 1))
 
