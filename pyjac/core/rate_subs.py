@@ -225,11 +225,11 @@ def assign_rates(reacs, specs, rate_spec):
             if (reac.high or reac.low) and fall:
                 if reac.high:
                     Ai, bi, Tai = reac.high
-                    fall_types[i] = 1  # mark as chemically activated
+                    fall_types[i] = int(reaction_type.chem)  # mark as chemically activated
                 else:
                     # we want k0, hence default factor is fine
                     Ai, bi, Tai = reac.low
-                    fall_types[i] = 0  # mark as falloff
+                    fall_types[i] = int(reaction_type.fall)  # mark as falloff
             else:
                 # assign rate params
                 Ai, bi, Tai = reac.A, reac.b, reac.E
@@ -256,6 +256,10 @@ def assign_rates(reacs, specs, rate_spec):
                 rate_type[i] = 4
             if not full:
                 rate_type[i] = rate_type[i] if rate_type[i] <= 1 else 2
+
+        # subtract off the falloff type to make this a simple 0/1 comparison
+        if fall:
+            fall_types -= int(reaction_type.fall)
         return rate_type, A, b, Ta, fall_types
 
     simple_rate_type, A, b, Ta, _ = __specialize(simple_rate)
@@ -1675,14 +1679,15 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
 
     fall_instructions = Template("""
     <>ci_temp = ${Fi_str} / (1 + ${Pr_str}) {id=ci_decl}
-    if ${fall_type} == 0
+    if not ${fall_type}
         ci_temp = ci_temp * ${Pr_str} {id=ci_update, dep=ci_decl}
     end
     ${pres_mod} = ci_temp {dep=ci_update}
 """).safe_substitute(Fi_str=Fi_str,
                      Pr_str=Pr_str,
                      pres_mod=pres_mod_str,
-                     fall_type=fall_type_str)
+                     fall_type=fall_type_str
+                     )
 
     # add to the info list
     info_list.append(
