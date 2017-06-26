@@ -973,9 +973,9 @@ def get_loopy_arg(arg_name, indicies, dimensions,
     dimensions : list of str or int
         The dimensions of the `loopy.inames` in :param:`order`
     last_ind : str
-        See :param:`last_ind` in :func:`get_loopy_order`
+        See :param:`last_ind` in :meth:`get_loopy_order`
     additional_ordering : list of str/int
-        See :param:`additional_ordering` in :func:`get_loopy_order`
+        See :param:`additional_ordering` in :meth:`get_loopy_order`
     map_name : dict
         If not None, contains replacements for various indicies
     initializer : `numpy.array`
