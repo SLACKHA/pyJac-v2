@@ -62,6 +62,9 @@ class tree_node(object):
         for child in self.children:
             self.__add_to_owner(child)
 
+    def is_leaf(self):
+        return not self.children and self != self.owner.tree
+
     @property
     def iname(self):
         return self._iname
@@ -280,7 +283,7 @@ class MapStore(object):
         # and use the parent's "iname" (i.e. with affine mapping)
         # to generate the transform
         transform_insn = self.generate_transform_instruction(
-            node.parent.iname, new_iname, map_arr=node.parent.domain.name,
+            node.parent.iname, new_iname, map_arr=node.domain.name,
             affine=affine
         )
 
@@ -324,8 +327,8 @@ class MapStore(object):
         except AttributeError:
             ncheck = new_domain
 
-        # no domain, hence this is a variable and needs mapping to parent only
-        if ncheck is None:
+        # this is a variable and needs mapping to parent only
+        if self.domain_to_nodes[new_domain].is_leaf():
             return None, None
 
         # check equal
@@ -381,8 +384,8 @@ class MapStore(object):
         except AttributeError:
             ncheck = new_domain
 
-        # no domain, hence this is a variable and needs mapping to parent only
-        if ncheck is None:
+        # this is a variable and needs mapping to parent only
+        if self.domain_to_nodes[new_domain].is_leaf():
             return None, None
 
         # first, we need to make sure that the domains are the same size,
@@ -465,8 +468,8 @@ class MapStore(object):
         if mapping is not None:
             dt = domain_transform(mapping, affine)
             # see if this map already exists
-            if node in self.transformed_domains:
-                if dt == node.domain_transform:
+            if node.parent in self.transformed_domains:
+                if dt == node.parent.domain_transform:
                     return node.iname, node.insn, node.domain_transform
 
             # need a new map, so add
