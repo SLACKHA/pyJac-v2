@@ -200,6 +200,36 @@ def test_duplicate_iname_detection():
     assert [x for x in mstore.transform_insns][0] == \
         mstore.domain_to_nodes[c2].insn
 
+    # now repeat with the variables having initializers
+    # to test that leaves aren't mapped
+    lp_opt = _dummy_opts('map')
+
+    # create dummy map
+    c = arc.creator('c', np.int32, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    # create a mapped domain
+    c2 = arc.creator('c', np.int32, (10,), 'C',
+                     initializer=np.array(list(range(3)) +
+                                          list(range(4, 11)), dtype=np.int32))
+
+    # add two variables to the same domain
+    x = __create_var('x')
+    x.initializer = np.arange(10)
+    x2 = __create_var('x2')
+    x2.initializer = np.arange(10)
+    mstore.check_and_add_transform(x, c2)
+    mstore.check_and_add_transform(x2, c2)
+
+    mstore.finalize()
+
+    # ensure there's only one transform insn issued
+    assert len(mstore.transform_insns) == 1
+    assert [y for y in mstore.transform_insns][0] == \
+        mstore.domain_to_nodes[c2].insn
+
 
 def test_map_range_update():
     lp_opt = _dummy_opts('map')
@@ -226,11 +256,13 @@ def test_map_range_update():
                      initializer=np.arange(4, 14, dtype=np.int32))
     mstore.check_and_add_transform(c4, c3, 'i')
 
-    # and finally, one last creator that will trigger a change of base domain
-    # and put c2-c5 in the transforms
+    # and another affine
     c5 = arc.creator('c5', np.int32, (10,), 'C',
                      initializer=np.arange(3, 13, dtype=np.int32))
     mstore.check_and_add_transform(c5, c4, 'i')
+    # and we need a final variable to test c5
+    x = __create_var('x')
+    mstore.check_and_add_transform(x, c5, 'i')
     mstore.finalize()
 
     # there should be an affine input map of + 3
@@ -239,10 +271,10 @@ def test_map_range_update():
             and mstore.tree.parent is not None)
     # c2 should be on the tree
     assert (mstore.domain_to_nodes[c2].parent == mstore.tree and
-            mstore.domain_to_nodes[c2].insn == '<> i_1 = c[i + 3]')
+            mstore.domain_to_nodes[c2].insn == '<> i_1 = c2[i + 3]')
     # c3 should be an regular transform off c2
     assert (mstore.domain_to_nodes[c3].parent == mstore.domain_to_nodes[c2] and
-            mstore.domain_to_nodes[c3].insn == '<> i_2 = c2[i_1]')
+            mstore.domain_to_nodes[c3].insn == '<> i_2 = c3[i_1]')
     # c4 should not have a transform (and thus should take the iname of c3)
     assert (mstore.domain_to_nodes[c4].parent == mstore.domain_to_nodes[c3] and
             mstore.domain_to_nodes[c4].insn is None
@@ -436,7 +468,7 @@ def test_map_variable_creator(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_1]'
-    assert '<> i_1 = base[i + 3]' in mstore.transform_insns
+    assert '<> i_1 = domain[i + 3]' in mstore.transform_insns
 
 
 @parameterized(['map'])
@@ -458,7 +490,7 @@ def test_map_to_larger(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_0]'
-    assert '<> i_0 = base[i]' in mstore.transform_insns
+    assert '<> i_0 = domain[i]' in mstore.transform_insns
 
 
 @parameterized(['map'])
@@ -502,7 +534,7 @@ def test_chained_maps(maptype):
     var_lp, var_str = mstore.apply_maps(var, 'i')
 
     # test that the base map is there
-    assert '<> {} = base[i]'.format(__get_iname(domain)) in \
+    assert '<> {} = domain[i]'.format(__get_iname(domain)) in \
         mstore.transform_insns
 
     # var 1 should be based off domain's iname i_0
@@ -519,7 +551,7 @@ def test_chained_maps(maptype):
     var3_lp, var3_str = mstore.apply_maps(var3, 'i')
     assert var3_str == 'var3[{}]'.format(__get_iname(var3))
     assert (
-        '<> {} = domain2[{}]'.format(
+        '<> {} = domain3[{}]'.format(
             __get_iname(var3), __get_iname(domain2))
         in mstore.transform_insns)
 
@@ -544,7 +576,7 @@ def test_mask_variable_creator(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_0]'
-    assert '<> i_0 = base[i]' in mstore.transform_insns
+    assert '<> i_0 = domain[i]' in mstore.transform_insns
 
 
 @parameterized(['mask'])

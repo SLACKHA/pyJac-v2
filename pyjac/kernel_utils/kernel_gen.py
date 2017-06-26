@@ -914,9 +914,12 @@ ${name} : ${type}
                 irange=irange
             ))
 
+        from six import iteritems
         # get extra mapping data
-        extra_kernel_data = [x.new_domain(x.iname)[0]
-                             for x in info.mapstore.transformed_domains]
+        extra_kernel_data = [domain(node.iname)[0]
+                             for domain, node in
+                             iteritems(info.mapstore.domain_to_nodes)
+                             if domain.initializer is not None]
 
         extra_kernel_data += self.extra_kernel_data[:]
 
