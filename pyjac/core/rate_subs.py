@@ -1347,16 +1347,17 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
                 rop_rev_str=rop_rev_str)
 
             # If there is a mask, we need to encase this in an if statement
-            if namestore.rop_rev in __get_map('rev').transformed_variables:
+            mask = __get_map('rev').domain_to_nodes[namestore.rop_rev]
+            mask = mask if mask.parent in __get_map('rev').transformed_domains\
+                   else None
+            if mask:
                 rev_update_instructions = Template(
                     """
             if ${rev_mask} >= 0
                 ${cur_inst}
             end
             """).safe_substitute(cur_inst=rev_update_instructions,
-                                 rev_mask=__get_map('rev').
-                                 transformed_variables[namestore.rop_rev]
-                                 .new_iname)
+                                 rev_mask=mask.iname)
         else:
             rev_update_instructions = ''
 
@@ -1369,8 +1370,10 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
                 rev_dep=':rate_update_rev' if namestore.rop_rev is not None
                     else '',
                 pres_mod_str=pres_mod_str)
-            if namestore.pres_mod in \
-                    __get_map('pres_mod').transformed_variables:
+            mask = __get_map('pres_mod').domain_to_nodes[namestore.pres_mod]
+            mask = mask if mask.parent in \
+                    __get_map('pres_mod').transformed_domains else None
+            if mask:
                 # num pmod != num rxns
                 pmod_update_instructions = Template(
                     """
@@ -1378,9 +1381,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
                 ${cur_inst}
             end
             """).safe_substitute(cur_inst=pmod_update_instructions,
-                                 pres_mask=__get_map('pres_mod').
-                                 transformed_variables[namestore.pres_mod]
-                                 .new_iname)
+                                 pres_mask=mask.iname)
         else:
             pmod_update_instructions = ''
 
