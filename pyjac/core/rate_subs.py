@@ -225,7 +225,8 @@ def assign_rates(reacs, specs, rate_spec):
             if (reac.high or reac.low) and fall:
                 if reac.high:
                     Ai, bi, Tai = reac.high
-                    fall_types[i] = int(reaction_type.chem)  # mark as chemically activated
+                    # mark as chemically activated
+                    fall_types[i] = int(reaction_type.chem)
                 else:
                     # we want k0, hence default factor is fine
                     Ai, bi, Tai = reac.low
@@ -1349,7 +1350,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
             # If there is a mask, we need to encase this in an if statement
             mask = __get_map('rev').domain_to_nodes[namestore.rop_rev]
             mask = mask if mask.parent in __get_map('rev').transformed_domains\
-                   else None
+                else None
             if mask:
                 rev_update_instructions = Template(
                     """
@@ -1372,7 +1373,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
                 pres_mod_str=pres_mod_str)
             mask = __get_map('pres_mod').domain_to_nodes[namestore.pres_mod]
             mask = mask if mask.parent in \
-                    __get_map('pres_mod').transformed_domains else None
+                __get_map('pres_mod').transformed_domains else None
             if mask:
                 # num pmod != num rxns
                 pmod_update_instructions = Template(
@@ -1656,6 +1657,10 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
     fall_map = arc.MapStore(loopy_opts, namestore.fall_map,
                             namestore.fall_mask)
 
+    # the pressure mod term uses fall_to_thd_map/mask
+    fall_map.check_and_add_transform(namestore.pres_mod,
+                                     namestore.fall_to_thd_map)
+
     # the falloff vs chemically activated indicator
     fall_type_lp, fall_type_str = \
         fall_map.apply_maps(namestore.fall_type, var_name)
@@ -1667,10 +1672,6 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
     # the Pr array
     Pr_lp, Pr_str = \
         fall_map.apply_maps(namestore.Pr, *default_inds)
-
-    # and the pressure mod term (use fall_to_thd_map/mask)
-    fall_map.check_and_add_transform(namestore.pres_mod,
-                                     namestore.fall_to_thd_map)
 
     pres_mod_lp, pres_mod_str = \
         fall_map.apply_maps(namestore.pres_mod, *default_inds)
@@ -2479,6 +2480,8 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     mapstore.check_and_add_transform(namestore.Pr, namestore.num_fall)
     mapstore.check_and_add_transform(namestore.fall_type, namestore.num_fall)
     # third body concentrations are over thd_map
+    mapstore.check_and_add_transform(namestore.fall_to_thd_map,
+                                     namestore.num_fall)
     mapstore.check_and_add_transform(namestore.thd_conc,
                                      namestore.fall_to_thd_map)
 
@@ -2717,7 +2720,7 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
                            manglers=[
                                lp_pregen.MangleGen('fmax',
                                                    (np.float64, np.float64),
-                                                    np.float64)])]
+                                                   np.float64)])]
 
 
 def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
@@ -2940,10 +2943,12 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
         def get_rdomain(rtype):
             if rtype < 0:
-                return namestore.num_fall, namestore.num_fall
+                return namestore.num_fall, namestore.num_fall,\
+                    namestore.num_fall
             else:
                 return getattr(namestore, 'fall_rtype_{}_inds'.format(rtype)),\
-                    getattr(namestore, 'fall_rtype_{}_inds'.format(rtype))
+                    getattr(namestore, 'fall_rtype_{}_inds'.format(rtype)),\
+                    getattr(namestore, 'fall_rtype_{}_num'.format(rtype))
         rdomain = get_rdomain
     else:
         tag = 'simple'
@@ -2953,12 +2958,15 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
         def get_rdomain(rtype):
             if rtype < 0:
-                return namestore.num_simple, namestore.simple_map
+                return namestore.num_simple, namestore.simple_map,\
+                    namestore.num_simple
             else:
                 return getattr(namestore,
                                'simple_rtype_{}_inds'.format(rtype)), \
                     getattr(namestore,
-                            'simple_rtype_{}_map'.format(rtype))
+                            'simple_rtype_{}_map'.format(rtype)), \
+                    getattr(namestore,
+                            'simple_rtype_{}_num'.format(rtype))
         rdomain = get_rdomain
 
     # first assign the reac types, parameters
@@ -2971,25 +2979,25 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         logging.warn('Cannot use separated kernels with a fixed '
                      'RateSpecialization, disabling...')
 
-    # create temperature array / str
-    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
-
     base_kernel_data = []
     if test_size == 'problem_size':
         base_kernel_data.append(namestore.problem_size)
-    base_kernel_data.extend([T_arr])
 
     # if we need the rtype array, add it
     if not separated_kernels and not fixed:
         rtype_attr = getattr(namestore, '{}_rtype'.format(tag))
         # get domain and corresponing kf inds
-        domain, inds = rdomain(-1)
+        domain, inds, num = rdomain(-1)
         # add map
         mapstore.check_and_add_transform(rtype_attr, domain)
         # create
         rtype_lp, rtype_str = mapstore.apply_maps(rtype_attr, var_name)
         # add
         base_kernel_data.append(rtype_lp)
+
+    # create temperature array / str
+    T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    base_kernel_data.insert(0, T_arr)
 
     # put rateconst info args in dict for unpacking convenience
     extra_args = {'kernel_data': base_kernel_data,
@@ -3009,7 +3017,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     def get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                          single_kernel_rtype=None):
         # get domain
-        domain, inds = rdomain(rtype)
+        domain, inds, num = rdomain(rtype)
 
         # use the single_kernel_rtype to find instructions
         if rtype < 0:
@@ -3020,6 +3028,10 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         b_attr = getattr(namestore, '{}_beta'.format(tag))
         Ta_attr = getattr(namestore, '{}_Ta'.format(tag))
         kf_attr = getattr(namestore, 'kf' if tag == 'simple' else 'kf_fall')
+
+        # ensure the map inds are keyed off the num
+        if num.name != mapper.tree.domain.name:
+            mapper.check_and_add_transform(inds, num)
 
         # add maps
         mapper.check_and_add_transform(A_attr, domain)
@@ -3187,14 +3199,13 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             out_specs[rtype] = info
             continue
 
-        inds, _ = rdomain(rtype)
-        if inds is None or not inds.initializer.size:
+        domain, _, num = rdomain(rtype)
+        if domain is None or not domain.initializer.size:
             # kernel doesn't act on anything, don't add it to output
             continue
 
         # next create a mapper for this rtype
-        mapper = arc.MapStore(loopy_opts, rdomain(rtype)[0],
-                              rdomain(rtype)[0])
+        mapper = arc.MapStore(loopy_opts, domain, domain)
 
         # set as mapper
         info.mapstore = mapper
