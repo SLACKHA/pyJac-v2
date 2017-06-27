@@ -168,13 +168,13 @@ class MapStore(object):
         self.domain_to_nodes = {}
         self.transformed_domains = set()
         self.tree = tree_node(self, self._get_base_domain(), iname=iname)
+        self.domain_to_nodes[self._get_base_domain()] = self.tree
         from pytools import UniqueNameGenerator
         self.taken_transform_names = UniqueNameGenerator(set([iname]))
         self.iname = iname
         self.have_input_map = False
         self.raise_on_final = raise_on_final
         self.is_finalized = False
-
 
     def _is_map(self):
         """
@@ -226,15 +226,16 @@ class MapStore(object):
         # new base without mapping, do so
 
         for child in list(self.tree.children):
-            mapping, affine = self._get_map_transform(
-                new_map_domain, child.domain)
-            if not mapping:
-                # set parent
-                child.parent = new_base
-                # remove from old parent's child list
-                self.tree.children.remove(child)
-                # and add to new parent's child list
-                new_base.children.add(child)
+            if not child.is_leaf():
+                mapping, affine = self._get_map_transform(
+                    new_map_domain, child.domain)
+                if not mapping:
+                    # set parent
+                    child.parent = new_base
+                    # remove from old parent's child list
+                    self.tree.children.remove(child)
+                    # and add to new parent's child list
+                    new_base.children.add(child)
 
         self.have_input_map = True
 
@@ -319,10 +320,6 @@ class MapStore(object):
         except AttributeError:
             ncheck = new_domain
 
-        # this is a variable and needs mapping to parent only
-        if self.domain_to_nodes[new_domain].is_leaf():
-            return None, None
-
         # check equal
         if np.array_equal(dcheck, ncheck):
             return None, None
@@ -375,10 +372,6 @@ class MapStore(object):
             ncheck = new_domain.initializer
         except AttributeError:
             ncheck = new_domain
-
-        # this is a variable and needs mapping to parent only
-        if self.domain_to_nodes[new_domain].is_leaf():
-            return None, None
 
         # first, we need to make sure that the domains are the same size,
         # non-sensical otherwise
@@ -452,6 +445,11 @@ class MapStore(object):
         if node.parent is None:
             return None, None, None
         base = node.parent.domain
+
+        # if this node should be treated as a variable,
+        # don't create a transform
+        if node.is_leaf():
+            return None, None, None
 
         # get mapping
         mapping, affine = self._get_transform(base, domain)
@@ -566,7 +564,7 @@ class MapStore(object):
             if not self.have_input_map:
                 base = self.tree.domain
                 for child in list(self.tree.children):
-                    if not self.have_input_map:
+                    if not child.is_leaf() and not self.have_input_map:
                         mapping, affine = self._get_map_transform(
                             base, child.domain)
                         if mapping and not affine and base.initializer[0] != 0:
@@ -1232,6 +1230,14 @@ class NameStore(object):
                             shape=inds.shape,
                             initializer=inds,
                             order=self.order))
+            # and num
+            num = np.arange(inds.size, dtype=np.int32)
+            setattr(self, 'simple_rtype_{}_num'.format(rtype),
+                    creator('simple_rtype_{}_num'.format(rtype),
+                            dtype=num.dtype,
+                            shape=num.shape,
+                            initializer=num,
+                            order=self.order))
 
         if rate_info['rev']['num']:
             self.kr = creator('kr',
@@ -1402,6 +1408,14 @@ class NameStore(object):
                                 dtype=inds.dtype,
                                 shape=inds.shape,
                                 initializer=inds,
+                                order=self.order))
+                # and num
+                num = np.arange(inds.size, dtype=np.int32)
+                setattr(self, 'fall_rtype_{}_num'.format(rtype),
+                        creator('fall_rtype_{}_num'.format(rtype),
+                                dtype=num.dtype,
+                                shape=num.shape,
+                                initializer=num,
                                 order=self.order))
 
             # maps
