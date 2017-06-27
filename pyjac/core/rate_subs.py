@@ -3030,7 +3030,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         kf_attr = getattr(namestore, 'kf' if tag == 'simple' else 'kf_fall')
 
         # ensure the map inds are keyed off the num
-        if separated_kernels or fixed:
+        if (separated_kernels or fixed) and not falloff:
             mapper.check_and_add_transform(inds, num)
 
         # add maps
