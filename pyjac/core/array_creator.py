@@ -135,13 +135,6 @@ class MapStore(object):
     Attributes
     ----------
 
-    transformed_variables : dict
-        Dictionary of :class:`creator` to
-        :class:`domain_transform` that represents the developed maps
-    untransformed_variables : list
-        List of (:class:`creator`, :class:`creator`) that stores variables
-        and domains that have been checked for a transform. In the case that
-        an input map is added mid creation, these may be re-examined
     loopy_opts : :class:`LoopyOptions`
         The loopy options for kernel creation
     knl_type : ['map', 'mask']
@@ -155,6 +148,8 @@ class MapStore(object):
         The loop index to work with
     have_input_map : bool
         If true, the input map domain needs a map for expression
+    transformed_domains : set of :class:`tree_node`
+        The nodes that have required transforms
     transform_insns : set
         A set of transform instructions generated for this :class:`MapStore`
     raise_on_final : bool
@@ -180,9 +175,6 @@ class MapStore(object):
         self.raise_on_final = raise_on_final
         self.is_finalized = False
 
-        if self._is_map() and not self._is_contiguous(self.map_domain):
-            # need an input map
-            self._add_input_map()
 
     def _is_map(self):
         """
@@ -468,8 +460,8 @@ class MapStore(object):
         if mapping is not None:
             dt = domain_transform(mapping, affine)
             # see if this map already exists
-            if node.parent in self.transformed_domains:
-                if dt == node.parent.domain_transform:
+            if node in self.transformed_domains:
+                if dt == node.domain_transform:
                     return node.iname, node.insn, node.domain_transform
 
             # need a new map, so add
@@ -566,15 +558,20 @@ class MapStore(object):
         """
 
         # need to check the first level to see if we need an input map
-        if self._is_map() and not self.have_input_map:
-            base = self.tree.domain
-            for child in list(self.tree.children):
-                if not self.have_input_map:
-                    mapping, affine = self._get_map_transform(
-                        base, child.domain)
-                    if mapping and not affine and base.initializer[0] != 0:
-                        # need and input map
-                        self._add_input_map()
+        if self._is_map():
+            # if it's not a contiguous name, we're forced to take a map
+            if not self._is_contiguous(self.map_domain):
+                self._add_input_map()
+            # otherwise, test if we need one because of a child domain
+            if not self.have_input_map:
+                base = self.tree.domain
+                for child in list(self.tree.children):
+                    if not self.have_input_map:
+                        mapping, affine = self._get_map_transform(
+                            base, child.domain)
+                        if mapping and not affine and base.initializer[0] != 0:
+                            # need and input map
+                            self._add_input_map()
 
         # next, we need to create our transforms
         # the goal here is to recursively transverse the tree checking whether
