@@ -1592,13 +1592,14 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': True}, test_size=None):
 
 
 def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
-    """Generates instructions, kernel arguements, and data for pressure modification
-    term of the forward reaction rates.
+    """Generates instructions, kernel arguements, and data for pressure
+    modification term of the forward reaction rates.
 
     Parameters
     ----------
     eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
+        Sympy equations / variables for constant pressure / constant volume
+        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1622,7 +1623,7 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
 
     # create the third body conc pres-mod kernel
 
-    thd_map = arc.MapStore(loopy_opts, namestore.thd_map,
+    thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map,
                            namestore.thd_only_mask)
 
     # get the third body concs
@@ -1654,8 +1655,8 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    fall_map = arc.MapStore(loopy_opts, namestore.fall_map,
-                            namestore.fall_mask)
+    fall_map = arc.MapStore(loopy_opts, namestore.num_fall,
+                            namestore.num_fall)
 
     # the pressure mod term uses fall_to_thd_map/mask
     fall_map.check_and_add_transform(namestore.pres_mod,
