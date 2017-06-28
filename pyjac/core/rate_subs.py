@@ -1742,7 +1742,8 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     conp_eqs = eqs['conp']
 
     # add the reverse map
-    rev_map = arc.MapStore(loopy_opts, namestore.rev_map, namestore.rev_mask)
+    rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
+                           namestore.rev_mask)
 
     # find Kc equation
     Kc_sym = next(x for x in conp_eqs if str(x) == '{K_c}[i]')
@@ -1752,23 +1753,25 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     kr_sym = next(x for x in conp_eqs if str(x) == '{k_r}[i]')
     # kf_sym = next(x for x in conp_eqs if str(x) == '{k_f}[i]')
 
-    # create nu_sum on main loop
-    # this may require a map
+    # map from reverse reaction index to forward reaction index
     rev_map.check_and_add_transform(
         namestore.nu_sum, namestore.rev_map)
+    rev_map.check_and_add_transform(
+        namestore.rxn_to_spec, namestore.rev_map)
+    rev_map.check_and_add_transform(
+        namestore.rxn_to_spec_offsets, namestore.rev_map)
+    rev_map.check_and_add_transform(
+        namestore.kf, namestore.rev_map)
+
+    # create nu_sum on main loop
     nu_sum_lp, nu_sum_str = rev_map.apply_maps(namestore.nu_sum,
                                                var_name)
 
     # all species in reaction on spec loop
-    rev_map.check_and_add_transform(
-        namestore.rxn_to_spec, namestore.rev_map)
     spec_lp, spec_str = rev_map.apply_maps(namestore.rxn_to_spec,
                                            spec_loop)
 
     # species offsets on main loop
-    # this may require a map
-    rev_map.check_and_add_transform(
-        namestore.rxn_to_spec_offsets, namestore.rev_map)
     num_spec_offsets_lp, num_spec_offsets_str = rev_map.apply_maps(
         namestore.rxn_to_spec_offsets, var_name)
 
@@ -1808,8 +1811,6 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                                                )): 'B_sum'})
 
     # create the kf array / str
-    # this may require a map
-    rev_map.check_and_add_transform(namestore.kf, namestore.rev_map)
     kf_arr, kf_str = rev_map.apply_maps(
         namestore.kf, *default_inds)
 
