@@ -656,15 +656,20 @@ class MapStore(object):
         if variable in self.domain_to_nodes:
             # get the node this belongs to
             node = self.domain_to_nodes[variable]
-            # this belongs to a transformed domain, hence fiddle with
-            # indicies
-            indicies = tuple(x if x != self.iname else node.iname
-                             for x in indicies)
+        else:
+            # ensure that any input map is picked up
+            node = self.tree
+
         if have_affine and len(indicies) != 1 and not isinstance(affine, dict):
             raise Exception("Can't apply affine transformation to indicies, {}"
                             " as the index to apply to cannot be"
                             " determined".format(','.join(indicies)))
 
+        # pick up any mappings
+        indicies = tuple(x if x != self.iname else node.iname
+                         for x in indicies)
+
+        # return affine mapping
         return variable(*tuple(__get_affine(i) for i in indicies), **kwargs)
 
     def copy(self):

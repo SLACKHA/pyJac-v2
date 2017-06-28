@@ -637,6 +637,24 @@ def test_map_iname_domains(maptype):
     assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
 
+def test_input_map_pickup():
+    lp_opt = _dummy_opts('map')
+
+    # test that creation of mapstore with non-contiguous map forces
+    # non-transformed variables to pick up the right iname
+    c = arc.creator('', np.int32, (10,), 'C',
+                    initializer=np.array(list(range(4)) + list(range(6, 12)),
+                                         dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    # create a variable
+    x = __create_var('x')
+    _, x_str = mstore.apply_maps(x, 'i')
+
+    assert 'i_0' in x_str
+
+
 def test_fixed_creator_indices():
     c = arc.creator('base', np.int32, ('isize', 'jsize'), 'C',
                     fixed_indicies=[(0, 1)])
