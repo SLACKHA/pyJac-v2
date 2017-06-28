@@ -1232,15 +1232,21 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
     maps = OrderedDict([('fwd',
                          arc.MapStore(loopy_opts, namestore.num_reacs,
                                       namestore.num_reacs))])
+    transforms = {'fwd': namestore.num_reacs}
 
     separated_kernels = loopy_opts.rop_net_kernels
     if separated_kernels:
         kernel_data['rev'] = []
-        maps['rev'] = arc.MapStore(loopy_opts, namestore.rev_map,
+        maps['rev'] = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
                                    namestore.rev_mask)
+        transforms['rev'] = namestore.rev_map
         kernel_data['pres_mod'] = []
-        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.thd_map,
+        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.num_thd,
                                         namestore.thd_mask)
+        transforms['pres_mod'] = namestore.thd_map
+    else:
+        transforms['rev'] = namestore.rev_mask
+        transforms['pres_mod'] = namestore.thd_mask
 
     def __add_data(knl, data):
         if separated_kernels:
@@ -1258,6 +1264,24 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
         else:
             return maps['fwd']
 
+    # add transforms
+    if not separated_kernels:
+        # if separate kernels, we're looping over the rev / pres mod indicies
+        # directly, hence no transforms
+        if namestore.rop_rev:
+            __get_map('rev').check_and_add_transform(
+                namestore.rop_rev, transforms['rev'])
+
+        if namestore.pres_mod:
+            __get_map('pres_mod').check_and_add_transform(
+                namestore.pres_mod, transforms['pres_mod'])
+
+    for name in kernel_data:
+        # check for map / mask
+        __get_map(name).\
+            check_and_add_transform(namestore.rop_net,
+                                    transforms[name])
+
     if test_size == 'problem_size':
         __add_to_all(namestore.problem_size)
 
@@ -1271,14 +1295,6 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
     if namestore.rop_rev is not None:
         # we have reversible reactions
 
-        # first check for map / mask
-        if not separated_kernels:
-            # if a single kernel, add a mask for reversible reactions
-            __get_map('rev').check_and_add_transform(namestore.rop_rev,
-                                                     namestore.rev_mask)
-        # otherwise, no map needed as the seperate rev kernel loops over
-        # the rev indicies
-
         # apply the maps
         rop_rev_lp, rop_rev_str = __get_map('rev').\
             apply_maps(namestore.rop_rev, *default_inds)
@@ -1288,15 +1304,6 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
 
     if namestore.pres_mod is not None:
         # we have pres mod reactions
-
-        # first check for map / mask
-        if not separated_kernels:
-            # if a single kernel, add a mask for pmod reactions
-            __get_map('pres_mod').\
-                check_and_add_transform(namestore.pres_mod,
-                                        namestore.thd_mask)
-        # otherwise, no map needed as the seperate pmod kernel loops over
-        # the pmod indicies
 
         # apply the maps
         pres_mod_lp, pres_mod_str = __get_map('pres_mod').\
@@ -1308,15 +1315,6 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
     # add rop net to all kernels:
     rop_strs = {}
     for name in kernel_data:
-        # check for map / mask
-        if separated_kernels and name != 'fwd':
-            # fwd kernel has no map or mask (guarenteed same indicies)
-            # other kernels may have a map, so check
-            mapval = namestore.rev_map if name == 'rev'\
-                else namestore.thd_map
-            __get_map(name).\
-                check_and_add_transform(namestore.rop_net,
-                                        mapval)
 
         # apply map
         rop_net_lp, rop_net_str = __get_map(name).\
@@ -1473,15 +1471,15 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': True}, test_size=None):
             inds = namestore.num_reacs
             mapinds = namestore.num_reacs
         else:
-            inds = namestore.rev_map
-            mapinds = namestore.rev_mask
+            inds = namestore.num_rev_reacs
+            mapinds = namestore.rev_map
 
-        maps[direction] = arc.MapStore(loopy_opts, inds, mapinds)
+        maps[direction] = arc.MapStore(loopy_opts, inds, inds)
         themap = maps[direction]
 
         # add transforms for the offsets
         themap.check_and_add_transform(
-            namestore.rxn_to_spec_offsets, inds)
+            namestore.rxn_to_spec_offsets, mapinds)
 
         # we need species lists, nu lists, etc.
 
