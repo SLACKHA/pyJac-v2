@@ -774,7 +774,7 @@ class SubTest(TestClass):
         # create the dictionary for nu values stating if all integer
         allint = {'net':
                   np.allclose(np.mod(self.store.gas.product_stoich_coeffs(),
-                                     1), 0) and\
+                                     1), 0) and
                   np.allclose(np.mod(self.store.gas.reactant_stoich_coeffs(),
                                      1), 0)}
 
