@@ -300,13 +300,13 @@ def __dci_dnj(loopy_opts, namestore,
             sri_c_lp, sri_c_str = mapstore.apply_maps(
                 namestore.sri_c, var_name)
             sri_X_lp, sri_X_str = mapstore.apply_maps(
-                namestore.X_sri, var_name)
+                namestore.X_sri, *default_inds)
 
             # and the temperature
             T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
 
             # add data, and put together falloff string
-            kernel_data.extend([sri_a_lp, sri_b_lp, sri_c_lp, sri_X_lp])
+            kernel_data.extend([sri_a_lp, sri_b_lp, sri_c_lp, sri_X_lp, T_lp])
 
             dFi = Template(
                 """
