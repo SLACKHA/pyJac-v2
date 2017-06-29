@@ -1351,8 +1351,8 @@ class NameStore(object):
                                                dtype=thd_only_has_ns.dtype,
                                                shape=thd_only_has_ns.shape,
                                                initializer=np.arange(
-                                                thd_only_has_ns.size,
-                                                dtype=np.int32),
+                                                   thd_only_has_ns.size,
+                                                   dtype=np.int32),
                                                order=self.order)
             self.thd_type = creator('thd_type',
                                     dtype=rate_info['thd']['type'].dtype,
@@ -1660,6 +1660,23 @@ class NameStore(object):
                                         initializer=sri_mask,
                                         order=self.order)
 
+                sri_has_ns = np.where(
+                    np.in1d(rate_info['fall']['sri']['map'],
+                            rate_info['reac_has_ns']))[0].astype(
+                    dtype=np.int32)
+                self.sri_has_ns = creator('sri_has_ns',
+                                          shape=sri_has_ns.shape,
+                                          dtype=sri_has_ns.dtype,
+                                          initializer=sri_has_ns,
+                                          order=self.order)
+                self.num_sri_has_ns = creator('num_sri_has_ns',
+                                              shape=sri_has_ns.shape,
+                                              dtype=np.int32,
+                                              initializer=np.arange(
+                                                  sri_has_ns.size,
+                                                  dtype=np.int32),
+                                              order=self.order)
+
             if rate_info['fall']['lind']['num']:
                 # lind map / mask
                 self.lind_map = creator('lind_map',
@@ -1687,18 +1704,18 @@ class NameStore(object):
                 lind_has_ns = np.where(
                     np.in1d(rate_info['fall']['lind']['map'],
                             rate_info['reac_has_ns']))[0].astype(
-                        dtype=np.int32)
+                    dtype=np.int32)
                 self.lind_has_ns = creator('lind_has_ns',
                                            shape=lind_has_ns.shape,
                                            dtype=lind_has_ns.dtype,
                                            initializer=lind_has_ns,
                                            order=self.order)
-                self.num_lind_has_ns = creator('lind_has_ns',
+                self.num_lind_has_ns = creator('num_lind_has_ns',
                                                shape=lind_has_ns.shape,
                                                dtype=np.int32,
                                                initializer=np.arange(
-                                                    lind_has_ns.size,
-                                                    dtype=np.int32),
+                                                   lind_has_ns.size,
+                                                   dtype=np.int32),
                                                order=self.order)
 
         # chebyshev
