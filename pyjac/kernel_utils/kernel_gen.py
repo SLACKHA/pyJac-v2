@@ -9,6 +9,7 @@ import re
 from string import Template
 import logging
 
+import six
 import loopy as lp
 import pyopencl as cl
 import numpy as np
@@ -830,6 +831,46 @@ ${name} : ${type}
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
 
+    def remove_unused_temporaries(self, knl):
+        """
+        Convenience method to remove unused temporary variables from created
+        :class:`loopy.LoopKernel`'s
+        """
+        new_args = []
+
+        exp_knl = lp.expand_subst(knl)
+
+        refd_vars = set(knl.all_params())
+        for insn in exp_knl.instructions:
+            refd_vars.update(insn.dependency_names())
+
+        from loopy.kernel.array import ArrayBase, FixedStrideArrayDimTag
+        from loopy.symbolic import get_dependencies
+        from itertools import chain
+
+        def tolerant_get_deps(expr):
+            if expr is None or expr is lp.auto:
+                return set()
+            return get_dependencies(expr)
+
+        for ary in chain(knl.args, six.itervalues(knl.temporary_variables)):
+            if isinstance(ary, ArrayBase):
+                refd_vars.update(
+                        tolerant_get_deps(ary.shape)
+                        | tolerant_get_deps(ary.offset))
+
+                for dim_tag in ary.dim_tags:
+                    if isinstance(dim_tag, FixedStrideArrayDimTag):
+                        refd_vars.update(
+                                tolerant_get_deps(dim_tag.stride))
+
+        for arg in knl.temporary_variables:
+            if arg in refd_vars:
+                new_args.append(arg)
+
+        return knl.copy(temporary_variables={arg: knl.temporary_variables[arg]
+                                             for arg in new_args})
+
     def make_kernel(self, info, target, test_size):
         """
         Convience method to create loopy kernels from kernel_info
@@ -914,25 +955,24 @@ ${name} : ${type}
                 irange=irange
             ))
 
-        from six import iteritems
         # get extra mapping data
         extra_kernel_data = [domain(node.iname)[0]
                              for domain, node in
-                             iteritems(info.mapstore.domain_to_nodes)
-                             if domain.initializer is not None]
+                             six.iteritems(info.mapstore.domain_to_nodes)
+                             if not node.is_leaf()]
 
         extra_kernel_data += self.extra_kernel_data[:]
 
         # check for duplicate kernel data (e.g. multiple phi arguements)
         kernel_data = []
-        for k in info.kernel_data:
+        for k in info.kernel_data + extra_kernel_data:
             if k not in kernel_data:
                 kernel_data.append(k)
 
         # make the kernel
         knl = lp.make_kernel(iname_arr,
                              kernel_str,
-                             kernel_data=kernel_data + extra_kernel_data,
+                             kernel_data=kernel_data,
                              name=info.name,
                              target=target,
                              assumptions=' and '.join(assumptions)
@@ -954,7 +994,8 @@ ${name} : ${type}
             # also register their function manglers
             knl = lp.register_function_manglers(knl, [
                 p.get_func_mangler() for p in info.preambles])
-        return knl
+
+        return self.remove_unused_temporaries(knl)
 
     def apply_specialization(self, loopy_opts, inner_ind, knl, vecspec=None,
                              can_vectorize=True):
