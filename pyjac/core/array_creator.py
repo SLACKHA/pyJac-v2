@@ -602,6 +602,8 @@ class MapStore(object):
                 # and update the branch lists
                 branches.append(list(node.children))
 
+        self.is_finalized = True
+
     def apply_maps(self, variable, *indicies, **kwargs):
         """
         Applies the developed iname mappings to the indicies supplied and
@@ -1062,6 +1064,15 @@ class NameStore(object):
                                   order=self.order)
 
         # per species
+        self.num_net_nonzero_spec = creator('num_net_nonzero_spec',
+                                            dtype=np.int32,
+                                            shape=rate_info['net_per_spec'][
+                                                'map'].shape,
+                                            initializer=np.arange(
+                                                rate_info['net_per_spec'][
+                                                    'map'].size,
+                                                    dtype=np.int32),
+                                            order=self.order)
         self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
                                         shape=rate_info['net_per_spec'][
                                             'map'].shape,
