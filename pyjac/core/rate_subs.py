@@ -1142,8 +1142,8 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
 
         # create map store
         mapstore = arc.MapStore(loopy_opts,
-                                namestore.net_nonzero_spec,
-                                namestore.net_nonzero_spec)
+                                namestore.num_net_nonzero_spec,
+                                namestore.num_net_nonzero_spec)
 
         # add mappings
         mapstore.check_and_add_transform(namestore.spec_rates,
@@ -1697,7 +1697,6 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
                        var_name=var_name,
                        kernel_data=kernel_data,
                        mapstore=fall_map))
-
     return info_list
 
 
