@@ -35,6 +35,80 @@ from nose.plugins.attrib import attr
 from parameterized import parameterized
 
 
+class kf_wrapper(object):
+    """
+    Simple wrapper that calculates Kf / Kf_fall based on order for use in a
+    given function
+
+    Parameters
+    ----------
+    owner : :class:`TestClass`
+        The owning test class (for access to the :class:`storage`)
+    function : FunctionType
+        The function to call
+    """
+
+    def __init__(self, owner, function, **kwargs):
+        self.store = owner.store
+        self.func = function
+        self.kf_val = []
+        self.kf_fall_val = []
+        self.kwargs = kwargs
+        self.kwargs['kf'] = lambda x: np.array(
+            self.kf_val[0], order=x, copy=True)
+        self.kwargs['kf_fall'] = lambda x: np.array(
+            np.array(self.kf_fall_val[0], order=x, copy=True))
+
+    def __call__(self, eqs, loopy_opts, namestore, test_size):
+        # check if we've found the kf / kf_fall values yet
+        if not self.kf_val:
+            # first we have to get the simple arrhenius rates
+            # in order to evaluate the reduced pressure
+
+            device = get_device_list()[0]
+
+            # first with falloff parameters
+            infos = get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
+                                               test_size, falloff=True)
+
+            # create a dummy generator
+            gen = k_gen.make_kernel_generator(
+                name='dummy',
+                loopy_opts=loopy_opts,
+                kernels=infos,
+                test_size=self.store.test_size
+            )
+            gen._make_kernels()
+            kc = kernel_call('kf_fall',
+                             np.empty((self.store.test_size,
+                                       self.store.fall_inds.size)),
+                             **{'phi': self.kwargs['phi']})
+            kc.set_state(loopy_opts.order)
+            self.kf_fall_val.append(
+                populate(gen.kernels, kc, device=device)[0][0])
+
+            # next with regular parameters
+            infos = get_simple_arrhenius_rates(
+                eqs, loopy_opts, namestore, test_size)
+            # create a dummy generator
+            gen = k_gen.make_kernel_generator(
+                name='dummy',
+                loopy_opts=loopy_opts,
+                kernels=infos,
+                test_size=self.store.test_size
+            )
+            gen._make_kernels()
+            kc = kernel_call('kf', np.empty(
+                (self.store.test_size, self.store.gas.n_reactions)),
+                **{'phi': self.kwargs['phi']})
+            kc.set_state(loopy_opts.order)
+            self.kf_val.append(populate(gen.kernels, kc, device=device)[0][0])
+
+        # finally we can call the function
+        return self.func(
+            eqs, loopy_opts, namestore, test_size)
+
+
 class SubTest(TestClass):
 
     def test_get_rate_eqs(self):
@@ -597,69 +671,15 @@ class SubTest(TestClass):
         phi = self.store.phi_cp.copy()
         ref_thd = self.store.ref_thd.copy()
         ref_ans = self.store.ref_Pr.copy()
-        kf_val = []
-        kf_fall_val = []
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
-                'kf': lambda x: np.array(kf_val[0], order=x, copy=True),
-                'kf_fall': lambda x: np.array(kf_fall_val[0],
-                                              order=x, copy=True),
                 'thd_conc': lambda x: np.array(ref_thd, order=x, copy=True),
                 }
 
-        def __tester(eqs, loopy_opts, rate_info, test_size):
-            # check if we've found the kf / kf_fall values yet
-            if not kf_val:
-                # first we have to get the simple arrhenius rates
-                # in order to evaluate the reduced pressure
-
-                device = get_device_list()[0]
-
-                # first with falloff parameters
-                infos = get_simple_arrhenius_rates(eqs, loopy_opts, rate_info,
-                                                   test_size, falloff=True)
-
-                # create a dummy generator
-                gen = k_gen.make_kernel_generator(
-                    name='dummy',
-                    loopy_opts=loopy_opts,
-                    kernels=infos,
-                    test_size=self.store.test_size
-                )
-                gen._make_kernels()
-                kc = kernel_call('kf_fall',
-                                 np.empty((self.store.test_size,
-                                           self.store.fall_inds.size)),
-                                 **{'phi': lambda x:
-                                    np.array(phi, order=x, copy=True)})
-                kc.set_state(loopy_opts.order)
-                kf_fall_val.append(
-                    populate(gen.kernels, kc, device=device)[0][0])
-
-                # next with regular parameters
-                infos = get_simple_arrhenius_rates(
-                    eqs, loopy_opts, rate_info, test_size)
-                # create a dummy generator
-                gen = k_gen.make_kernel_generator(
-                    name='dummy',
-                    loopy_opts=loopy_opts,
-                    kernels=infos,
-                    test_size=self.store.test_size
-                )
-                gen._make_kernels()
-                kc = kernel_call('kf', np.empty(
-                    (self.store.test_size, self.store.gas.n_reactions)),
-                    **{'phi': lambda x:
-                       np.array(phi, order=x, copy=True)})
-                kc.set_state(loopy_opts.order)
-                kf_val.append(populate(gen.kernels, kc, device=device)[0][0])
-
-            # finally we can call the reduced pressure evaluator
-            return get_reduced_pressure_kernel(
-                eqs, loopy_opts, rate_info, test_size)
+        wrapper = kf_wrapper(self, get_reduced_pressure_kernel, **args)
 
         # create the kernel call
-        kc = kernel_call('pred', ref_ans, **args)
-        self.__generic_rate_tester(__tester, kc, do_ratespec=True)
+        kc = kernel_call('pred', ref_ans, **wrapper.kwargs)
+        self.__generic_rate_tester(wrapper, kc, do_ratespec=True)
 
     @attr('long')
     def test_sri_falloff(self):
@@ -742,7 +762,8 @@ class SubTest(TestClass):
 
         args = {'Fi': lambda x: np.array(ref_Fi, order=x, copy=True),
                 'thd_conc': lambda x: np.array(ref_thd, order=x, copy=True),
-                'Pr': lambda x: np.array(ref_Pr, order=x, copy=True)}
+                'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
+                'pres_mod': lambda x: np.zeros_like(ref_pres_mod, order=x)}
 
         thd_only_inds = np.where(
             np.logical_not(np.in1d(self.store.thd_inds,
