@@ -205,3 +205,9 @@ class OpenCL_AtomicPreambleGen(PreambleGen):
             mem_type=mem_type,
             mem_name=mem_short
             )
+
+
+class fmax(MangleGen):
+    def __init__(self, name='fmax', arg_dtypes=(np.float64, np.float64),
+                 result_dtypes=np.float64):
+        super(fmax, self).__init__(name, arg_dtypes, result_dtypes)
