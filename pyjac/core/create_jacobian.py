@@ -605,6 +605,47 @@ def dci_lind_dnj(eqs, loopy_opts, namestore, test_size=None):
     return infos
 
 
+def dci_sri_dnj(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    derivatives of the pressure modification term of SRI falloff
+    reactions with respect to the molar quantity of a species
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dci_dnj`
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    allint : dict
+        Contains keys 'fwd', 'rev' and 'net', with booleans corresponding to
+        whether all nu values for that direction are integers.
+        If True, powers of concentrations will be evaluated using
+        multiplications
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    infos = [__dci_dnj(loopy_opts, namestore, False, rtypes.falloff_form.sri)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, rtypes.falloff_form.sri)
+    if ns_info:
+        infos.append(ns_info)
+    return infos
+
+
 def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the Rate of Progress with respect to the molar quantity of
