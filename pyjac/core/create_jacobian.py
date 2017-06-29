@@ -273,6 +273,7 @@ def __dci_dnj(loopy_opts, namestore,
                         rop_fwd_lp, rop_rev_lp, rev_mask_lp, jac_lp])
 
     parameters = {}
+    manglers = []
 
     fall_update = ''
     # if we have a falloff term, need to calcule the dFi
@@ -321,6 +322,8 @@ def __dci_dnj(loopy_opts, namestore,
             )
 
             parameters['logtensquared'] = log(10) * log(10)
+            manglers.append(lp_pregen.fmax())
+
         elif fall_type == rtypes.falloff_form.troe:
 
             Atroe_lp, Atroe_str = mapstore.apply_maps(
@@ -343,6 +346,7 @@ def __dci_dnj(loopy_opts, namestore,
                 Pr_str=Pr_str
             )
             parameters['logten'] = log(10)
+            manglers.append(lp_pregen.fmax())
         else:
             # lindeman
             dFi = '<> dFi = 0d {id=dFi}'
@@ -514,7 +518,8 @@ def __dci_dnj(loopy_opts, namestore,
                           kernel_data=kernel_data,
                           extra_inames=extra_inames,
                           mapstore=mapstore,
-                          parameters=parameters
+                          parameters=parameters,
+                          manglers=manglers
                           )
 
 
