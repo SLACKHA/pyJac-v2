@@ -217,7 +217,9 @@ class storage(object):
         Pr_poly = 1. / (1. + self.ref_Pr)
         # and multiply the falloff (i.e. non-chem activated terms)
         pure_fall_inds = np.array([i for i, x in enumerate(gas.reactions())
-                                   if isinstance(x, ct.FalloffReaction) and not isinstance(x, ct.ChemicallyActivatedReaction)])
+                                   if isinstance(x, ct.FalloffReaction) and
+                                   not isinstance(
+                                        x, ct.ChemicallyActivatedReaction)])
         pure_fall_inds = np.where(np.in1d(self.fall_inds, pure_fall_inds))[0]
         Pr_poly[:, pure_fall_inds] *= self.ref_Pr[:, pure_fall_inds]
         # finally find the product of the Pr poly and the falloff blending term
