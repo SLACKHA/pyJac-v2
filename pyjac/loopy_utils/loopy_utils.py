@@ -520,6 +520,7 @@ class kernel_call(object):
     def __init__(self, name, ref_answer, compare_axis=1, compare_mask=None,
                  out_mask=None, input_mask=[], strict_name_match=False,
                  chain=None, check=True, post_process=None,
+                 allow_skip=False,
                  **input_args):
         """
         The initializer for the :class:`kernel_call` object
@@ -570,6 +571,11 @@ class kernel_call(object):
             If False, do not check result (useful when chaining to check only
             the last result)
             Default is True
+        allow_skip : bool
+            If True, allow this kernel call to be check results
+            without actually executing a kernel (checks the last kernel).
+            This is useful for selectively turning off kernels (e.g. if there
+            are no reverse reactions)
         input_args : dict of `numpy.array`s
             The arguements to supply to the kernel
 
@@ -600,6 +606,7 @@ class kernel_call(object):
         self.post_process = post_process
         self.check = check
         self.current_order = None
+        self.allow_skip = allow_skip
 
     def is_my_kernel(self, knl):
         """
@@ -829,7 +836,7 @@ def populate(knl, kernel_calls, device='0',
                     out_ref[ind][copy_inds] = out[ind][copy_inds]
 
         output.append(out_ref)
-        assert found, (
+        assert found or kc.allow_skip, (
             'No kernels could be found to match kernel call {}'.format(
                 kc.name))
     return output
@@ -869,7 +876,10 @@ def auto_run(knl, kernel_calls, device='0'):
         result = True
         for i, kc in enumerate(kernel_calls):
             if kc.check:
-                result = result and kc.compare(out[i])
+                ind = i
+                if kc.allow_skip:
+                    ind -= 1
+                result = result and kc.compare(out[ind])
         return result
     except:
         return kernel_calls.compare(out[0])

@@ -17,6 +17,7 @@ problem_size = lp.ValueArg('problem_size', dtype=np.int32)
 
 
 class tree_node(object):
+
     """
         A node in the :class:`MapStore`'s domain tree.
         Contains a base domain, a list of child domains, and a list of
@@ -114,6 +115,7 @@ class tree_node(object):
 
 
 class domain_transform(object):
+
     """
     Simple helper class to keep track of transform variables to test for
     equality
@@ -955,8 +957,8 @@ class NameStore(object):
                                      shape=(rate_info['rev']['num'],),
                                      dtype=np.int32, order=self.order,
                                      initializer=np.arange(
-                                        rate_info['rev']['num'],
-                                        dtype=np.int32))
+                                         rate_info['rev']['num'],
+                                         dtype=np.int32))
         self.phi_spec_inds = creator('phi_spec_inds',
                                      shape=(rate_info['Ns'] - 1,),
                                      dtype=np.int32, order=self.order,
@@ -1071,7 +1073,7 @@ class NameStore(object):
                                             initializer=np.arange(
                                                 rate_info['net_per_spec'][
                                                     'map'].size,
-                                                    dtype=np.int32),
+                                                dtype=np.int32),
                                             order=self.order)
         self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
                                         shape=rate_info['net_per_spec'][
@@ -1299,6 +1301,12 @@ class NameStore(object):
                                         shape=mapv.shape,
                                         initializer=mapv,
                                         order=self.order)
+            self.num_thd_only = creator('num_thd_only',
+                                        dtype=np.int32,
+                                        shape=mapv.shape,
+                                        initializer=np.arange(mapv.size,
+                                                              dtype=np.int32),
+                                        order=self.order)
 
             mask = _make_mask(mapv, rate_info['Nr'])
             self.thd_only_mask = creator('thd_only_mask',
@@ -1330,18 +1338,22 @@ class NameStore(object):
                                    shape=num_thd.shape,
                                    initializer=num_thd,
                                    order=self.order)
-            self.thd_has_ns = creator('thd_has_ns',
-                                      dtype=rate_info['thd']['has_ns'].dtype,
-                                      shape=rate_info['thd']['has_ns'].shape,
-                                      initializer=rate_info['thd']['has_ns'],
-                                      order=self.order)
-            num_thd_has_ns = np.arange(rate_info['thd']['has_ns'].size,
-                                       dtype=np.int32)
-            self.num_thd_has_ns = creator('num_thd_has_ns',
-                                          dtype=num_thd_has_ns.dtype,
-                                          shape=num_thd_has_ns.shape,
-                                          initializer=num_thd_has_ns,
-                                          order=self.order)
+            thd_only_has_ns = np.where(
+                np.in1d(
+                    self.thd_only_map.initializer,
+                    rate_info['thd']['has_ns']))[0].astype(np.int32)
+            self.thd_only_has_ns = creator('thd_only_has_ns',
+                                           dtype=thd_only_has_ns.dtype,
+                                           shape=thd_only_has_ns.shape,
+                                           initializer=thd_only_has_ns,
+                                           order=self.order)
+            self.num_thd_only_has_ns = creator('num_thd_only_has_ns',
+                                               dtype=thd_only_has_ns.dtype,
+                                               shape=thd_only_has_ns.shape,
+                                               initializer=np.arange(
+                                                thd_only_has_ns.size,
+                                                dtype=np.int32),
+                                               order=self.order)
             self.thd_type = creator('thd_type',
                                     dtype=rate_info['thd']['type'].dtype,
                                     shape=rate_info['thd']['type'].shape,
@@ -1672,6 +1684,22 @@ class NameStore(object):
                                         dtype=num_lind.dtype,
                                         initializer=num_lind,
                                         order=self.order)
+                lind_has_ns = np.where(
+                    np.in1d(rate_info['fall']['lind']['map'],
+                            rate_info['reac_has_ns']))[0].astype(
+                        dtype=np.int32)
+                self.lind_has_ns = creator('lind_has_ns',
+                                           shape=lind_has_ns.shape,
+                                           dtype=lind_has_ns.dtype,
+                                           initializer=lind_has_ns,
+                                           order=self.order)
+                self.num_lind_has_ns = creator('lind_has_ns',
+                                               shape=lind_has_ns.shape,
+                                               dtype=np.int32,
+                                               initializer=np.arange(
+                                                    lind_has_ns.size,
+                                                    dtype=np.int32),
+                                               order=self.order)
 
         # chebyshev
         if rate_info['cheb']['num']:
