@@ -9,6 +9,7 @@ from __future__ import print_function
 # Standard libraries
 import sys
 import os
+from math import log
 from string import Template
 
 # Local imports
@@ -49,10 +50,11 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
-def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
+def __dci_dnj(loopy_opts, namestore,
+              do_ns=False, fall_type=rtypes.falloff_form.none):
     """Generates instructions, kernel arguements, and data for calculating
-    derivatives of the third body concentrations with respect to the molar
-    quantity of a species
+    derivatives of the third body concentrations / falloff blending factors
+    with respect to the molar quantity of a species
 
     Notes
     -----
@@ -107,221 +109,495 @@ def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    # here we split the third body derivative into two kernels
-    # one which operates on the 'j' derivative, and another that handles
-    # third body efficiencies where the last species has a non-unity efficiency
-    def __dci_thd_dnj(do_ns=False):
-        rxn_range = namestore.num_thd if not do_ns else namestore.thd_has_ns
+    if fall_type == rtypes.falloff_form.none:
+        num_range = namestore.num_thd_only if not do_ns \
+            else namestore.num_thd_only_has_ns
+        rxn_range = namestore.thd_only_map if not do_ns \
+            else namestore.thd_only_has_ns
+        thd_range = namestore.thd_only_map if not do_ns \
+            else namestore.thd_only_has_ns
+        map_onto = namestore.thd_map
+    elif fall_type == rtypes.falloff_form.sri:
+        num_range = namestore.num_sri if not do_ns \
+            else namestore.num_sri_has_ns
+        rxn_range = namestore.sri_map if not do_ns \
+            else namestore.sri_has_ns
+        thd_range = namestore.fall_to_thd_map
+        map_onto = namestore.fall_map
+    elif fall_type == rtypes.falloff_form.troe:
+        num_range = namestore.num_troe if not do_ns \
+            else namestore.num_troe_has_ns
+        rxn_range = namestore.troe_map if not do_ns \
+            else namestore.troe_has_ns
+        thd_range = namestore.fall_to_thd_map
+        map_onto = namestore.fall_map
+    elif fall_type == rtypes.falloff_form.lind:
+        num_range = namestore.num_lind if not do_ns \
+            else namestore.num_lind_has_ns
+        rxn_range = namestore.lind_map if not do_ns \
+            else namestore.lind_has_ns
+        thd_range = namestore.fall_to_thd_map
+        map_onto = namestore.fall_map
 
-        # main loop is over third body rxns (including falloff / chemically
-        # activated)
-        mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+    knl_name = 'dci_{}_dnj{}'.format(
+        {rtypes.falloff_form.none: 'thd',
+         rtypes.falloff_form.lind: 'lind',
+         rtypes.falloff_form.sri: 'sri',
+         rtypes.falloff_form.troe: 'troe'
+         }[fall_type], '' if not do_ns else '_ns')
 
-        # indicies
-        kernel_data = []
-        if namestore.test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+    if not rxn_range.initializer.size:
+        # can't create kernel from empty reaction range
+        return None
 
-        global_rxn_ind = var_name
-        if do_ns:
-            # need the thd_map explicitly
-            mapstore.check_and_add_transform(namestore.thd_type, rxn_range)
-            mapstore.check_and_add_transform(namestore.thd_map, rxn_range)
-            thd_map_lp, global_rxn_ind = mapstore.apply_maps(
-                namestore.thd_map, var_name)
-            kernel_data.append(thd_map_lp)
-            # and need to map the efficiency
-            mapstore.check_and_add_transform(
-                namestore.thd_eff_ns, namestore.num_thd_has_ns)
+    # main loop is over third body rxns (including falloff / chemically
+    # activated)
+    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+
+    # indicies
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    # need to add a map from the loop index to the third / falloff index
+    mapstore.check_and_add_transform(rxn_range, num_range)
+    # and from the fall / third index to the actual reaction index
+    mapstore.check_and_add_transform(map_onto, rxn_range)
+
+    if fall_type != rtypes.falloff_form.none:
+        # the fall to third map depending on the reaction range
+        mapstore.check_and_add_transform(thd_range, rxn_range)
+
+    # the third body parameters map into the rxn_range
+    mapstore.check_and_add_transform(namestore.thd_offset, thd_range)
+    mapstore.check_and_add_transform(namestore.thd_type, thd_range)
+
+    # while the net offsets map onto the map_onto range
+    mapstore.check_and_add_transform(namestore.rop_fwd, map_onto)
+    mapstore.check_and_add_transform(namestore.rxn_to_spec_offsets, map_onto)
+
+    # and the reverse rop needs a map onto the rev mask
+    mapstore.check_and_add_transform(namestore.rev_mask, map_onto)
+    mapstore.check_and_add_transform(namestore.rop_rev, namestore.rev_mask)
+
+    # falloff transforms
+    if fall_type != rtypes.falloff_form.none:
+        # pr is on the falloff index
+        mapstore.check_and_add_transform(namestore.Pr, rxn_range)
+        # while the pressure modification term is indexed by the third body
+        # index
+        mapstore.check_and_add_transform(
+            namestore.pres_mod, namestore.fall_to_thd_map)
+        # kf is on the real reaction index
+        mapstore.check_and_add_transform(namestore.kf, map_onto)
+        # Fi is indexed on the falloff index
+        mapstore.check_and_add_transform(namestore.Fi, rxn_range)
+        # kf_fall is on the falloff reaction index
+        mapstore.check_and_add_transform(namestore.kf_fall, rxn_range)
+        # and the falloff type is on the falloff index
+        mapstore.check_and_add_transform(namestore.fall_type, rxn_range)
+
+        if fall_type == rtypes.falloff_form.sri:
+            # get the sri arrays, keyed on the SRI index
+            mapstore.check_and_add_transform(namestore.sri_a, num_range)
+            mapstore.check_and_add_transform(namestore.sri_b, num_range)
+            mapstore.check_and_add_transform(namestore.sri_c, num_range)
+            mapstore.check_and_add_transform(namestore.X_sri, num_range)
+        elif fall_type == rtypes.falloff_form.troe:
+            # get the troe arrays, keyed on the troe index
+            mapstore.check_and_add_transform(namestore.Atroe, num_range)
+            mapstore.check_and_add_transform(namestore.Btroe, num_range)
+            mapstore.check_and_add_transform(namestore.Fcent, num_range)
+
+    # third body efficiencies, types and offsets
+    thd_offset_lp, thd_offset_str = mapstore.apply_maps(
+        namestore.thd_offset, var_name)
+    _, thd_offset_next_str = mapstore.apply_maps(
+        namestore.thd_offset, var_name, affine=1)
+
+    # Ns efficiency is on main loop
+    thd_eff_ns_lp, thd_eff_ns_str = mapstore.apply_maps(
+        namestore.thd_eff_ns, var_name)
+
+    # third body type is on main loop
+    thd_type_lp, thd_type_str = mapstore.apply_maps(
+        namestore.thd_type, var_name)
+
+    # efficiencies / species are on the inner loop
+    spec_k = 'spec_k'
+    spec_j = 'spec_j'
+    spec_j_ind = 'spec_j_ind'
+    spec_k_ind = 'spec_k_ind'
+
+    # third body eff of species j
+    thd_eff_lp, thd_eff_j_str = mapstore.apply_maps(
+        namestore.thd_eff, spec_j_ind)
+
+    # species j
+    thd_spec_lp, spec_j_str = mapstore.apply_maps(
+        namestore.thd_spec, spec_j_ind)
+
+    # get net species
+    rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name)
+    _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name, affine=1)
+    # species 'k' is on k loop
+    specs_lp, spec_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, spec_k_ind)
+    # get product nu
+    nu_lp, prod_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, spec_k_ind, affine=spec_k_ind)
+    # and reac nu
+    _, reac_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, spec_k_ind, affine=spec_k_ind)
+
+    jac_map = (spec_k, spec_j)
+
+    # rop
+    rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
+        namestore.rop_fwd, *default_inds)
+    rop_rev_lp, rop_rev_str = mapstore.apply_maps(
+        namestore.rop_rev, *default_inds)
+    rev_mask_lp, rev_mask_str = mapstore.apply_maps(
+        namestore.rev_mask, var_name)
+
+    # and jacobian
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, *jac_map, affine={x: 2 for x in jac_map}
+    )
+
+    # update data and extra inames
+    kernel_data.extend([thd_offset_lp, thd_eff_ns_lp, thd_type_lp, thd_eff_lp,
+                        thd_spec_lp, rxn_to_spec_offsets_lp, specs_lp, nu_lp,
+                        rop_fwd_lp, rop_rev_lp, rev_mask_lp, jac_lp])
+
+    parameters = {}
+
+    fall_update = ''
+    # if we have a falloff term, need to calcule the dFi
+    if fall_type != rtypes.falloff_form.none:
+        # add entries needed by all falloff reactions
+        Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
+        Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
+        pres_mod_lp, pres_mod_str = mapstore.apply_maps(
+            namestore.pres_mod, *default_inds)
+        kf_lp, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
+        kf_fall_lp, kf_fall_str = mapstore.apply_maps(
+            namestore.kf_fall, *default_inds)
+        fall_type_lp, fall_type_str = mapstore.apply_maps(
+            namestore.fall_type, var_name)
+        # update data
+        kernel_data.extend(
+            [Pr_lp, pres_mod_lp, kf_lp, kf_fall_lp, fall_type_lp, Fi_lp])
+
+        # handle type specific parameters
+        if fall_type == rtypes.falloff_form.sri:
+            sri_a_lp, sri_a_str = mapstore.apply_maps(
+                namestore.sri_a, var_name)
+            sri_b_lp, sri_b_str = mapstore.apply_maps(
+                namestore.sri_b, var_name)
+            sri_c_lp, sri_c_str = mapstore.apply_maps(
+                namestore.sri_c, var_name)
+            sri_X_lp, sri_X_str = mapstore.apply_maps(
+                namestore.X_sri, var_name)
+
+            # and the temperature
+            T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+
+            # add data, and put together falloff string
+            kernel_data.extend([sri_a_lp, sri_b_lp, sri_c_lp, sri_X_lp])
+
+            dFi = Template(
+                """
+        <> dFi = 2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * exp(-${sri_b_str} / ${T_str}) - exp(-${T_str} / ${sri_c_str})) * log(fmax(${Pr_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi}
+        """).substitute(
+                sri_X_str=sri_X_str,
+                sri_a_str=sri_a_str,
+                sri_b_str=sri_b_str,
+                sri_c_str=sri_c_str,
+                T_str=T_str,
+                Pr_str=Pr_str
+            )
+
+            parameters['logtensquared'] = log(10) * log(10)
+        elif fall_type == rtypes.falloff_form.troe:
+
+            Atroe_lp, Atroe_str = mapstore.apply_maps(
+                namestore.Atroe, var_name)
+            Btroe_lp, Btroe_str = mapstore.apply_maps(
+                namestore.Btroe, var_name)
+            Fcent_lp, Fcent_str = mapstore.apply_maps(
+                namestore.Fcent, var_name)
+
+            kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp])
+
+            dFi = Template(
+                """
+        <> dFi_fac = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str}
+        <> dFi = 2 * ${Atroe_str} * ${Btroe_str} * (0.14 * ${Atroe_str} + ${Btroe_str}) * log(fmax(${Fcent_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * dFi_fac * dFi_fac * logten) {id=dFi}
+        """).substitute(
+                Atroe_str=Atroe_str,
+                Btroe_str=Btroe_str,
+                Fcent_str=Fcent_str,
+                Pr_str=Pr_str
+            )
+            parameters['logten'] = log(10)
         else:
-            # can add maps usual way
-            mapstore.check_and_add_transform(
-                namestore.rop_net, namestore.thd_map)
-            mapstore.check_and_add_transform(
-                namestore.rxn_to_spec_offsets, namestore.thd_map)
+            # lindeman
+            dFi = '<> dFi = 0d {id=dFi}'
 
-        # third body efficiencies, types and offsets
-        thd_offset_lp, thd_offset_str = mapstore.apply_maps(
-            namestore.thd_offset, var_name)
-        _, thd_offset_next_str = mapstore.apply_maps(
-            namestore.thd_offset, var_name, affine=1)
+        # finally handle the falloff vs chemically activated updater
+        fall_update = Template("""
+        ${dFi}
 
-        # Ns efficiency is on main loop
-        thd_eff_ns_lp, thd_eff_ns_str = mapstore.apply_maps(
-            namestore.thd_eff_ns, var_name)
+        # set parameters for both
+        <> Fi_fac = dFi {id=dFi_fac_init, dep=dFi}
+        if ${fall_type_str}
+            # chemically activated
+            <>k0 = ${kf_str} {id=kf_chem}
+            <>kinf = ${kf_fall_str} {id=kinf_chem}
+        else
+            # fall-off
+            kinf = ${kf_str} {id=kinf_fall}
+            k0 = ${kf_fall_str} {id=kf_fall}
+            Fi_fac = ${Pr_str} * Fi_fac + 1 {id=dFi_fac_up, dep=dFi_fac_init}
+        end
 
-        # third body type is on main loop
-        thd_type_lp, thd_type_str = mapstore.apply_maps(
-            namestore.thd_type, var_name)
-
-        # efficiencies / species are on the inner loop
-        spec_k = 'spec_k'
-        spec_j = 'spec_j'
-        spec_j_ind = 'spec_j_ind'
-        spec_k_ind = 'spec_k_ind'
-
-        # third body eff of species j
-        thd_eff_lp, thd_eff_j_str = mapstore.apply_maps(
-            namestore.thd_eff, spec_j_ind)
-
-        # species j
-        thd_spec_lp, spec_j_str = mapstore.apply_maps(
-            namestore.thd_spec, spec_j_ind)
-
-        # get net species
-        rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_offsets, global_rxn_ind)
-        _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_offsets, global_rxn_ind, affine=1)
-        # species 'k' is on k loop
-        specs_lp, spec_k_str = mapstore.apply_maps(
-            namestore.rxn_to_spec, spec_k_ind)
-        # get product nu
-        nu_lp, prod_nu_k_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_prod_nu, spec_k_ind, affine=spec_k_ind)
-        # and reac nu
-        _, reac_nu_k_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_reac_nu, spec_k_ind, affine=spec_k_ind)
-
-        jac_map = (spec_k, spec_j)
-
-        # rop
-        rop_net_lp, rop_net_str = mapstore.apply_maps(
-            namestore.rop_net, global_ind, global_rxn_ind)
-
-        # and jacobian
-        jac_lp, jac_str = mapstore.apply_maps(
-            namestore.jac, global_ind, *jac_map, affine={x: 2 for x in jac_map}
+        # and update dFi
+        dFi =  k0 * (${Fi_str} * Fi_fac - ${pres_mod_str}) / (kinf * (${Pr_str} + 1)) {id=fall, dep=kf_*:kinf_*:dFi_fac_*}
+        """).substitute(
+            dFi=dFi,
+            fall_type_str=fall_type_str,
+            kf_str=kf_str,
+            kf_fall_str=kf_fall_str,
+            Pr_str=Pr_str,
+            Fi_str=Fi_str,
+            pres_mod_str=pres_mod_str
         )
 
-        # update data and extra inames
-        kernel_data.extend([thd_offset_lp, thd_eff_ns_lp, thd_type_lp,
-                            thd_eff_lp, thd_spec_lp, rxn_to_spec_offsets_lp,
-                            specs_lp, nu_lp, rop_net_lp, jac_lp])
+    extra_inames = [
+        (spec_k_ind, 'rxn_off <= {} < rxn_off_next'.format(spec_k_ind))]
+    if not do_ns:
+        extra_inames.append(
+            (spec_j_ind, 'thd_off <= {} < thd_off_next'.format(spec_j_ind)))
 
-        extra_inames = [
-            (spec_k_ind, 'rxn_off <= {} < rxn_off_next'.format(spec_k_ind))]
-        if not do_ns:
-            extra_inames.append(
-                (spec_j_ind, 'thd_off <= {} < thd_off_next'.format(spec_j_ind)))
-
-            instructions = Template("""
-            <> thd_off = ${thd_offset_str}
-            <> thd_off_next = ${thd_offset_next_str}
-            <> rxn_off = ${rxn_to_spec_offsets_str}
-            <> rxn_off_next = ${rxn_to_spec_offsets_next_str}
-            <> ropi = ${rop_net_str}
-            for ${spec_j_ind}
-                <> spec_j = ${spec_j_str}
-                if ${spec_j} != ${ns}
-                    <> dci = 0 {id=ci_init}
-                    if ${thd_type_str} == ${mix}
-                        # here we assume the last species has an efficiency of 1
-                        # if this is not true, it will be fixed in the Ns kernel
-                        dci = ${thd_eff_j_str} - 1.0 {id=ci_up, dep=ci_init}
-                    end
-                    if ${thd_type_str} == ${species}
-                        # if we get here, delta(j, m) is true by default
-                        # hence derivative is one
-                        dci = 1 {id=ci_up2, dep=ci_init}
-                    end
-                    for ${spec_k_ind}
-                        <> ${spec_k} = ${spec_k_str}
-                        <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
-                        if ${spec_k} != ${ns}
-                            ${jac_str} = ${jac_str} + nu_k * dci * ropi
-                        end
+        instructions = Template("""
+        <> thd_off = ${thd_offset_str}
+        <> thd_off_next = ${thd_offset_next_str}
+        <> rxn_off = ${rxn_to_spec_offsets_str}
+        <> rxn_off_next = ${rxn_to_spec_offsets_next_str}
+        <> ropi = ${rop_fwd_str} {id=ropi}
+        if ${rev_mask_str} >= 0
+            ropi = ropi - ${rop_rev_str} {id=ropi_up, dep=ropi}
+        end
+        ${fall_update} # insert falloff form if necessary
+        for ${spec_j_ind}
+            <> spec_j = ${spec_j_str}
+            if ${spec_j} != ${ns}
+                <> dci = 0 {id=ci_init}
+                if ${thd_type_str} == ${mix}
+                    # here we assume the last species has an efficiency of 1
+                    # if this is not true, it will be fixed in the Ns kernel
+                    dci = ${thd_eff_j_str} - 1.0 {id=ci_up, dep=ci_init}
+                end
+                if ${thd_type_str} == ${species}
+                    # if we get here, delta(j, m) is true by default
+                    # hence derivative is one
+                    dci = 1 {id=ci_up2, dep=ci_init}
+                end
+                for ${spec_k_ind}
+                    <> ${spec_k} = ${spec_k_str}
+                    <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
+                    if ${spec_k} != ${ns}
+                        ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str}
                     end
                 end
             end
-            """).substitute(
-                thd_offset_str=thd_offset_str,
-                thd_offset_next_str=thd_offset_next_str,
-                rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
-                rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
-                thd_eff_ns_str=thd_eff_ns_str,
-                rop_net_str=rop_net_str,
-                thd_eff_j_str=thd_eff_j_str,
-                spec_j_ind=spec_j_ind,
-                spec_j=spec_j,
-                spec_j_str=spec_j_str,
-                spec_k=spec_k,
-                spec_k_str=spec_k_str,
-                spec_k_ind=spec_k_ind,
-                prod_nu_k_str=prod_nu_k_str,
-                reac_nu_k_str=reac_nu_k_str,
-                jac_str=jac_str,
-                ns=namestore.num_specs.initializer[-1],
-                thd_type_str=thd_type_str,
-                mix=int(rtypes.thd_body_type.mix),
-                species=int(rtypes.thd_body_type.species),
-            )
-        else:
-            extra_inames.append((spec_j, '0 <= {} < {}'.format(
-                spec_j, namestore.num_specs.initializer[-1])))
+        end
+        """).substitute(
+            thd_offset_str=thd_offset_str,
+            thd_offset_next_str=thd_offset_next_str,
+            rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
+            rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
+            thd_eff_ns_str=thd_eff_ns_str,
+            rop_fwd_str=rop_fwd_str,
+            rop_rev_str=rop_rev_str,
+            rev_mask_str=rev_mask_str,
+            thd_eff_j_str=thd_eff_j_str,
+            spec_j_ind=spec_j_ind,
+            spec_j=spec_j,
+            spec_j_str=spec_j_str,
+            spec_k=spec_k,
+            spec_k_str=spec_k_str,
+            spec_k_ind=spec_k_ind,
+            prod_nu_k_str=prod_nu_k_str,
+            reac_nu_k_str=reac_nu_k_str,
+            jac_str=jac_str,
+            ns=namestore.num_specs.initializer[-1],
+            thd_type_str=thd_type_str,
+            mix=int(rtypes.thd_body_type.mix),
+            species=int(rtypes.thd_body_type.species),
+            fall_update=fall_update,
+            fall_mul_str=(' * dFi {dep=fall}'
+                          if fall_type != rtypes.falloff_form.none else '')
+        )
+    else:
+        extra_inames.append((spec_j, '0 <= {} < {}'.format(
+            spec_j, namestore.num_specs.initializer[-1])))
 
-            instructions = Template("""
-            <> rxn_off = ${rxn_to_spec_offsets_str}
-            <> rxn_off_next = ${rxn_to_spec_offsets_next_str}
-            <> ns_thd_eff = ${thd_eff_ns_str}
-            <> ropi = ${rop_net_str}
-            <> dci = 0 {id=ci_init}
-            if ${thd_type_str} == ${mix}
-                # non-specified species have a efficiency of 1.0
-                # and we have already deducted an efficiency of 1.0 from the
-                # specified species
-                # Hence, this formulation accounts for both parts of \alpha_j - \alpha_ns
-                dci = 1.0 - ns_thd_eff {id=ci_up, dep=ci_init}
-            end
-            if ${thd_type_str} == ${species}
-                dci = -1 {id=ci_up2, dep=ci_init}
-            end
-            for ${spec_k_ind}
-                <> ${spec_k} = ${spec_k_str}
-                <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
-                if ${spec_k} != ${ns}
-                    for ${spec_j}
-                        ${jac_str} = ${jac_str} + nu_k * dci * ropi
-                    end
+        instructions = Template("""
+        <> rxn_off = ${rxn_to_spec_offsets_str}
+        <> rxn_off_next = ${rxn_to_spec_offsets_next_str}
+        <> ns_thd_eff = ${thd_eff_ns_str}
+        <> ropi = ${rop_fwd_str} {id=ropi}
+        if ${rev_mask_str} >= 0
+            ropi = ropi - ${rop_rev_str} {id=ropi_up, dep=ropi}
+        end
+        <> dci = 0 {id=ci_init}
+        ${fall_update} # insert falloff form if necessary
+        if ${thd_type_str} == ${mix}
+            # non-specified species have a efficiency of 1.0
+            # and we have already deducted an efficiency of 1.0 from the
+            # specified species
+            # Hence, this formulation accounts for both parts of \alpha_j - \alpha_ns
+            dci = 1.0 - ns_thd_eff {id=ci_up, dep=ci_init}
+        end
+        if ${thd_type_str} == ${species}
+            dci = -1 {id=ci_up2, dep=ci_init}
+        end
+        for ${spec_k_ind}
+            <> ${spec_k} = ${spec_k_str}
+            <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
+            if ${spec_k} != ${ns}
+                for ${spec_j}
+                    ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str}
                 end
             end
-            """).substitute(
-                thd_offset_str=thd_offset_str,
-                thd_offset_next_str=thd_offset_next_str,
-                rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
-                rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
-                thd_eff_ns_str=thd_eff_ns_str,
-                rop_net_str=rop_net_str,
-                thd_eff_j_str=thd_eff_j_str,
-                spec_j_ind=spec_j_ind,
-                spec_j=spec_j,
-                spec_j_str=spec_j_str,
-                spec_k=spec_k,
-                spec_k_str=spec_k_str,
-                spec_k_ind=spec_k_ind,
-                prod_nu_k_str=prod_nu_k_str,
-                reac_nu_k_str=reac_nu_k_str,
-                jac_str=jac_str,
-                ns=namestore.num_specs.initializer[-1],
-                thd_type_str=thd_type_str,
-                mix=int(rtypes.thd_body_type.mix),
-                species=int(rtypes.thd_body_type.species),
-            )
-
-        # join inames
-        inames, ranges = zip(*extra_inames)
-        extra_inames = [(','.join(inames),
-                         ' and '.join(ranges))]
-
-        return k_gen.knl_info(name='dci_thd_dnj{}'.format(
-            '_ns' if do_ns else ''),
-            instructions=instructions,
-            var_name=var_name,
-            kernel_data=kernel_data,
-            extra_inames=extra_inames,
-            mapstore=mapstore
+        end
+        """).substitute(
+            thd_offset_str=thd_offset_str,
+            thd_offset_next_str=thd_offset_next_str,
+            rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
+            rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
+            thd_eff_ns_str=thd_eff_ns_str,
+            rop_fwd_str=rop_fwd_str,
+            rop_rev_str=rop_rev_str,
+            rev_mask_str=rev_mask_str,
+            thd_eff_j_str=thd_eff_j_str,
+            spec_j_ind=spec_j_ind,
+            spec_j=spec_j,
+            spec_j_str=spec_j_str,
+            spec_k=spec_k,
+            spec_k_str=spec_k_str,
+            spec_k_ind=spec_k_ind,
+            prod_nu_k_str=prod_nu_k_str,
+            reac_nu_k_str=reac_nu_k_str,
+            jac_str=jac_str,
+            ns=namestore.num_specs.initializer[-1],
+            thd_type_str=thd_type_str,
+            mix=int(rtypes.thd_body_type.mix),
+            species=int(rtypes.thd_body_type.species),
+            fall_update=fall_update,
+            fall_mul_str=(' * dFi {dep=fall}'
+                          if fall_type != rtypes.falloff_form.none else '')
         )
-    return [__dci_thd_dnj(False), __dci_thd_dnj(True)]
+
+    inames, ranges = zip(*extra_inames)
+    # join inames
+    extra_inames = [
+        (','.join(inames), ' and '.join(ranges))]
+
+    return k_gen.knl_info(name=knl_name,
+                          instructions=instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          extra_inames=extra_inames,
+                          mapstore=mapstore,
+                          parameters=parameters
+                          )
+
+
+def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    derivatives of the pressure modification term of third body reactions
+    with respect to the molar quantity of a species
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dci_dnj`
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    allint : dict
+        Contains keys 'fwd', 'rev' and 'net', with booleans corresponding to
+        whether all nu values for that direction are integers.
+        If True, powers of concentrations will be evaluated using
+        multiplications
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    infos = [__dci_dnj(loopy_opts, namestore, False)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True)
+    if ns_info:
+        infos.append(ns_info)
+    return infos
+
+
+def dci_lind_dnj(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    derivatives of the pressure modification term of Lindemann falloff
+    reactions with respect to the molar quantity of a species
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dci_dnj`
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    allint : dict
+        Contains keys 'fwd', 'rev' and 'net', with booleans corresponding to
+        whether all nu values for that direction are integers.
+        If True, powers of concentrations will be evaluated using
+        multiplications
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    infos = [__dci_dnj(loopy_opts, namestore, False, rtypes.falloff_form.lind)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, rtypes.falloff_form.lind)
+    if ns_info:
+        infos.append(ns_info)
+    return infos
 
 
 def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
@@ -402,6 +678,25 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         mapstore.check_and_add_transform(
             namestore.rxn_to_spec_offsets, rxn_range)
 
+        if do_ns:
+            # check for transform on forward
+            mapstore.check_and_add_transform(namestore.kf, rxn_range)
+
+            # and reverse
+            mapstore.check_and_add_transform(
+                namestore.rev_mask, rxn_range)
+
+            # check and add transforms for pressure mod
+            mapstore.check_and_add_transform(
+                namestore.thd_mask, rxn_range)
+
+        else:
+            # add default transforms
+            mapstore.check_and_add_transform(
+                namestore.kr, namestore.rev_mask)
+            mapstore.check_and_add_transform(
+                namestore.pres_mod, namestore.thd_mask)
+
         rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
             namestore.rxn_to_spec_offsets, var_name)
         _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
@@ -424,32 +719,18 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         kr_lp = None
         pres_mod_lp = None
         if do_ns:
-            # check for transform on forward
-            mapstore.check_and_add_transform(namestore.kf, rxn_range)
-
-            # and reverse
-            mapstore.check_and_add_transform(
-                namestore.rev_mask, rxn_range)
             # create mask string and use as kr index
             rev_mask_lp, rev_mask_str = mapstore.apply_maps(
                 namestore.rev_mask, var_name)
             kr_lp, kr_str = mapstore.apply_maps(
                 namestore.kr, global_ind, rev_mask_str)
 
-            # check and add transforms for pressure mod
-            mapstore.check_and_add_transform(
-                namestore.thd_mask, rxn_range)
             # create mask string and use as pmod index
             pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
                 namestore.thd_mask, var_name)
             pres_mod_lp, pres_mod_str = mapstore.apply_maps(
                 namestore.pres_mod, global_ind, pmod_mask_str)
         else:
-            # add default transforms
-            mapstore.check_and_add_transform(
-                namestore.kr, namestore.rev_mask)
-            mapstore.check_and_add_transform(
-                namestore.pres_mod, namestore.thd_mask)
 
             # default creators:
             rev_mask_lp, rev_mask_str = mapstore.apply_maps(
@@ -496,8 +777,12 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
 
         # now start creating the instructions
 
-        extra_inames = [(net_ind_k, 'net_offset <= {} < net_offset_next'.format(net_ind_k)),
-                        (','.join(inner_inds), 'inner_offset <= {} < inner_offset_next'.format(','.join(inner_inds)))]
+        extra_inames = [
+            (net_ind_k,
+             'net_offset <= {} < net_offset_next'.format(net_ind_k))]
+        for ind in inner_inds:
+            extra_inames.append(
+                (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
         if not do_ns:
             inner = ("""
@@ -608,6 +893,11 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             pres_mod_str=pres_mod_str,
             ns=namestore.num_specs.initializer[-1]
         )
+
+        inames, ranges = zip(*extra_inames)
+        # join inames
+        extra_inames = [
+            (','.join(inames), ' and '.join(ranges))]
         return k_gen.knl_info(name='dRopidnj{}'.format('_ns' if do_ns else ''),
                               instructions=instructions,
                               var_name=var_name,
