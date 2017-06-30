@@ -3,7 +3,7 @@ from ..core.rate_subs import (
     assign_rates, get_concentrations,
     get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
     get_rxn_pres_mod, get_reduced_pressure_kernel, get_lind_kernel,
-    get_sri_kernel, get_simple_arrhenius_rates)
+    get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list,
@@ -12,7 +12,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        populate
                                        )
 from ..core.create_jacobian import (
-    dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj)
+    dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .test_rate_subs import kf_wrapper, kernel_runner
@@ -512,15 +512,7 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_thd_dnj, kc)
 
-    @attr('long')
-    def test_dci_lind_dnj(self):
-        # test conp
-        namestore, rate_info = self._make_namestore(True)
-        ad_opts = namestore.loopy_opts
-
-        # set up arguements
-        allint = {'net': rate_info['net']['allint']}
-
+    def __get_removed(self):
         # get our form of rop_fwd / rop_rev
         fwd_removed = self.store.fwd_rxn_rate.copy()
         fwd_removed[:, self.store.thd_inds] = fwd_removed[
@@ -535,6 +527,45 @@ class SubTest(TestClass):
         # remove ref pres mod = 0 (this is a 0 rate)
         fwd_removed[np.where(np.isnan(fwd_removed))] = 0
         rev_removed[np.where(np.isnan(rev_removed))] = 0
+
+        return fwd_removed, rev_removed
+
+    def __get_dci_check(self, include_test):
+        include = set()
+        exclude = set()
+        # get list of species not in falloff / chemically activated
+        for i_rxn, rxn in enumerate(self.store.gas.reactions()):
+            specs = set(list(rxn.products.keys()) + list(rxn.reactants.keys()))
+            nonzero_specs = set()
+            if isinstance(rxn, ct.FalloffReaction) or isinstance(
+                    rxn, ct.ThreeBodyReaction):
+                for spec in specs:
+                    nu = 0
+                    if spec in rxn.products:
+                        nu += rxn.products[spec]
+                    if spec in rxn.reactants:
+                        nu -= rxn.reactants[spec]
+                    if nu != 0:
+                        nonzero_specs.update([spec])
+                if include_test(rxn):
+                    include.update(nonzero_specs)
+                else:
+                    exclude.update(nonzero_specs)
+
+        test = set(self.store.gas.species_index(x)
+                   for x in include - exclude)
+        return np.array(sorted(test)) + 2
+
+    @attr('long')
+    def test_dci_lind_dnj(self):
+        # test conp
+        namestore, rate_info = self._make_namestore(True)
+        ad_opts = namestore.loopy_opts
+
+        # set up arguements
+        allint = {'net': rate_info['net']['allint']}
+
+        fwd_removed, rev_removed = self.__get_removed()
 
         # setup arguements
         # create the editor
@@ -606,31 +637,9 @@ class SubTest(TestClass):
                 self.store.phi_cp, order=x, copy=True)
         }
 
-        lind = set()
-        other_third = set()
-        # get list of species not in falloff / chemically activated
-        for i_rxn, rxn in enumerate(self.store.gas.reactions()):
-            specs = set(list(rxn.products.keys()) + list(rxn.reactants.keys()))
-            nonzero_specs = set()
-            if isinstance(rxn, ct.FalloffReaction) or isinstance(
-                    rxn, ct.ThreeBodyReaction):
-                for spec in specs:
-                    nu = 0
-                    if spec in rxn.products:
-                        nu += rxn.products[spec]
-                    if spec in rxn.reactants:
-                        nu -= rxn.reactants[spec]
-                    if nu != 0:
-                        nonzero_specs.update([spec])
-                if isinstance(rxn, ct.FalloffReaction) and \
-                        rxn.falloff.type == 'Simple':
-                    lind.update(nonzero_specs)
-                else:
-                    other_third.update(nonzero_specs)
-
-        test = set(self.store.gas.species_index(x)
-                   for x in lind - other_third)
-        test = np.array(sorted(test)) + 2
+        lind_test = self.__get_dci_check(
+            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
+            rxn.falloff.type == 'Simple')
 
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
@@ -640,7 +649,7 @@ class SubTest(TestClass):
         kc = [kernel_call('dci_lind_dnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_lind_dnj_ns', [fd_jac], compare_mask=[(
-                  test,
+                  lind_test,
                   2 + np.arange(self.store.gas.n_species - 1))],
             compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
             allow_skip=True,
@@ -679,19 +688,7 @@ class SubTest(TestClass):
         allint = {'net': rate_info['net']['allint']}
 
         # get our form of rop_fwd / rop_rev
-        fwd_removed = self.store.fwd_rxn_rate.copy()
-        fwd_removed[:, self.store.thd_inds] = fwd_removed[
-            :, self.store.thd_inds] / self.store.ref_pres_mod
-        thd_in_rev = np.where(
-            np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
-        rev_update_map = np.where(
-            np.in1d(self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
-        rev_removed = self.store.rev_rxn_rate.copy()
-        rev_removed[:, rev_update_map] = rev_removed[
-            :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
-        # remove ref pres mod = 0 (this is a 0 rate)
-        fwd_removed[np.where(np.isnan(fwd_removed))] = 0
-        rev_removed[np.where(np.isnan(rev_removed))] = 0
+        fwd_removed, rev_removed = self.__get_removed()
 
         # setup arguements
         # create the editor
@@ -704,9 +701,9 @@ class SubTest(TestClass):
         # create X
         sri_args = {'Pr': lambda x: np.array(
             self.store.ref_Pr, order=x, copy=True),
-                    'phi': lambda x: np.array(
+            'phi': lambda x: np.array(
             self.store.phi_cp, order=x, copy=True),
-                    'out_mask': [1]}
+            'out_mask': [1]}
         runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
@@ -772,31 +769,9 @@ class SubTest(TestClass):
                 self.store.phi_cp, order=x, copy=True)
         }
 
-        sri = set()
-        other_third = set()
-        # get list of species not in falloff / chemically activated
-        for i_rxn, rxn in enumerate(self.store.gas.reactions()):
-            specs = set(list(rxn.products.keys()) + list(rxn.reactants.keys()))
-            nonzero_specs = set()
-            if isinstance(rxn, ct.FalloffReaction) or isinstance(
-                    rxn, ct.ThreeBodyReaction):
-                for spec in specs:
-                    nu = 0
-                    if spec in rxn.products:
-                        nu += rxn.products[spec]
-                    if spec in rxn.reactants:
-                        nu -= rxn.reactants[spec]
-                    if nu != 0:
-                        nonzero_specs.update([spec])
-                if isinstance(rxn, ct.FalloffReaction) and \
-                        rxn.falloff.type == 'SRI':
-                    sri.update(nonzero_specs)
-                else:
-                    other_third.update(nonzero_specs)
-
-        test = set(self.store.gas.species_index(x)
-                   for x in sri - other_third)
-        test = np.array(sorted(test)) + 2
+        sri_test = self.__get_dci_check(
+            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
+            rxn.falloff.type == 'SRI')
 
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
@@ -806,10 +781,129 @@ class SubTest(TestClass):
         kc = [kernel_call('dci_sri_dnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_sri_dnj_ns', [fd_jac], compare_mask=[(
-                  test,
+                  sri_test,
                   2 + np.arange(self.store.gas.n_species - 1))],
             compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
             allow_skip=True,
             **args)]
 
+        import pdb; pdb.set_trace()
         return self._generic_jac_tester(dci_sri_dnj, kc)
+
+    @attr('long')
+    def test_dci_troe_dnj(self):
+        # test conp
+        namestore, rate_info = self._make_namestore(True)
+        ad_opts = namestore.loopy_opts
+
+        # set up arguements
+        allint = {'net': rate_info['net']['allint']}
+
+        # get our form of rop_fwd / rop_rev
+        fwd_removed, rev_removed = self.__get_removed()
+
+        # setup arguements
+        # create the editor
+        edit = editor(
+            namestore.n_arr, namestore.n_dot, self.store.test_size,
+            order=ad_opts.order)
+
+        # get kf / kf_fall
+        kf, kf_fall = self.__get_kf_and_fall()
+        # create X
+        sri_args = {'Pr': lambda x: np.array(
+            self.store.ref_Pr, order=x, copy=True),
+            'phi': lambda x: np.array(
+            self.store.phi_cp, order=x, copy=True),
+            'out_mask': [1, 2, 3]}
+        runner = kernel_runner(get_troe_kernel, self.store.test_size, sri_args)
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        Fcent, Atroe, Btroe = runner(
+            eqs, opts, namestore, self.store.test_size)
+
+        args = {'rop_fwd': lambda x: np.array(
+            fwd_removed, order=x, copy=True),
+            'rop_rev': lambda x: np.array(
+            rev_removed, order=x, copy=True),
+            'pres_mod': lambda x: np.zeros_like(
+            self.store.ref_pres_mod, order=x),
+            'rop_net': lambda x: np.zeros_like(
+            self.store.rxn_rates, order=x),
+            'phi': lambda x: np.array(
+            self.store.phi_cp, order=x, copy=True),
+            'P_arr': lambda x: np.array(
+            self.store.P, order=x, copy=True),
+            'conc': lambda x: np.zeros_like(
+            self.store.concs, order=x),
+            'wdot': lambda x: np.zeros_like(
+            self.store.species_rates, order=x),
+            'thd_conc': lambda x: np.zeros_like(
+            self.store.ref_thd, order=x),
+            'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
+            'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
+            'Atroe': lambda x: np.zeros_like(Atroe, order=x),
+            'Btroe': lambda x: np.zeros_like(Btroe, order=x),
+            'Fcent': lambda x: np.zeros_like(Fcent, order=x)
+        }
+
+        # obtain the finite difference jacobian
+        kc = kernel_call('dci_sri_nj', [None], **args)
+
+        fd_jac = self._get_jacobian(
+            get_molar_rates, kc, edit, ad_opts, True,
+            extra_funcs=[get_concentrations, get_thd_body_concs,
+                         get_reduced_pressure_kernel, get_troe_kernel,
+                         get_rxn_pres_mod, get_rop_net,
+                         get_spec_rates],
+            do_not_set=[namestore.conc_arr, namestore.spec_rates,
+                        namestore.rop_net, namestore.Fi, namestore.Atroe,
+                        namestore.Btroe],
+            allint=allint)
+
+        # setup args
+        args = {
+            'rop_fwd': lambda x: np.array(
+                fwd_removed, order=x, copy=True),
+            'rop_rev': lambda x: np.array(
+                rev_removed, order=x, copy=True),
+            'Pr': lambda x: np.array(
+                self.store.ref_Pr, order=x, copy=True),
+            'Fi': lambda x: np.array(
+                self.store.ref_Fall, order=x, copy=True),
+            'pres_mod': lambda x: np.array(
+                self.store.ref_pres_mod, order=x, copy=True),
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
+            'Atroe': lambda x: np.array(Atroe, order=x, copy=True),
+            'Btroe': lambda x: np.array(Btroe, order=x, copy=True),
+            'Fcent': lambda x: np.array(Fcent, order=x, copy=True),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'phi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True)
+        }
+
+        troe_test = self.__get_dci_check(
+            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
+            rxn.falloff.type == 'Troe')
+
+        def _chainer(self, out_vals):
+            self.kernel_args['jac'] = out_vals[-1][0].copy(
+                order=self.current_order)
+
+        # and get mask
+        kc = [kernel_call('dci_troe_dnj', [fd_jac], check=False,
+                          strict_name_match=True, **args),
+              kernel_call('dci_troe_dnj_ns', [fd_jac], compare_mask=[(
+                  troe_test,
+                  2 + np.arange(self.store.gas.n_species - 1))],
+            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
+            allow_skip=True,
+            **args)]
+
+        import pdb; pdb.set_trace()
+        return self._generic_jac_tester(dci_troe_dnj, kc)
