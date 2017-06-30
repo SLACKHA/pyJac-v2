@@ -3,7 +3,7 @@ from ..core.rate_subs import (
     assign_rates, get_concentrations,
     get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
     get_rxn_pres_mod, get_reduced_pressure_kernel, get_lind_kernel,
-    get_sri_kernel)
+    get_sri_kernel, get_simple_arrhenius_rates)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list,
@@ -15,7 +15,7 @@ from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
-from .test_rate_subs import kf_wrapper
+from .test_rate_subs import kf_wrapper, kernel_runner
 
 import numpy as np
 import six
@@ -648,6 +648,27 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_lind_dnj, kc)
 
+    def __get_kf_and_fall(self, conp=True):
+        # create args and parameters
+        phi = self.store.phi_cp if conp else self.store.phi_cv
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        namestore, _ = self._make_namestore(conp)
+
+        # get kf
+        runner = kernel_runner(get_simple_arrhenius_rates,
+                               self.store.test_size, args)
+        kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+
+        # get kf_fall
+        runner = kernel_runner(get_simple_arrhenius_rates,
+                               self.store.test_size, args,
+                               {'falloff': True})
+        kf_fall = runner(eqs, opts, namestore, self.store.test_size)[0]
+        return kf, kf_fall
+
     @attr('long')
     def test_dci_sri_dnj(self):
         # test conp
@@ -678,6 +699,20 @@ class SubTest(TestClass):
             namestore.n_arr, namestore.n_dot, self.store.test_size,
             order=ad_opts.order)
 
+        # get kf / kf_fall
+        kf, kf_fall = self.__get_kf_and_fall()
+        # create X
+        sri_args = {'Pr': lambda x: np.array(
+            self.store.ref_Pr, order=x, copy=True),
+                    'phi': lambda x: np.array(
+            self.store.phi_cp, order=x, copy=True),
+                    'out_mask': [1]}
+        runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        X = runner(eqs, opts, namestore, self.store.test_size)[0]
+
         args = {'rop_fwd': lambda x: np.array(
             fwd_removed, order=x, copy=True),
             'rop_rev': lambda x: np.array(
@@ -699,20 +734,13 @@ class SubTest(TestClass):
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
             'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'X': lambda x: np.zeros(namestore.X_sri.shape, order=x)
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
+            'X': lambda x: np.zeros_like(X, order=x)
         }
 
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        wrapper = kf_wrapper(self, get_molar_rates, **args)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        wrapper(eqs, opts, namestore, self.store.test_size)
-        # and put the kf / kf_fall in
-        args['kf'] = wrapper.kwargs['kf']
-        args['kf_fall'] = wrapper.kwargs['kf_fall']
-
         # obtain the finite difference jacobian
-        kc = kernel_call('dci_lind_nj', [None], **args)
+        kc = kernel_call('dci_sri_nj', [None], **args)
 
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, True,
@@ -736,8 +764,9 @@ class SubTest(TestClass):
                 self.store.ref_Fall, order=x, copy=True),
             'pres_mod': lambda x: np.array(
                 self.store.ref_pres_mod, order=x, copy=True),
-            'kf': wrapper.kwargs['kf'],
-            'kf_fall': wrapper.kwargs['kf_fall'],
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
+            'X': lambda x: np.array(X, order=x, copy=True),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
             'phi': lambda x: np.array(
                 self.store.phi_cp, order=x, copy=True)
@@ -760,7 +789,7 @@ class SubTest(TestClass):
                     if nu != 0:
                         nonzero_specs.update([spec])
                 if isinstance(rxn, ct.FalloffReaction) and \
-                        rxn.falloff.type == 'Sri':
+                        rxn.falloff.type == 'SRI':
                     sri.update(nonzero_specs)
                 else:
                     other_third.update(nonzero_specs)

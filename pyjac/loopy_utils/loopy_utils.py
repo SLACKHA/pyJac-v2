@@ -878,9 +878,7 @@ def auto_run(knl, kernel_calls, device='0'):
         result = True
         for i, kc in enumerate(kernel_calls):
             if kc.check:
-                ind = i
-                if kc.allow_skip:
-                    ind -= 1
+                ind = i if not kc.allow_skip else i - 1
                 result = result and kc.compare(out[ind])
         return result
     except:
