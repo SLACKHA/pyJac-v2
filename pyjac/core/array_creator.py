@@ -1586,6 +1586,23 @@ class NameStore(object):
                                          initializer=troe_mask,
                                          order=self.order)
 
+                troe_has_ns = np.where(
+                    np.in1d(rate_info['fall']['troe']['map'],
+                            rate_info['thd']['has_ns']))[0].astype(
+                    dtype=np.int32)
+                self.troe_has_ns = creator('troe_has_ns',
+                                           shape=troe_has_ns.shape,
+                                           dtype=troe_has_ns.dtype,
+                                           initializer=troe_has_ns,
+                                           order=self.order)
+                self.num_troe_has_ns = creator('num_troe_has_ns',
+                                               shape=troe_has_ns.shape,
+                                               dtype=np.int32,
+                                               initializer=np.arange(
+                                                   troe_has_ns.size,
+                                                   dtype=np.int32),
+                                               order=self.order)
+
             if rate_info['fall']['sri']['num']:
                 # X_sri
                 self.X_sri = creator('X',
@@ -1662,7 +1679,7 @@ class NameStore(object):
 
                 sri_has_ns = np.where(
                     np.in1d(rate_info['fall']['sri']['map'],
-                            rate_info['reac_has_ns']))[0].astype(
+                            rate_info['thd']['has_ns']))[0].astype(
                     dtype=np.int32)
                 self.sri_has_ns = creator('sri_has_ns',
                                           shape=sri_has_ns.shape,
@@ -1703,7 +1720,7 @@ class NameStore(object):
                                         order=self.order)
                 lind_has_ns = np.where(
                     np.in1d(rate_info['fall']['lind']['map'],
-                            rate_info['reac_has_ns']))[0].astype(
+                            rate_info['thd']['has_ns']))[0].astype(
                     dtype=np.int32)
                 self.lind_has_ns = creator('lind_has_ns',
                                            shape=lind_has_ns.shape,
