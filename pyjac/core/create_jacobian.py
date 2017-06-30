@@ -311,7 +311,7 @@ def __dci_dnj(loopy_opts, namestore,
 
             dFi = Template(
                 """
-        <> dFi = 2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * exp(-${sri_b_str} / ${T_str}) - exp(-${T_str} / ${sri_c_str})) * log(fmax(${Pr_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi}
+        <> dFi = -2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * exp(-${sri_b_str} / ${T_str}) + exp(-${T_str} / ${sri_c_str})) * log(fmax(${Pr_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi}
         """).substitute(
                 sri_X_str=sri_X_str,
                 sri_a_str=sri_a_str,
@@ -325,20 +325,19 @@ def __dci_dnj(loopy_opts, namestore,
             manglers.append(lp_pregen.fmax())
 
         elif fall_type == rtypes.falloff_form.troe:
-
             Atroe_lp, Atroe_str = mapstore.apply_maps(
-                namestore.Atroe, var_name)
+                namestore.Atroe, *default_inds)
             Btroe_lp, Btroe_str = mapstore.apply_maps(
-                namestore.Btroe, var_name)
+                namestore.Btroe, *default_inds)
             Fcent_lp, Fcent_str = mapstore.apply_maps(
-                namestore.Fcent, var_name)
+                namestore.Fcent, *default_inds)
 
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp])
 
             dFi = Template(
                 """
-        <> dFi_fac = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str}
-        <> dFi = 2 * ${Atroe_str} * ${Btroe_str} * (0.14 * ${Atroe_str} + ${Btroe_str}) * log(fmax(${Fcent_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * dFi_fac * dFi_fac * logten) {id=dFi}
+        <> dFi = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=dFi_init}
+        dFi = -2 * ${Atroe_str} * ${Btroe_str} * (0.14 * ${Atroe_str} + ${Btroe_str}) * log(fmax(${Fcent_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * dFi * dFi * logten) {id=dFi, dep=dFi_init}
         """).substitute(
                 Atroe_str=Atroe_str,
                 Btroe_str=Btroe_str,
