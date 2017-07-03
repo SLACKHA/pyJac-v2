@@ -573,9 +573,9 @@ class kernel_call(object):
             Default is True
         allow_skip : bool
             If True, allow this kernel call to be check results
-            without actually executing a kernel (checks the last kernel).
-            This is useful for selectively turning off kernels (e.g. if there
-            are no reverse reactions)
+            without actually executing a kernel (checks the last kernel
+            that was executed). This is useful for selectively turning off
+            kernels (e.g. if there are no reverse reactions)
         input_args : dict of `numpy.array`s
             The arguements to supply to the kernel
 
@@ -876,10 +876,15 @@ def auto_run(knl, kernel_calls, device='0'):
         result = True
         for i, kc in enumerate(kernel_calls):
             if kc.check:
-                ind = i if not kc.allow_skip else i - 1
+                ind = i
+                if kc.allow_skip and all(x is None for x in out[i]):
+                    # find the last one for which we have data
+                    ind = next(ind for ind in reversed(range(i))
+                               if not any(x is None for x in out[ind]))
                 result = result and kc.compare(out[ind])
         return result
-    except:
+    except TypeError:
+        # if not iterable
         return kernel_calls.compare(out[0])
 
 
