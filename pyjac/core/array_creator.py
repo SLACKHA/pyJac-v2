@@ -1317,7 +1317,6 @@ class NameStore(object):
                                          initializer=mask,
                                          order=self.order)
 
-            thd_eff_ns = rate_info['thd']['eff_ns']
             num_specs = rate_info['thd']['spec_num'].astype(dtype=np.int32)
             spec_list = rate_info['thd']['spec'].astype(
                 dtype=np.int32)
@@ -1329,33 +1328,29 @@ class NameStore(object):
                                    shape=thd_effs.shape,
                                    initializer=thd_effs,
                                    order=self.order)
-            self.thd_eff_ns = creator('thd_eff_ns',
-                                      dtype=thd_eff_ns.dtype,
-                                      shape=thd_eff_ns.shape,
-                                      initializer=thd_eff_ns,
-                                      order=self.order)
             num_thd = np.arange(rate_info['thd']['num'], dtype=np.int32)
             self.num_thd = creator('num_thd',
                                    dtype=num_thd.dtype,
                                    shape=num_thd.shape,
                                    initializer=num_thd,
                                    order=self.order)
-            thd_only_has_ns = np.where(
+            thd_only_ns_inds = np.where(
                 np.in1d(
                     self.thd_only_map.initializer,
                     rate_info['thd']['has_ns']))[0].astype(np.int32)
-            self.thd_only_has_ns = creator('thd_only_has_ns',
-                                           dtype=thd_only_has_ns.dtype,
-                                           shape=thd_only_has_ns.shape,
-                                           initializer=thd_only_has_ns,
+            thd_only_ns_map = self.thd_only_map.initializer[
+                thd_only_ns_inds]
+            self.thd_only_ns_map = creator('thd_only_ns_map',
+                                           dtype=thd_only_ns_map.dtype,
+                                           shape=thd_only_ns_map.shape,
+                                           initializer=thd_only_ns_map,
                                            order=self.order)
-            self.num_thd_only_has_ns = creator('num_thd_only_has_ns',
-                                               dtype=thd_only_has_ns.dtype,
-                                               shape=thd_only_has_ns.shape,
-                                               initializer=np.arange(
-                                                   thd_only_has_ns.size,
-                                                   dtype=np.int32),
-                                               order=self.order)
+
+            self.thd_only_ns_inds = creator('thd_only_ns_inds',
+                                            dtype=thd_only_ns_inds.dtype,
+                                            shape=thd_only_ns_inds.shape,
+                                            initializer=thd_only_ns_inds,
+                                            order=self.order)
             self.thd_type = creator('thd_type',
                                     dtype=rate_info['thd']['type'].dtype,
                                     shape=rate_info['thd']['type'].shape,
@@ -1679,22 +1674,23 @@ class NameStore(object):
                                         initializer=sri_mask,
                                         order=self.order)
 
-                sri_has_ns = np.where(
-                    np.in1d(rate_info['fall']['sri']['map'],
-                            rate_info['thd']['has_ns']))[0].astype(
-                    dtype=np.int32)
-                self.sri_has_ns = creator('sri_has_ns',
+                sri_inds = self.fall_to_thd_map.initializer[
+                    self.sri_map.initializer]
+                sri_ns_inds = np.where(
+                    np.in1d(sri_inds, rate_info['thd']['has_ns']))[0].astype(
+                        np.int32)
+                sri_has_ns = self.sri_map.initializer[
+                    sri_ns_inds]
+                self.sri_has_ns = creator('sri_has_ns_map',
                                           shape=sri_has_ns.shape,
                                           dtype=sri_has_ns.dtype,
                                           initializer=sri_has_ns,
                                           order=self.order)
-                self.num_sri_has_ns = creator('num_sri_has_ns',
-                                              shape=sri_has_ns.shape,
-                                              dtype=np.int32,
-                                              initializer=np.arange(
-                                                  sri_has_ns.size,
-                                                  dtype=np.int32),
-                                              order=self.order)
+                self.sri_ns_inds = creator('sri_ns_inds',
+                                           shape=sri_ns_inds.shape,
+                                           dtype=sri_ns_inds.dtype,
+                                           initializer=sri_ns_inds,
+                                           order=self.order)
 
             if rate_info['fall']['lind']['num']:
                 # lind map / mask
@@ -1720,22 +1716,23 @@ class NameStore(object):
                                         dtype=num_lind.dtype,
                                         initializer=num_lind,
                                         order=self.order)
-                lind_has_ns = np.where(
-                    np.in1d(rate_info['fall']['lind']['map'],
-                            rate_info['thd']['has_ns']))[0].astype(
-                    dtype=np.int32)
+                lind_inds = self.fall_to_thd_map.initializer[
+                    self.lind_map.initializer]
+                lind_ns_inds = np.where(
+                    np.in1d(lind_inds, rate_info['thd']['has_ns']))[0].astype(
+                        np.int32)
+                lind_has_ns = self.lind_map.initializer[
+                    lind_ns_inds]
                 self.lind_has_ns = creator('lind_has_ns',
                                            shape=lind_has_ns.shape,
                                            dtype=lind_has_ns.dtype,
                                            initializer=lind_has_ns,
                                            order=self.order)
-                self.num_lind_has_ns = creator('num_lind_has_ns',
-                                               shape=lind_has_ns.shape,
-                                               dtype=np.int32,
-                                               initializer=np.arange(
-                                                   lind_has_ns.size,
-                                                   dtype=np.int32),
-                                               order=self.order)
+                self.lind_ns_inds = creator('lind_ns_inds',
+                                            shape=lind_ns_inds.shape,
+                                            dtype=lind_ns_inds.dtype,
+                                            initializer=lind_ns_inds,
+                                            order=self.order)
 
         # chebyshev
         if rate_info['cheb']['num']:
