@@ -670,7 +670,9 @@ class MapStore(object):
                             " determined".format(','.join(indicies)))
 
         # pick up any mappings
-        indicies = tuple(x if x != self.iname else node.iname
+        indicies = tuple(x if x != self.iname else
+                         (node.iname if node.is_leaf() or node == self.tree
+                          else node.parent.iname)
                          for x in indicies)
 
         # return affine mapping

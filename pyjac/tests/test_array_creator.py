@@ -610,6 +610,7 @@ def test_map_iname_domains(maptype):
     assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add an affine map
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
     mapv = np.arange(10, dtype=np.int32)
     var = arc.creator('var', np.int32, (10,), 'C')
     domain = arc.creator('domain', np.int32, (10,), 'C',
@@ -619,6 +620,7 @@ def test_map_iname_domains(maptype):
     assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add a non-affine map, domain should bounce to 0-based
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
     mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=np.int32)
     var = arc.creator('var2', np.int32, (10,), 'C')
     domain = arc.creator('domain', np.int32, (10,), 'C',
@@ -635,6 +637,38 @@ def test_map_iname_domains(maptype):
     mstore = arc.MapStore(lp_opt, c, c, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
+
+
+def test_leaf_inames():
+    lp_opt = _dummy_opts('map')
+
+    c = arc.creator('base', np.int32, (10,), 'C',
+                    initializer=np.arange(10, dtype=np.int32))
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    # create one map
+    mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=np.int32)
+    mapv2 = np.array(list(range(2)) + list(range(3, 11)), dtype=np.int32)
+    domain2 = arc.creator('domain2', np.int32, (10,), 'C',
+                          initializer=mapv2)
+    domain = arc.creator('domain', np.int32, (10,), 'C',
+                         initializer=mapv)
+    mstore.check_and_add_transform(domain2, domain, 'i')
+
+    # and another
+    var = arc.creator('var', np.int32, (10,), 'C')
+    mstore.check_and_add_transform(var, domain2, 'i')
+
+    # now create var
+    _, d_str = mstore.apply_maps(domain, 'i')
+    _, d2_str = mstore.apply_maps(domain2, 'i')
+    _, v_str = mstore.apply_maps(var, 'i')
+
+    assert d_str == 'domain[i]'
+    assert d2_str == 'domain2[i_0]'
+    assert v_str == 'var[i_1]'
+    assert '<> i_0 = domain[i]' in mstore.transform_insns
+    assert '<> i_1 = domain2[i_0]' in mstore.transform_insns
 
 
 def test_input_map_pickup():
