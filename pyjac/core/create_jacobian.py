@@ -110,30 +110,28 @@ def __dci_dnj(loopy_opts, namestore,
     """
 
     if fall_type == rtypes.falloff_form.none:
-        num_range = namestore.num_thd_only if not do_ns \
-            else namestore.num_thd_only_has_ns
+        our_inds = namestore.num_thd_only if not do_ns \
+            else namestore.thd_only_ns_inds
         rxn_range = namestore.thd_only_map if not do_ns \
-            else namestore.thd_only_has_ns
+            else namestore.thd_only_ns_map
         thd_range = namestore.thd_only_map if not do_ns \
-            else namestore.thd_only_has_ns
+            else namestore.thd_only_ns_map
         map_onto = namestore.thd_map
     elif fall_type == rtypes.falloff_form.sri:
-        num_range = namestore.num_sri if not do_ns \
-            else namestore.num_sri_has_ns
+        our_inds = namestore.num_sri if not do_ns \
+            else namestore.sri_ns_inds
         rxn_range = namestore.sri_map if not do_ns \
             else namestore.sri_has_ns
         thd_range = namestore.fall_to_thd_map
         map_onto = namestore.fall_map
     elif fall_type == rtypes.falloff_form.troe:
-        num_range = namestore.num_troe if not do_ns \
-            else namestore.num_troe_has_ns
         rxn_range = namestore.troe_map if not do_ns \
             else namestore.troe_has_ns
         thd_range = namestore.fall_to_thd_map
         map_onto = namestore.fall_map
     elif fall_type == rtypes.falloff_form.lind:
-        num_range = namestore.num_lind if not do_ns \
-            else namestore.num_lind_has_ns
+        our_inds = namestore.num_lind if not do_ns \
+            else namestore.lind_ns_inds
         rxn_range = namestore.lind_map if not do_ns \
             else namestore.lind_has_ns
         thd_range = namestore.fall_to_thd_map
@@ -152,21 +150,19 @@ def __dci_dnj(loopy_opts, namestore,
 
     # main loop is over third body rxns (including falloff / chemically
     # activated)
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
 
     # indicies
     kernel_data = []
     if namestore.test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    # need to add a map from the loop index to the third / falloff index
-    mapstore.check_and_add_transform(rxn_range, num_range)
-    # and from the fall / third index to the actual reaction index
-    mapstore.check_and_add_transform(map_onto, rxn_range)
-
     if fall_type != rtypes.falloff_form.none:
         # the fall to third map depending on the reaction range
         mapstore.check_and_add_transform(thd_range, rxn_range)
+
+    # and from the fall / third index to the actual reaction index
+    mapstore.check_and_add_transform(map_onto, rxn_range)
 
     # the third body parameters map into the rxn_range
     mapstore.check_and_add_transform(namestore.thd_offset, thd_range)
@@ -199,15 +195,15 @@ def __dci_dnj(loopy_opts, namestore,
 
         if fall_type == rtypes.falloff_form.sri:
             # get the sri arrays, keyed on the SRI index
-            mapstore.check_and_add_transform(namestore.sri_a, num_range)
-            mapstore.check_and_add_transform(namestore.sri_b, num_range)
-            mapstore.check_and_add_transform(namestore.sri_c, num_range)
-            mapstore.check_and_add_transform(namestore.X_sri, num_range)
+            mapstore.check_and_add_transform(namestore.sri_a, our_inds)
+            mapstore.check_and_add_transform(namestore.sri_b, our_inds)
+            mapstore.check_and_add_transform(namestore.sri_c, our_inds)
+            mapstore.check_and_add_transform(namestore.X_sri, our_inds)
         elif fall_type == rtypes.falloff_form.troe:
             # get the troe arrays, keyed on the troe index
-            mapstore.check_and_add_transform(namestore.Atroe, num_range)
-            mapstore.check_and_add_transform(namestore.Btroe, num_range)
-            mapstore.check_and_add_transform(namestore.Fcent, num_range)
+            mapstore.check_and_add_transform(namestore.Atroe, our_inds)
+            mapstore.check_and_add_transform(namestore.Btroe, our_inds)
+            mapstore.check_and_add_transform(namestore.Fcent, our_inds)
 
     # third body efficiencies, types and offsets
     thd_offset_lp, thd_offset_str = mapstore.apply_maps(
@@ -215,9 +211,10 @@ def __dci_dnj(loopy_opts, namestore,
     _, thd_offset_next_str = mapstore.apply_maps(
         namestore.thd_offset, var_name, affine=1)
 
-    # Ns efficiency is on main loop
+    # Ns efficiency is the last efficiency of this reaction
+    # hence, we can simply take the next reaction and subtract 1
     thd_eff_ns_lp, thd_eff_ns_str = mapstore.apply_maps(
-        namestore.thd_eff_ns, var_name)
+        namestore.thd_eff, thd_offset_next_str, affine=-1)
 
     # third body type is on main loop
     thd_type_lp, thd_type_str = mapstore.apply_maps(

@@ -412,6 +412,32 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dRopi_dnj, kc, allint=allint)
 
+    def __get_dci_check(self, include_test):
+        include = set()
+        exclude = set()
+        # get list of species not in falloff / chemically activated
+        for i_rxn, rxn in enumerate(self.store.gas.reactions()):
+            specs = set(list(rxn.products.keys()) + list(rxn.reactants.keys()))
+            nonzero_specs = set()
+            if isinstance(rxn, ct.FalloffReaction) or isinstance(
+                    rxn, ct.ThreeBodyReaction):
+                for spec in specs:
+                    nu = 0
+                    if spec in rxn.products:
+                        nu += rxn.products[spec]
+                    if spec in rxn.reactants:
+                        nu -= rxn.reactants[spec]
+                    if nu != 0:
+                        nonzero_specs.update([spec])
+                if include_test(rxn):
+                    include.update(nonzero_specs)
+                else:
+                    exclude.update(nonzero_specs)
+
+        test = set(self.store.gas.species_index(x)
+                   for x in include - exclude)
+        return np.array(sorted(test)) + 2
+
     @attr('long')
     def test_dci_thd_dnj(self):
         # test conp
@@ -477,24 +503,8 @@ class SubTest(TestClass):
 
         # get list of species not in falloff / chemically activated
         # to get the check mask
-        in_falloff = set()
-        for rxn in self.store.gas.reactions():
-            specs = set(rxn.products.keys()) | set(rxn.reactants.keys())
-            nonzero_specs = set()
-            if isinstance(rxn, ct.FalloffReaction):
-                for spec in specs:
-                    nu = 0
-                    if spec in rxn.products:
-                        nu += rxn.products[spec]
-                    if spec in rxn.reactants:
-                        nu -= rxn.reactants[spec]
-                    if nu != 0:
-                        nonzero_specs.update([spec])
-                in_falloff.update(nonzero_specs)
-        not_in_falloff = set(self.store.gas.species_names) - in_falloff - \
-            set([self.store.gas.species_names[-1]])
-        not_in_falloff = np.array(sorted([self.store.gas.species_index(x)
-                                          for x in not_in_falloff])) + 2
+        test = self.__get_dci_check(lambda x: isinstance(
+            x, ct.ThreeBodyReaction))
 
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
@@ -504,7 +514,7 @@ class SubTest(TestClass):
         kc = [kernel_call('dci_thd_dnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_thd_dnj_ns', [fd_jac], compare_mask=[(
-                  not_in_falloff,
+                  test,
                   2 + np.arange(self.store.gas.n_species - 1))],
             compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
             allow_skip=True,
@@ -529,32 +539,6 @@ class SubTest(TestClass):
         rev_removed[np.where(np.isnan(rev_removed))] = 0
 
         return fwd_removed, rev_removed
-
-    def __get_dci_check(self, include_test):
-        include = set()
-        exclude = set()
-        # get list of species not in falloff / chemically activated
-        for i_rxn, rxn in enumerate(self.store.gas.reactions()):
-            specs = set(list(rxn.products.keys()) + list(rxn.reactants.keys()))
-            nonzero_specs = set()
-            if isinstance(rxn, ct.FalloffReaction) or isinstance(
-                    rxn, ct.ThreeBodyReaction):
-                for spec in specs:
-                    nu = 0
-                    if spec in rxn.products:
-                        nu += rxn.products[spec]
-                    if spec in rxn.reactants:
-                        nu -= rxn.reactants[spec]
-                    if nu != 0:
-                        nonzero_specs.update([spec])
-                if include_test(rxn):
-                    include.update(nonzero_specs)
-                else:
-                    exclude.update(nonzero_specs)
-
-        test = set(self.store.gas.species_index(x)
-                   for x in include - exclude)
-        return np.array(sorted(test)) + 2
 
     @attr('long')
     def test_dci_lind_dnj(self):
