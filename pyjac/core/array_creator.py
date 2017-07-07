@@ -1583,22 +1583,23 @@ class NameStore(object):
                                          initializer=troe_mask,
                                          order=self.order)
 
-                troe_has_ns = np.where(
-                    np.in1d(rate_info['fall']['troe']['map'],
-                            rate_info['thd']['has_ns']))[0].astype(
-                    dtype=np.int32)
+                troe_inds = self.fall_to_thd_map.initializer[
+                    self.troe_map.initializer]
+                troe_ns_inds = np.where(
+                    np.in1d(troe_inds, rate_info['thd']['has_ns']))[0].astype(
+                        np.int32)
+                troe_has_ns = self.troe_map.initializer[
+                    troe_ns_inds]
                 self.troe_has_ns = creator('troe_has_ns',
                                            shape=troe_has_ns.shape,
                                            dtype=troe_has_ns.dtype,
                                            initializer=troe_has_ns,
                                            order=self.order)
-                self.num_troe_has_ns = creator('num_troe_has_ns',
-                                               shape=troe_has_ns.shape,
-                                               dtype=np.int32,
-                                               initializer=np.arange(
-                                                   troe_has_ns.size,
-                                                   dtype=np.int32),
-                                               order=self.order)
+                self.troe_ns_inds = creator('troe_ns_inds',
+                                            shape=troe_ns_inds.shape,
+                                            dtype=troe_ns_inds.dtype,
+                                            initializer=troe_ns_inds,
+                                            order=self.order)
 
             if rate_info['fall']['sri']['num']:
                 # X_sri
