@@ -1094,5 +1094,5 @@ def get_target(lang, device=None, compiler=None):
 
 
 class AdeptCompiler(CppCompiler):
-    default_compile_flags = '-g -O0 -fopenmp -fPIC'.split()
-    default_link_flags = '-g -O0 -shared -ladept -fopenmp -fPIC'.split()
+    default_compile_flags = '-O3 -fopenmp -fPIC'.split()
+    default_link_flags = '-O3 -shared -ladept -fopenmp -fPIC'.split()
