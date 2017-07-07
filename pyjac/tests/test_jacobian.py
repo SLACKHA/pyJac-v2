@@ -253,42 +253,57 @@ class SubTest(TestClass):
         knl._make_kernels()
 
         # get list of current args
+        have_match = kernel_call.strict_name_match
         new_args = []
+        new_kernels = []
         for k in knl.kernels:
+            if have_match and kernel_call.name != k.name:
+                continue
+
+            new_kernels.append(k)
             for arg in k.args:
                 if arg not in new_args and not isinstance(
                         arg, lp.TemporaryVariable):
                     new_args.append(arg)
 
+        knl = new_kernels[:]
+
         # generate dependencies with full test size to get extra args
+        infos = []
         for f in extra_funcs:
             info = f(eqs, ad_opts, namestore,
                      test_size=self.store.test_size,
                      **__get_arg_dict(f, **kw_args))
-            infos = []
             try:
                 infos.extend(info)
             except:
                 infos.append(info)
-            for i in infos:
-                for arg in i.kernel_data:
-                    if arg not in new_args and not isinstance(
-                            arg, lp.TemporaryVariable):
-                        new_args.append(arg)
 
-        knl.kernels[0] = knl.kernels[0].copy(args=new_args[:])
+        for i in infos:
+            for arg in i.kernel_data:
+                if arg not in new_args and not isinstance(
+                        arg, lp.TemporaryVariable):
+                    new_args.append(arg)
+
+        for i in range(len(knl)):
+            knl[i] = knl[i].copy(args=new_args[:])
 
         # and a generator for the single kernel
         single_name = arc.NameStore(ad_opts, rate_info, conp, 1)
         single_info = []
         for f in extra_funcs + [func]:
-            i = f(eqs, ad_opts, single_name,
-                  test_size=1,
-                  **__get_arg_dict(f, **kw_args))
+            info = f(eqs, ad_opts, single_name,
+                     test_size=1,
+                     **__get_arg_dict(f, **kw_args))
             try:
-                single_info.extend(i)
+                for i in info:
+                    if f == func and have_match and kernel_call.name != i.name:
+                        continue
+                    single_info.append(i)
             except:
-                single_info.append(i)
+                if f == func and have_match and kernel_call.name != info.name:
+                    continue
+                single_info.append(info)
 
         single_knl = k_gen.make_kernel_generator(
             name='spec_rates',
@@ -314,7 +329,7 @@ class SubTest(TestClass):
 
         # run kernel
         populate(
-            knl.kernels, kernel_call,
+            [knl[0]], kernel_call,
             editor=editor)
 
         return self._make_array(kernel_call.kernel_args[editor.output.name])
