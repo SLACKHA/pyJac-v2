@@ -125,6 +125,8 @@ def __dci_dnj(loopy_opts, namestore,
         thd_range = namestore.fall_to_thd_map
         map_onto = namestore.fall_map
     elif fall_type == rtypes.falloff_form.troe:
+        our_inds = namestore.num_troe if not do_ns \
+            else namestore.troe_ns_inds
         rxn_range = namestore.troe_map if not do_ns \
             else namestore.troe_has_ns
         thd_range = namestore.fall_to_thd_map
@@ -404,7 +406,7 @@ def __dci_dnj(loopy_opts, namestore,
                 if ${thd_type_str} == ${species}
                     # if we get here, delta(j, m) is true by default
                     # hence derivative is one
-                    dci = 1 {id=ci_up2, dep=ci_init}
+                    dci = 1d {id=ci_up2, dep=ci_init}
                 end
                 for ${spec_k_ind}
                     <> ${spec_k} = ${spec_k_str}
@@ -464,7 +466,7 @@ def __dci_dnj(loopy_opts, namestore,
             dci = 1.0 - ns_thd_eff {id=ci_up, dep=ci_init}
         end
         if ${thd_type_str} == ${species}
-            dci = -1 {id=ci_up2, dep=ci_init}
+            dci = -1.0d {id=ci_up2, dep=ci_init}
         end
         for ${spec_k_ind}
             <> ${spec_k} = ${spec_k_str}
