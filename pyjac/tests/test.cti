@@ -505,12 +505,12 @@ falloff_reaction('H + HCN (+ M) <=> H2CN (+ M)',
                  kf=[3.300000e+13, 0.0, 0.0],
                  kf0=[1.400000e+26, -3.4, 1900.0],
                  efficiencies='CO2:2.0 CO:1.5 H2:2.0 H2O:6.0 AR:0.7 CH4:2.0 C2H6:3.0')
-# lindeman species
+# lindeman chemically activated species
 
 # Reaction 18
-falloff_reaction('H + HCN (+ N2) <=> H2CN (+ N2)',
-                 kf=[3.300000e+13, 0.0, 0.0],
-                 kf0=[1.400000e+26, -3.4, 1900.0])
+chemically_activated_reaction('H + HCN (+ N2) <=> H2CN (+ N2)',
+                              kLow=[3.300000e+13, 0.0, 0.0],
+                              kHigh=[1.400000e+26, -3.4, 1900.0])
 # cheb
 
 # Reaction 19
