@@ -68,7 +68,8 @@ def substitute(filename, text_in=None):
                 lines[i] = lines[i].replace('j', '0')
 
                 # check for fmax
-                lines[i] = re.sub(r'(fmax\(.+)\);', r'\1.value());', lines[i])
+                lines[i] = re.sub(r'fmax\((.+),(.+)\);', r'\2;', lines[i])
+                #lines[i] = re.sub(r'fmax\((.+),(.+)\);', r'std::max(adouble(\1), \2);', lines[i])
 
         # next we have to rename the inner function
         lines[body_at - 1] = re.sub(r'void\s*([\w_]+)', r'void ad_\1',
