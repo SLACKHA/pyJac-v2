@@ -426,7 +426,7 @@ def set_adept_editor(knl,
             indexed=ind,
             name=var.name,
             size=size))
-    setters = '\n'.join(setters)
+    setters = ''# '\n'.join(setters)
 
     jac_size = dep_size * indep_size
     # find the output name
