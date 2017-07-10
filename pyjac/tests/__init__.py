@@ -100,9 +100,9 @@ class storage(object):
                                    if i in self.fall_inds and isinstance(x.falloff, ct.TroeFalloff)])
         self.lind_inds = np.array([i for i, x in enumerate(gas.reactions())
                                    if i in self.fall_inds and not (i in self.troe_inds or i in self.sri_inds)])
-        troe_to_pr_map = np.array(
+        self.troe_to_pr_map = np.array(
             [np.where(self.fall_inds == j)[0][0] for j in self.troe_inds])
-        sri_to_pr_map = np.array(
+        self.sri_to_pr_map = np.array(
             [np.where(self.fall_inds == j)[0][0] for j in self.sri_inds])
         self.ref_Pr = np.zeros((test_size, self.fall_inds.size))
         self.ref_Sri = np.zeros((test_size, self.sri_inds.size))
@@ -169,14 +169,14 @@ class storage(object):
             self.ref_Pr[i, :] = self.ref_thd[i, thd_to_fall_map] * arrhen_temp
             for j in range(self.sri_inds.size):
                 self.ref_Sri[i, j] = sri_reacs[j].falloff(
-                    self.T[i], self.ref_Pr[i, sri_to_pr_map[j]])
+                    self.T[i], self.ref_Pr[i, self.sri_to_pr_map[j]])
             for j in range(self.troe_inds.size):
                 self.ref_Troe[i, j] = troe_reacs[j].falloff(
-                    self.T[i], self.ref_Pr[i, troe_to_pr_map[j]])
+                    self.T[i], self.ref_Pr[i, self.troe_to_pr_map[j]])
             if self.sri_inds.size:
-                self.ref_Fall[i, sri_to_pr_map] = self.ref_Sri[i, :]
+                self.ref_Fall[i, self.sri_to_pr_map] = self.ref_Sri[i, :]
             if self.troe_inds.size:
-                self.ref_Fall[i, troe_to_pr_map] = self.ref_Troe[i, :]
+                self.ref_Fall[i, self.troe_to_pr_map] = self.ref_Troe[i, :]
             for j in range(gas.n_species):
                 self.ref_B_rev[i, j] = gas.species(j).thermo.s(self.T[i]) / ct.gas_constant -\
                     gas.species(j).thermo.h(
