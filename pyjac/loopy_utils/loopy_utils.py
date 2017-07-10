@@ -520,7 +520,8 @@ class kernel_call(object):
     def __init__(self, name, ref_answer, compare_axis=1, compare_mask=None,
                  out_mask=None, input_mask=[], strict_name_match=False,
                  chain=None, check=True, post_process=None,
-                 allow_skip=False,
+                 allow_skip=False, other_compare=None, atol=1e-8,
+                 rtol=1e-5,
                  **input_args):
         """
         The initializer for the :class:`kernel_call` object
@@ -576,6 +577,16 @@ class kernel_call(object):
             without actually executing a kernel (checks the last kernel
             that was executed). This is useful for selectively turning off
             kernels (e.g. if there are no reverse reactions)
+        other_compare : Callable, optional
+            If supplied, a function that compares output values not checked
+            in by this kernel call.  This is useful in the case of NaN's
+            resulting from derivatives of (e.g.,) log(0), to ensure our
+            arrays are spitting out very large (but finite) numbers
+        rtol: float [Default 1e-5]
+            The relative tolerance for comparison to reference answers.
+            For Jacobian correctness testing this may have to be loosened
+        atol: float [Default 1e-8]
+            The absolute tolerance for comparison to reference answers.
         input_args : dict of `numpy.array`s
             The arguements to supply to the kernel
 
@@ -607,6 +618,9 @@ class kernel_call(object):
         self.check = check
         self.current_order = None
         self.allow_skip = allow_skip
+        self.other_compare = other_compare
+        self.rtol = rtol
+        self.atol = atol
 
     def is_my_kernel(self, knl):
         """
@@ -735,9 +749,16 @@ class kernel_call(object):
                 if outv.shape != ref_answer.shape:
                     # apply the same transformation to the answer
                     ref_answer = self.__get_comparable(ref_answer, i)
-            allclear = allclear and np.allclose(outv, ref_answer)
-        if not allclear:
-            import pdb; pdb.set_trace()
+
+            allclear = allclear and np.allclose(outv, ref_answer,
+                                                rtol=self.rtol,
+                                                atol=self.atol)
+
+            if self.other_compare is not None:
+                allclear = allclear and self.other_compare(
+                    output_variables[i].copy().squeeze(),
+                    self.transformed_ref_ans[i].copy().squeeze(),
+                    self.compare_mask[i])
         return allclear
 
 

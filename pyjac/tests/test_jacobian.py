@@ -537,6 +537,46 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_thd_dnj, kc)
 
+    def nan_compare(self, our_val, ref_val, mask):
+        if not len(mask) == 3:
+            return True  # only compare masks w/ conditions
+
+        # first, invert the conditions mask
+        cond, x, y = mask
+        cond = np.where(np.logical_not(cond))[0]
+
+        if not cond:
+            return True
+
+        def __get_val(vals, mask):
+            outv = vals.copy()
+            for ax, m in enumerate(mask):
+                outv = np.take(outv, m, axis=ax)
+            return outv
+
+        def __compare(our_vals, ref_vals):
+            # find where close
+            bad = np.where(np.logical_not(np.isclose(ref_vals, our_vals)))
+            good = np.where(np.isclose(ref_vals, our_vals))
+
+            # make sure all the bad conditions here in the ref val are nan's
+            is_correct = np.all(np.isnan(ref_vals[bad]))
+
+            # or failing that, just that they're much "larger" than the other
+            # entries (sometimes the Pr will not be exactly zero if it's
+            # based on the concentration of the last species)
+            is_correct = is_correct or (
+                (np.min(ref_vals[bad]) / np.max(ref_vals[good])) > 1e15)
+
+            # and ensure all our values are 'large' but finite numbers
+            # (defined here by > 1e295)
+            is_correct = is_correct and np.all(np.abs(our_vals[bad]) >= 1e295)
+
+            return is_correct
+
+        return __compare(__get_val(our_val, (cond, x, y)),
+                         __get_val(ref_val, (cond, x, y)))
+
     def __get_removed(self):
         # get our form of rop_fwd / rop_rev
         fwd_removed = self.store.fwd_rxn_rate.copy()
@@ -709,30 +749,26 @@ class SubTest(TestClass):
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
         X = runner(eqs, opts, namestore, self.store.test_size)[0]
 
-        args = {'rop_fwd': lambda x: np.array(
-            fwd_removed, order=x, copy=True),
-            'rop_rev': lambda x: np.array(
-            rev_removed, order=x, copy=True),
+        args = {
             'pres_mod': lambda x: np.zeros_like(
-            self.store.ref_pres_mod, order=x),
-            'rop_net': lambda x: np.zeros_like(
-            self.store.rxn_rates, order=x),
-            'phi': lambda x: np.array(
-            self.store.phi_cp, order=x, copy=True),
-            'P_arr': lambda x: np.array(
-            self.store.P, order=x, copy=True),
-            'conc': lambda x: np.zeros_like(
-            self.store.concs, order=x),
-            'wdot': lambda x: np.zeros_like(
-            self.store.species_rates, order=x),
-            'thd_conc': lambda x: np.zeros_like(
-            self.store.ref_thd, order=x),
+                self.store.ref_pres_mod, order=x),
+            'thd_conc': lambda x: np.array(
+                self.store.ref_thd, order=x, copy=True),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
-            'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
+            'Pr': lambda x: np.array(self.store.ref_Pr, order=x, copy=True),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'X': lambda x: np.zeros_like(X, order=x),
+            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
+            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+            'conc': lambda x: np.zeros_like(self.store.concs, order=x),
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
-            'X': lambda x: np.zeros_like(X, order=x)
+            'wdot': lambda x: np.zeros_like(self.store.species_rates, order=x),
+            'rop_fwd': lambda x: np.array(
+                fwd_removed, order=x, copy=True),
+            'rop_rev': lambda x: np.array(
+                rev_removed, order=x, copy=True),
+            'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x)
         }
 
         # obtain the finite difference jacobian
@@ -742,10 +778,9 @@ class SubTest(TestClass):
             get_molar_rates, kc, edit, ad_opts, True,
             extra_funcs=[get_concentrations, get_thd_body_concs,
                          get_reduced_pressure_kernel, get_sri_kernel,
-                         get_rxn_pres_mod, get_rop_net,
-                         get_spec_rates],
-            do_not_set=[namestore.conc_arr, namestore.spec_rates,
-                        namestore.rop_net, namestore.Fi, namestore.X_sri],
+                         get_rxn_pres_mod, get_rop_net, get_spec_rates],
+            do_not_set=[namestore.conc_arr, namestore.Fi, namestore.X_sri,
+                        namestore.thd_conc],
             allint=allint)
 
         # setup args
@@ -772,6 +807,11 @@ class SubTest(TestClass):
             lambda rxn: isinstance(rxn, ct.FalloffReaction) and
             rxn.falloff.type == 'SRI')
 
+        # find non-NaN SRI entries for testing
+        # NaN entries will be handled by :func:`nan_compare`
+        to_test = np.all(
+            self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0, axis=1)
+
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
@@ -780,13 +820,15 @@ class SubTest(TestClass):
         kc = [kernel_call('dci_sri_dnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_sri_dnj_ns', [fd_jac], compare_mask=[(
+                  to_test,
                   sri_test,
                   2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
+            compare_axis=(0, 1, 2), chain=_chainer, strict_name_match=True,
             allow_skip=True,
+            other_compare=self.nan_compare,
+            rtol=1e-4,
             **args)]
 
-        import pdb; pdb.set_trace()
         return self._generic_jac_tester(dci_sri_dnj, kc)
 
     @attr('long')
@@ -822,26 +864,22 @@ class SubTest(TestClass):
         Fcent, Atroe, Btroe = runner(
             eqs, opts, namestore, self.store.test_size)
 
-        args = {'rop_fwd': lambda x: np.array(
-            fwd_removed, order=x, copy=True),
-            'rop_rev': lambda x: np.array(
-            rev_removed, order=x, copy=True),
+        args = {
             'pres_mod': lambda x: np.zeros_like(
-            self.store.ref_pres_mod, order=x),
-            'rop_net': lambda x: np.zeros_like(
-            self.store.rxn_rates, order=x),
-            'phi': lambda x: np.array(
-            self.store.phi_cp, order=x, copy=True),
-            'P_arr': lambda x: np.array(
-            self.store.P, order=x, copy=True),
-            'conc': lambda x: np.zeros_like(
-            self.store.concs, order=x),
-            'wdot': lambda x: np.zeros_like(
-            self.store.species_rates, order=x),
-            'thd_conc': lambda x: np.zeros_like(
-            self.store.ref_thd, order=x),
+                self.store.ref_pres_mod, order=x),
+            'thd_conc': lambda x: np.array(
+                self.store.ref_thd, order=x, copy=True),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
-            'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
+            'Pr': lambda x: np.array(self.store.ref_Pr, order=x, copy=True),
+            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
+            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+            'conc': lambda x: np.zeros_like(self.store.concs, order=x),
+            'wdot': lambda x: np.zeros_like(self.store.species_rates, order=x),
+            'rop_fwd': lambda x: np.array(
+                fwd_removed, order=x, copy=True),
+            'rop_rev': lambda x: np.array(
+                rev_removed, order=x, copy=True),
+            'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
@@ -857,11 +895,9 @@ class SubTest(TestClass):
             get_molar_rates, kc, edit, ad_opts, True,
             extra_funcs=[get_concentrations, get_thd_body_concs,
                          get_reduced_pressure_kernel, get_troe_kernel,
-                         get_rxn_pres_mod, get_rop_net,
-                         get_spec_rates],
-            do_not_set=[namestore.conc_arr, namestore.spec_rates,
-                        namestore.rop_net, namestore.Fi, namestore.Atroe,
-                        namestore.Btroe],
+                         get_rxn_pres_mod, get_rop_net, get_spec_rates],
+            do_not_set=[namestore.conc_arr, namestore.Fi, namestore.Atroe,
+                        namestore.Btroe, namestore.Fcent, namestore.thd_conc],
             allint=allint)
 
         # setup args
@@ -890,6 +926,11 @@ class SubTest(TestClass):
             lambda rxn: isinstance(rxn, ct.FalloffReaction) and
             rxn.falloff.type == 'Troe')
 
+        # find non-NaN Troe entries for testing
+        # NaN entries will be handled by :func:`nan_compare`
+        to_test = np.all(
+            self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0, axis=1)
+
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
@@ -898,11 +939,11 @@ class SubTest(TestClass):
         kc = [kernel_call('dci_troe_dnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_troe_dnj_ns', [fd_jac], compare_mask=[(
+                  to_test,
                   troe_test,
                   2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True,
+            compare_axis=(0, 1, 2), chain=_chainer, strict_name_match=True,
+            allow_skip=True, other_compare=self.nan_compare,
             **args)]
 
-        import pdb; pdb.set_trace()
         return self._generic_jac_tester(dci_troe_dnj, kc)
