@@ -50,6 +50,74 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
+def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
+                          conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the concentration weighted specific energy sum.
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dci_dnj`
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # create arrays
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs,
+                            namestore.num_specs)
+
+    spec_heat_lp, spec_heat_str = mapstore.apply_maps(
+        namestore.spec_heat, *default_inds)
+    conc_lp, conc_str = mapstore.apply_maps(
+        namestore.conc_arr, *default_inds)
+    spec_heat_tot_lp, spec_heat_total_str = mapstore.apply_maps(
+        namestore.spec_heat_total, global_ind)
+
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    kernel_data.extend([spec_heat_lp, conc_lp, spec_heat_tot_lp])
+
+    pre_instructions = Template('${spec_heat_total_str} = 0').safe_substitute(
+        spec_heat_total_str=spec_heat_total_str)
+    instructions = Template("""
+        ${spec_heat_total_str} = ${spec_heat_total_str} + ${spec_heat_str} * ${conc_str}
+    """).safe_substitute(
+        spec_heat_total_str=spec_heat_total_str,
+        spec_heat_str=spec_heat_str,
+        conc_str=conc_str)
+
+    return k_gen.knl_info(name='{}_total'.format(namestore.spec_heat.name),
+                          pre_instructions=[pre_instructions],
+                          instructions=instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore
+                          )
+
+
 def __dci_dnj(loopy_opts, namestore,
               do_ns=False, fall_type=rtypes.falloff_form.none):
     """Generates instructions, kernel arguements, and data for calculating

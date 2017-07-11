@@ -1026,12 +1026,17 @@ class NameStore(object):
                              dtype=np.float64, order=self.order)
         self.u_arr = creator('u', shape=(test_size, rate_info['Ns']),
                              dtype=np.float64, order=self.order)
+        self.spec_energy = self.h_arr if self.conp else self.u_arr
         self.cv_arr = creator('cv', shape=(test_size, rate_info['Ns']),
                               dtype=np.float64, order=self.order)
         self.cp_arr = creator('cp', shape=(test_size, rate_info['Ns']),
                               dtype=np.float64, order=self.order)
+        self.spec_heat = self.cp_arr if self.conp else self.cv_arr
         self.b_arr = creator('b', shape=(test_size, rate_info['Ns']),
                              dtype=np.float64, order=self.order)
+        self.spec_heat_total = creator(
+            self.spec_heat.name + '_tot', shape=(test_size,),
+            dtype=np.float64, order=self.order)
 
         # net species rates data
 
