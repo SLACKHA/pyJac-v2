@@ -12,7 +12,8 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        populate
                                        )
 from ..core.create_jacobian import (
-    dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj)
+    dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
+    total_specific_energy)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .test_rate_subs import kf_wrapper, kernel_runner
@@ -105,6 +106,7 @@ class SubTest(TestClass):
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None, do_spec_per_reac=False,
+                            do_conp=False,
                             **kw_args):
         """
         A generic testing method that can be used for rate constants,
@@ -126,7 +128,7 @@ class SubTest(TestClass):
         """
 
         eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_spec_per_reac,
+            do_ratespec, do_ropsplit, do_spec_per_reac, do_conp=do_conp,
             do_vector=False)
 
         reacs = self.store.reacs
@@ -144,7 +146,10 @@ class SubTest(TestClass):
             try:
                 conp = state['conp']
             except:
-                conp = True
+                try:
+                    conp = kw_args['conp']
+                except:
+                    conp = True
             # create namestore
             namestore = arc.NameStore(opt, rate_info, conp,
                                       self.store.test_size)
@@ -947,3 +952,34 @@ class SubTest(TestClass):
             **args)]
 
         return self._generic_jac_tester(dci_troe_dnj, kc)
+
+    def test_total_specific_energy(self):
+        # conp
+        ref_cp = np.sum(self.store.concs * self.store.spec_cp, axis=1)
+
+        # cp args
+        cp_args = {'cp': lambda x: np.array(
+            self.store.spec_cp, order=x, copy=True),
+            'conc': lambda x: np.array(
+            self.store.concs, order=x, copy=True)}
+
+        # call
+        kc = [kernel_call('cp_total', [ref_cp], strict_name_match=True,
+                          **cp_args)]
+
+        self._generic_jac_tester(total_specific_energy, kc, conp=True)
+
+        # conv
+        ref_cv = np.sum(self.store.concs * self.store.spec_cv, axis=1)
+
+        # cv args
+        cv_args = {'cv': lambda x: np.array(
+            self.store.spec_cv, order=x, copy=True),
+            'conc': lambda x: np.array(
+            self.store.concs, order=x, copy=True)}
+
+        # call
+        kc = [kernel_call('cv_total', [ref_cv], strict_name_match=True,
+                          **cv_args)]
+
+        self._generic_jac_tester(total_specific_energy, kc, conp=False)
