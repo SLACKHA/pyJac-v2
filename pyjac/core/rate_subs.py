@@ -2113,6 +2113,9 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
     mapstore.check_and_add_transform(namestore.cheb_Plim, namestore.num_cheb)
     mapstore.check_and_add_transform(namestore.cheb_Tlim, namestore.num_cheb)
 
+    # and the kf based on the map
+    mapstore.check_and_add_transform(namestore.kf, namestore.cheb_map)
+
     num_P_lp, num_P_str = mapstore.apply_maps(namestore.cheb_numP, var_name)
     num_T_lp, num_T_str = mapstore.apply_maps(namestore.cheb_numT, var_name)
     params_lp, params_str = mapstore.apply_maps(namestore.cheb_params,
@@ -2133,7 +2136,6 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
     P_arr, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
 
     # get the forward rate constants
-    mapstore.check_and_add_transform(namestore.kf, namestore.cheb_map)
     kf_arr, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
 
     # update kernel data
@@ -2319,12 +2321,15 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
     # number of parameter sets per reaction
     mapstore.check_and_add_transform(namestore.plog_num_param,
                                      namestore.num_plog)
-    plog_num_param_lp, plog_num_param_str = mapstore.apply_maps(
-        namestore.plog_num_param, var_name)
 
     # plog parameters
     mapstore.check_and_add_transform(namestore.plog_params,
                                      namestore.num_plog)
+    # fwd rate constants
+    mapstore.check_and_add_transform(namestore.kf, namestore.plog_map)
+
+    plog_num_param_lp, plog_num_param_str = mapstore.apply_maps(
+        namestore.plog_num_param, var_name)
     plog_params_lp, plog_params_str = mapstore.apply_maps(
         namestore.plog_params, arrhen_ind, var_name, param_ind)
 
@@ -2339,7 +2344,6 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
         'hi', shape=(4,), scope=scopes.PRIVATE, dtype=np.float64)
 
     # forward rxn rate constants
-    mapstore.check_and_add_transform(namestore.kf, namestore.plog_map)
     kf_arr, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
 
     # data
@@ -3164,7 +3168,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                     'if {1} == {0}'.format(i, rtype_str))
                 insns, manglers = get_instructions(
                     -1,
-                    mapstore,
+                    arc.MapStore(loopy_opts, mapstore.map_domain,
+                                 mapstore.mask_domain),
                     specializations[i].kernel_data,
                     beta_iter,
                     single_kernel_rtype=i)
