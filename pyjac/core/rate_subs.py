@@ -3574,11 +3574,17 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
     a_hi_strs = [mapstore.apply_maps(namestore.a_hi, loop_index, str(i))[1]
                  for i in range(poly_dim)]
     # use to create lo / hi equation
-    k = sp.Idx('k')
-    lo_eq_str = str(eq.subs([(sp.IndexedBase('a')[k, i],
-                              a_lo_strs[i]) for i in range(poly_dim)]))
-    hi_eq_str = str(eq.subs([(sp.IndexedBase('a')[k, i],
-                              a_hi_strs[i]) for i in range(poly_dim)]))
+    from ..sympy_utils import sympy_addons as sp_add
+    from collections import defaultdict
+    a_list = defaultdict(
+        str,
+        [(x.args[-1], x) for x in eq.free_symbols
+         if isinstance(x, sp_add.MyIndexed)])
+
+    lo_eq_str = str(eq.subs([(a_list[i], a_lo_strs[i])
+                             for i in range(poly_dim)]))
+    hi_eq_str = str(eq.subs([(a_list[i], a_hi_strs[i])
+                             for i in range(poly_dim)]))
 
     T_val = 'T'
     preinstructs = [default_pre_instructs(T_val, T_str, 'VAL')]

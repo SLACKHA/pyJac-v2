@@ -17,6 +17,7 @@ import numpy as np
 
 
 class SubTest(TestClass):
+
     def __subtest(self, ref_ans, nicename, eqs):
         oploop = OptionLoop(OrderedDict([('lang', ['opencl']),
                                          ('width', [4, None]),
@@ -29,38 +30,37 @@ class SubTest(TestClass):
         poly_dim = self.store.specs[0].hi.size
         test_size = self.store.test_size
         for i, state in enumerate(oploop):
-            try:
-                opt = loopy_options(
-                    **{x: state[x] for x in state if x != 'device'})
-                rate_info = assign_rates(self.store.reacs, self.store.specs,
-                                         RateSpecialization.fixed)
-                namestore = NameStore(opt, rate_info, True, test_size)
-                knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
-                                         poly_dim,
-                                         test_size=test_size)
+            if state['width'] and state['depth']:
+                continue
 
-                # create the kernel call
-                kc = kernel_call('eval_' + nicename,
-                         [ref_ans],
-                         phi=np.array(self.store.phi,
-                                      order=state['order'],
-                                      copy=True))
+            opt = loopy_options(
+                **{x: state[x] for x in state if x != 'device'})
+            rate_info = assign_rates(self.store.reacs, self.store.specs,
+                                     RateSpecialization.fixed)
+            namestore = NameStore(opt, rate_info, True, test_size)
+            knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
+                                     poly_dim,
+                                     test_size=test_size)
 
-                # create a dummy kernel generator
-                knl = k_gen.make_kernel_generator(
-                    name='chem_utils',
-                    loopy_opts=opt,
-                    kernels=[knl],
-                    test_size=test_size
-                )
-                knl._make_kernels()
+            # create the kernel call
+            kc = kernel_call('eval_' + nicename,
+                             [ref_ans],
+                             phi=np.array(self.store.phi_cp,
+                                          order=state['order'],
+                                          copy=True))
 
-                # now run
-                kc.set_state(state['order'])
-                assert auto_run(knl.kernels, kc, device=state['device'])
-            except Exception as e:
-                if not(state['width'] and state['depth']):
-                    raise e
+            # create a dummy kernel generator
+            knl = k_gen.make_kernel_generator(
+                name='chem_utils',
+                loopy_opts=opt,
+                kernels=[knl],
+                test_size=test_size
+            )
+            knl._make_kernels()
+
+            # now run
+            kc.set_state(state['order'])
+            assert auto_run(knl.kernels, kc, device=state['device'])
 
     @attr('long')
     def test_cp(self):
