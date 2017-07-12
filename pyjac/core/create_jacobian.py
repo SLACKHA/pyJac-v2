@@ -23,6 +23,7 @@ from ..loopy_utils import preambles_and_manglers as lp_pregen
 from . import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from . import reaction_types as rtypes
+from . import chem_model as chem
 
 # external packages
 
@@ -50,7 +51,7 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
-def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
+def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
               conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the concentration weighted specific energy sum.
@@ -59,6 +60,95 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     -----
     See :meth:`pyjac.core.create_jacobian.__dci_dnj`
 
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # create arrays
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs_no_ns,
+                            namestore.num_specs_no_ns)
+
+    num_specs = namestore.num_specs.initializer[-1] + 1
+    # k loop
+    spec_k = 'spec_k'
+    extra_inames = [(spec_k, '0 <= spec_k < {}'.format(
+        num_specs - 1))]
+
+    mw_lp, mw_str = mapstore.apply_maps(
+        namestore.mw_post_arr, spec_k)
+    V_lp, V_str = mapstore.apply_maps(
+        namestore.V_arr, global_ind)
+    jac_lp, dnk_dnj_str = mapstore.apply_maps(
+        namestore.jac, global_ind, spec_k, var_name, affine={
+            var_name: 2,
+            spec_k: 2
+        })
+    _, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, 1, var_name, affine={
+            var_name: 2,
+        })
+    _, dTdot_dnj_str = mapstore.apply_maps(
+        namestore.jac, global_ind, 0, var_name, affine={
+            var_name: 2,
+        })
+
+    P_lp, P_str = mapstore.apply_maps(
+            namestore.P_arr, global_ind)
+    T_lp, T_str = mapstore.apply_maps(
+            namestore.T_arr, global_ind)
+
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp])
+
+    extra_var_str = V_str if conp else P_str
+    fixed_var_str = P_str if conp else V_str
+    instructions = Template("""
+    <> sum = 0 {id=init}
+    for ${spec_k}
+        sum = sum + (1 - ${mw_str}) * ${dnk_dnj_str} {id=sum, dep=*}
+    end
+
+    ${jac_str} = ${T_str} * Ru * sum / ${fixed_var_str} + ${extra_var_str} * ${dTdot_dnj_str} / ${T_str} {dep=sum, nosync=sum}
+    """).safe_substitute(**locals())
+
+    return k_gen.knl_info(name='d{}dot_dnj'.format('P' if conp else 'V'),
+                          extra_inames=extra_inames,
+                          instructions=instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore,
+                          parameters={'Ru': chem.RU}
+                          )
+
+
+def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
+              conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the partial derivatives of dT/dt with respect to the molar species
+    quanities
 
     Parameters
     ----------
@@ -148,11 +238,6 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
                           conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the concentration weighted specific energy sum.
-
-    Notes
-    -----
-    See :meth:`pyjac.core.create_jacobian.__dci_dnj`
-
 
     Parameters
     ----------

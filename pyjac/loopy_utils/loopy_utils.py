@@ -915,7 +915,7 @@ def auto_run(knl, kernel_calls, device='0'):
                                if not any(x is None for x in out[ind]))
                 result = result and kc.compare(out[ind])
         return result
-    except TypeError as e:
+    except TypeError:
         # if not iterable
         return kernel_calls.compare(out[0])
 
