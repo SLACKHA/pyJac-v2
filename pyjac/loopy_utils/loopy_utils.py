@@ -521,7 +521,7 @@ class kernel_call(object):
                  out_mask=None, input_mask=[], strict_name_match=False,
                  chain=None, check=True, post_process=None,
                  allow_skip=False, other_compare=None, atol=1e-8,
-                 rtol=1e-5,
+                 rtol=1e-5, equal_nan=False,
                  **input_args):
         """
         The initializer for the :class:`kernel_call` object
@@ -582,11 +582,13 @@ class kernel_call(object):
             in by this kernel call.  This is useful in the case of NaN's
             resulting from derivatives of (e.g.,) log(0), to ensure our
             arrays are spitting out very large (but finite) numbers
-        rtol: float [Default 1e-5]
+        rtol : float [Default 1e-5]
             The relative tolerance for comparison to reference answers.
             For Jacobian correctness testing this may have to be loosened
-        atol: float [Default 1e-8]
+        atol : float [Default 1e-8]
             The absolute tolerance for comparison to reference answers.
+        equal_nan : bool [False]
+            If supplied, whether to consider NaN's equal for reference testing
         input_args : dict of `numpy.array`s
             The arguements to supply to the kernel
 
@@ -621,6 +623,7 @@ class kernel_call(object):
         self.other_compare = other_compare
         self.rtol = rtol
         self.atol = atol
+        self.equal_nan = equal_nan
 
     def is_my_kernel(self, knl):
         """
@@ -713,8 +716,14 @@ class kernel_call(object):
         try:
             # multiple axes
             outv = variable
+            # account for change in variable size
+            ax_fac = 0
             for i, ax in enumerate(self.compare_axis):
-                outv = np.take(outv, self.compare_mask[index][i], axis=ax)
+                shape = len(outv.shape)
+                outv = np.take(outv, self.compare_mask[index][i],
+                               axis=ax-ax_fac)
+                if len(outv.shape) != shape:
+                    ax_fac += shape - len(outv.shape)
             return outv.squeeze()
         except:
             # if simple mask
@@ -752,7 +761,8 @@ class kernel_call(object):
 
             allclear = allclear and np.allclose(outv, ref_answer,
                                                 rtol=self.rtol,
-                                                atol=self.atol)
+                                                atol=self.atol,
+                                                equal_nan=self.equal_nan)
 
             if self.other_compare is not None:
                 allclear = allclear and self.other_compare(
@@ -906,7 +916,7 @@ def auto_run(knl, kernel_calls, device='0'):
                                if not any(x is None for x in out[ind]))
                 result = result and kc.compare(out[ind])
         return result
-    except TypeError:
+    except TypeError as e:
         # if not iterable
         return kernel_calls.compare(out[0])
 

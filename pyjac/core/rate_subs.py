@@ -431,7 +431,7 @@ def assign_rates(reacs, specs, rate_spec):
 
     # molecular weights
     mws = np.array([spec.mw for spec in specs])
-    mw_post = 1.0 - mws[:-1] / mws[-1]
+    mw_post = mws[:-1] / mws[-1]
 
     return {'simple': {'A': A, 'b': b, 'Ta': Ta, 'type': simple_rate_type,
                        'num': num_simple, 'map': simple_map},
@@ -814,7 +814,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
 
     instructions = Template(
         """
-            dE = dE + ${mw_str} * ${wdot_str} {id=sum, dep=init}
+            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum, dep=init}
             """
     ).substitute(
         mw_str=mw_str,

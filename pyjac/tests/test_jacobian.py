@@ -3,7 +3,9 @@ from ..core.rate_subs import (
     assign_rates, get_concentrations,
     get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
     get_rxn_pres_mod, get_reduced_pressure_kernel, get_lind_kernel,
-    get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates)
+    get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates,
+    polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
+    get_rev_rates, get_temperature_rate, get_extra_var_rates)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list,
@@ -13,7 +15,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        )
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
-    total_specific_energy)
+    total_specific_energy, dTdot_dnj)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .test_rate_subs import kf_wrapper, kernel_runner
@@ -983,3 +985,221 @@ class SubTest(TestClass):
                           **cv_args)]
 
         self._generic_jac_tester(total_specific_energy, kc, conp=False)
+
+    def __get_full_jac(self, conp=True):
+        # creates a FD version of the full species Jacobian
+        namestore, rate_info = self._make_namestore(conp)
+        ad_opts = namestore.loopy_opts
+        edit = editor(
+            namestore.n_arr, namestore.n_dot, self.store.test_size,
+            order=ad_opts.order)
+
+        def __create_arr(order, inds):
+            return np.zeros((self.store.test_size, inds.size), order=order)
+
+        # setup args
+        allint = {'net': rate_info['net']['allint']}
+        args = {
+            'phi': lambda x: np.array(self.store.phi_cp if conp
+                                      else self.store.phi_cv, order=x,
+                                      copy=True),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'wdot': lambda x: np.zeros_like(self.store.species_rates,
+                                            order=x),
+            'Atroe': lambda x: __create_arr(x, self.store.troe_inds),
+            'Btroe': lambda x: __create_arr(x, self.store.troe_inds),
+            'Fcent': lambda x: __create_arr(x, self.store.troe_inds),
+            'Fi': lambda x: __create_arr(x, self.store.fall_inds),
+            'Pr': lambda x: __create_arr(x, self.store.fall_inds),
+            'X': lambda x: __create_arr(x, self.store.sri_inds),
+            'conc': lambda x: np.zeros_like(self.store.concs,
+                                            order=x),
+            'dphi': lambda x: np.zeros_like(self.store.dphi_cp,
+                                            order=x),
+            'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
+                                          order=x),
+            'kf_fall': lambda x: __create_arr(x, self.store.fall_inds),
+            'kr': lambda x: np.zeros_like(self.store.rev_rate_constants,
+                                          order=x),
+            'pres_mod': lambda x: np.zeros_like(self.store.ref_pres_mod,
+                                                order=x),
+            'rop_fwd': lambda x: np.zeros_like(self.store.fwd_rxn_rate,
+                                               order=x),
+            'rop_rev': lambda x: np.zeros_like(self.store.rev_rxn_rate,
+                                               order=x),
+            'rop_net': lambda x: np.zeros_like(self.store.rxn_rates,
+                                               order=x),
+            'thd_conc': lambda x: np.zeros_like(self.store.ref_thd,
+                                                order=x),
+            'b': lambda x: np.zeros_like(self.store.ref_B_rev,
+                                         order=x),
+            'Kc': lambda x: np.zeros_like(self.store.equilibrium_constants,
+                                          order=x)
+        }
+        if conp:
+            args['P_arr'] = lambda x: np.array(
+                self.store.P, order=x, copy=True)
+            args['h'] = lambda x: np.zeros_like(
+                self.store.spec_h, order=x)
+            args['cp'] = lambda x: np.zeros_like(
+                self.store.spec_cp, order=x)
+        else:
+            args['V_arr'] = lambda x: np.array(
+                self.store.V, order=x, copy=True)
+            args['u'] = lambda x: np.zeros_like(
+                self.store.spec_u, order=x)
+            args['cv'] = lambda x: np.zeros_like(
+                self.store.spec_cv, order=x)
+
+        # obtain the finite difference jacobian
+        kc = kernel_call('dnkdnj', [None], **args)
+
+        def __fall_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
+                                              test_size, falloff=True)
+
+        def __plog_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
+                                            rate_info['plog']['max_P'],
+                                            test_size)
+
+        def __cheb_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
+                                            np.max(rate_info['cheb']['num_P']),
+                                            np.max(rate_info['cheb']['num_T']),
+                                            test_size)
+
+        def __b_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            desc = 'conp' if conp else 'conv'
+            polydim = self.store.specs[0].hi.size
+            return polyfit_kernel_gen('b', eqs[desc],
+                                      loopy_opts, namestore, polydim,
+                                      test_size)
+
+        def __cp_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            desc = 'conp' if conp else 'conv'
+            polydim = self.store.specs[0].hi.size
+            return polyfit_kernel_gen('cp', eqs[desc],
+                                      loopy_opts, namestore, polydim,
+                                      test_size)
+
+        def __cv_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            desc = 'conp' if conp else 'conv'
+            polydim = self.store.specs[0].hi.size
+            return polyfit_kernel_gen('cv', eqs[desc],
+                                      loopy_opts, namestore, polydim,
+                                      test_size)
+
+        def __h_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            desc = 'conp' if conp else 'conv'
+            polydim = self.store.specs[0].hi.size
+            return polyfit_kernel_gen('h', eqs[desc],
+                                      loopy_opts, namestore, polydim,
+                                      test_size)
+
+        def __u_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            desc = 'conp' if conp else 'conv'
+            polydim = self.store.specs[0].hi.size
+            return polyfit_kernel_gen('u', eqs[desc],
+                                      loopy_opts, namestore, polydim,
+                                      test_size)
+
+        def __extra_call_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_extra_var_rates(eqs, loopy_opts, namestore,
+                                       conp=conp, test_size=test_size)
+
+        def __temperature_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_temperature_rate(eqs, loopy_opts, namestore,
+                                        conp=conp, test_size=test_size)
+
+        jac = self._get_jacobian(
+            __extra_call_wrapper, kc, edit, ad_opts, conp,
+            extra_funcs=[get_concentrations, get_simple_arrhenius_rates,
+                         __plog_call_wrapper, __cheb_call_wrapper,
+                         get_thd_body_concs, __fall_call_wrapper,
+                         get_reduced_pressure_kernel, get_lind_kernel,
+                         get_sri_kernel, get_troe_kernel,
+                         __b_call_wrapper, get_rev_rates,
+                         get_rxn_pres_mod, get_rop, get_rop_net,
+                         get_spec_rates] + (
+                            [__h_call_wrapper, __cp_call_wrapper] if conp else
+                            [__u_call_wrapper, __cv_call_wrapper]) + [
+                         get_molar_rates, __temperature_wrapper],
+            allint=allint)
+
+        return jac
+
+    def test_dTdot_dnj(self):
+        # conp
+
+        # get total cp
+        cp_sum = np.sum(self.store.concs * self.store.spec_cp, axis=1)
+
+        # refactor mw's
+        mws = np.array(self.store.gas.molecular_weights)
+        mws = mws[:-1] / mws[-1]
+
+        # get species jacobian
+        jac = self.__get_full_jac(True)
+
+        ref_answer = jac[:, 0, 2:].copy()
+        jac[:, :, :2] = 0
+        jac[:, :2, :] = 0
+
+        # cp args
+        cp_args = {'cp': lambda x: np.array(
+                self.store.spec_cp, order=x, copy=True),
+            'h': lambda x: np.array(
+                self.store.spec_h, order=x, copy=True),
+            'conc': lambda x: np.array(
+                self.store.concs, order=x, copy=True),
+            'cp_tot': lambda x: np.array(
+                cp_sum, order=x, copy=True),
+            'phi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True),
+            'dphi': lambda x: np.array(
+                self.store.dphi_cp, order=x, copy=True),
+            'jac': lambda x: np.array(
+                jac, order=x, copy=True)}
+
+        # call
+        kc = [kernel_call('dTdot_dnj', [ref_answer], compare_axis=(1, 2),
+              compare_mask=[(0, np.arange(2, jac.shape[1]))],
+              equal_nan=True, **cp_args)]
+
+        self._generic_jac_tester(dTdot_dnj, kc, conp=True)
+
+        # conv
+        cv_sum = np.sum(self.store.concs * self.store.spec_cv, axis=1)
+
+        # get species jacobian
+        jac = self.__get_full_jac(False)
+
+        ref_answer = jac[:, 0, 2:].copy()
+        jac[:, :, :2] = 0
+        jac[:, :2, :] = 0
+
+        # cv args
+        cv_args = {'cv': lambda x: np.array(
+                self.store.spec_cv, order=x, copy=True),
+            'u': lambda x: np.array(
+                self.store.spec_u, order=x, copy=True),
+            'conc': lambda x: np.array(
+                self.store.concs, order=x, copy=True),
+            'cv_tot': lambda x: np.array(
+                cv_sum, order=x, copy=True),
+            'phi': lambda x: np.array(
+                self.store.phi_cv, order=x, copy=True),
+            'dphi': lambda x: np.array(
+                self.store.dphi_cv, order=x, copy=True),
+            'V_arr': lambda x: np.array(
+                self.store.V, order=x, copy=True),
+            'jac': lambda x: np.array(
+                jac, order=x, copy=True)}
+
+        # call
+        kc = [kernel_call('dTdot_dnj', [ref_answer], compare_axis=(1, 2),
+              compare_mask=[(0, np.arange(2, jac.shape[1]))],
+              equal_nan=True, **cv_args)]
+
+        self._generic_jac_tester(dTdot_dnj, kc, conp=False)
