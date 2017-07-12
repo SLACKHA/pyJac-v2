@@ -15,7 +15,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        )
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
-    total_specific_energy, dTdot_dnj)
+    total_specific_energy, dTdot_dnj, dEdot_dnj)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .test_rate_subs import kf_wrapper, kernel_runner
@@ -1135,10 +1135,6 @@ class SubTest(TestClass):
         # get total cp
         cp_sum = np.sum(self.store.concs * self.store.spec_cp, axis=1)
 
-        # refactor mw's
-        mws = np.array(self.store.gas.molecular_weights)
-        mws = mws[:-1] / mws[-1]
-
         # get species jacobian
         jac = self.__get_full_jac(True)
 
@@ -1203,3 +1199,54 @@ class SubTest(TestClass):
               equal_nan=True, **cv_args)]
 
         self._generic_jac_tester(dTdot_dnj, kc, conp=False)
+
+    def test_dEdot_dnj(self):
+        # conp
+
+        # get species jacobian
+        jac = self.__get_full_jac(True)
+
+        ref_answer = jac[:, 1, 2:].copy()
+        jac[:, 1, :] = 0
+
+        # cp args
+        cp_args = {
+            'phi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True),
+            'dphi': lambda x: np.array(
+                self.store.dphi_cp, order=x, copy=True),
+            'jac': lambda x: np.array(
+                jac, order=x, copy=True),
+            'P_arr': lambda x: np.array(
+                self.store.P, order=x, copy=True)}
+
+        # call
+        kc = [kernel_call('dVdot_dnj', [ref_answer], compare_axis=(1, 2),
+              compare_mask=[(1, np.arange(2, jac.shape[1]))],
+              equal_nan=True, **cp_args)]
+
+        self._generic_jac_tester(dEdot_dnj, kc, conp=True)
+
+        # get species jacobian
+        jac = self.__get_full_jac(False)
+
+        ref_answer = jac[:, 1, 2:].copy()
+        jac[:, 1, :] = 0
+
+        # cv args
+        cv_args = {
+            'phi': lambda x: np.array(
+                self.store.phi_cv, order=x, copy=True),
+            'dphi': lambda x: np.array(
+                self.store.dphi_cv, order=x, copy=True),
+            'jac': lambda x: np.array(
+                jac, order=x, copy=True),
+            'V_arr': lambda x: np.array(
+                self.store.V, order=x, copy=True)}
+
+        # call
+        kc = [kernel_call('dPdot_dnj', [ref_answer], compare_axis=(1, 2),
+              compare_mask=[(1, np.arange(2, jac.shape[1]))],
+              equal_nan=True, **cv_args)]
+
+        self._generic_jac_tester(dEdot_dnj, kc, conp=False)
