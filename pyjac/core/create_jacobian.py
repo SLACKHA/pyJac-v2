@@ -50,6 +50,100 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
+def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
+              conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the concentration weighted specific energy sum.
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dci_dnj`
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # create arrays
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_specs_no_ns,
+                            namestore.num_specs_no_ns)
+
+    num_specs = namestore.num_specs.initializer[-1] + 1
+    # k loop
+    spec_k = 'spec_k'
+    extra_inames = [(spec_k, '0 <= spec_k < {}'.format(
+        num_specs - 1))]
+
+    spec_heat_lp, spec_heat_k_str = mapstore.apply_maps(
+        namestore.spec_heat, *default_inds)
+    _, spec_heat_ns_str = mapstore.apply_maps(
+        namestore.spec_heat_ns, global_ind)
+    energy_lp, energy_k_str = mapstore.apply_maps(
+        namestore.spec_energy, global_ind, spec_k)
+    _, energy_ns_str = mapstore.apply_maps(
+        namestore.spec_energy_ns, global_ind)
+    spec_heat_tot_lp, spec_heat_total_str = mapstore.apply_maps(
+        namestore.spec_heat_total, global_ind)
+    mw_lp, mw_str = mapstore.apply_maps(
+        namestore.mw_post_arr, spec_k)
+    V_lp, V_str = mapstore.apply_maps(
+        namestore.V_arr, global_ind)
+    T_dot_lp, T_dot_str = mapstore.apply_maps(
+        namestore.T_dot, global_ind)
+    jac_lp, jac_spec_str = mapstore.apply_maps(
+        namestore.jac, global_ind, spec_k, var_name, affine={
+            var_name: 2,
+            spec_k: 2
+        })
+    _, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, '0', var_name, affine={
+            var_name: 2,
+        })
+
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    kernel_data.extend([spec_heat_lp, energy_lp, spec_heat_tot_lp, mw_lp,
+                        V_lp, T_dot_lp, jac_lp])
+
+    instructions = Template("""
+    <> sum = 0 {id=init}
+    for ${spec_k}
+        sum = sum + (${energy_k_str} - ${energy_ns_str} * ${mw_str}) * ${jac_spec_str} {id=sum, dep=*}
+    end
+
+    ${jac_str} = -(sum + ${T_dot_str} * (${spec_heat_k_str} - ${spec_heat_ns_str})) / (${V_str} * ${spec_heat_total_str}) {dep=sum, nosync=sum}
+    """).safe_substitute(**locals())
+
+    return k_gen.knl_info(name='dTdot_dnj',
+                          extra_inames=extra_inames,
+                          instructions=instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore
+                          )
+
+
 def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
                           conp=True):
     """Generates instructions, kernel arguements, and data for calculating
