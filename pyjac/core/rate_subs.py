@@ -926,12 +926,12 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
 
     # add all non-mapped arrays
     if conp:
-        h_lp, h_str = mapstore.apply_maps(namestore.h_arr, *default_inds)
-        cp_lp, cp_str = mapstore.apply_maps(namestore.cp_arr, *default_inds)
+        h_lp, h_str = mapstore.apply_maps(namestore.h, *default_inds)
+        cp_lp, cp_str = mapstore.apply_maps(namestore.cp, *default_inds)
         kernel_data.extend([h_lp, cp_lp])
     else:
-        u_lp, u_str = mapstore.apply_maps(namestore.u_arr, *default_inds)
-        cv_lp, cv_str = mapstore.apply_maps(namestore.cv_arr, *default_inds)
+        u_lp, u_str = mapstore.apply_maps(namestore.u, *default_inds)
+        cv_lp, cv_str = mapstore.apply_maps(namestore.cv, *default_inds)
         kernel_data.extend([u_lp, cv_lp])
 
     conc_lp, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
@@ -3327,13 +3327,12 @@ def write_specrates_kernel(eqs, reacs, specs,
                                      nstore, test_size=test_size))
 
     # thermo polynomial dimension
-    polydim = specs[0].hi.size
     depends_on = []
     # check for reverse rates
     if rate_info['rev']['num']:
         # add the 'b' eval
         __add_knl(polyfit_kernel_gen('b', eqs['conp'], loopy_opts,
-                                     nstore, polydim, test_size))
+                                     nstore, test_size))
         # addd the 'b' eval to depnediencies
         depends_on.append(kernels[-1])
         # add Kc / rev rates
@@ -3366,15 +3365,15 @@ def write_specrates_kernel(eqs, reacs, specs,
     if conp:
         # get h / cp evals
         __add_knl(polyfit_kernel_gen('h', eqs['conp'], loopy_opts, nstore,
-                                     polydim, test_size))
+                                     test_size))
         __add_knl(polyfit_kernel_gen('cp', eqs['conp'], loopy_opts, nstore,
-                                     polydim, test_size))
+                                     test_size))
     else:
         # and u / cv
         __add_knl(polyfit_kernel_gen('u', eqs['conv'], loopy_opts, nstore,
-                                     polydim, test_size))
+                                     test_size))
         __add_knl(polyfit_kernel_gen('cv', eqs['conv'], loopy_opts, nstore,
-                                     polydim, test_size))
+                                     test_size))
     # add the thermo kernels to our dependencies
     depends_on.extend(kernels[-2:])
     # and temperature rates
@@ -3502,8 +3501,7 @@ def get_rate_eqn(eqs, index='i'):
     return rate_eqn_pre
 
 
-def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
-                       poly_dim, test_size=None):
+def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
     """Helper function that generates kernels for
        evaluation of various thermodynamic species properties
 
@@ -3517,8 +3515,6 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
         The namestore / creator for this method
-    poly_dim : int
-        The dimension of the NASA polynomial being used
     test_size : int
         If not None, this kernel is being used for testing.
 
@@ -3547,6 +3543,7 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
     # get correctly ordered arrays / strings
     a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)
     a_hi_lp, _ = mapstore.apply_maps(namestore.a_hi, loop_index, param_ind)
+    poly_dim = namestore.a_lo.shape[1]
     T_mid_lp, T_mid_str = mapstore.apply_maps(namestore.T_mid, loop_index)
 
     # create the input/temperature arrays
@@ -3558,10 +3555,13 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore,
 
     # mapping of nicename -> varname
     var_maps = {'cp': '{C_p}[k]',
+                'dcp': 'frac{text{d} {C_p} }{text{d} T }[k]',
                 'h': 'H[k]',
                 'cv': '{C_v}[k]',
+                'dcv': 'frac{text{d} {C_v} }{text{d} T }[k]',
                 'u': 'U[k]',
-                'b': 'B[k]'}
+                'b': 'B[k]',
+                'db': 'frac{text{d} B }{text{d} T }[k]'}
     varname = var_maps[nicename]
 
     # get variable and equation
@@ -3643,20 +3643,12 @@ def write_chem_utils(specs, eqs, loopy_opts,
     if test_size is None:
         test_size = 'problem_size'
 
-    file_prefix = ''
-    if auto_diff:
-        file_prefix = 'ad_'
-
-    target = lp_utils.get_target(loopy_opts.lang)
-
     # generate the kernels
     conp_eqs = eqs['conp']
     conv_eqs = eqs['conv']
 
     nicenames = ['cp', 'h', 'cv', 'u', 'b']
     kernels = []
-    headers = []
-    code = []
     for nicename in nicenames:
         eq = conp_eqs if nicename in ['h', 'cp'] else conv_eqs
         kernels.append(polyfit_kernel_gen(nicename,

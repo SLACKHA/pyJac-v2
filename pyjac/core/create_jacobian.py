@@ -51,14 +51,50 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
-def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
-              conp=True):
+def thermo_temperature_derivative(nicename, eqs, loopy_opts, namestore,
+                                  test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the concentration weighted specific energy sum.
 
     Notes
     -----
     See :meth:`pyjac.core.create_jacobian.__dci_dnj`
+
+
+    Parameters
+    ----------
+    nicename : ['dcp', 'dcv', 'db']
+        The polynomial derivative to calculate
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    rate_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    eq = eqs['conp'] if nicename in ['dcp'] else eqs['conv']
+    return rate.polyfit_kernel_gen(
+        nicename, eq, loopy_opts, namestore, test_size)
+
+
+def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
+              conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the extra variable (i.e. V or P depending on conp/conv)
+    w.r.t. the molar variables
 
 
     Parameters
