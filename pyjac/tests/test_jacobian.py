@@ -15,7 +15,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        )
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
-    total_specific_energy, dTdot_dnj, dEdot_dnj)
+    total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .test_rate_subs import kf_wrapper, kernel_runner
@@ -1071,37 +1071,30 @@ class SubTest(TestClass):
 
         def __b_call_wrapper(eqs, loopy_opts, namestore, test_size):
             desc = 'conp' if conp else 'conv'
-            polydim = self.store.specs[0].hi.size
             return polyfit_kernel_gen('b', eqs[desc],
-                                      loopy_opts, namestore, polydim,
-                                      test_size)
+                                      loopy_opts, namestore, test_size)
 
         def __cp_call_wrapper(eqs, loopy_opts, namestore, test_size):
             desc = 'conp' if conp else 'conv'
-            polydim = self.store.specs[0].hi.size
             return polyfit_kernel_gen('cp', eqs[desc],
-                                      loopy_opts, namestore, polydim,
-                                      test_size)
+                                      loopy_opts, namestore, test_size)
 
         def __cv_call_wrapper(eqs, loopy_opts, namestore, test_size):
             desc = 'conp' if conp else 'conv'
-            polydim = self.store.specs[0].hi.size
             return polyfit_kernel_gen('cv', eqs[desc],
-                                      loopy_opts, namestore, polydim,
+                                      loopy_opts, namestore,
                                       test_size)
 
         def __h_call_wrapper(eqs, loopy_opts, namestore, test_size):
             desc = 'conp' if conp else 'conv'
-            polydim = self.store.specs[0].hi.size
             return polyfit_kernel_gen('h', eqs[desc],
-                                      loopy_opts, namestore, polydim,
+                                      loopy_opts, namestore,
                                       test_size)
 
         def __u_call_wrapper(eqs, loopy_opts, namestore, test_size):
             desc = 'conp' if conp else 'conv'
-            polydim = self.store.specs[0].hi.size
             return polyfit_kernel_gen('u', eqs[desc],
-                                      loopy_opts, namestore, polydim,
+                                      loopy_opts, namestore,
                                       test_size)
 
         def __extra_call_wrapper(eqs, loopy_opts, namestore, test_size):
@@ -1250,3 +1243,45 @@ class SubTest(TestClass):
               equal_nan=True, **cv_args)]
 
         self._generic_jac_tester(dEdot_dnj, kc, conp=False)
+
+    def test_thermo_derivatives(self):
+        def __test_name(myname):
+            conp = myname in ['cp']
+            namestore, rate_info = self._make_namestore(conp)
+            ad_opts = namestore.loopy_opts
+
+            phi = self.store.phi_cp if conp else self.store.phi_cv
+
+            # dname/dT
+            edit = editor(
+                namestore.T_arr, getattr(namestore, myname),
+                self.store.test_size,
+                order=ad_opts.order)
+
+            args = {
+                'phi': lambda x: np.array(
+                    phi, order=x, copy=True),
+            }
+
+            # obtain the finite difference jacobian
+            kc = kernel_call(myname, [None], **args)
+
+            def __call_wrapper(eqs, loopy_opts, namestore, test_size):
+                return thermo_temperature_derivative(
+                                          name, eqs,
+                                          loopy_opts, namestore,
+                                          test_size)
+            name = myname
+            ref_ans = self._get_jacobian(
+                __call_wrapper, kc, edit, ad_opts, namestore.conp)
+            ref_ans = ref_ans[:, :, 0]
+
+            # call
+            kc = [kernel_call(myname, [ref_ans], **args)]
+
+            name = 'd' + myname
+            self._generic_jac_tester(__call_wrapper, kc)
+
+        __test_name('cp')
+        __test_name('cv')
+        __test_name('b')

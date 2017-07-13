@@ -27,7 +27,6 @@ class SubTest(TestClass):
                                          ('order', ['C', 'F']),
                                          ('device', get_device_list())]))
 
-        poly_dim = self.store.specs[0].hi.size
         test_size = self.store.test_size
         for i, state in enumerate(oploop):
             if state['width'] and state['depth']:
@@ -39,7 +38,6 @@ class SubTest(TestClass):
                                      RateSpecialization.fixed)
             namestore = NameStore(opt, rate_info, True, test_size)
             knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
-                                     poly_dim,
                                      test_size=test_size)
 
             # create the kernel call

@@ -1021,27 +1021,6 @@ class NameStore(object):
                                    dtype=np.float64,
                                    order=self.order)
 
-        # thermo arrays
-        self.h_arr = creator('h', shape=(test_size, rate_info['Ns']),
-                             dtype=np.float64, order=self.order)
-        self.u_arr = creator('u', shape=(test_size, rate_info['Ns']),
-                             dtype=np.float64, order=self.order)
-        self.spec_energy = self.h_arr if self.conp else self.u_arr
-        self.spec_energy_ns = self.spec_energy.copy()
-        self.spec_energy_ns.fixed_indicies = [(1, rate_info['Ns'] - 1)]
-        self.cv_arr = creator('cv', shape=(test_size, rate_info['Ns']),
-                              dtype=np.float64, order=self.order)
-        self.cp_arr = creator('cp', shape=(test_size, rate_info['Ns']),
-                              dtype=np.float64, order=self.order)
-        self.spec_heat = self.cp_arr if self.conp else self.cv_arr
-        self.spec_heat_ns = self.spec_heat.copy()
-        self.spec_heat_ns.fixed_indicies = [(1, rate_info['Ns'] - 1)]
-        self.b_arr = creator('b', shape=(test_size, rate_info['Ns']),
-                             dtype=np.float64, order=self.order)
-        self.spec_heat_total = creator(
-            self.spec_heat.name + '_tot', shape=(test_size,),
-            dtype=np.float64, order=self.order)
-
         # net species rates data
 
         # per reaction
@@ -1884,8 +1863,18 @@ class NameStore(object):
                              initializer=rate_info['thermo']['T_mid'],
                              shape=rate_info['thermo']['T_mid'].shape,
                              order=self.order)
-        for name in ['cp', 'cv', 'u', 'h', 'b']:
+        for name in ['cp', 'cv', 'u', 'h', 'b', 'dcp', 'dcv', 'db']:
             setattr(self, name, creator(name,
                                         dtype=np.float64,
                                         shape=(test_size, rate_info['Ns']),
                                         order=self.order))
+        # thermo arrays
+        self.spec_energy = self.h if self.conp else self.u
+        self.spec_energy_ns = self.spec_energy.copy()
+        self.spec_energy_ns.fixed_indicies = [(1, rate_info['Ns'] - 1)]
+        self.spec_heat = self.cp if self.conp else self.cv
+        self.spec_heat_ns = self.spec_heat.copy()
+        self.spec_heat_ns.fixed_indicies = [(1, rate_info['Ns'] - 1)]
+        self.spec_heat_total = creator(
+            self.spec_heat.name + '_tot', shape=(test_size,),
+            dtype=np.float64, order=self.order)
