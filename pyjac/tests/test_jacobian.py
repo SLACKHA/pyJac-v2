@@ -15,10 +15,11 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        )
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
-    total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative)
+    total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
+    dRopi_dT)
 from ..core import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
-from .test_rate_subs import kf_wrapper, kernel_runner
+from .test_rate_subs import kernel_runner
 
 import numpy as np
 import six
@@ -434,15 +435,15 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dRopi_dnj, kc, allint=allint)
 
-    def __get_dci_check(self, include_test):
+    def __get_check(self, include_test, rxn_test=None):
         include = set()
         exclude = set()
         # get list of species not in falloff / chemically activated
         for i_rxn, rxn in enumerate(self.store.gas.reactions()):
-            specs = set(list(rxn.products.keys()) + list(rxn.reactants.keys()))
-            nonzero_specs = set()
-            if isinstance(rxn, ct.FalloffReaction) or isinstance(
-                    rxn, ct.ThreeBodyReaction):
+            if rxn_test is None or rxn_test(rxn):
+                specs = set(
+                    list(rxn.products.keys()) + list(rxn.reactants.keys()))
+                nonzero_specs = set()
                 for spec in specs:
                     nu = 0
                     if spec in rxn.products:
@@ -459,6 +460,11 @@ class SubTest(TestClass):
         test = set(self.store.gas.species_index(x)
                    for x in include - exclude)
         return np.array(sorted(test)) + 2
+
+    def __get_dci_check(self, include_test):
+        return self.__get_check(include_test, lambda rxn:
+                                isinstance(rxn, ct.FalloffReaction) or
+                                isinstance(rxn, ct.ThreeBodyReaction))
 
     @attr('long')
     def test_dci_thd_dnj(self):
@@ -587,20 +593,97 @@ class SubTest(TestClass):
     def __get_removed(self):
         # get our form of rop_fwd / rop_rev
         fwd_removed = self.store.fwd_rxn_rate.copy()
-        fwd_removed[:, self.store.thd_inds] = fwd_removed[
-            :, self.store.thd_inds] / self.store.ref_pres_mod
-        thd_in_rev = np.where(
-            np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
-        rev_update_map = np.where(
-            np.in1d(self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
         rev_removed = self.store.rev_rxn_rate.copy()
-        rev_removed[:, rev_update_map] = rev_removed[
-            :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
-        # remove ref pres mod = 0 (this is a 0 rate)
-        fwd_removed[np.where(np.isnan(fwd_removed))] = 0
-        rev_removed[np.where(np.isnan(rev_removed))] = 0
+        if self.store.thd_inds.size:
+            fwd_removed[:, self.store.thd_inds] = fwd_removed[
+                :, self.store.thd_inds] / self.store.ref_pres_mod
+            thd_in_rev = np.where(
+                np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
+            rev_update_map = np.where(
+                np.in1d(self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
+            rev_removed[:, rev_update_map] = rev_removed[
+                :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
+            # remove ref pres mod = 0 (this is a 0 rate)
+            fwd_removed[np.where(np.isnan(fwd_removed))] = 0
+            rev_removed[np.where(np.isnan(rev_removed))] = 0
 
         return fwd_removed, rev_removed
+
+    def __get_kf_and_fall(self, conp=True):
+        reacs = self.store.reacs
+        specs = self.store.specs
+        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+
+        # create args and parameters
+        phi = self.store.phi_cp if conp else self.store.phi_cv
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
+
+        # get kf
+        runner = kernel_runner(get_simple_arrhenius_rates,
+                               self.store.test_size, args)
+        kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+
+        if self.store.ref_Pr.size:
+            # get kf_fall
+            runner = kernel_runner(get_simple_arrhenius_rates,
+                                   self.store.test_size, args,
+                                   {'falloff': True})
+            kf_fall = runner(eqs, opts, namestore, self.store.test_size)[0]
+        else:
+            kf_fall = None
+        return kf, kf_fall
+
+    def __get_kr(self, kf):
+        reacs = self.store.reacs
+        specs = self.store.specs
+        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+
+        args = {
+            'conc': lambda x: np.array(
+                self.store.concs, order=x, copy=True),
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'b': lambda x: np.array(
+                self.store.ref_B_rev, order=x, copy=True),
+            'out_mask': [0, 1]}
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
+        allint = {'net': rate_info['net']['allint']}
+
+        # get kf
+        runner = kernel_runner(get_rev_rates,
+                               self.store.test_size, args, {'allint': allint})
+        out = runner(eqs, opts, namestore, self.store.test_size)
+        return out[next(i for i, x in enumerate(runner.out_arg_names[0])
+                        if x == 'kr')]
+
+    def __get_db(self):
+        reacs = self.store.reacs
+        specs = self.store.specs
+        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
+        # need dBk/dT
+        args = {
+            'phi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True),
+        }
+
+        def __call_wrapper(eqs, loopy_opts, namestore, test_size):
+            return thermo_temperature_derivative(
+                'db', eqs,
+                loopy_opts, namestore,
+                test_size)
+        # get kf
+        runner = kernel_runner(__call_wrapper, self.store.test_size, args)
+        return runner(eqs, opts, namestore, self.store.test_size)[0]
 
     @attr('long')
     def test_dci_lind_dnj(self):
@@ -618,6 +701,8 @@ class SubTest(TestClass):
         edit = editor(
             namestore.n_arr, namestore.n_dot, self.store.test_size,
             order=ad_opts.order)
+
+        kf, kf_fall = self.__get_kf_and_fall()
 
         args = {'rop_fwd': lambda x: np.array(
             fwd_removed, order=x, copy=True),
@@ -639,17 +724,10 @@ class SubTest(TestClass):
             self.store.ref_thd, order=x),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
             'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
-            'jac': lambda x: np.zeros(namestore.jac.shape, order=x)
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
         }
-
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        wrapper = kf_wrapper(self, get_molar_rates, **args)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        wrapper(eqs, opts, namestore, self.store.test_size)
-        # and put the kf / kf_fall in
-        args['kf'] = wrapper.kwargs['kf']
-        args['kf_fall'] = wrapper.kwargs['kf_fall']
 
         # obtain the finite difference jacobian
         kc = kernel_call('dci_lind_nj', [None], **args)
@@ -676,8 +754,8 @@ class SubTest(TestClass):
                 self.store.ref_Fall, order=x, copy=True),
             'pres_mod': lambda x: np.array(
                 self.store.ref_pres_mod, order=x, copy=True),
-            'kf': wrapper.kwargs['kf'],
-            'kf_fall': wrapper.kwargs['kf_fall'],
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
             'phi': lambda x: np.array(
                 self.store.phi_cp, order=x, copy=True)
@@ -702,27 +780,6 @@ class SubTest(TestClass):
             **args)]
 
         return self._generic_jac_tester(dci_lind_dnj, kc)
-
-    def __get_kf_and_fall(self, conp=True):
-        # create args and parameters
-        phi = self.store.phi_cp if conp else self.store.phi_cv
-        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        namestore, _ = self._make_namestore(conp)
-
-        # get kf
-        runner = kernel_runner(get_simple_arrhenius_rates,
-                               self.store.test_size, args)
-        kf = runner(eqs, opts, namestore, self.store.test_size)[0]
-
-        # get kf_fall
-        runner = kernel_runner(get_simple_arrhenius_rates,
-                               self.store.test_size, args,
-                               {'falloff': True})
-        kf_fall = runner(eqs, opts, namestore, self.store.test_size)[0]
-        return kf, kf_fall
 
     @attr('long')
     def test_dci_sri_dnj(self):
@@ -986,6 +1043,13 @@ class SubTest(TestClass):
 
         self._generic_jac_tester(total_specific_energy, kc, conp=False)
 
+    def __get_poly_wrapper(self, name, conp):
+        def poly_wrapper(eqs, loopy_opts, namestore, test_size):
+            desc = 'conp' if conp else 'conv'
+            return polyfit_kernel_gen(name, eqs[desc],
+                                      loopy_opts, namestore, test_size)
+        return poly_wrapper
+
     def __get_full_jac(self, conp=True):
         # creates a FD version of the full species Jacobian
         namestore, rate_info = self._make_namestore(conp)
@@ -1069,33 +1133,15 @@ class SubTest(TestClass):
                                             np.max(rate_info['cheb']['num_T']),
                                             test_size)
 
-        def __b_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            desc = 'conp' if conp else 'conv'
-            return polyfit_kernel_gen('b', eqs[desc],
-                                      loopy_opts, namestore, test_size)
+        __b_call_wrapper = self.__get_poly_wrapper('b', conp)
 
-        def __cp_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            desc = 'conp' if conp else 'conv'
-            return polyfit_kernel_gen('cp', eqs[desc],
-                                      loopy_opts, namestore, test_size)
+        __cp_call_wrapper = self.__get_poly_wrapper('cp', conp)
 
-        def __cv_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            desc = 'conp' if conp else 'conv'
-            return polyfit_kernel_gen('cv', eqs[desc],
-                                      loopy_opts, namestore,
-                                      test_size)
+        __cv_call_wrapper = self.__get_poly_wrapper('cv', conp)
 
-        def __h_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            desc = 'conp' if conp else 'conv'
-            return polyfit_kernel_gen('h', eqs[desc],
-                                      loopy_opts, namestore,
-                                      test_size)
+        __h_call_wrapper = self.__get_poly_wrapper('h', conp)
 
-        def __u_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            desc = 'conp' if conp else 'conv'
-            return polyfit_kernel_gen('u', eqs[desc],
-                                      loopy_opts, namestore,
-                                      test_size)
+        __u_call_wrapper = self.__get_poly_wrapper('u', conp)
 
         def __extra_call_wrapper(eqs, loopy_opts, namestore, test_size):
             return get_extra_var_rates(eqs, loopy_opts, namestore,
@@ -1115,9 +1161,9 @@ class SubTest(TestClass):
                          __b_call_wrapper, get_rev_rates,
                          get_rxn_pres_mod, get_rop, get_rop_net,
                          get_spec_rates] + (
-                            [__h_call_wrapper, __cp_call_wrapper] if conp else
-                            [__u_call_wrapper, __cv_call_wrapper]) + [
-                         get_molar_rates, __temperature_wrapper],
+                [__h_call_wrapper, __cp_call_wrapper] if conp else
+                [__u_call_wrapper, __cv_call_wrapper]) + [
+                get_molar_rates, __temperature_wrapper],
             allint=allint)
 
         return jac
@@ -1137,7 +1183,7 @@ class SubTest(TestClass):
 
         # cp args
         cp_args = {'cp': lambda x: np.array(
-                self.store.spec_cp, order=x, copy=True),
+            self.store.spec_cp, order=x, copy=True),
             'h': lambda x: np.array(
                 self.store.spec_h, order=x, copy=True),
             'conc': lambda x: np.array(
@@ -1153,8 +1199,8 @@ class SubTest(TestClass):
 
         # call
         kc = [kernel_call('dTdot_dnj', [ref_answer], compare_axis=(1, 2),
-              compare_mask=[(0, np.arange(2, jac.shape[1]))],
-              equal_nan=True, **cp_args)]
+                          compare_mask=[(0, np.arange(2, jac.shape[1]))],
+                          equal_nan=True, **cp_args)]
 
         self._generic_jac_tester(dTdot_dnj, kc, conp=True)
 
@@ -1170,7 +1216,7 @@ class SubTest(TestClass):
 
         # cv args
         cv_args = {'cv': lambda x: np.array(
-                self.store.spec_cv, order=x, copy=True),
+            self.store.spec_cv, order=x, copy=True),
             'u': lambda x: np.array(
                 self.store.spec_u, order=x, copy=True),
             'conc': lambda x: np.array(
@@ -1188,8 +1234,8 @@ class SubTest(TestClass):
 
         # call
         kc = [kernel_call('dTdot_dnj', [ref_answer], compare_axis=(1, 2),
-              compare_mask=[(0, np.arange(2, jac.shape[1]))],
-              equal_nan=True, **cv_args)]
+                          compare_mask=[(0, np.arange(2, jac.shape[1]))],
+                          equal_nan=True, **cv_args)]
 
         self._generic_jac_tester(dTdot_dnj, kc, conp=False)
 
@@ -1215,8 +1261,8 @@ class SubTest(TestClass):
 
         # call
         kc = [kernel_call('dVdot_dnj', [ref_answer], compare_axis=(1, 2),
-              compare_mask=[(1, np.arange(2, jac.shape[1]))],
-              equal_nan=True, **cp_args)]
+                          compare_mask=[(1, np.arange(2, jac.shape[1]))],
+                          equal_nan=True, **cp_args)]
 
         self._generic_jac_tester(dEdot_dnj, kc, conp=True)
 
@@ -1239,8 +1285,8 @@ class SubTest(TestClass):
 
         # call
         kc = [kernel_call('dPdot_dnj', [ref_answer], compare_axis=(1, 2),
-              compare_mask=[(1, np.arange(2, jac.shape[1]))],
-              equal_nan=True, **cv_args)]
+                          compare_mask=[(1, np.arange(2, jac.shape[1]))],
+                          equal_nan=True, **cv_args)]
 
         self._generic_jac_tester(dEdot_dnj, kc, conp=False)
 
@@ -1268,9 +1314,9 @@ class SubTest(TestClass):
 
             def __call_wrapper(eqs, loopy_opts, namestore, test_size):
                 return thermo_temperature_derivative(
-                                          name, eqs,
-                                          loopy_opts, namestore,
-                                          test_size)
+                    name, eqs,
+                    loopy_opts, namestore,
+                    test_size)
             name = myname
             ref_ans = self._get_jacobian(
                 __call_wrapper, kc, edit, ad_opts, namestore.conp)
@@ -1285,3 +1331,96 @@ class SubTest(TestClass):
         __test_name('cp')
         __test_name('cv')
         __test_name('b')
+
+    def test_dRopidT(self):
+        # test conp (form doesn't matter)
+        namestore, rate_info = self._make_namestore(True)
+        ad_opts = namestore.loopy_opts
+
+        # setup arguements
+        # create the editor
+        edit = editor(
+            namestore.T_arr, namestore.n_dot, self.store.test_size,
+            order=ad_opts.order)
+
+        args = {
+            'pres_mod': lambda x: np.array(
+                self.store.ref_pres_mod, order=x, copy=True),
+            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
+            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+            'conc': lambda x: np.zeros_like(self.store.concs, order=x),
+            'wdot': lambda x: np.zeros_like(self.store.species_rates, order=x),
+            'rop_fwd': lambda x: np.zeros_like(
+                self.store.fwd_rxn_rate, order=x),
+            'rop_rev': lambda x: np.zeros_like(
+                self.store.rev_rxn_rate, order=x),
+            'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'kf': lambda x: np.zeros_like(
+                self.store.fwd_rate_constants, order=x),
+            'kr': lambda x: np.zeros_like(
+                self.store.rev_rate_constants, order=x),
+            'kf_fall': lambda x: np.zeros_like(
+                self.store.ref_Pr, order=x),
+            'b': lambda x: np.zeros_like(
+                self.store.ref_B_rev, order=x),
+            'Kc': lambda x: np.zeros_like(
+                self.store.equilibrium_constants, order=x)
+        }
+
+        # obtain the finite difference jacobian
+        kc = kernel_call('dRopi_dT', [None], **args)
+
+        allint = {'net': rate_info['net']['allint']}
+        fd_jac = self._get_jacobian(
+            get_molar_rates, kc, edit, ad_opts, True,
+            extra_funcs=[get_concentrations, get_simple_arrhenius_rates,
+                         self.__get_poly_wrapper('b', True),
+                         get_rev_rates, get_rop,
+                         get_rop_net, get_spec_rates],
+            allint=allint)
+
+        # get our form of rop_fwd / rop_rev
+        fwd_removed, rev_removed = self.__get_removed()
+        # get kf / kf_fall
+        kf, _ = self.__get_kf_and_fall()
+        # and kr
+        kr = self.__get_kr(kf)
+        # and finally dBk/dT
+        dBkdT = self.__get_db()
+
+        # setup args
+        args = {
+            'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
+            'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
+            'pres_mod': lambda x: np.array(
+                self.store.ref_pres_mod, order=x, copy=True),
+            'kf': lambda x: np.array(kf, order=x, copy=True),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
+            'db': lambda x: np.array(dBkdT, order=x, copy=True),
+            'kr': lambda x: np.array(kr, order=x, copy=True),
+            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+            'conc': lambda x: np.array(self.store.concs, order=x, copy=True)
+        }
+
+        def _chainer(self, out_vals):
+            self.kernel_args['jac'] = out_vals[-1][0].copy(
+                order=self.current_order)
+
+        simple_test = self.__get_check(
+            lambda rxn: not (isinstance(rxn, ct.PlogReaction)
+                             or isinstance(rxn, ct.ChebyshevReaction)))
+
+        # and get mask
+        kc = [kernel_call('dRopi_dT', [fd_jac], check=False,
+                          strict_name_match=True, **args),
+              kernel_call('dRopi_dT_ns', [fd_jac], compare_mask=[(
+                  simple_test,
+                  0)],
+            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
+            allow_skip=True,
+            **args)]
+
+        import pdb; pdb.set_trace()
+        return self._generic_jac_tester(dRopi_dT, kc)
