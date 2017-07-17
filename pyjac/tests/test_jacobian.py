@@ -16,8 +16,9 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
-    dRopi_dT)
+    dRopi_dT, dRopi_plog_dT)
 from ..core import array_creator as arc
+from ..core.reaction_types import reaction_type as rtypes
 from ..kernel_utils import kernel_gen as k_gen
 from .test_rate_subs import kernel_runner
 
@@ -616,7 +617,9 @@ class SubTest(TestClass):
 
         # create args and parameters
         phi = self.store.phi_cp if conp else self.store.phi_cv
-        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
+                                              order=x)}
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
@@ -635,6 +638,29 @@ class SubTest(TestClass):
             kf_fall = runner(eqs, opts, namestore, self.store.test_size)[0]
         else:
             kf_fall = None
+
+        if namestore.num_plog is not None:
+            args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                    'kf': lambda x: np.array(kf, order=x, copy=True)}
+            if conp:
+                args['P_arr'] = lambda x: np.array(
+                    self.store.P, order=x, copy=True)
+            # get plog
+            runner = kernel_runner(self.__get_plog_call_wrapper(rate_info),
+                                   self.store.test_size, args)
+            kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+
+        if namestore.num_cheb is not None:
+            args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                    'kf': lambda x: np.array(kf, order=x, copy=True)}
+            if conp:
+                args['P_arr'] = lambda x: np.array(
+                    self.store.P, order=x, copy=True)
+            # get plog
+            runner = kernel_runner(self.__get_cheb_call_wrapper(rate_info),
+                                   self.store.test_size, args)
+            kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+
         return kf, kf_fall
 
     def __get_kr(self, kf):
@@ -1043,6 +1069,27 @@ class SubTest(TestClass):
 
         self._generic_jac_tester(total_specific_energy, kc, conp=False)
 
+    def __get_fall_call_wrapper(self):
+        def fall_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
+                                              test_size, falloff=True)
+        return fall_wrapper
+
+    def __get_plog_call_wrapper(self, rate_info):
+        def plog_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
+                                            rate_info['plog']['max_P'],
+                                            test_size)
+        return plog_wrapper
+
+    def __get_cheb_call_wrapper(self, rate_info):
+        def cheb_wrapper(eqs, loopy_opts, namestore, test_size):
+            return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
+                                            np.max(rate_info['cheb']['num_P']),
+                                            np.max(rate_info['cheb']['num_T']),
+                                            test_size)
+        return cheb_wrapper
+
     def __get_poly_wrapper(self, name, conp):
         def poly_wrapper(eqs, loopy_opts, namestore, test_size):
             desc = 'conp' if conp else 'conv'
@@ -1118,21 +1165,6 @@ class SubTest(TestClass):
         # obtain the finite difference jacobian
         kc = kernel_call('dnkdnj', [None], **args)
 
-        def __fall_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
-                                              test_size, falloff=True)
-
-        def __plog_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
-                                            rate_info['plog']['max_P'],
-                                            test_size)
-
-        def __cheb_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
-                                            np.max(rate_info['cheb']['num_P']),
-                                            np.max(rate_info['cheb']['num_T']),
-                                            test_size)
-
         __b_call_wrapper = self.__get_poly_wrapper('b', conp)
 
         __cp_call_wrapper = self.__get_poly_wrapper('cp', conp)
@@ -1154,8 +1186,9 @@ class SubTest(TestClass):
         jac = self._get_jacobian(
             __extra_call_wrapper, kc, edit, ad_opts, conp,
             extra_funcs=[get_concentrations, get_simple_arrhenius_rates,
-                         __plog_call_wrapper, __cheb_call_wrapper,
-                         get_thd_body_concs, __fall_call_wrapper,
+                         self.__get_plog_call_wrapper(rate_info),
+                         self.__get_cheb_call_wrapper(rate_info),
+                         get_thd_body_concs, self.__get_fall_call_wrapper(),
                          get_reduced_pressure_kernel, get_lind_kernel,
                          get_sri_kernel, get_troe_kernel,
                          __b_call_wrapper, get_rev_rates,
@@ -1332,7 +1365,7 @@ class SubTest(TestClass):
         __test_name('cv')
         __test_name('b')
 
-    def test_dRopidT(self):
+    def test_dRopidT(self, rxn_type=rtypes.elementary):
         # test conp (form doesn't matter)
         namestore, rate_info = self._make_namestore(True)
         ad_opts = namestore.loopy_opts
@@ -1372,9 +1405,14 @@ class SubTest(TestClass):
         kc = kernel_call('dRopi_dT', [None], **args)
 
         allint = {'net': rate_info['net']['allint']}
+        rate_sub = get_simple_arrhenius_rates
+        if rxn_type == rtypes.plog:
+            rate_sub = self.__get_plog_call_wrapper(rate_info)
+        elif rxn_type == rtypes.cheb:
+            rate_sub = self.__get_cheb_call_wrapper(rate_info)
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, True,
-            extra_funcs=[get_concentrations, get_simple_arrhenius_rates,
+            extra_funcs=[get_concentrations, rate_sub,
                          self.__get_poly_wrapper('b', True),
                          get_rev_rates, get_rop,
                          get_rop_net, get_spec_rates],
@@ -1408,18 +1446,41 @@ class SubTest(TestClass):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
-        simple_test = self.__get_check(
-            lambda rxn: not (isinstance(rxn, ct.PlogReaction)
-                             or isinstance(rxn, ct.ChebyshevReaction)))
+        def include(rxn):
+            if rxn_type == rtypes.plog:
+                return isinstance(rxn, ct.PlogReaction)
+            elif rxn_type == rtypes.cheb:
+                return isinstance(rxn, ct.ChebyshevReaction)
+            else:
+                return not (isinstance(rxn, ct.PlogReaction)
+                            or isinstance(rxn, ct.ChebyshevReaction))
+        name_desc = ''
+        other_args = {}
+        tester = dRopi_dT
+        if rxn_type == rtypes.plog:
+            name_desc = '_plog'
+            tester = dRopi_plog_dT
+            other_args['maxP'] = rate_info['plog']['max_P']
+        elif rxn_type == rtypes.cheb:
+            name_desc = '_cheb'
+
+        test = self.__get_check(include)
 
         # and get mask
-        kc = [kernel_call('dRopi_dT', [fd_jac], check=False,
+        kc = [kernel_call('dRopi{}_dT'.format(name_desc),
+                          [fd_jac], check=False,
                           strict_name_match=True, **args),
-              kernel_call('dRopi_dT_ns', [fd_jac], compare_mask=[(
-                  simple_test,
-                  0)],
-            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True,
-            **args)]
+              kernel_call('dRopi{}_dT_ns'.format(name_desc),
+                          [fd_jac], compare_mask=[(
+                              test,
+                              0)],
+                          compare_axis=(1, 2), chain=_chainer,
+                          strict_name_match=True,
+                          allow_skip=True,
+                          rtol=5e-4,
+                          **args)]
 
-        return self._generic_jac_tester(dRopi_dT, kc)
+        return self._generic_jac_tester(tester, kc, **other_args)
+
+    def test_dRopi_plog_dT(self):
+        self.test_dRopidT(rtypes.plog)
