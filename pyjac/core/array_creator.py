@@ -1054,6 +1054,13 @@ class NameStore(object):
                                   shape=rate_info['reac_has_ns'].shape,
                                   initializer=rate_info['reac_has_ns'],
                                   order=self.order)
+        self.num_rxn_has_ns = creator('num_rxn_has_ns',
+                                      dtype=np.int32,
+                                      shape=rate_info['reac_has_ns'].shape,
+                                      initializer=np.arange(
+                                          rate_info['reac_has_ns'].size,
+                                          dtype=np.int32),
+                                      order=self.order)
 
         # per species
         self.num_net_nonzero_spec = creator('num_net_nonzero_spec',
@@ -1215,21 +1222,6 @@ class NameStore(object):
                                    initializer=simple_mask,
                                    order=self.order)
 
-        simple_has_ns_map = np.array(
-            rate_info['simple']['map'][
-                np.where(np.in1d(rate_info['simple']['map'],
-                                 rate_info['reac_has_ns']))], dtype=np.int32)
-        self.simple_has_ns_map = creator('simple_has_ns_map',
-                                         dtype=np.int32,
-                                         shape=simple_has_ns_map.shape,
-                                         initializer=simple_has_ns_map,
-                                         order=self.order)
-        num_simple_has_ns = np.arange(simple_has_ns_map.size, dtype=np.int32)
-        self.num_simple_has_ns = creator('num_simple_has_ns',
-                                         dtype=np.int32,
-                                         shape=num_simple_has_ns.shape,
-                                         initializer=num_simple_has_ns,
-                                         order=self.order)
         self.num_simple = creator('num_simple',
                                   dtype=np.int32,
                                   shape=num_simple.shape,

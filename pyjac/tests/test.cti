@@ -9,7 +9,8 @@ ideal_gas(name='gas',
                      CO          CO2         CH4         C2H4
                      C2H6        c2h3oh      hocho       ch3cho
                      ch2cho      ho2ch2co    C8H6        C2H
-                     C6H5        C4H2        CH2s        N2""",
+                     C6H5        C4H2        CH2s        aC3H4
+                     aC3H5       C5H5        C5H4CH3     N2""",
           reactions='all',
           initial_state=state(temperature=300.0, pressure=OneAtm))
 
@@ -389,6 +390,53 @@ species(name=u'CH2s',
                        8.62650169E+00])),
         note=u'LS/93')
 
+species(name=u'aC3H4',
+        atoms='H:4 C:3',
+        thermo=(NASA([300.00, 995.04],
+                     [ 3.56619360E+00,  4.29172814E-03,  3.37754983E-05,
+                      -4.29088118E-08,  1.54512117E-11,  2.20254845E+04,
+                       7.34162599E+00]),
+                NASA([995.04, 5000.00],
+                     [ 6.20209785E+00,  1.16035113E-02, -4.24253157E-06,
+                       6.49613596E-10, -3.68734350E-14,  2.06143760E+04,
+                      -9.81677751E+00])),
+        note=u'RMG')
+
+species(name=u'aC3H5',
+        atoms='H:5 C:3',
+        thermo=(NASA([300.00, 995.04],
+                     [ 3.41167769E+00,  2.34104588E-03,  5.00532991E-05,
+                      -6.16298250E-08,  2.20555994E-11,  1.90793181E+04,
+                       9.38984818E+00]),
+                NASA([995.04, 5000.00],
+                     [ 6.96109932E+00,  1.34091360E-02, -4.82564565E-06,
+                       7.27992496E-10, -4.07881357E-14,  1.71186562E+04,
+                      -1.40191478E+01])),
+        note=u'RMG')
+
+species(name=u'C5H5',
+        atoms='H:5 C:5',
+        thermo=(NASA([300.00, 995.04],
+                     [ 2.66966211E+00,  6.42151685E-03,  7.00546223E-05,
+                      -9.25433638E-08,  3.43204252E-11,  3.05215272E+04,
+                       1.27169645E+01]),
+                NASA([995.04, 5000.00],
+                     [ 1.19820938E+01,  1.21872945E-02, -3.76158670E-06,
+                       5.45206715E-10, -3.01508977E-14,  2.65295823E+04,
+                      -4.29105872E+01])))
+
+species(name=u'C5H4CH3',
+        atoms='H:7 C:6',
+        thermo=(NASA([200.00, 1000.00],
+                     [ 5.64034275E-01,  3.84201803E-02,  1.94958520E-05,
+                      -5.95545053E-08,  2.86869522E-11,  2.53304225E+04,
+                       2.27464371E+01]),
+                NASA([1000.00, 6000.00],
+                     [ 1.28996538E+01,  2.12183240E-02, -7.67565006E-06,
+                       1.24495899E-09, -7.47731827E-14,  2.12053775E+04,
+                      -4.47534535E+01])),
+        note=u'A03/05')
+
 species(name=u'N2',
         atoms='N:2',
         thermo=(NASA([300.00, 1000.00],
@@ -552,7 +600,24 @@ chebyshev_reaction('C8H6 + C2H (+ M) <=> C6H5 + C4H2 (+ M)',
 # Reaction 24
 three_body_reaction('H + O2 + M <=> HO2 + M', [2.800000e+18, -0.86, 0.0],
                     efficiencies='CO2:1.5 CO:0.75 H2O:0.0 AR:0.0 C2H6:1.5 N2:3.0 O2:0.0')
-#  and this one should test the last species (Ns) present in a reaction
+# September 8, 2010
+# Following C3H5 PES from J.A. Miller et al.; J.Phys.Chem.A
 
 # Reaction 25
+pdep_arrhenius('H + aC3H4 <=> aC3H5',
+               [(0.001316, 'atm'), 2.210000e+61, -15.25, 20076.0],
+               [(0.039474, 'atm'), 1.240000e+52, -12.02, 17839.0],
+               [(1.0, 'atm'), 4.670000e+51, -11.45, 21340.0],
+               [(10.0, 'atm'), 3.750000e+48, -10.27, 22511.0],
+               [(100.0, 'atm'), 4.230000e+43, -8.61, 22522.0],
+               options='duplicate')
+#  plog with under range
+
+# Reaction 26
+pdep_arrhenius('C5H5 + CH3 <=> C5H4CH3 + H',
+               [(55.0, 'atm'), 1.212400e+16, -0.5779, 10872.7],
+               [(100.0, 'atm'), 4.910800e+31, -4.8507, 24772.8])
+#  and this one should test the last species (Ns) present in a reaction
+
+# Reaction 27
 reaction('H + O2 + N2 <=> HO2 + N2', [2.800000e+18, -0.86, 0.0])
