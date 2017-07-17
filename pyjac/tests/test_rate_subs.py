@@ -64,7 +64,13 @@ class kernel_runner(object):
     def __call__(self, eqs, loopy_opts, namestore, test_size):
         device = get_device_list()[0]
 
-        infos = self.func(eqs, loopy_opts, namestore, test_size, **self.kwargs)
+        infos = self.func(eqs, loopy_opts, namestore, test_size=test_size,
+                          **self.kwargs)
+
+        try:
+            iter(infos)
+        except TypeError:
+            infos = [infos]
 
         # create a dummy generator
         gen = k_gen.make_kernel_generator(
@@ -78,6 +84,10 @@ class kernel_runner(object):
                          [None],
                          **self.args)
         kc.set_state(loopy_opts.order)
+        self.out_arg_names = [[
+            x for x in k.get_written_variables()
+            if x not in k.temporary_variables]
+            for k in gen.kernels]
         return populate(gen.kernels, kc, device=device)[0]
 
 

@@ -104,7 +104,7 @@ def assign_rates(reacs, specs, rate_spec):
 
     # determine specialization
     full = rate_spec == lp_utils.RateSpecialization.full
-    hybrid = rate_spec == lp_utils.RateSpecialization.hybrid
+    # hybrid = rate_spec == lp_utils.RateSpecialization.hybrid
     fixed = rate_spec == lp_utils.RateSpecialization.fixed
 
     # find fwd / reverse rate parameters
@@ -195,7 +195,7 @@ def assign_rates(reacs, specs, rate_spec):
         # find all reactions / indicies that match this offset
         rate = [(i, x) for i, x in enumerate(reacs) if any(x.match(y) for y in
                                                            matchers)]
-        mapping = []
+        mapping = np.empty(0, dtype=np.int32)
         num = 0
         if rate:
             mapping, rate = zip(*rate)
@@ -334,8 +334,14 @@ def assign_rates(reacs, specs, rate_spec):
     for par_set in troe_par:
         if len(par_set) != 4:
             par_set.append(0)
-    troe_a, troe_T3, troe_T1, troe_T2 = [
-        np.array(x, dtype=np.float64) for x in zip(*troe_par)]
+    try:
+        troe_a, troe_T3, troe_T1, troe_T2 = [
+            np.array(x, dtype=np.float64) for x in zip(*troe_par)]
+    except ValueError:
+        troe_a = np.empty(0)
+        troe_T3 = np.empty(0)
+        troe_T1 = np.empty(0)
+        troe_T2 = np.empty(0)
 
     # find third-body types
     thd_reacs, thd_map, num_thd = __seperate(
@@ -396,9 +402,9 @@ def assign_rates(reacs, specs, rate_spec):
     # post processing
 
     # chebyshev parameter reordering
-    pp_cheb_coeff = None
-    pp_cheb_plim = None
-    pp_cheb_tlim = None
+    pp_cheb_coeff = np.empty(0)
+    pp_cheb_plim = np.empty(0)
+    pp_cheb_tlim = np.empty(0)
     if num_cheb:
         pp_cheb_coeff = np.zeros((num_cheb, int(np.max(cheb_n_temp)),
                                   int(np.max(cheb_n_pres))))
@@ -410,7 +416,7 @@ def assign_rates(reacs, specs, rate_spec):
         pp_cheb_tlim = 1. / np.array(cheb_tlim, dtype=np.float64)
 
     # plog parameter reorder
-    pp_plog_params = None
+    pp_plog_params = np.empty(0)
     maxP = None
     if num_plog:
         # max # of parameters for sizing
@@ -573,7 +579,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator for both
         equation types
     """
@@ -679,7 +685,7 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator for both
         equation types
     """
@@ -765,7 +771,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator for both
         equation types
     """
@@ -889,7 +895,7 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator for both
         equation types
     """
@@ -1060,7 +1066,7 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator for both
         equation types
     """
@@ -1222,7 +1228,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
 
@@ -1451,7 +1457,7 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': True}, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
 
@@ -1608,7 +1614,7 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
 
@@ -1724,7 +1730,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
     # start developing the Kc kernel
@@ -1777,7 +1783,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
         namestore.rxn_to_spec_offsets, var_name, affine=1)
 
     # B array on spec_ind
-    B_lp, B_str = rev_map.apply_maps(namestore.b_arr, global_ind, spec_ind)
+    B_lp, B_str = rev_map.apply_maps(namestore.b, global_ind, spec_ind)
 
     # net nu on species loop
     nu_lp, prod_nu_str = rev_map.apply_maps(namestore.rxn_to_spec_prod_nu,
@@ -1932,7 +1938,7 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
 
@@ -2051,7 +2057,7 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
@@ -2269,7 +2275,7 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
@@ -2457,7 +2463,7 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
@@ -2570,7 +2576,7 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
@@ -2742,7 +2748,7 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
@@ -2870,7 +2876,7 @@ def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
@@ -2926,7 +2932,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
     Returns
     -------
-    rate_list : list of :class:`knl_info`
+    knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
 
     """
