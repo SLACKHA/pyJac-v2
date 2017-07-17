@@ -1422,5 +1422,4 @@ class SubTest(TestClass):
             allow_skip=True,
             **args)]
 
-        import pdb; pdb.set_trace()
         return self._generic_jac_tester(dRopi_dT, kc)
