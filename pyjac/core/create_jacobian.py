@@ -251,10 +251,6 @@ def dRopi_dT(eqs, loopy_opts, namestore, test_size=None):
                 end
                 Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) {id=Sns_rev_up, dep=nur_inner_up}
             end
-            jac[j, ${spec_k_str}, 1] = Sns_fwd
-            jac[j, ${spec_k_str}, 3] = Sns_fwd * ${kf_str}
-            jac[j, ${spec_k_str}, 2] = Sns_rev
-            jac[j, ${spec_k_str}, 4] = Sns_rev * kr_i
             <> dRopi_dT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) {id=Ropi_final, dep=Sns*}
             """).substitute(**locals())
 
