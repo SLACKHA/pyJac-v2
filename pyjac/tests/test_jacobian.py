@@ -16,7 +16,11 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
+<<<<<<< Updated upstream
     dRopi_dT, dRopi_plog_dT)
+=======
+    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT)
+>>>>>>> Stashed changes
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type as rtypes
 from ..kernel_utils import kernel_gen as k_gen
@@ -1463,6 +1467,9 @@ class SubTest(TestClass):
             other_args['maxP'] = rate_info['plog']['max_P']
         elif rxn_type == rtypes.cheb:
             name_desc = '_cheb'
+            tester = dRopi_cheb_dT
+            other_args['maxP'] = np.max(rate_info['cheb']['num_P'])
+            other_args['maxT'] = np.max(rate_info['cheb']['num_T'])
 
         test = self.__get_check(include)
 
@@ -1484,3 +1491,6 @@ class SubTest(TestClass):
 
     def test_dRopi_plog_dT(self):
         self.test_dRopidT(rtypes.plog)
+
+    def test_dRopi_cheb_dT(self):
+        self.test_dRopidT(rtypes.cheb)
