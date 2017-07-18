@@ -52,7 +52,8 @@ This is the string indicies for the main loops for generated kernels in
 
 
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
-              do_ns=False, rxn_type=reaction_type.elementary, maxP=None):
+              do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
+              maxT=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for all reaction types)
     with respect to temperature
@@ -76,6 +77,13 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     maxP: int [None]
         The maximum number of pressure interpolations of any reaction in
         the mechanism.
+        - For PLOG - the maximum number of pressure interpolations of any
+        reaction in the mechanism.
+        - For CHEB - The maximum degree of temperature polynomials for
+        chebyshev reactions in this mechanism
+    maxT : int [None]
+        The maximum degree of temperature polynomials for chebyshev reactions
+        in this mechanism
 
     Returns
     -------
@@ -94,6 +102,11 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     elif rxn_type == reaction_type.plog:
         assert maxP, ('The maximum # of pressure interpolations must be'
                       ' supplied')
+    elif rxn_type == reaction_type.cheb:
+        assert maxP, ('The maximum chebyshev pressure polynomial degree must '
+                      ' be supplied')
+        assert maxT, ('The maximum chebyshev temperature polynomial degree '
+                      ' must be supplied')
 
     num_range_dict = {reaction_type.elementary: namestore.num_simple,
                       reaction_type.plog: namestore.num_plog,
@@ -268,9 +281,115 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             """).safe_substitute(**locals())
             extra_inames.append((
                 param_ind, '0 <= {} < {}'.format(param_ind, maxP - 1)))
-
         elif rxn_type == reaction_type.cheb:
-            pass
+            # max degrees in mechanism
+            poly_max = int(max(maxP, maxT - 1))
+
+            # extra inames
+            pres_poly_ind = 'k'
+            temp_poly_ind = 'm'
+            poly_compute_ind = 'p'
+            lim_ind = 'dummy'
+            extra_inames.extend([
+                (pres_poly_ind, '0 <= {} < {}'.format(pres_poly_ind, maxP)),
+                (temp_poly_ind, '0 <= {} < {}'.format(temp_poly_ind, maxT - 1)),
+                (poly_compute_ind, '2 <= {} < {}'.format(
+                    poly_compute_ind, poly_max))])
+
+            # create arrays
+
+            num_P_lp, num_P_str = mapstore.apply_maps(
+                namestore.cheb_numP, var_name)
+            num_T_lp, num_T_str = mapstore.apply_maps(
+                namestore.cheb_numT, var_name)
+            params_lp, params_str = mapstore.apply_maps(
+                namestore.cheb_params, var_name, temp_poly_ind, pres_poly_ind,
+                affine={temp_poly_ind: 1})
+            plim_lp, _ = mapstore.apply_maps(
+                namestore.cheb_Plim, var_name, lim_ind)
+            tlim_lp, _ = mapstore.apply_maps(
+                namestore.cheb_Tlim, var_name, lim_ind)
+
+            # workspace vars are based only on their polynomial indicies
+            pres_poly_lp, ppoly_str = mapstore.apply_maps(
+                namestore.cheb_pres_poly, pres_poly_ind)
+            temp_poly_lp, tpoly_str = mapstore.apply_maps(
+                namestore.cheb_temp_poly, temp_poly_ind)
+
+            # create temperature and pressure arrays
+            P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
+
+            kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp, P_lp,
+                                tlim_lp, pres_poly_lp, temp_poly_lp])
+
+            # preinstructions
+            pre_instructions.extend(
+                [rate.default_pre_instructs('logP', P_str, 'LOG')])
+
+            # various strings for preindexed limits, params, etc
+            _, Pmin_str = mapstore.apply_maps(
+                namestore.cheb_Plim, var_name, '0')
+            _, Pmax_str = mapstore.apply_maps(
+                namestore.cheb_Plim, var_name, '1')
+            _, Tmin_str = mapstore.apply_maps(
+                namestore.cheb_Tlim, var_name, '0')
+            _, Tmax_str = mapstore.apply_maps(
+                namestore.cheb_Tlim, var_name, '1')
+
+            # the various indexing for the pressure / temperature polynomials
+            _, ppoly0_str = mapstore.apply_maps(namestore.cheb_pres_poly, '0')
+            _, ppoly1_str = mapstore.apply_maps(namestore.cheb_pres_poly, '1')
+            _, ppolyp_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                poly_compute_ind)
+            _, ppolypm1_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                  poly_compute_ind,
+                                                  affine=-1)
+            _, ppolypm2_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                  poly_compute_ind,
+                                                  affine=-2)
+            _, tpoly0_str = mapstore.apply_maps(namestore.cheb_temp_poly, '0')
+            _, tpoly1_str = mapstore.apply_maps(namestore.cheb_temp_poly, '1')
+            _, tpolyp_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                poly_compute_ind)
+            _, tpolypm1_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                  poly_compute_ind,
+                                                  affine=-1)
+            _, tpolypm2_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                  poly_compute_ind,
+                                                  affine=-2)
+
+            dkf_instructions = Template("""
+                <>numP = ${num_P_str} {id=plim}
+                <>numT = ${num_T_str} - 1 {id=tlim}
+                <> Tred = (2 * T_inv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
+                <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / (${Pmax_str} - ${Pmin_str})
+                ${ppoly0_str} = 1
+                ${ppoly1_str} = Pred
+                ${tpoly0_str} = 1
+                ${tpoly1_str} = 2 * Tred
+
+                # compute polynomial terms
+                for p
+                    if p < numP
+                        ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} {id=ppoly, dep=plim}
+                    end
+                    if p < numT
+                        ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} {id=tpoly, dep=tlim}
+                    end
+                end
+
+                <> dkf = 0 {id=dkf_init}
+                for m
+                    <>temp = 0
+                    for k
+                        temp = temp + ${ppoly_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+                    end
+                    dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
+                end
+                dkf = -dkf * 2 * logten * T_inv * T_inv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
+                jac[j, ${spec_k_str} + 2, 1] = dkf
+            """).safe_substitute(**locals())
+            parameters['logten'] = log(10)
         else:
             dkf_instructions = Template(
                 '<> dkf = (${beta_str} + ${Ta_str} * T_inv) * T_inv {id=dkf}'
@@ -454,6 +573,53 @@ def dRopi_plog_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None):
                                   rxn_type=reaction_type.plog,
                                   test_size=test_size, do_ns=False,
                                   maxP=maxP)]
+            if x is not None]
+
+
+def dRopi_cheb_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None,
+                  maxT=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of progress for Chebyshev reactions
+    with respect to temperature
+
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dRopi_dT`
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+    maxP : int [None]
+        The maximum degree of pressure polynomials for chebyshev reactions in
+        this mechanism
+    maxT : int [None]
+        The maximum degree of temperature polynomials for chebyshev reactions
+        in this mechanism
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dRopidT(eqs, loopy_opts, namestore,
+                                  rxn_type=reaction_type.cheb,
+                                  test_size=test_size, do_ns=False,
+                                  maxP=maxP, maxT=maxT)]
             if x is not None]
 
 

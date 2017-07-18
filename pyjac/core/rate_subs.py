@@ -527,7 +527,8 @@ def default_pre_instructs(result_name, var_str, INSN_KEY):
     """
     default_preinstructs = {'INV': '1 / {}'.format(var_str),
                             'LOG': 'log({})'.format(var_str),
-                            'VAL': '{}'.format(var_str)}
+                            'VAL': '{}'.format(var_str),
+                            'LOG10': 'log10({})'.format(var_str)}
     return Template("<>${result} = ${value}").safe_substitute(
         result=result_name,
         value=default_preinstructs[INSN_KEY])
