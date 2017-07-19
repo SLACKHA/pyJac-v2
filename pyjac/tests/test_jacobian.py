@@ -16,7 +16,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
-    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT)
+    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type as rtypes
 from ..kernel_utils import kernel_gen as k_gen
@@ -29,7 +29,6 @@ import cantera as ct
 
 from nose.plugins.attrib import attr
 from optionloop import OptionLoop
-
 from collections import OrderedDict
 
 
@@ -85,7 +84,7 @@ class SubTest(TestClass):
                   ('order', ['C', 'F']),
                   ('ilp', [False]),
                   ('unr', [None, 4]),
-                  ('auto_diff', [True])
+                  ('auto_diff', [False])
                   ]
         if do_ratespec:
             oploop += [
@@ -132,8 +131,7 @@ class SubTest(TestClass):
         """
 
         eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_spec_per_reac, do_conp=do_conp,
-            do_vector=False)
+            do_ratespec, do_ropsplit, do_spec_per_reac, do_conp=do_conp)
 
         reacs = self.store.reacs
         specs = self.store.specs
@@ -551,7 +549,7 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_thd_dnj, kc)
 
-    def nan_compare(self, our_val, ref_val, mask):
+    def nan_compare(self, our_val, ref_val, mask, allow_our_nans=False):
         if not len(mask) == 3:
             return True  # only compare masks w/ conditions
 
@@ -584,12 +582,17 @@ class SubTest(TestClass):
 
             # and ensure all our values are 'large' but finite numbers
             # (defined here by > 1e295)
-            is_correct = is_correct and np.all(np.abs(our_vals[bad]) >= 1e295)
+            # _or_ allow_our_nans is True _and_ they're all nan's
+            is_correct = is_correct and (np.all(np.abs(our_vals[bad]) >= 1e295)
+                or (allow_our_nans and np.all(np.isnan(our_vals[bad]))))
 
             return is_correct
 
         return __compare(__get_val(our_val, (cond, x, y)),
                          __get_val(ref_val, (cond, x, y)))
+
+    def our_nan_compare(self, our_val, ref_val, mask):
+        return self.nan_compare(our_val, ref_val, mask, allow_our_nans=True)
 
     def __get_removed(self):
         # get our form of rop_fwd / rop_rev
@@ -916,7 +919,7 @@ class SubTest(TestClass):
             compare_axis=(0, 1, 2), chain=_chainer, strict_name_match=True,
             allow_skip=True,
             other_compare=self.nan_compare,
-            rtol=1e-4,
+            rtol=5e-4,
             **args)]
 
         return self._generic_jac_tester(dci_sri_dnj, kc)
@@ -1490,3 +1493,93 @@ class SubTest(TestClass):
 
     def test_dRopi_cheb_dT(self):
         self.test_dRopidT(rtypes.cheb)
+
+    def __get_non_ad_params(self, conp):
+        reacs = self.store.reacs
+        specs = self.store.specs
+        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        namestore = arc.NameStore(opts, rate_info, conp, self.store.test_size)
+
+        return namestore, rate_info, opts, eqs
+
+    def test_dTdot_dT(self):
+        def __subtest(conp):
+            # conp
+            fd_jac = self.__get_full_jac(conp)
+
+            spec_heat = self.store.spec_cp if conp else self.store.spec_cv
+            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+            phi = self.store.phi_cp if conp else self.store.phi_cv
+            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+
+            spec_heat = np.sum(self.store.concs * spec_heat, axis=1)
+
+            jac = fd_jac.copy()
+            jac[:, 0, 0] = 0
+
+            # get dcp
+            args = {'phi': lambda x: np.array(
+                phi, order=x, copy=True)}
+            dc = kernel_runner(self.__get_poly_wrapper(
+                'dcp' if conp else 'dcv', conp),
+                self.store.test_size, args)(
+                eqs, opts, namestore, self.store.test_size)[0]
+
+            args = {'conc': lambda x: np.array(
+                        self.store.concs, order=x, copy=True),
+                    'dphi': lambda x: np.array(
+                        dphi, order=x, copy=True),
+                    'phi': lambda x: np.array(
+                        phi, order=x, copy=True),
+                    'jac': lambda x: np.array(
+                        jac, order=x, copy=True),
+                    'wdot': lambda x: np.array(
+                        self.store.species_rates, order=x, copy=True)
+                    }
+
+            if conp:
+                args.update({
+                    'h': lambda x: np.array(
+                        self.store.spec_h, order=x, copy=True),
+                    'cp': lambda x: np.array(
+                        self.store.spec_cp, order=x, copy=True),
+                    'dcp': lambda x: np.array(
+                        dc, order=x, copy=True),
+                    'P_arr': lambda x: np.array(
+                        self.store.P, order=x, copy=True),
+                    'cp_tot': lambda x: np.array(
+                        spec_heat, order=x, copy=True)})
+            else:
+                args.update({
+                    'u': lambda x: np.array(
+                        self.store.spec_u, order=x, copy=True),
+                    'cv': lambda x: np.array(
+                        self.store.spec_cv, order=x, copy=True),
+                    'dcv': lambda x: np.array(
+                        dc, order=x, copy=True),
+                    'V_arr': lambda x: np.array(
+                        self.store.V, order=x, copy=True),
+                    'cv_tot': lambda x: np.array(
+                        spec_heat, order=x, copy=True)})
+
+            # find NaN's
+            to_test = np.setdiff1d(np.arange(self.store.test_size),
+                                   np.unique(np.where(np.isnan(jac))[0]),
+                                   assume_unique=True)
+            kc = kernel_call('dTdot_dT',
+                             [fd_jac], check=True,
+                             compare_mask=[(to_test, 0, 0)],
+                             compare_axis=(0, 1, 2),
+                             equal_nan=True,
+                             other_compare=self.our_nan_compare, **args)
+
+            return self._generic_jac_tester(dTdotdT, kc, conp=conp)
+
+        # test conp
+        __subtest(True)
+        # test conv
+        __subtest(False)

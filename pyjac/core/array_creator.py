@@ -1891,3 +1891,4 @@ class NameStore(object):
         self.spec_heat_total = creator(
             self.spec_heat.name + '_tot', shape=(test_size,),
             dtype=np.float64, order=self.order)
+        self.dspec_heat = getattr(self, 'd' + self.spec_heat.name).copy()

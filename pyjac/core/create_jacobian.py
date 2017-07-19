@@ -51,6 +51,146 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
+def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of change of temprature wirht respect to
+    temperature
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # indicies
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    # number of species
+    ns = namestore.num_specs.initializer[-1]
+
+    mapstore = arc.MapStore(
+        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+
+    # Temperature
+    T_lp, T_str = mapstore.apply_maps(
+        namestore.T_arr, global_ind)
+
+    # spec sum
+    spec_heat_tot_lp, spec_heat_total_str = mapstore.apply_maps(
+        namestore.spec_heat_total, global_ind)
+
+    # dT/dt
+    dTdt_lp, Tdot_str = mapstore.apply_maps(
+        namestore.T_dot, global_ind)
+
+    # spec heat
+    spec_heat_lp, spec_heat_str = mapstore.apply_maps(
+        namestore.spec_heat, *default_inds)
+
+    # and derivative w.r.t T
+    dspec_heat_lp, dspec_heat_str = mapstore.apply_maps(
+        namestore.dspec_heat, *default_inds)
+
+    # Ns derivative
+    _, dspec_heat_ns_str = mapstore.apply_maps(
+        namestore.dspec_heat, global_ind, ns)
+
+    # last species spec heat
+    _, spec_heat_ns_str = mapstore.apply_maps(
+        namestore.spec_heat_ns, global_ind)
+
+    # energy
+    spec_energy_lp, spec_energy_str = mapstore.apply_maps(
+        namestore.spec_energy, *default_inds)
+
+    # last species energy
+    _, spec_energy_ns_str = mapstore.apply_maps(
+        namestore.spec_energy_ns, global_ind)
+
+    # molecular weights
+    mw_lp, mw_str = mapstore.apply_maps(
+        namestore.mw_post_arr, var_name)
+
+    # concentrations
+    conc_lp, conc_str = mapstore.apply_maps(
+        namestore.conc_arr, *default_inds)
+
+    # last species concentration
+    _, conc_ns_str = mapstore.apply_maps(
+        namestore.conc_arr, global_ind, ns)
+
+    # volume
+    V_lp, V_str = mapstore.apply_maps(
+        namestore.V_arr, global_ind)
+
+    # spec rates
+    wdot_lp, wdot_str = mapstore.apply_maps(
+        namestore.spec_rates, *default_inds)
+
+    # and finally molar rates
+    _, ndot_str = mapstore.apply_maps(
+        namestore.jac, global_ind, var_name, 0, affine={var_name: 2})
+
+    # jacobian entry
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, 0, 0)
+
+    kernel_data.extend([spec_heat_tot_lp, dTdt_lp, spec_heat_lp, dspec_heat_lp,
+                        spec_energy_lp, mw_lp, conc_lp, V_lp, wdot_lp,
+                        jac_lp, T_lp])
+
+    can_vectorize = loopy_opts.depth is None
+    # finally do vectorization ability and specializer
+    vec_spec = (
+        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+
+    pre_instructions = Template("""
+<> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) * ${conc_ns_str})
+<> rate_sum = 0
+    """).safe_substitute(**locals()).split('\n')
+    pre_instructions.extend([
+        rate.default_pre_instructs('Vinv', V_str, 'INV'),
+        rate.default_pre_instructs('Tinv', T_str, 'INV')])
+
+    instructions = Template("""
+        dTsum = dTsum + (${spec_heat_ns_str} * Tinv - ${dspec_heat_str}) * ${conc_str}
+        rate_sum = rate_sum + ${wdot_str} * (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str}) + Vinv * ${ndot_str} * (-${spec_energy_str} + ${spec_energy_ns_str} * ${mw_str}) {id=rate_update, dep=*}
+    """).safe_substitute(**locals())
+
+    post_instructions = Template("""
+        ${jac_str} = (${Tdot_str} * dTsum + rate_sum) / ${spec_heat_total_str} {dep=rate_update, nosync=rate_update}
+    """).safe_substitute(**locals()).split('\n')
+
+    return k_gen.knl_info(name='dTdot_dT',
+                          instructions=instructions,
+                          pre_instructions=pre_instructions,
+                          post_instructions=post_instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec,
+                          )
+
+
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
               maxT=None):
@@ -71,9 +211,6 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
-    conp : bool [True]
-        If supplied, True for constant pressure jacobian. False for constant
-        volume [Default: True]
     maxP: int [None]
         The maximum number of pressure interpolations of any reaction in
         the mechanism.
@@ -292,7 +429,8 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             lim_ind = 'dummy'
             extra_inames.extend([
                 (pres_poly_ind, '0 <= {} < {}'.format(pres_poly_ind, maxP)),
-                (temp_poly_ind, '0 <= {} < {}'.format(temp_poly_ind, maxT - 1)),
+                (temp_poly_ind, '0 <= {} < {}'.format(
+                    temp_poly_ind, maxT - 1)),
                 (poly_compute_ind, '2 <= {} < {}'.format(
                     poly_compute_ind, poly_max))])
 
