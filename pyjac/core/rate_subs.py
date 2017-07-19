@@ -708,12 +708,10 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
 
     # add / apply maps
     mapstore.check_and_add_transform(namestore.n_dot,
-                                     namestore.phi_spec_inds,
-                                     force_inline=True)
+                                     namestore.phi_spec_inds)
 
     mapstore.check_and_add_transform(namestore.spec_rates,
-                                     namestore.num_specs_no_ns,
-                                     force_inline=True)
+                                     namestore.num_specs_no_ns)
 
     wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
                                             *default_inds)
