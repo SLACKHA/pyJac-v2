@@ -191,6 +191,204 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
                           )
 
 
+def __dcidT(eqs, loopy_opts, namestore, test_size=None,
+            rxn_type=reaction_type.thd):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term for all third body /
+    falloff / chemically activated reactions with respect to temperature
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    rxn_type: [reaction_type.thd, falloff_form.lind, falloff_form.sri,
+               falloff_form.troe]
+        The reaction type to generate the pressure modification derivative for
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    num_range_dict = {reaction_type.thd: namestore.num_thd_only,
+                      falloff_form.lind: namestore.num_lind,
+                      falloff_form.sri: namestore.num_sri,
+                      falloff_form.troe: namestore.num_troe}
+    thd_range_dict = {reaction_type.thd: namestore.thd_only_map,
+                      falloff_form.lind: namestore.fall_to_thd_map,
+                      falloff_form.sri: namestore.fall_to_thd_map,
+                      falloff_form.troe: namestore.fall_to_thd_map}
+    fall_range_dict = {falloff_form.lind: namestore.lind_map,
+                       falloff_form.sri: namestore.sri_map,
+                       falloff_form.troe: namestore.troe_map}
+    name_description = {reaction_type.thd: 'thd',
+                        falloff_form.lind: 'lind',
+                        falloff_form.sri: 'sri',
+                        falloff_form.troe: 'troe'}
+    # get num
+    num_range = num_range_dict[rxn_type]
+    thd_range = thd_range_dict[rxn_type]
+    rxn_range = namestore.thd_map
+
+    # number of species
+    ns = namestore.num_specs.initializer[-1]
+
+    # create mapstore
+    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+
+    # setup static mappings
+
+    if rxn_type in fall_range_dict:
+        fall_range = fall_range_dict[rxn_type]
+
+        # falloff index depends on num_range
+        mapstore.check_and_add_transform(fall_range, num_range)
+
+        # and the third body index depends on the falloff index
+        mapstore.check_and_add_transform(thd_range, fall_range)
+
+    # and finally the reaction index depends on the third body index
+    mapstore.check_and_add_transform(rxn_range, thd_range)
+
+    # setup third body stuff
+    mapstore.check_and_add_transform(
+        namestore.thd_type, thd_range)
+    mapstore.check_and_add_transform(
+        namestore.thd_offset, thd_range)
+
+    # and place rop net / species maps, etc.
+    mapstore.check_and_add_transform(
+        namestore.rop_net, rxn_range)
+    mapstore.check_and_add_transform(
+        namestore.rxn_to_spec_offsets, rxn_range)
+
+    if rxn_type != reaction_type.thd:
+        raise NotImplementedError
+
+    # get the third body types
+    thd_type_lp, thd_type_str = mapstore.apply_maps(
+        namestore.thd_type, var_name)
+    thd_offset_lp, thd_offset_next_str = mapstore.apply_maps(
+        namestore.thd_offset, var_name, affine=1)
+    # get third body efficiencies & species
+    thd_eff_lp, thd_eff_last_str = mapstore.apply_maps(
+        namestore.thd_eff, thd_offset_next_str, affine=-1)
+    thd_spec_lp, thd_spec_last_str = mapstore.apply_maps(
+        namestore.thd_spec, thd_offset_next_str, affine=-1)
+
+    k_ind = 'k_ind'
+    # nu offsets
+    nu_offset_lp, offset_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name)
+    _, offset_next_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name, affine=1)
+    # setup species k loop
+    extra_inames = [(k_ind, 'offset <= {} < offset_next'.format(k_ind))]
+
+    # reac and prod nu for net
+    nu_lp, reac_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, k_ind, affine=k_ind)
+    _, prod_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, k_ind, affine=k_ind)
+    # get species
+    spec_lp, spec_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, k_ind)
+    # and jac
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2})
+
+    # ropnet
+    rop_net_lp, rop_net_str = mapstore.apply_maps(
+        namestore.rop_net, *default_inds)
+
+    # T, P, V
+    T_lp, T_str = mapstore.apply_maps(
+        namestore.T_arr, global_ind)
+    V_lp, V_str = mapstore.apply_maps(
+        namestore.V_arr, global_ind)
+    P_lp, P_str = mapstore.apply_maps(
+        namestore.P_arr, global_ind)
+
+    # update kernel data
+    kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
+                        nu_offset_lp, nu_lp, spec_lp, rop_net_lp, jac_lp,
+                        T_lp, V_lp, P_lp])
+
+    mix = int(thd_body_type.mix)
+    spec = int(thd_body_type.species)
+    pre_instructions = [rate.default_pre_instructs('T_inv', T_str, 'INV')]
+    # and instructions
+    instructions = Template("""
+    <> mod = 1
+    if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
+        mod = ${thd_eff_last_str}
+    end
+    if ${thd_type_str} == ${spec}
+        mod = ${thd_spec_last_str} == ${ns}
+    end
+    <> dci_thd_dT = -${P_str} * mod * ${rop_net_str} * ${V_str} * Ru_inv * T_inv * T_inv
+    <> offset = ${offset_str}
+    <> offset_next = ${offset_next_str}
+    for ${k_ind}
+        jac[j, ${spec_k_str} + 2, 1] = dci_thd_dT
+        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * dci_thd_dT
+    end
+    """).safe_substitute(**locals())
+
+    return k_gen.knl_info(name='dci_{}_dT'.format(
+        name_description[rxn_type]),
+        extra_inames=extra_inames,
+        instructions=instructions,
+        pre_instructions=pre_instructions,
+        var_name=var_name,
+        kernel_data=kernel_data,
+        mapstore=mapstore,
+        parameters={'Ru_inv': 1.0 / chem.RU}
+    )
+
+
+def dci_thd_dT(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term w.r.t. Temperature
+    for third body reactions
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+                                reaction_type.thd)] if x is not None]
+
+
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
               maxT=None):
@@ -211,6 +409,11 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
+    do_ns : bool [False]
+        If True, generate kernel to handle derivatives of the last species'
+        concentration w.r.t. temperature
+    rxn_type : [reaction_type.thd, reaction_type.plog, reaction_type.cheb]
+        The type of reaction to generate fore
     maxP: int [None]
         The maximum number of pressure interpolations of any reaction in
         the mechanism.
@@ -525,7 +728,6 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                     dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
                 end
                 dkf = -dkf * 2 * logten * T_inv * T_inv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
-                jac[j, ${spec_k_str} + 2, 1] = dkf
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
         else:
