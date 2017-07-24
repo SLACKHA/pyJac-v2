@@ -11,12 +11,12 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        get_device_list,
                                        kernel_call,
                                        set_adept_editor,
-                                       populate
-                                       )
+                                       populate)
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
-    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT)
+    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
+    dci_troe_dT)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -924,6 +924,21 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_sri_dnj, kc)
 
+    def __get_troe_params(self, namestore):
+        troe_args = {'Pr': lambda x: np.array(
+            self.store.ref_Pr, order=x, copy=True),
+            'phi': lambda x: np.array(
+            self.store.phi_cp, order=x, copy=True),
+            'out_mask': [1, 2, 3]}
+        runner = kernel_runner(
+            get_troe_kernel, self.store.test_size, troe_args)
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        Fcent, Atroe, Btroe = runner(
+            eqs, opts, namestore, self.store.test_size)
+        return Fcent, Atroe, Btroe
+
     @attr('long')
     def test_dci_troe_dnj(self):
         # test conp
@@ -944,18 +959,7 @@ class SubTest(TestClass):
 
         # get kf / kf_fall
         kf, kf_fall = self.__get_kf_and_fall()
-        # create X
-        sri_args = {'Pr': lambda x: np.array(
-            self.store.ref_Pr, order=x, copy=True),
-            'phi': lambda x: np.array(
-            self.store.phi_cp, order=x, copy=True),
-            'out_mask': [1, 2, 3]}
-        runner = kernel_runner(get_troe_kernel, self.store.test_size, sri_args)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        Fcent, Atroe, Btroe = runner(
-            eqs, opts, namestore, self.store.test_size)
+        Fcent, Atroe, Btroe = self.__get_troe_params(namestore)
 
         args = {
             'pres_mod': lambda x: np.zeros_like(
@@ -1609,7 +1613,10 @@ class SubTest(TestClass):
             'kf_fall': lambda x: np.zeros_like(kf_fall, order=x),
             'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
-            'jac': lambda x: np.zeros(namestore.jac.shape, order=x)
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'Fcent': lambda x: np.zeros(namestore.Fcent.shape, order=x),
+            'Atroe': lambda x: np.zeros(namestore.Atroe.shape, order=x),
+            'Btroe': lambda x: np.zeros(namestore.Btroe.shape, order=x)
         }
 
         # obtain the finite difference jacobian
@@ -1684,7 +1691,13 @@ class SubTest(TestClass):
             elif rxn_type == falloff_form.sri:
                 raise NotImplementedError
             elif rxn_type == falloff_form.troe:
-                raise NotImplementedError
+                tester = dci_troe_dT
+                Fcent, Atroe, Btroe = self.__get_troe_params(namestore)
+                args.update({
+                    'Fcent': lambda x: np.array(Fcent, order=x, copy=True),
+                    'Atroe': lambda x: np.array(Atroe, order=x, copy=True),
+                    'Btroe': lambda x: np.array(Btroe, order=x, copy=True)
+                    })
 
         test = self.__get_check(include, over_rxn)
 
@@ -1697,3 +1710,6 @@ class SubTest(TestClass):
 
     def test_dci_lind_dT(self):
         self.test_dci_thd_dT(falloff_form.lind)
+
+    def test_dci_troe_dT(self):
+        self.test_dci_thd_dT(falloff_form.troe)
