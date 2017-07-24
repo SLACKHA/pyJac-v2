@@ -300,13 +300,6 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         mapstore.check_and_add_transform(
             namestore.simple_Ta, namestore.simple_mask)
 
-        if rxn_type == falloff_form.sri:
-            # SRI parameters
-            raise NotImplementedError
-        elif rxn_type == falloff_form.troe:
-            # TROE params
-            raise NotImplementedError
-
     # get the third body types
     thd_type_lp, thd_type_str = mapstore.apply_maps(
         namestore.thd_type, var_name)
@@ -356,6 +349,8 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                         nu_offset_lp, nu_lp, spec_lp, rop_net_lp, jac_lp,
                         T_lp, V_lp, P_lp])
 
+    pre_instructions = [rate.default_pre_instructs('T_inv', T_str, 'INV')]
+    parameters = {}
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
     factor = 'dci_thd_dT'
@@ -390,7 +385,34 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
 
         # check for Troe / SRI
         if rxn_type == falloff_form.troe:
-            raise NotImplementedError
+            Atroe_lp, Atroe_str = mapstore.apply_maps(
+                namestore.Atroe, *default_inds)
+            Btroe_lp, Btroe_str = mapstore.apply_maps(
+                namestore.Btroe, *default_inds)
+            Fcent_lp, Fcent_str = mapstore.apply_maps(
+                namestore.Fcent, *default_inds)
+            troe_a_lp, troe_a_str = mapstore.apply_maps(
+                namestore.troe_a, var_name)
+            troe_T1_lp, troe_T1_str = mapstore.apply_maps(
+                namestore.troe_T1, var_name)
+            troe_T2_lp, troe_T2_str = mapstore.apply_maps(
+                namestore.troe_T2, var_name)
+            troe_T3_lp, troe_T3_str = mapstore.apply_maps(
+                namestore.troe_T3, var_name)
+            kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
+                                troe_T1_lp, troe_T2_lp, troe_T3_lp])
+            pre_instructions.append(
+                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+            dFi_instructions = Template("""
+                <> T1inv = -1 / ${troe_T1_str}
+                <> T3inv = -1 / ${troe_T3_str}
+                <> dFcent = ${troe_a_str} * T1inv * exp(Tval * T1inv) + (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + ${troe_T2_str} * T_inv * T_inv * exp(-${troe_T2_str} * T_inv)
+                <> logFcent = log(${Fcent_str})
+                <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=ab_init}
+                <> absqsq = absq * absq {id=ab_fin}
+                <> dFi = -${Btroe_str} * (2 * ${Atroe_str} * ${Fcent_str} * (0.14 * ${Atroe_str} + ${Btroe_str}) * (${Pr_str} * theta_Pr + theta_no_Pr) * logFcent + ${Pr_str} * dFcent * (2 * ${Atroe_str} * (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent - ${Btroe_str} * absq * logten)) / (${Fcent_str} * ${Pr_str} * absqsq * logten) {id=dFi_final}
+            """).safe_substitute(**locals())
+            parameters['logten'] = log(10)
         elif rxn_type == falloff_form.sri:
             raise NotImplementedError
         else:
@@ -428,7 +450,6 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
 
     mix = int(thd_body_type.mix)
     spec = int(thd_body_type.species)
-    pre_instructions = [rate.default_pre_instructs('T_inv', T_str, 'INV')]
     # and instructions
     instructions = Template("""
     <> mod = 1 {id=mod_init}
@@ -447,6 +468,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     end
     """).safe_substitute(**locals())
 
+    parameters.update({'Ru_inv': 1.0 / chem.RU})
     return k_gen.knl_info(name='dci_{}_dT'.format(
         name_description[rxn_type]),
         extra_inames=extra_inames,
@@ -455,7 +477,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        parameters={'Ru_inv': 1.0 / chem.RU}
+        parameters=parameters
     )
 
 
@@ -513,6 +535,34 @@ def dci_lind_dT(eqs, loopy_opts, namestore, test_size=None):
 
     return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
                                 falloff_form.lind)] if x is not None]
+
+
+def dci_troe_dT(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term w.r.t. Temperature
+    for Troe falloff reactions
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+                                falloff_form.troe)] if x is not None]
 
 
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
