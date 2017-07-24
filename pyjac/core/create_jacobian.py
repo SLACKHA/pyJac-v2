@@ -277,7 +277,35 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec_offsets, rxn_range)
 
     if rxn_type != reaction_type.thd:
-        raise NotImplementedError
+        # pressure mod term
+        mapstore.check_and_add_transform(namestore.pres_mod, thd_range)
+        # falloff type
+        mapstore.check_and_add_transform(namestore.fall_type, fall_range)
+        # need falloff blending / reduced pressure
+        mapstore.check_and_add_transform(namestore.Fi, fall_range)
+        mapstore.check_and_add_transform(namestore.Pr, fall_range)
+
+        # in addition we (most likely) need the falloff / regular kf rates
+        mapstore.check_and_add_transform(namestore.kf, rxn_range)
+        mapstore.check_and_add_transform(namestore.kf_fall, fall_range)
+
+        # and the beta / Ta parameters for falloff / regular kf
+        mapstore.check_and_add_transform(namestore.fall_beta, fall_range)
+        mapstore.check_and_add_transform(namestore.fall_Ta, fall_range)
+
+        # the regular kf params require the simple_mask
+        mapstore.check_and_add_transform(namestore.simple_mask, rxn_range)
+        mapstore.check_and_add_transform(
+            namestore.simple_beta, namestore.simple_mask)
+        mapstore.check_and_add_transform(
+            namestore.simple_Ta, namestore.simple_mask)
+
+        if rxn_type == falloff_form.sri:
+            # SRI parameters
+            raise NotImplementedError
+        elif rxn_type == falloff_form.troe:
+            # TROE params
+            raise NotImplementedError
 
     # get the third body types
     thd_type_lp, thd_type_str = mapstore.apply_maps(
@@ -328,24 +356,94 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                         nu_offset_lp, nu_lp, spec_lp, rop_net_lp, jac_lp,
                         T_lp, V_lp, P_lp])
 
+    # by default we are using the third body factors (these may be changed
+    # in the falloff types below)
+    factor = 'dci_thd_dT'
+    thd_fac = ' * {} * {} '.format(V_str, rop_net_str)
+    fall_instructions = ''
+    if rxn_type != reaction_type.thd:
+        # update factors
+        factor = 'dci_fall_dT'
+        thd_fac = ''
+        # create arrays
+        pres_mod_lp, pres_mod_str = mapstore.apply_maps(
+            namestore.pres_mod, *default_inds)
+        fall_type_lp, fall_type_str = mapstore.apply_maps(
+            namestore.fall_type, var_name)
+        Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
+        Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
+        kf_lp, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
+        s_beta_lp, s_beta_str = mapstore.apply_maps(
+            namestore.simple_beta, var_name)
+        s_Ta_lp, s_Ta_str = mapstore.apply_maps(
+            namestore.simple_Ta, var_name)
+        kf_fall_lp, kf_fall_str = mapstore.apply_maps(
+            namestore.kf_fall, *default_inds)
+        f_beta_lp, f_beta_str = mapstore.apply_maps(
+            namestore.fall_beta, var_name)
+        f_Ta_lp, f_Ta_str = mapstore.apply_maps(
+            namestore.fall_Ta, var_name)
+
+        kernel_data.extend([pres_mod_lp, fall_type_lp, Fi_lp, Pr_lp, kf_lp,
+                            s_beta_lp, s_Ta_lp, kf_fall_lp, f_beta_lp,
+                            f_Ta_lp])
+
+        # check for Troe / SRI
+        if rxn_type == falloff_form.troe:
+            raise NotImplementedError
+        elif rxn_type == falloff_form.sri:
+            raise NotImplementedError
+        else:
+            dFi_instructions = '<> dFi = 0 {id=dFi_final}'
+
+        fall_instructions = Template("""
+        if ${fall_type_str}
+            # chemically activated
+            <>kf_0 = ${kf_str} {id=kf_chem}
+            <>beta_0 = ${s_beta_str} {id=beta0_chem}
+            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem}
+            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
+            <>beta_inf = ${f_beta_str} {id=betaf_chem}
+            <>Ta_inf = ${f_Ta_str} {id=Taf_chem}
+        else
+            # fall-off
+            kf_0 = ${kf_fall_str} {id=kf_fall}
+            beta_0 = ${f_beta_str} {id=beta0_fall}
+            Ta_0 = ${f_Ta_str} {id=Ta0_fall}
+            kf_inf = ${kf_str} {id=kf_inf_fall}
+            beta_inf = ${s_beta_str} {id=betaf_fall}
+            Ta_inf = ${s_Ta_str} {id=Taf_fall}
+        end
+        <> pmod = ${pres_mod_str}
+        <> theta_Pr = T_inv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * T_inv) {id=theta_Pr, dep=beta*:kf*:Ta*}
+        <> theta_no_Pr = dci_thd_dT * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
+        ${dFi_instructions}
+        <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / (${Pr_str} + 1) + dFi) {id=dfall_init}
+        if not ${fall_type_str}
+            # falloff
+            dci_fall_dT = dci_fall_dT + theta_Pr * pmod + ${Fi_str} * theta_no_Pr / (${Pr_str} + 1) {id=dfall_up1, dep=dfall_init}
+        end
+        dci_fall_dT = dci_fall_dT * ${V_str} * ${rop_net_str} {id=dfall_final, dep=dfall_up1}
+        """).safe_substitute(**locals())
+
     mix = int(thd_body_type.mix)
     spec = int(thd_body_type.species)
     pre_instructions = [rate.default_pre_instructs('T_inv', T_str, 'INV')]
     # and instructions
     instructions = Template("""
-    <> mod = 1
+    <> mod = 1 {id=mod_init}
     if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
-        mod = ${thd_eff_last_str}
+        mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
     end
     if ${thd_type_str} == ${spec}
-        mod = ${thd_spec_last_str} == ${ns}
+        mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
     end
-    <> dci_thd_dT = -${P_str} * mod * ${rop_net_str} * ${V_str} * Ru_inv * T_inv * T_inv
+    <> dci_thd_dT = -${P_str} * mod * Ru_inv * T_inv * T_inv${thd_fac} {dep=mod*}
+    ${fall_instructions}
     <> offset = ${offset_str}
     <> offset_next = ${offset_next_str}
     for ${k_ind}
-        jac[j, ${spec_k_str} + 2, 1] = dci_thd_dT
-        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * dci_thd_dT
+        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * ${factor}
     end
     """).safe_substitute(**locals())
 
@@ -387,6 +485,34 @@ def dci_thd_dT(eqs, loopy_opts, namestore, test_size=None):
 
     return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
                                 reaction_type.thd)] if x is not None]
+
+
+def dci_lind_dT(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term w.r.t. Temperature
+    for Lindemann falloff reactions
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+                                falloff_form.lind)] if x is not None]
 
 
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,

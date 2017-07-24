@@ -16,7 +16,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
-    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT)
+    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1584,16 +1584,12 @@ class SubTest(TestClass):
         # test conv
         __subtest(False)
 
-    def test_dci_dT(self, rxn_type=reaction_type.thd):
+    def test_dci_thd_dT(self, rxn_type=reaction_type.thd):
         # test conp (form doesn't matter)
         namestore, rate_info = self._make_namestore(True)
         ad_opts = namestore.loopy_opts
 
         # setup arguements
-        # create the editor
-        edit = editor(
-            namestore.T_arr, namestore.n_dot, self.store.test_size,
-            order=ad_opts.order)
 
         # get our form of rop_fwd / rop_rev
         fwd_removed, rev_removed = self.__get_removed()
@@ -1609,17 +1605,21 @@ class SubTest(TestClass):
             'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
             'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x),
             'thd_conc': lambda x: np.zeros_like(self.store.ref_thd, order=x),
-            'kf': lambda x: np.array(kf, order=x, copy=True),
-            'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
+            'kf': lambda x: np.zeros_like(kf, order=x),
+            'kf_fall': lambda x: np.zeros_like(kf_fall, order=x),
             'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
-            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x)
         }
 
         # obtain the finite difference jacobian
         kc = kernel_call('dci_dT', [None], **args)
+        # create the editor
+        edit = editor(
+            namestore.T_arr, namestore.n_dot, self.store.test_size,
+            order=ad_opts.order)
 
-        rate_sub = get_thd_body_concs
+        rate_sub = None
         if rxn_type == falloff_form.lind:
             rate_sub = get_lind_kernel
         elif rxn_type == falloff_form.sri:
@@ -1628,10 +1628,12 @@ class SubTest(TestClass):
             rate_sub = get_troe_kernel
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, True,
-            extra_funcs=[get_concentrations, get_thd_body_concs,
+            extra_funcs=[x for x in [get_concentrations, get_thd_body_concs,
+                         get_simple_arrhenius_rates,
+                         self.__get_fall_call_wrapper(),
                          get_reduced_pressure_kernel, rate_sub,
-                         get_rxn_pres_mod,
-                         get_rop_net, get_spec_rates])
+                         get_rxn_pres_mod, get_rop_net,
+                         get_spec_rates] if x is not None])
 
         # setup args
 
@@ -1645,21 +1647,46 @@ class SubTest(TestClass):
             'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
         }
 
-        def rxn_test(rxn):
+        def over_rxn(rxn):
             if rxn_type == reaction_type.thd:
+                # for third body, only need to worry about these
                 return isinstance(rxn, ct.ThreeBodyReaction)
-            else:
-                return isinstance(rxn, ct.FalloffReaction)
+            # otherwise, need to look at all 3body/fall, and exclude wrong type
+            return isinstance(rxn, ct.ThreeBodyReaction) or isinstance(
+                rxn, ct.FalloffReaction)
+
+        def include(rxn):
+            if rxn_type == reaction_type.thd:
+                return True
+            elif rxn_type == falloff_form.lind:
+                desc = 'Simple'
+            elif rxn_type == falloff_form.sri:
+                desc = 'SRI'
+            elif rxn_type == falloff_form.troe:
+                desc = 'Troe'
+            return (isinstance(rxn, ct.FalloffReaction)
+                    and rxn.falloff.type == desc)
 
         tester = dci_thd_dT
-        if rxn_type == falloff_form.lind:
-            raise NotImplementedError
-        elif rxn_type == falloff_form.sri:
-            raise NotImplementedError
-        elif rxn_type == falloff_form.troe:
-            raise NotImplementedError
+        if rxn_type != reaction_type.thd:
+            args.update({
+                'pres_mod': lambda x: np.array(
+                    self.store.ref_pres_mod, order=x, copy=True),
+                'Pr': lambda x: np.array(
+                    self.store.ref_Pr, order=x, copy=True),
+                'Fi': lambda x: np.array(
+                    self.store.ref_Fall, order=x, copy=True),
+                'kf': lambda x: np.array(kf, order=x, copy=True),
+                'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True)
+            })
+            if rxn_type == falloff_form.lind:
+                tester = dci_lind_dT
+            elif rxn_type == falloff_form.sri:
+                raise NotImplementedError
+            elif rxn_type == falloff_form.troe:
+                raise NotImplementedError
 
-        test = self.__get_check(lambda x: True, rxn_test)
+        test = self.__get_check(include, over_rxn)
 
         # and get mask
         kc = [kernel_call('dci_dT',
@@ -1667,3 +1694,6 @@ class SubTest(TestClass):
                           compare_axis=(1, 2), **args)]
 
         return self._generic_jac_tester(tester, kc)
+
+    def test_dci_lind_dT(self):
+        self.test_dci_thd_dT(falloff_form.lind)
