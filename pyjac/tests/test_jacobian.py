@@ -16,7 +16,7 @@ from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT)
+    dci_troe_dT, dci_sri_dT)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -583,7 +583,8 @@ class SubTest(TestClass):
             # and ensure all our values are 'large' but finite numbers
             # (defined here by > 1e295)
             # _or_ allow_our_nans is True _and_ they're all nan's
-            is_correct = is_correct and (np.all(np.abs(our_vals[bad]) >= 1e295)
+            is_correct = is_correct and (
+                np.all(np.abs(our_vals[bad]) >= 1e295)
                 or (allow_our_nans and np.all(np.isnan(our_vals[bad]))))
 
             return is_correct
@@ -810,6 +811,19 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_lind_dnj, kc)
 
+    def __get_sri_params(self, namestore):
+        sri_args = {'Pr': lambda x: np.array(
+            self.store.ref_Pr, order=x, copy=True),
+            'phi': lambda x: np.array(
+            self.store.phi_cp, order=x, copy=True),
+            'out_mask': [1]}
+        runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        X = runner(eqs, opts, namestore, self.store.test_size)[0]
+        return X
+
     @attr('long')
     def test_dci_sri_dnj(self):
         # test conp
@@ -831,16 +845,7 @@ class SubTest(TestClass):
         # get kf / kf_fall
         kf, kf_fall = self.__get_kf_and_fall()
         # create X
-        sri_args = {'Pr': lambda x: np.array(
-            self.store.ref_Pr, order=x, copy=True),
-            'phi': lambda x: np.array(
-            self.store.phi_cp, order=x, copy=True),
-            'out_mask': [1]}
-        runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        X = runner(eqs, opts, namestore, self.store.test_size)[0]
+        X = self.__get_sri_params(namestore)
 
         args = {
             'pres_mod': lambda x: np.zeros_like(
@@ -1616,7 +1621,8 @@ class SubTest(TestClass):
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
             'Fcent': lambda x: np.zeros(namestore.Fcent.shape, order=x),
             'Atroe': lambda x: np.zeros(namestore.Atroe.shape, order=x),
-            'Btroe': lambda x: np.zeros(namestore.Btroe.shape, order=x)
+            'Btroe': lambda x: np.zeros(namestore.Btroe.shape, order=x),
+            'X': lambda x: np.zeros(namestore.X_sri.shape, order=x)
         }
 
         # obtain the finite difference jacobian
@@ -1675,6 +1681,7 @@ class SubTest(TestClass):
                     and rxn.falloff.type == desc)
 
         tester = dci_thd_dT
+        to_test = np.arange(self.store.test_size)
         if rxn_type != reaction_type.thd:
             args.update({
                 'pres_mod': lambda x: np.array(
@@ -1687,10 +1694,21 @@ class SubTest(TestClass):
                 'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True)
             })
             if rxn_type == falloff_form.lind:
+                to_test = np.all(
+                    self.store.ref_Pr[:, self.store.lind_to_pr_map] != 0.0,
+                    axis=1)
                 tester = dci_lind_dT
             elif rxn_type == falloff_form.sri:
-                raise NotImplementedError
+                to_test = np.all(
+                    self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
+                    axis=1)
+                tester = dci_sri_dT
+                X = self.__get_sri_params(namestore)
+                args.update({'X': lambda x: np.array(X, order=x, copy=True)})
             elif rxn_type == falloff_form.troe:
+                to_test = np.all(
+                    self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0,
+                    axis=1)
                 tester = dci_troe_dT
                 Fcent, Atroe, Btroe = self.__get_troe_params(namestore)
                 args.update({
@@ -1703,8 +1721,10 @@ class SubTest(TestClass):
 
         # and get mask
         kc = [kernel_call('dci_dT',
-                          [fd_jac], compare_mask=[(test, 0)],
-                          compare_axis=(1, 2), **args)]
+                          [fd_jac], compare_mask=[(to_test, test, 0)],
+                          compare_axis=(0, 1, 2),
+                          other_compare=self.nan_compare,
+                          **args)]
 
         return self._generic_jac_tester(tester, kc)
 
@@ -1713,3 +1733,6 @@ class SubTest(TestClass):
 
     def test_dci_troe_dT(self):
         self.test_dci_thd_dT(falloff_form.troe)
+
+    def test_dci_sri_dT(self):
+        self.test_dci_thd_dT(falloff_form.sri)
