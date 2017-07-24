@@ -1214,7 +1214,7 @@ class NameStore(object):
                                   initializer=rate_info['simple']['map'],
                                   order=self.order)
         # simple mask
-        simple_mask = _make_mask(rate_info['simple']['type'],
+        simple_mask = _make_mask(rate_info['simple']['map'],
                                  rate_info['Nr'])
         self.simple_mask = creator('simple_mask',
                                    dtype=simple_mask.dtype,
