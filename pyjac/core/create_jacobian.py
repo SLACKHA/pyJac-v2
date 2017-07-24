@@ -351,6 +351,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
 
     pre_instructions = [rate.default_pre_instructs('T_inv', T_str, 'INV')]
     parameters = {}
+    manglers = []
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
     factor = 'dci_thd_dT'
@@ -406,15 +407,47 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             dFi_instructions = Template("""
                 <> T1inv = -1 / ${troe_T1_str}
                 <> T3inv = -1 / ${troe_T3_str}
-                <> dFcent = ${troe_a_str} * T1inv * exp(Tval * T1inv) + (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + ${troe_T2_str} * T_inv * T_inv * exp(-${troe_T2_str} * T_inv)
+                <> dFcent = ${troe_a_str} * T1inv * exp(Tval * T1inv) + \
+                (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + \
+                ${troe_T2_str} * T_inv * T_inv * exp(-${troe_T2_str} * T_inv)
                 <> logFcent = log(${Fcent_str})
                 <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=ab_init}
                 <> absqsq = absq * absq {id=ab_fin}
-                <> dFi = -${Btroe_str} * (2 * ${Atroe_str} * ${Fcent_str} * (0.14 * ${Atroe_str} + ${Btroe_str}) * (${Pr_str} * theta_Pr + theta_no_Pr) * logFcent + ${Pr_str} * dFcent * (2 * ${Atroe_str} * (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent - ${Btroe_str} * absq * logten)) / (${Fcent_str} * ${Pr_str} * absqsq * logten) {id=dFi_final}
+                <> dFi = -${Btroe_str} * (2 * ${Atroe_str} * ${Fcent_str} * \
+                (0.14 * ${Atroe_str} + ${Btroe_str}) * \
+                (${Pr_str} * theta_Pr + theta_no_Pr) * logFcent + \
+                ${Pr_str} * dFcent * (2 * ${Atroe_str} * \
+                (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent \
+                - ${Btroe_str} * absq * logten)) / \
+                (${Fcent_str} * ${Pr_str} * absqsq * logten) {id=dFi_final}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
         elif rxn_type == falloff_form.sri:
-            raise NotImplementedError
+            X_lp, X_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
+            a_lp, a_str = mapstore.apply_maps(namestore.sri_a, var_name)
+            b_lp, b_str = mapstore.apply_maps(namestore.sri_b, var_name)
+            c_lp, c_str = mapstore.apply_maps(namestore.sri_c, var_name)
+            d_lp, d_str = mapstore.apply_maps(namestore.sri_d, var_name)
+            e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
+            kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
+            pre_instructions.append(
+                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+            manglers.append(lp_pregen.fmax())
+
+            dFi_instructions = Template("""
+                <> cinv = 1 / ${c_str}
+                <> dFi = -${X_str} * (\
+                exp(-Tval * cinv) * cinv - ${a_str} * ${b_str} * T_inv * \
+                T_inv * exp(-${b_str} * T_inv)) / \
+                (${a_str} * exp(-${b_str} * T_inv) + exp(-Tval * cinv)) \
+                + ${e_str} * T_inv - \
+                2 * ${X_str} * ${X_str} * \
+                log(${a_str} * exp(-${b_str} * T_inv) + exp(-Tval * cinv)) * \
+                (${Pr_str} * theta_Pr + theta_no_Pr) * \
+                log(fmax(${Pr_str}, 1e-300d)) / \
+                (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
+            """).safe_substitute(**locals())
+            parameters['logtensquared'] = log(10) * log(10)
         else:
             dFi_instructions = '<> dFi = 0 {id=dFi_final}'
 
@@ -477,7 +510,8 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        parameters=parameters
+        parameters=parameters,
+        manglers=manglers
     )
 
 
@@ -563,6 +597,34 @@ def dci_troe_dT(eqs, loopy_opts, namestore, test_size=None):
 
     return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
                                 falloff_form.troe)] if x is not None]
+
+
+def dci_sri_dT(eqs, loopy_opts, namestore, test_size=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term w.r.t. Temperature
+    for SRI falloff reactions
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+                                falloff_form.sri)] if x is not None]
 
 
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,

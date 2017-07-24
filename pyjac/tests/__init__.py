@@ -105,6 +105,8 @@ class storage(object):
             [np.where(self.fall_inds == j)[0][0] for j in self.troe_inds])
         self.sri_to_pr_map = np.array(
             [np.where(self.fall_inds == j)[0][0] for j in self.sri_inds])
+        self.lind_to_pr_map = np.array(
+            [np.where(self.fall_inds == j)[0][0] for j in self.lind_inds])
         self.ref_Pr = np.zeros((test_size, self.fall_inds.size))
         self.ref_Sri = np.zeros((test_size, self.sri_inds.size))
         self.ref_Troe = np.zeros((test_size, self.troe_inds.size))
