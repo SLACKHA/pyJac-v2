@@ -16,7 +16,7 @@ from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT, dci_sri_dT, dEdotdT)
+    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1539,16 +1539,16 @@ class SubTest(TestClass):
                 eqs, opts, namestore, self.store.test_size)[0]
 
             args = {'conc': lambda x: np.array(
-                        self.store.concs, order=x, copy=True),
-                    'dphi': lambda x: np.array(
-                        dphi, order=x, copy=True),
-                    'phi': lambda x: np.array(
-                        phi, order=x, copy=True),
-                    'jac': lambda x: np.array(
-                        jac, order=x, copy=True),
-                    'wdot': lambda x: np.array(
-                        self.store.species_rates, order=x, copy=True)
-                    }
+                self.store.concs, order=x, copy=True),
+                'dphi': lambda x: np.array(
+                dphi, order=x, copy=True),
+                'phi': lambda x: np.array(
+                phi, order=x, copy=True),
+                'jac': lambda x: np.array(
+                jac, order=x, copy=True),
+                'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True)
+            }
 
             if conp:
                 args.update({
@@ -1642,11 +1642,11 @@ class SubTest(TestClass):
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, True,
             extra_funcs=[x for x in [get_concentrations, get_thd_body_concs,
-                         get_simple_arrhenius_rates,
-                         self.__get_fall_call_wrapper(),
-                         get_reduced_pressure_kernel, rate_sub,
-                         get_rxn_pres_mod, get_rop_net,
-                         get_spec_rates] if x is not None])
+                                     get_simple_arrhenius_rates,
+                                     self.__get_fall_call_wrapper(),
+                                     get_reduced_pressure_kernel, rate_sub,
+                                     get_rxn_pres_mod, get_rop_net,
+                                     get_spec_rates] if x is not None])
 
         # setup args
 
@@ -1715,7 +1715,7 @@ class SubTest(TestClass):
                     'Fcent': lambda x: np.array(Fcent, order=x, copy=True),
                     'Atroe': lambda x: np.array(Atroe, order=x, copy=True),
                     'Btroe': lambda x: np.array(Btroe, order=x, copy=True)
-                    })
+                })
 
         test = self.__get_check(include, over_rxn)
 
@@ -1750,14 +1750,14 @@ class SubTest(TestClass):
             jac[:, 1, 0] = 0
 
             args = {'dphi': lambda x: np.array(
-                        dphi, order=x, copy=True),
-                    'phi': lambda x: np.array(
-                        phi, order=x, copy=True),
-                    'jac': lambda x: np.array(
-                        jac, order=x, copy=True),
-                    'wdot': lambda x: np.array(
-                        self.store.species_rates, order=x, copy=True)
-                    }
+                dphi, order=x, copy=True),
+                'phi': lambda x: np.array(
+                phi, order=x, copy=True),
+                'jac': lambda x: np.array(
+                jac, order=x, copy=True),
+                'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True)
+            }
 
             if conp:
                 args['P_arr'] = lambda x: np.array(
@@ -1779,6 +1779,69 @@ class SubTest(TestClass):
                               **args)]
 
             return self._generic_jac_tester(dEdotdT, kc, conp=conp)
+
+        __subtest(True)
+        __subtest(False)
+
+    def test_dTdot_dE(self):
+        def __subtest(conp):
+            # conp
+            fd_jac = self.__get_full_jac(conp)
+
+            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+            phi = self.store.phi_cp if conp else self.store.phi_cv
+            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+            spec_heat = self.store.spec_cp if conp else self.store.spec_cv
+            spec_heat_tot = np.sum(self.store.concs * spec_heat, axis=1)
+            spec_energy = self.store.spec_h if conp else self.store.spec_u
+
+            jac = fd_jac.copy()
+            jac[:, 0, 1] = 0
+
+            args = {'dphi': lambda x: np.array(
+                dphi, order=x, copy=True),
+                'phi': lambda x: np.array(
+                phi, order=x, copy=True),
+                'jac': lambda x: np.array(
+                jac, order=x, copy=True),
+                'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True),
+                'conc': lambda x: np.array(
+                self.store.concs, order=x, copy=True)
+            }
+
+            if conp:
+                args.update({'P_arr': lambda x: np.array(
+                    self.store.P, order=x, copy=True),
+                    'cp': lambda x: np.array(
+                    spec_heat, order=x, copy=True),
+                    'cp_tot': lambda x: np.array(
+                    spec_heat_tot, order=x, copy=True),
+                    'h': lambda x: np.array(
+                    spec_energy, order=x, copy=True)})
+            else:
+                args.update({'V_arr': lambda x: np.array(
+                    self.store.V, order=x, copy=True),
+                    'cv': lambda x: np.array(
+                    spec_heat, order=x, copy=True),
+                    'cv_tot': lambda x: np.array(
+                    spec_heat_tot, order=x, copy=True),
+                    'u': lambda x: np.array(
+                    spec_energy, order=x, copy=True)})
+
+            # exclude purposefully included nan's
+            to_test = np.setdiff1d(np.arange(self.store.test_size),
+                                   np.unique(np.where(np.isnan(jac))[0]),
+                                   assume_unique=True)
+
+            # and get mask
+            kc = [kernel_call('dTdotdE',
+                              [fd_jac], compare_mask=[(to_test, 1, 0)],
+                              compare_axis=(0, 1, 2),
+                              other_compare=self.our_nan_compare,
+                              **args)]
+
+            return self._generic_jac_tester(dTdotdE, kc, conp=conp)
 
         __subtest(True)
         __subtest(False)
