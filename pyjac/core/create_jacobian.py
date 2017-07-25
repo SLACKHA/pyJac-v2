@@ -51,6 +51,130 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
+def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of change of temperature with respect to
+    the extra variable (volume/pressure for const. pressure / volume
+    respectively)
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # indicies
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    ns = namestore.num_specs.initializer[-1]
+
+    mapstore = arc.MapStore(
+        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+
+    # create arrays
+    T_lp, T_str = mapstore.apply_maps(
+        namestore.T_arr, global_ind)
+    V_lp, V_str = mapstore.apply_maps(
+        namestore.V_arr, global_ind)
+
+    # specific heats and energies
+    spec_heat_tot_lp, spec_heat_total_str = mapstore.apply_maps(
+        namestore.spec_heat_total, global_ind)
+    spec_heat_lp, spec_heat_str = mapstore.apply_maps(
+        namestore.spec_heat, *default_inds)
+    _, spec_heat_ns_str = mapstore.apply_maps(
+        namestore.spec_heat_ns, global_ind)
+    spec_energy_lp, spec_energy_str = mapstore.apply_maps(
+        namestore.spec_energy, *default_inds)
+    _, spec_energy_ns_str = mapstore.apply_maps(
+        namestore.spec_energy_ns, global_ind)
+
+    # concs
+    conc_lp = None
+    if conp:
+        conc_lp, conc_str = mapstore.apply_maps(
+            namestore.conc_arr, *default_inds)
+
+    # rates
+    wdot_lp, wdot_str = mapstore.apply_maps(
+        namestore.spec_rates, *default_inds)
+    Tdot_lp, Tdot_str = mapstore.apply_maps(
+        namestore.T_dot, global_ind)
+
+    # molecular weights
+    mw_lp, mw_str = mapstore.apply_maps(
+        namestore.mw_post_arr, var_name)
+
+    # jacobian entries
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, 0, 1)
+    _, dnkdot_de_str = mapstore.apply_maps(
+        namestore.jac, global_ind, var_name, 1, affine={var_name: 2})
+
+    parameters = {}
+    kernel_data.extend([x for x in [
+        spec_heat_tot_lp, spec_heat_lp, spec_energy_lp, wdot_lp, Tdot_lp,
+        mw_lp, jac_lp, conc_lp, T_lp, V_lp] if x is not None])
+    if conp:
+        pre_instructions = ['<> dTsum = 0',
+                            '<> specsum = 0']
+        instructions = Template("""
+            specsum = specsum + (${spec_energy_str} - ${spec_heat_ns_str} * \
+                ${mw_str}) * (${dnkdot_de_str} - ${wdot_str}) {id=up, dep=*}
+            dTsum = dTsum + (${spec_heat_str} - ${spec_heat_ns_str}) * \
+                ${conc_str}
+        """).safe_substitute(**locals())
+        post_instructions = [Template("""
+            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum - specsum) / \
+                (${spec_heat_total_str} * ${V_str}) {dep=up, nosync=up}
+            """).safe_substitute(**locals())]
+    else:
+        parameters['Ru'] = chem.RU
+        pre_instructions = ['<> sum = 0']
+        instructions = Template("""
+            sum = sum + (${spec_energy_str} - ${spec_heat_ns_str} * \
+                ${mw_str}) * ${dnkdot_de_str} * Vinv {id=up, dep=*}
+        """).safe_substitute(**locals())
+        post_instructions = [Template("""
+            ${jac_str} = ${jac_str} + (${Tdot_str} / (Ru * ${T_str}) - \
+                sum / ${V_str}) / (${spec_heat_total_str}) {dep=up, nosync=up}
+            """).safe_substitute(**locals())]
+
+    can_vectorize = loopy_opts.depth is None
+    # finally do vectorization ability and specializer
+    vec_spec = (
+        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+    return k_gen.knl_info(name='dTdotd{}'.format('V' if conp else 'P'),
+                          instructions=instructions,
+                          pre_instructions=pre_instructions,
+                          post_instructions=post_instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec,
+                          parameters=parameters
+                          )
+
+
 def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of temprature with respect to
@@ -83,7 +207,6 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
     if namestore.test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    # number of species
     ns = namestore.num_specs.initializer[-1]
 
     mapstore = arc.MapStore(
