@@ -53,7 +53,7 @@ This is the string indicies for the main loops for generated kernels in
 
 def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
     """Generates instructions, kernel arguements, and data for calculating
-    the derivative of the rate of change of temprature wirht respect to
+    the derivative of the rate of change of temprature with respect to
     temperature
 
 
@@ -188,6 +188,105 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
                           mapstore=mapstore,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
+                          )
+
+
+def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of change of the extra variable (volume/pressure
+    for constant pressure/volume respectively) with respect to temperature
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    ns = namestore.num_specs.initializer[-1]
+
+    mapstore = arc.MapStore(
+        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+
+    # create arrays
+    mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr, var_name)
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
+    P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, 1, 0)
+    _, dnkdot_dT_str = mapstore.apply_maps(
+        namestore.jac, global_ind, var_name, 0, affine={var_name: 2})
+    _, dTdot_dT_str = mapstore.apply_maps(namestore.jac, global_ind, 0, 0)
+    wdot_lp, wdot_str = mapstore.apply_maps(
+        namestore.spec_rates, *default_inds)
+    dphi_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, global_ind)
+
+    kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp, wdot_lp, dphi_lp])
+
+    # instructions
+    pre_instructions = ['<> sum = 0',
+                        rate.default_pre_instructs('Tinv', T_str, 'INV')]
+    if conp:
+        pre_instructions.append(
+            rate.default_pre_instructs('Vinv', V_str, 'INV'))
+        # sums
+        instructions = Template("""
+            sum = sum + (1 - ${mw_str}) * (Vinv * ${dnkdot_dT_str} + Tinv * \
+                ${wdot_str}) {id=sum, dep=*}
+        """).safe_substitute(**locals())
+        # sum finish
+        post_instructions = [Template("""
+            ${jac_str} = ${jac_str} + Ru * ${T_str} * ${V_str} * sum \
+                / ${P_str} + ${V_str} * Tinv * (\
+                    ${dTdot_dT_str} - Tinv * ${Tdot_str}) {nosync=sum, dep=sum}
+        """).safe_substitute(**locals())]
+    else:
+        pre_instructions.append(Template(
+            '<> fac = ${T_str} / ${V_str}').safe_substitute(**locals()))
+        instructions = Template("""
+            sum = sum + (1 - ${mw_str}) * (${dnkdot_dT_str} * fac + \
+                ${wdot_str}) {id=sum, dep=*}
+        """).safe_substitute(**locals())
+        post_instructions = [Template("""
+            ${jac_str} = ${jac_str} + Ru * sum + ${P_str} * \
+                (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv \
+                {nosync=sum, dep=sum}
+        """).safe_substitute(**locals())]
+
+    can_vectorize = not loopy_opts.depth
+    vec_spec = (
+        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+
+    parameters = {'Ru': chem.RU}
+    return k_gen.knl_info(name='d{}dotdT'.format('P' if conp else 'V'),
+                          instructions=instructions,
+                          pre_instructions=pre_instructions,
+                          post_instructions=post_instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          mapstore=mapstore,
+                          parameters=parameters,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec
                           )
 
 
