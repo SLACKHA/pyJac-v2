@@ -148,7 +148,8 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
             """).safe_substitute(**locals())]
     else:
         parameters['Ru'] = chem.RU
-        pre_instructions = ['<> sum = 0']
+        pre_instructions = ['<> sum = 0',
+                            rate.default_pre_instructs('Vinv', V_str, 'INV')]
         instructions = Template("""
             sum = sum + (${spec_energy_str} - ${spec_heat_ns_str} * \
                 ${mw_str}) * ${dnkdot_de_str} * Vinv {id=up, dep=*}
