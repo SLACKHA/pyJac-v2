@@ -16,7 +16,7 @@ from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE)
+    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1842,6 +1842,49 @@ class SubTest(TestClass):
                               **args)]
 
             return self._generic_jac_tester(dTdotdE, kc, conp=conp)
+
+        __subtest(True)
+        __subtest(False)
+
+    def test_dEdot_dE(self):
+        def __subtest(conp):
+            # conp
+            fd_jac = self.__get_full_jac(conp)
+
+            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+            phi = self.store.phi_cp if conp else self.store.phi_cv
+            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+            jac = fd_jac.copy()
+            jac[:, 1, 1] = 0
+
+            args = {'dphi': lambda x: np.array(
+                dphi, order=x, copy=True),
+                'phi': lambda x: np.array(
+                phi, order=x, copy=True),
+                'jac': lambda x: np.array(
+                jac, order=x, copy=True),
+            }
+
+            if conp:
+                args.update({'P_arr': lambda x: np.array(
+                    self.store.P, order=x, copy=True)})
+            else:
+                args.update({'V_arr': lambda x: np.array(
+                    self.store.V, order=x, copy=True)})
+
+            # exclude purposefully included nan's
+            to_test = np.setdiff1d(np.arange(self.store.test_size),
+                                   np.unique(np.where(np.isnan(jac))[0]),
+                                   assume_unique=True)
+
+            # and get mask
+            kc = [kernel_call('dEdotdE',
+                              [fd_jac], compare_mask=[(to_test, 1, 1)],
+                              compare_axis=(0, 1, 2),
+                              other_compare=self.our_nan_compare,
+                              **args)]
+
+            return self._generic_jac_tester(dEdotdE, kc, conp=conp)
 
         __subtest(True)
         __subtest(False)
