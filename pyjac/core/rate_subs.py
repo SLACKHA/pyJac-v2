@@ -30,6 +30,7 @@ from . reaction_types import reaction_type, falloff_form, thd_body_type, \
     reversible_type
 from . import array_creator as arc
 from ..loopy_utils import preambles_and_manglers as lp_pregen
+from . import instruction_creator as ic
 
 global_ind = 'j'
 """str: The global initial condition index
@@ -1343,51 +1344,26 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
                              rop_net_str=rop_strs['fwd'])
 
         # reverse update
-        if namestore.rop_rev is not None:
-            rev_update_instructions = Template(
+        rev_update_instructions = ic.get_update_instruction(
+            __get_map('rev'), namestore.rop_rev,
+            Template(
                 """
-            net_rate = net_rate - ${rop_rev_str} {id=rate_update_rev, dep=rate_update}
+            net_rate = net_rate - ${rop_rev_str} \
+                {id=rate_update_rev, dep=rate_update}
             """).safe_substitute(
-                rop_rev_str=rop_rev_str)
-
-            # If there is a mask, we need to encase this in an if statement
-            mask = __get_map('rev').domain_to_nodes[namestore.rop_rev]
-            mask = mask if mask.parent in __get_map('rev').transformed_domains\
-                else None
-            if mask:
-                rev_update_instructions = Template(
-                    """
-            if ${rev_mask} >= 0
-                ${cur_inst}
-            end
-            """).safe_substitute(cur_inst=rev_update_instructions,
-                                 rev_mask=mask.iname)
-        else:
-            rev_update_instructions = ''
+                rop_rev_str=rop_rev_str))
 
         # pmod update
-        if namestore.pres_mod is not None:
-            pmod_update_instructions = Template(
+        pmod_update_instructions = ic.get_update_instruction(
+            __get_map('pres_mod'), namestore.pres_mod,
+            Template(
                 """
-        net_rate = net_rate * ${pres_mod_str} {id=rate_update_pmod, dep=rate_update${rev_dep}}
-        """).safe_substitute(
+            net_rate = net_rate * ${pres_mod_str} \
+                {id=rate_update_pmod, dep=rate_update${rev_dep}}
+            """).safe_substitute(
                 rev_dep=':rate_update_rev' if namestore.rop_rev is not None
                     else '',
-                pres_mod_str=pres_mod_str)
-            mask = __get_map('pres_mod').domain_to_nodes[namestore.pres_mod]
-            mask = mask if mask.parent in \
-                __get_map('pres_mod').transformed_domains else None
-            if mask:
-                # num pmod != num rxns
-                pmod_update_instructions = Template(
-                    """
-            if ${pres_mask} >= 0
-                ${cur_inst}
-            end
-            """).safe_substitute(cur_inst=pmod_update_instructions,
-                                 pres_mask=mask.iname)
-        else:
-            pmod_update_instructions = ''
+                pres_mod_str=pres_mod_str))
 
         instructions = Template(instructions).safe_substitute(
             rev_update=rev_update_instructions,
