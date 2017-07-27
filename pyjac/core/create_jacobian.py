@@ -24,6 +24,7 @@ from . import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .reaction_types import reaction_type, falloff_form, thd_body_type
 from . import chem_model as chem
+from . import instruction_creator as ic
 
 # external packages
 
@@ -49,6 +50,571 @@ default_inds = (global_ind, var_name)
 This is the string indicies for the main loops for generated kernels in
 :module:`rate_subs`
 """
+
+
+def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
+              do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
+              maxT=None, conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of progress (for all reaction types)
+    with respect to the extra variable -- Volume / Pressure, depending on
+    constant pressure / volume accordingly
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    do_ns : bool [False]
+        If True, generate kernel to handle derivatives of the last species'
+        concentration w.r.t. temperature
+    rxn_type : [reaction_type.thd, reaction_type.plog, reaction_type.cheb]
+        The type of reaction to generate fore
+    maxP: int [None]
+        The maximum number of pressure interpolations of any reaction in
+        the mechanism.
+        - For PLOG - the maximum number of pressure interpolations of any
+        reaction in the mechanism.
+        - For CHEB - The maximum degree of temperature polynomials for
+        chebyshev reactions in this mechanism
+    maxT : int [None]
+        The maximum degree of temperature polynomials for chebyshev reactions
+        in this mechanism
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    # indicies
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    # check rxn type
+    if rxn_type in [reaction_type.plog, reaction_type.cheb] and do_ns:
+        return None  # this is handled by do_ns w / elementary
+    elif rxn_type == reaction_type.plog:
+        assert maxP, ('The maximum # of pressure interpolations must be'
+                      ' supplied')
+    elif rxn_type == reaction_type.cheb:
+        assert maxP, ('The maximum chebyshev pressure polynomial degree must '
+                      ' be supplied')
+        assert maxT, ('The maximum chebyshev temperature polynomial degree '
+                      ' must be supplied')
+
+    num_range_dict = {reaction_type.elementary: namestore.num_simple,
+                      reaction_type.plog: namestore.num_plog,
+                      reaction_type.cheb: namestore.num_cheb}
+    # get num
+    num_range = num_range_dict[rxn_type] if not do_ns else\
+        namestore.num_rxn_has_ns
+
+    # return an empty kernel if it doesn't apply
+    if num_range is None or not num_range.initializer.size:
+        return None
+
+    # number of species
+    ns = namestore.num_specs.initializer[-1]
+
+    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+
+    rxn_range_dict = {reaction_type.elementary: namestore.simple_map,
+                      reaction_type.plog: namestore.plog_map,
+                      reaction_type.cheb: namestore.cheb_map}
+
+    # add map
+    rxn_range = rxn_range_dict[rxn_type] if not do_ns else\
+        namestore.rxn_has_ns
+    mapstore.check_and_add_transform(rxn_range, num_range)
+
+    # rev mask depends on actual reaction index
+    mapstore.check_and_add_transform(namestore.rev_mask, rxn_range)
+    # thd_mask depends on actual reaction index
+    mapstore.check_and_add_transform(namestore.thd_mask, rxn_range)
+    # pres mod is on thd_mask
+    mapstore.check_and_add_transform(
+        namestore.pres_mod, namestore.thd_mask)
+    # nu's are on the actual rxn index
+    mapstore.check_and_add_transform(
+        namestore.rxn_to_spec_offsets, rxn_range)
+
+    # specific transforms
+    if not do_ns:
+        # fwd ROP is on actual rxn index
+        mapstore.check_and_add_transform(namestore.rop_fwd, rxn_range)
+        # rev ROP is on rev mask
+        mapstore.check_and_add_transform(namestore.rop_rev, namestore.rev_mask)
+    else:
+        # kf is on real index
+        mapstore.check_and_add_transform(namestore.kf, rxn_range)
+        # kr is on rev rxn index
+        mapstore.check_and_add_transform(namestore.kr, namestore.rev_mask)
+
+    # extra inames
+    net_ind = 'net_ind'
+    k_ind = 'k_ind'
+
+    # common variables
+    # temperature
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    # Volume
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
+    # pressure mod term
+    pres_mod_lp, pres_mod_str = mapstore.apply_maps(
+        namestore.pres_mod, *default_inds)
+    # nu offsets
+    nu_offset_lp, nu_offset_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name)
+    _, nu_offset_next_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name, affine=1)
+    # reac and prod nu for net
+    nu_lp, net_reac_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, net_ind, affine=net_ind)
+    _, net_prod_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, net_ind, affine=net_ind)
+    # get species
+    spec_lp, spec_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, net_ind)
+    _, spec_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, k_ind)
+    # and jac
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2})
+
+    # add to data
+    kernel_data.extend([T_lp, V_lp, pres_mod_lp, nu_offset_lp, nu_lp, spec_lp,
+                        jac_lp])
+
+    extra_inames = [
+        (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
+        (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
+    parameters = {}
+    pre_instructions = []
+    if not do_ns:
+        if not conp and \
+                rxn_type not in [reaction_type.plog, reaction_type.cheb]:
+            # the non-NS portion of these reactions is zero by definition
+            return None
+        # rop's & pres mod
+        rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
+            namestore.rop_fwd, *default_inds)
+        rop_rev_lp, rop_rev_str = mapstore.apply_maps(
+            namestore.rop_rev, *default_inds)
+
+        kernel_data.extend([rop_fwd_lp, rop_rev_lp])
+
+        if conp:
+            # handle updates for dRopi_dE's
+            rev_update = ic.get_update_instruction(
+                mapstore, namestore.rop_rev,
+                Template(
+                    'dRopi_dE = dRopi_dE + nu_rev * ${rop_rev_str} \
+                {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
+
+            deps = ':'.join(['dE_init'] + ['dE_update'] if rev_update else [])
+            pres_mod_update = ic.get_update_instruction(
+                mapstore, namestore.pres_mod,
+                Template(
+                    'dRopi_dE = dRopi_dE * ${pres_mod_str} \
+                {id=dE_update2, dep=${deps}}').safe_substitute(**locals()))
+
+            # handle constant pressure qi term
+            if conp:
+                conp_init = Template(
+                    '<> ropnet = ${rop_fwd_str} {id=qi1}').safe_substitute(
+                    **locals()) if conp else ''
+
+                conp_rev_update = ic.get_update_instruction(
+                    mapstore, namestore.rop_rev,
+                    Template(
+                        'ropnet = ropnet - ${rop_rev_str} \
+                    {id=qi2, dep=qi1}').safe_substitute(**locals()))
+
+                deps = ':'.join(['qi1'] + ['qi2'] if conp_rev_update else [])
+                conp_pmod_update = ic.get_update_instruction(
+                    mapstore, namestore.pres_mod,
+                    Template(
+                        'ropnet = ropnet * ${pres_mod_str} \
+                    {id=qi3, dep=${deps}}').safe_substitute(**locals()))
+
+                dRopE_deps = ':'.join(
+                    ['dE_init'] + ['dE_update*']
+                    if (rev_update or pres_mod_update)
+                    else [])
+                conp_final = Template(
+                    'dRopi_dE = dRopi_dE + ropnet \
+                    {id=dE_final, dep=${dRopE_deps}:qi*}').safe_substitute(
+                    **locals())
+            else:
+                conp_init = ''
+                conp_rev_update = ''
+                conp_pmod_update = ''
+                conp_final = ''
+
+            # all constant pressure cases are the same (Rop * sum of nu)
+            instructions = Template("""
+                <> nu_fwd = 0
+                <> nu_rev = 0
+                ${conp_init}
+                for ${net_ind}
+                    nu_fwd = nu_fwd + ${net_reac_nu_str} {id=nuf_up}
+                    nu_rev = nu_rev + ${net_prod_nu_str} {id=nur_up}
+                end
+                <> dRopi_dE = -nu_fwd * ${rop_fwd_str} {id=dE_init, dep=nu*}
+                ${rev_update}
+                ${conp_rev_update}
+                ${pres_mod_update}
+                ${conp_pmod_update}
+                ${conp_final}
+                """).safe_substitute(**locals())
+        else:
+            # conv
+            if rxn_type == reaction_type.plog:
+                # conp & plog
+                lo_ind = 'lo'
+                hi_ind = 'hi'
+                param_ind = 'p'
+                # create extra arrays
+                P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
+                # number of plog rates per rxn
+                plog_num_param_lp, plog_num_param_str = mapstore.apply_maps(
+                    namestore.plog_num_param, var_name)
+                # pressure ranges
+                plog_params_lp, pressure_mid_lo = mapstore.apply_maps(
+                    namestore.plog_params, 0, var_name, param_ind)
+                _, pressure_mid_hi = mapstore.apply_maps(
+                    namestore.plog_params, 0, var_name, param_ind,
+                    affine={param_ind: 1})
+                _, pres_lo_str = mapstore.apply_maps(
+                    namestore.plog_params, 0, var_name, lo_ind)
+                _, pres_hi_str = mapstore.apply_maps(
+                    namestore.plog_params, 0, var_name, hi_ind)
+                # arrhenius params
+                _, beta_lo_str = mapstore.apply_maps(
+                    namestore.plog_params, 2, var_name, lo_ind)
+                _, beta_hi_str = mapstore.apply_maps(
+                    namestore.plog_params, 2, var_name, hi_ind)
+                _, Ta_lo_str = mapstore.apply_maps(
+                    namestore.plog_params, 3, var_name, lo_ind)
+                _, Ta_hi_str = mapstore.apply_maps(
+                    namestore.plog_params, 3, var_name, hi_ind)
+                _, pressure_lo = mapstore.apply_maps(
+                    namestore.plog_params, 0, var_name, 0)
+                _, pressure_hi = mapstore.apply_maps(
+                    namestore.plog_params, 0, var_name, 'numP')
+                kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
+
+                # add plog instruction
+                pre_instructions.append(rate.default_pre_instructs(
+                    'logP', P_str, 'LOG'))
+
+                # and dkf instructions
+                dkf_instructions = Template("""
+                    <> lo = 0 {id=lo_init}
+                    <> hi = numP {id=hi_init}
+                    <> numP = ${plog_num_param_str} - 1
+                    for ${param_ind}
+                        if ${param_ind} <= numP and (logP > ${pressure_mid_lo}) and (logP <= ${pressure_mid_hi})
+                            lo = ${param_ind} {id=set_lo, dep=lo_init}
+                            hi = ${param_ind} + 1 {id=set_hi, dep=hi_init}
+                        end
+                    end
+                    if logP > ${pressure_hi} # out of range above
+                        <> dkf = (${beta_hi_str} + ${Ta_hi_str} * T_inv) * T_inv {id=dkf_init_hi, dep=set_*}
+                    else
+                        dkf = (${beta_lo_str} + ${Ta_lo_str} * T_inv) * T_inv {id=dkf_init_lo, dep=set_*}
+                    end
+                    if logP > ${pressure_lo} and logP <= ${pressure_hi}  # not out of range
+                        dkf = dkf + T_inv * (logP - ${pres_lo_str}) * (${beta_hi_str} - ${beta_lo_str} + (${Ta_hi_str} - ${Ta_lo_str}) * T_inv) / (${pres_hi_str} - ${pres_lo_str}) {id=dkf_final, dep=dkf_init*}
+                    end
+                """).safe_substitute(**locals())
+                extra_inames.append((
+                    param_ind, '0 <= {} < {}'.format(param_ind, maxP - 1)))
+            elif rxn_type == reaction_type.cheb:
+                # conp & cheb
+                # max degrees in mechanism
+                poly_max = int(max(maxP, maxT - 1))
+
+                # extra inames
+                pres_poly_ind = 'k'
+                temp_poly_ind = 'm'
+                poly_compute_ind = 'p'
+                lim_ind = 'dummy'
+                extra_inames.extend([
+                    (pres_poly_ind, '0 <= {} < {}'.format(
+                        pres_poly_ind, maxP)),
+                    (temp_poly_ind, '0 <= {} < {}'.format(
+                        temp_poly_ind, maxT - 1)),
+                    (poly_compute_ind, '2 <= {} < {}'.format(
+                        poly_compute_ind, poly_max))])
+
+                # create arrays
+
+                num_P_lp, num_P_str = mapstore.apply_maps(
+                    namestore.cheb_numP, var_name)
+                num_T_lp, num_T_str = mapstore.apply_maps(
+                    namestore.cheb_numT, var_name)
+                params_lp, params_str = mapstore.apply_maps(
+                    namestore.cheb_params, var_name, temp_poly_ind, pres_poly_ind,
+                    affine={temp_poly_ind: 1})
+                plim_lp, _ = mapstore.apply_maps(
+                    namestore.cheb_Plim, var_name, lim_ind)
+                tlim_lp, _ = mapstore.apply_maps(
+                    namestore.cheb_Tlim, var_name, lim_ind)
+
+                # workspace vars are based only on their polynomial indicies
+                pres_poly_lp, ppoly_str = mapstore.apply_maps(
+                    namestore.cheb_pres_poly, pres_poly_ind)
+                temp_poly_lp, tpoly_str = mapstore.apply_maps(
+                    namestore.cheb_temp_poly, temp_poly_ind)
+
+                # create temperature and pressure arrays
+                P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
+
+                kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp, P_lp,
+                                    tlim_lp, pres_poly_lp, temp_poly_lp])
+
+                # preinstructions
+                pre_instructions.extend(
+                    [rate.default_pre_instructs('logP', P_str, 'LOG')])
+
+                # various strings for preindexed limits, params, etc
+                _, Pmin_str = mapstore.apply_maps(
+                    namestore.cheb_Plim, var_name, '0')
+                _, Pmax_str = mapstore.apply_maps(
+                    namestore.cheb_Plim, var_name, '1')
+                _, Tmin_str = mapstore.apply_maps(
+                    namestore.cheb_Tlim, var_name, '0')
+                _, Tmax_str = mapstore.apply_maps(
+                    namestore.cheb_Tlim, var_name, '1')
+
+                # the various indexing for the pressure / temperature
+                # polynomials
+                _, ppoly0_str = mapstore.apply_maps(
+                    namestore.cheb_pres_poly, '0')
+                _, ppoly1_str = mapstore.apply_maps(
+                    namestore.cheb_pres_poly, '1')
+                _, ppolyp_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                    poly_compute_ind)
+                _, ppolypm1_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                      poly_compute_ind,
+                                                      affine=-1)
+                _, ppolypm2_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                      poly_compute_ind,
+                                                      affine=-2)
+                _, tpoly0_str = mapstore.apply_maps(
+                    namestore.cheb_temp_poly, '0')
+                _, tpoly1_str = mapstore.apply_maps(
+                    namestore.cheb_temp_poly, '1')
+                _, tpolyp_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                    poly_compute_ind)
+                _, tpolypm1_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                      poly_compute_ind,
+                                                      affine=-1)
+                _, tpolypm2_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                      poly_compute_ind,
+                                                      affine=-2)
+
+                dkf_instructions = Template("""
+                    <>numP = ${num_P_str} {id=plim}
+                    <>numT = ${num_T_str} - 1 {id=tlim}
+                    <> Tred = (2 * T_inv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
+                    <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / (${Pmax_str} - ${Pmin_str})
+                    ${ppoly0_str} = 1
+                    ${ppoly1_str} = Pred
+                    ${tpoly0_str} = 1
+                    ${tpoly1_str} = 2 * Tred
+
+                    # compute polynomial terms
+                    for p
+                        if p < numP
+                            ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} {id=ppoly, dep=plim}
+                        end
+                        if p < numT
+                            ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} {id=tpoly, dep=tlim}
+                        end
+                    end
+
+                    <> dkf = 0 {id=dkf_init}
+                    for m
+                        <>temp = 0
+                        for k
+                            temp = temp + ${ppoly_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+                        end
+                        dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
+                    end
+                    dkf = -dkf * 2 * logten * T_inv * T_inv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
+                """).safe_substitute(**locals())
+                parameters['logten'] = log(10)
+
+            rev_update = ic.get_update_instruction(
+                mapstore, namestore.rop_rev,
+                Template(
+                    'dRopi_dE = dRopi_dE - ${rop_rev_str} \
+                {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
+
+            # and put together instructions
+            instructions = Template("""
+            ${dkf_instructions}
+            <> dRopi_dE = ${rop_fwd_str} {id=dE_init}
+            ${rev_update}
+            dRopi_dE = dRopi_dE * dkf * ci * ${V_str} \
+                {id=dE_final, dep=dE_*:dkf*}
+            """).safe_substitute(**locals())
+    else:
+        # create kf / kr
+        kf_lp, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
+        kr_lp, kr_str = mapstore.apply_maps(namestore.kr, *default_inds)
+        P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
+        conc_lp, conc_str = mapstore.apply_maps(
+            namestore.conc_arr, global_ind, 'net_spec')
+
+        if conp:
+            pre_instructions.append(Template(
+                '<>fac = ${P_str} / (Ru * ${T_str})'
+            ).safe_substitute(**locals()))
+        else:
+            pre_instructions.append(Template(
+                '<>fac = ${V_str} / (Ru * ${T_str})'
+            ).safe_substitute(**locals()))
+
+        # create Ns nu's
+        _, ns_reac_nu_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_reac_nu, 'offset_next',
+            affine='offset_next - 2')
+        _, ns_prod_nu_str = mapstore.apply_maps(
+            namestore.rxn_to_spec_prod_nu, 'offset_next',
+            affine='offset_next - 2')
+
+        kernel_data.extend([kf_lp, kr_lp, P_lp, conc_lp])
+        parameters['Ru'] = chem.RU
+
+        rev_update = ic.get_update_instruction(
+            mapstore, namestore.kr,
+            Template(
+                'kr_i = ${kr_str} \
+                    {id=kr_up, dep=kr_in}').safe_substitute(**locals()))
+
+        pres_mod_update = ic.get_update_instruction(
+            mapstore, namestore.pres_mod,
+            Template('ci = ${pres_mod_str} \
+                    {id=ci, dep=ci_init}').safe_substitute(
+                **locals()))
+
+        instructions = Template("""
+        <> kr_i = 0 {id=kr_in}
+        ${rev_update}
+        <> ci = 1 {id=ci_init}
+        ${pres_mod_update}
+        <> Sns_fwd = ${ns_reac_nu_str} {id=Sns_fwd_init}
+        <> Sns_rev = ${ns_prod_nu_str} {id=Sns_rev_init}
+        for ${net_ind}
+            <> nu_fwd = ${net_reac_nu_str} {id=nuf_inner}
+            <> nu_rev = ${net_prod_nu_str} {id=nur_inner}
+            <> net_spec = ${spec_str}
+            # handle nu
+            if net_spec == ${ns}
+                nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+            end
+            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) \
+                {id=Sns_fwd_up, dep=nuf_inner_up}
+            if net_spec == ${ns}
+                nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+            end
+            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) \
+                {id=Sns_rev_up, dep=nur_inner_up}
+        end
+        <> dRopi_dE = (Sns_fwd * ${kf_str} - Sns_rev * kr_i) * ci \
+            * fac {id=dE_final, dep=Sns*}
+        """).substitute(**locals())
+
+    # get nuk's
+    _, reac_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, k_ind, affine=k_ind)
+    _, prod_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, k_ind, affine=k_ind)
+    instructions = Template("""
+        <> offset = ${nu_offset_str}
+        <> offset_next = ${nu_offset_next_str}
+        ${instructions}
+        for ${k_ind}
+            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) \
+                * dRopi_dE {dep=dE*}
+        end
+    """).substitute(**locals())
+
+    name_description = {reaction_type.elementary: '',
+                        reaction_type.plog: '_plog',
+                        reaction_type.cheb: '_cheb'}
+
+    return k_gen.knl_info(name='dRopi{}d{}{}'.format(
+        name_description[rxn_type],
+        'V' if conp else 'P',
+        '_ns' if do_ns else ''),
+        extra_inames=extra_inames,
+        instructions=instructions,
+        pre_instructions=pre_instructions,
+        var_name=var_name,
+        kernel_data=kernel_data,
+        mapstore=mapstore,
+        preambles=[lp_pregen.fastpowi_PreambleGen(),
+                   lp_pregen.fastpowf_PreambleGen()],
+        parameters=parameters
+    )
+
+
+def dRopidE(eqs, loopy_opts, namestore, test_size=None, conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of progress (for non-pressure dependent reaction
+    types) with respect to the extra variable -- volume/pressure for constant
+    volume / pressure respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dRopidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dRopidE(eqs, loopy_opts, namestore,
+                                  test_size=test_size, do_ns=False,
+                                  conp=conp),
+                        __dRopidE(eqs, loopy_opts, namestore,
+                                  test_size=test_size, do_ns=True,
+                                  conp=conp)]
+            if x is not None]
 
 
 def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
@@ -1296,19 +1862,19 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         # and put together instructions
         instructions = Template("""
         ${dkf_instructions}
-        <> dRopi_dT = ${rop_fwd_str} * dkf {id=init, dep=dkf*}
+        <> dRopidT = ${rop_fwd_str} * dkf {id=init, dep=dkf*}
         <> ci = 1 {id=ci_init}
         if ${rev_mask_str} >= 0
             <> dBk_sum = 0
             for ${net_ind}
                 dBk_sum = dBk_sum + (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} {id=up}
             end
-            dRopi_dT = dRopi_dT - ${rop_rev_str} * (dkf - dBk_sum) {id=rev, dep=init:up}
+            dRopidT = dRopidT - ${rop_rev_str} * (dkf - dBk_sum) {id=rev, dep=init:up}
         end
         if ${thd_mask_str} >= 0
             ci = ${pres_mod_str} {id=ci}
         end
-        dRopi_dT = dRopi_dT * ci * ${V_str} {id=Ropi_final, dep=rev:ci*}
+        dRopidT = dRopidT * ci * ${V_str} {id=Ropi_final, dep=rev:ci*}
         """).safe_substitute(**locals())
     else:
         # create kf / kr
@@ -1354,7 +1920,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             end
             Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) {id=Sns_rev_up, dep=nur_inner_up}
         end
-        <> dRopi_dT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) {id=Ropi_final, dep=Sns*}
+        <> dRopidT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) {id=Ropi_final, dep=Sns*}
         """).substitute(**locals())
 
     # get nuk's
@@ -1367,7 +1933,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
         for ${k_ind}
-            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopi_dT {dep=Ropi_final}
+            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT {dep=Ropi_final}
         end
     """).substitute(**locals())
 
@@ -1390,14 +1956,14 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     )
 
 
-def dRopi_dT(eqs, loopy_opts, namestore, test_size=None):
+def dRopidT(eqs, loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for non-pressure dependent reaction
     types) with respect to temperature
 
     Notes
     -----
-    See :meth:`pyjac.core.create_jacobian.__dRopi_dT`
+    See :meth:`pyjac.core.create_jacobian.__dRopidT`
 
     Parameters
     ----------
@@ -1439,7 +2005,7 @@ def dRopi_plog_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None):
 
     Notes
     -----
-    See :meth:`pyjac.core.create_jacobian.__dRopi_dT`
+    See :meth:`pyjac.core.create_jacobian.__dRopidT`
 
 
     Parameters
@@ -1483,7 +2049,7 @@ def dRopi_cheb_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None,
 
     Notes
     -----
-    See :meth:`pyjac.core.create_jacobian.__dRopi_dT`
+    See :meth:`pyjac.core.create_jacobian.__dRopidT`
 
 
     Parameters

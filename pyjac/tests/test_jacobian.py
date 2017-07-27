@@ -15,8 +15,8 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
-    dRopi_dT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE)
+    dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
+    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1377,22 +1377,27 @@ class SubTest(TestClass):
         __test_name('cv')
         __test_name('b')
 
-    def test_dRopidT(self, rxn_type=reaction_type.elementary):
+    def test_dRopidT(self, rxn_type=reaction_type.elementary,
+                     test_variable=False, conp=True):
         # test conp (form doesn't matter)
-        namestore, rate_info = self._make_namestore(True)
+        namestore, rate_info = self._make_namestore(conp)
         ad_opts = namestore.loopy_opts
 
         # setup arguements
         # create the editor
         edit = editor(
-            namestore.T_arr, namestore.n_dot, self.store.test_size,
+            namestore.T_arr if not test_variable else namestore.E_arr,
+            namestore.n_dot, self.store.test_size,
             order=ad_opts.order)
+
+        # get kf / kf_fall
+        kf, _ = self.__get_kf_and_fall()
+        # and kr
+        kr = self.__get_kr(kf)
 
         args = {
             'pres_mod': lambda x: np.array(
                 self.store.ref_pres_mod, order=x, copy=True),
-            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
-            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
             'conc': lambda x: np.zeros_like(self.store.concs, order=x),
             'wdot': lambda x: np.zeros_like(self.store.species_rates, order=x),
             'rop_fwd': lambda x: np.zeros_like(
@@ -1401,20 +1406,41 @@ class SubTest(TestClass):
                 self.store.rev_rxn_rate, order=x),
             'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'kf': lambda x: np.zeros_like(
-                self.store.fwd_rate_constants, order=x),
-            'kr': lambda x: np.zeros_like(
-                self.store.rev_rate_constants, order=x),
-            'kf_fall': lambda x: np.zeros_like(
-                self.store.ref_Pr, order=x),
-            'b': lambda x: np.zeros_like(
-                self.store.ref_B_rev, order=x),
-            'Kc': lambda x: np.zeros_like(
-                self.store.equilibrium_constants, order=x)
         }
 
+        if test_variable:
+            args.update({
+                'kf': lambda x: np.array(kf, order=x, copy=True),
+                'kr': lambda x: np.array(kr, order=x, copy=True)
+            })
+
+        else:
+            args.update({
+                'kf': lambda x: np.zeros_like(kf, order=x),
+                'kr': lambda x: np.zeros_like(kr, order=x),
+                'b': lambda x: np.zeros_like(
+                    self.store.ref_B_rev, order=x),
+                'Kc': lambda x: np.zeros_like(
+                    self.store.equilibrium_constants, order=x),
+                'kf_fall': lambda x: np.zeros_like(
+                    self.store.ref_Pr, order=x)
+            })
+
+        if conp:
+            args.update({
+                'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cp, order=x, copy=True),
+            })
+        else:
+            args.update({
+                'V_arr': lambda x: np.array(self.store.V, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cv, order=x, copy=True),
+            })
+
         # obtain the finite difference jacobian
-        kc = kernel_call('dRopi_dT', [None], **args)
+        kc = kernel_call('dRopidT', [None], **args)
 
         allint = {'net': rate_info['net']['allint']}
         rate_sub = get_simple_arrhenius_rates
@@ -1422,22 +1448,18 @@ class SubTest(TestClass):
             rate_sub = self.__get_plog_call_wrapper(rate_info)
         elif rxn_type == reaction_type.cheb:
             rate_sub = self.__get_cheb_call_wrapper(rate_info)
+
         fd_jac = self._get_jacobian(
-            get_molar_rates, kc, edit, ad_opts, True,
-            extra_funcs=[get_concentrations, rate_sub,
-                         self.__get_poly_wrapper('b', True),
-                         get_rev_rates, get_rop,
-                         get_rop_net, get_spec_rates],
+            get_molar_rates, kc, edit, ad_opts, conp,
+            extra_funcs=[get_concentrations] + ([
+                rate_sub, self.__get_poly_wrapper('b', conp),
+                get_rev_rates]
+                if not test_variable else []) +
+            [get_rop, get_rop_net, get_spec_rates],
             allint=allint)
 
         # get our form of rop_fwd / rop_rev
         fwd_removed, rev_removed = self.__get_removed()
-        # get kf / kf_fall
-        kf, _ = self.__get_kf_and_fall()
-        # and kr
-        kr = self.__get_kr(kf)
-        # and finally dBk/dT
-        dBkdT = self.__get_db()
 
         # setup args
         args = {
@@ -1446,17 +1468,33 @@ class SubTest(TestClass):
             'pres_mod': lambda x: np.array(
                 self.store.ref_pres_mod, order=x, copy=True),
             'kf': lambda x: np.array(kf, order=x, copy=True),
-            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
-            'db': lambda x: np.array(dBkdT, order=x, copy=True),
             'kr': lambda x: np.array(kr, order=x, copy=True),
-            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
             'conc': lambda x: np.array(self.store.concs, order=x, copy=True)
         }
 
+        if conp:
+            args.update({
+                'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cp, order=x, copy=True),
+            })
+        else:
+            args.update({
+                'V_arr': lambda x: np.array(self.store.V, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cv, order=x, copy=True),
+            })
+
+        if not test_variable:
+            # and finally dBk/dT
+            dBkdT = self.__get_db()
+            args['db'] = lambda x: np.array(dBkdT, order=x, copy=True)
+
         def _chainer(self, out_vals):
-            self.kernel_args['jac'] = out_vals[-1][0].copy(
-                order=self.current_order)
+            if out_vals[-1][0] is not None:
+                self.kernel_args['jac'] = out_vals[-1][0].copy(
+                    order=self.current_order)
 
         def include(rxn):
             if rxn_type == reaction_type.plog:
@@ -1466,9 +1504,18 @@ class SubTest(TestClass):
             else:
                 return not (isinstance(rxn, ct.PlogReaction)
                             or isinstance(rxn, ct.ChebyshevReaction))
+
+        # set variable name and check index
+        var_name = 'T'
+        diff_index = 0
+        if test_variable:
+            var_name = 'V' if conp else 'P'
+            diff_index = 1
+
+        # get descriptor
         name_desc = ''
-        other_args = {}
-        tester = dRopi_dT
+        other_args = {'conp': conp}
+        tester = dRopidT if not test_variable else dRopidE
         if rxn_type == reaction_type.plog:
             name_desc = '_plog'
             tester = dRopi_plog_dT
@@ -1479,20 +1526,49 @@ class SubTest(TestClass):
             other_args['maxP'] = np.max(rate_info['cheb']['num_P'])
             other_args['maxT'] = np.max(rate_info['cheb']['num_T'])
 
+        test_conditions = np.ones((self.store.test_size,))
+        if test_variable:
+            # find states where the last species conc should be zero, as this
+            # can cause some problems in the FD Jac
+            test_conditions = self.store.concs[:, -1] != 0
+
+        rtol = 5e-4
+
+        def _small_compare(our_vals, ref_vals, mask):
+            cond, x, y = mask
+            cond = np.where(np.logical_not(cond))[0]
+
+            # find where there isn't a match
+            outv = our_vals[cond, x, y]
+            refv = ref_vals[cond, x, y]
+            check = np.where(
+                np.logical_not(np.isclose(outv, refv, rtol=rtol)))[0]
+
+            correct = True
+            if check.size:
+                # check that our values are zero (which is correct)
+                correct = np.all(outv[check] == 0)
+
+                # and that the reference values are "small"
+                correct &= np.all(np.abs(refv[check]) <= 1e-7)
+
+            return correct
+
         test = self.__get_check(include)
 
         # and get mask
-        kc = [kernel_call('dRopi{}_dT'.format(name_desc),
+        kc = [kernel_call('dRopi{}d{}'.format(name_desc, var_name),
                           [fd_jac], check=False,
-                          strict_name_match=True, **args),
-              kernel_call('dRopi{}_dT_ns'.format(name_desc),
+                          strict_name_match=True,
+                          allow_skip=test_variable, **args),
+              kernel_call('dRopi{}d{}_ns'.format(name_desc, var_name),
                           [fd_jac], compare_mask=[(
-                              test,
-                              0)],
-                          compare_axis=(1, 2), chain=_chainer,
+                            test_conditions, test, diff_index)],
+                          compare_axis=(0, 1, 2), chain=_chainer,
                           strict_name_match=True,
                           allow_skip=True,
-                          rtol=5e-4,
+                          rtol=rtol,
+                          other_compare=_small_compare,
                           **args)]
 
         return self._generic_jac_tester(tester, kc, **other_args)
@@ -1502,6 +1578,10 @@ class SubTest(TestClass):
 
     def test_dRopi_cheb_dT(self):
         self.test_dRopidT(reaction_type.cheb)
+
+    def test_dRopi_dE(self):
+        self.test_dRopidT(reaction_type.elementary, True, conp=True)
+        self.test_dRopidT(reaction_type.elementary, True, conp=False)
 
     def __get_non_ad_params(self, conp):
         reacs = self.store.reacs
