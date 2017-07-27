@@ -303,6 +303,10 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 _, pres_hi_str = mapstore.apply_maps(
                     namestore.plog_params, 0, var_name, hi_ind)
                 # arrhenius params
+                _, A_lo_str = mapstore.apply_maps(
+                    namestore.plog_params, 1, var_name, lo_ind)
+                _, A_hi_str = mapstore.apply_maps(
+                    namestore.plog_params, 1, var_name, hi_ind)
                 _, beta_lo_str = mapstore.apply_maps(
                     namestore.plog_params, 2, var_name, lo_ind)
                 _, beta_hi_str = mapstore.apply_maps(
@@ -318,8 +322,9 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
                 # add plog instruction
-                pre_instructions.append(rate.default_pre_instructs(
-                    'logP', P_str, 'LOG'))
+                pre_instructions.extend([rate.default_pre_instructs(
+                    'logT', T_str, 'LOG'), rate.default_pre_instructs(
+                    'Tinv', T_str, 'INV')])
 
                 # and dkf instructions
                 dkf_instructions = Template("""
@@ -327,18 +332,21 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     <> hi = numP {id=hi_init}
                     <> numP = ${plog_num_param_str} - 1
                     for ${param_ind}
-                        if ${param_ind} <= numP and (logP > ${pressure_mid_lo}) and (logP <= ${pressure_mid_hi})
+                        if ${param_ind} <= numP and \
+                                (logP > ${pressure_mid_lo}) and \
+                                (logP <= ${pressure_mid_hi})
                             lo = ${param_ind} {id=set_lo, dep=lo_init}
                             hi = ${param_ind} + 1 {id=set_hi, dep=hi_init}
                         end
                     end
-                    if logP > ${pressure_hi} # out of range above
-                        <> dkf = (${beta_hi_str} + ${Ta_hi_str} * T_inv) * T_inv {id=dkf_init_hi, dep=set_*}
-                    else
-                        dkf = (${beta_lo_str} + ${Ta_lo_str} * T_inv) * T_inv {id=dkf_init_lo, dep=set_*}
-                    end
-                    if logP > ${pressure_lo} and logP <= ${pressure_hi}  # not out of range
-                        dkf = dkf + T_inv * (logP - ${pres_lo_str}) * (${beta_hi_str} - ${beta_lo_str} + (${Ta_hi_str} - ${Ta_lo_str}) * T_inv) / (${pres_hi_str} - ${pres_lo_str}) {id=dkf_final, dep=dkf_init*}
+                    <> dkf = 0 {id=dkf_init}
+                    # not out of range
+                    if logP > ${pressure_lo} and logP <= ${pressure_hi}
+                        dkf = (${A_hi_str} - ${A_lo_str} + \
+                            logT * (${beta_hi_str} - ${beta_lo_str}) - \
+                            (${Ta_hi_str} - ${Ta_lo_str}) * Tinv) / \
+                            (${P_str} * (${pres_hi_str} - ${pres_lo_str})) \
+                            {id=dkf_final, dep=dkf_init:set_*}
                     end
                 """).safe_substitute(**locals())
                 extra_inames.append((
@@ -431,7 +439,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 dkf_instructions = Template("""
                     <>numP = ${num_P_str} {id=plim}
                     <>numT = ${num_T_str} - 1 {id=tlim}
-                    <> Tred = (2 * T_inv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
+                    <> Tred = (2 * Tinv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
                     <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / (${Pmax_str} - ${Pmin_str})
                     ${ppoly0_str} = 1
                     ${ppoly1_str} = Pred
@@ -456,7 +464,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                         end
                         dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
                     end
-                    dkf = -dkf * 2 * logten * T_inv * T_inv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
+                    dkf = -dkf * 2 * logten * Tinv * Tinv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
                 """).safe_substitute(**locals())
                 parameters['logten'] = log(10)
 
@@ -466,13 +474,15 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     'dRopi_dE = dRopi_dE - ${rop_rev_str} \
                 {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
 
+            rev_dep = 'dE_update:' if rev_update else ''
+
             # and put together instructions
             instructions = Template("""
             ${dkf_instructions}
             <> dRopi_dE = ${rop_fwd_str} {id=dE_init}
             ${rev_update}
-            dRopi_dE = dRopi_dE * dkf * ci * ${V_str} \
-                {id=dE_final, dep=dE_*:dkf*}
+            dRopi_dE = dRopi_dE * dkf * ${V_str} \
+                {id=dE_final, dep=${rev_dep}dkf_*}
             """).safe_substitute(**locals())
     else:
         # create kf / kr
@@ -614,6 +624,53 @@ def dRopidE(eqs, loopy_opts, namestore, test_size=None, conp=True):
                         __dRopidE(eqs, loopy_opts, namestore,
                                   test_size=test_size, do_ns=True,
                                   conp=conp)]
+            if x is not None]
+
+
+def dRopi_plog_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
+                  maxP=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of progress (for PLOG reactions)
+    with respect to the extra variable -- volume/pressure for constant
+    volume / pressure respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dRopidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+    maxP: int [None]
+        The maximum number of pressure interpolations of any reaction in
+        the mechanism.
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dRopidE(eqs, loopy_opts, namestore,
+                                  test_size=test_size, do_ns=False,
+                                  rxn_type=reaction_type.plog, conp=conp,
+                                  maxP=maxP),
+                        __dRopidE(eqs, loopy_opts, namestore,
+                                  test_size=test_size, do_ns=True,
+                                  rxn_type=reaction_type.plog, conp=conp,
+                                  maxP=maxP)]
             if x is not None]
 
 
@@ -1235,7 +1292,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                         nu_offset_lp, nu_lp, spec_lp, rop_net_lp, jac_lp,
                         T_lp, V_lp, P_lp])
 
-    pre_instructions = [rate.default_pre_instructs('T_inv', T_str, 'INV')]
+    pre_instructions = [rate.default_pre_instructs('Tinv', T_str, 'INV')]
     parameters = {}
     manglers = []
     # by default we are using the third body factors (these may be changed
@@ -1295,7 +1352,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                 <> T3inv = -1 / ${troe_T3_str}
                 <> dFcent = ${troe_a_str} * T1inv * exp(Tval * T1inv) + \
                 (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + \
-                ${troe_T2_str} * T_inv * T_inv * exp(-${troe_T2_str} * T_inv)
+                ${troe_T2_str} * Tinv * Tinv * exp(-${troe_T2_str} * Tinv)
                 <> logFcent = log(${Fcent_str})
                 <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=ab_init}
                 <> absqsq = absq * absq {id=ab_fin}
@@ -1323,12 +1380,12 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             dFi_instructions = Template("""
                 <> cinv = 1 / ${c_str}
                 <> dFi = -${X_str} * (\
-                exp(-Tval * cinv) * cinv - ${a_str} * ${b_str} * T_inv * \
-                T_inv * exp(-${b_str} * T_inv)) / \
-                (${a_str} * exp(-${b_str} * T_inv) + exp(-Tval * cinv)) \
-                + ${e_str} * T_inv - \
+                exp(-Tval * cinv) * cinv - ${a_str} * ${b_str} * Tinv * \
+                Tinv * exp(-${b_str} * Tinv)) / \
+                (${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) \
+                + ${e_str} * Tinv - \
                 2 * ${X_str} * ${X_str} * \
-                log(${a_str} * exp(-${b_str} * T_inv) + exp(-Tval * cinv)) * \
+                log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) * \
                 (${Pr_str} * theta_Pr + theta_no_Pr) * \
                 log(fmax(${Pr_str}, 1e-300d)) / \
                 (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
@@ -1356,7 +1413,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             Ta_inf = ${s_Ta_str} {id=Taf_fall}
         end
         <> pmod = ${pres_mod_str}
-        <> theta_Pr = T_inv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * T_inv) {id=theta_Pr, dep=beta*:kf*:Ta*}
+        <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) {id=theta_Pr, dep=beta*:kf*:Ta*}
         <> theta_no_Pr = dci_thd_dT * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
         ${dFi_instructions}
         <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / (${Pr_str} + 1) + dFi) {id=dfall_init}
@@ -1378,7 +1435,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     if ${thd_type_str} == ${spec}
         mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
     end
-    <> dci_thd_dT = -${P_str} * mod * Ru_inv * T_inv * T_inv${thd_fac} {dep=mod*}
+    <> dci_thd_dT = -${P_str} * mod * Ru_inv * Tinv * Tinv${thd_fac} {dep=mod*}
     ${fall_instructions}
     <> offset = ${offset_str}
     <> offset_next = ${offset_next_str}
@@ -1684,7 +1741,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             beta_lp, Ta_lp, rop_fwd_lp, rop_rev_lp, dB_lp])
 
         pre_instructions = [rate.default_pre_instructs(
-            'T_inv', T_str, 'INV')]
+            'Tinv', T_str, 'INV')]
         if rxn_type == reaction_type.plog:
             lo_ind = 'lo'
             hi_ind = 'hi'
@@ -1735,12 +1792,12 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                     end
                 end
                 if logP > ${pressure_hi} # out of range above
-                    <> dkf = (${beta_hi_str} + ${Ta_hi_str} * T_inv) * T_inv {id=dkf_init_hi, dep=set_*}
+                    <> dkf = (${beta_hi_str} + ${Ta_hi_str} * Tinv) * Tinv {id=dkf_init_hi, dep=set_*}
                 else
-                    dkf = (${beta_lo_str} + ${Ta_lo_str} * T_inv) * T_inv {id=dkf_init_lo, dep=set_*}
+                    dkf = (${beta_lo_str} + ${Ta_lo_str} * Tinv) * Tinv {id=dkf_init_lo, dep=set_*}
                 end
                 if logP > ${pressure_lo} and logP <= ${pressure_hi}  # not out of range
-                    dkf = dkf + T_inv * (logP - ${pres_lo_str}) * (${beta_hi_str} - ${beta_lo_str} + (${Ta_hi_str} - ${Ta_lo_str}) * T_inv) / (${pres_hi_str} - ${pres_lo_str}) {id=dkf_final, dep=dkf_init*}
+                    dkf = dkf + Tinv * (logP - ${pres_lo_str}) * (${beta_hi_str} - ${beta_lo_str} + (${Ta_hi_str} - ${Ta_lo_str}) * Tinv) / (${pres_hi_str} - ${pres_lo_str}) {id=dkf_final, dep=dkf_init*}
                 end
             """).safe_substitute(**locals())
             extra_inames.append((
@@ -1826,7 +1883,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             dkf_instructions = Template("""
                 <>numP = ${num_P_str} {id=plim}
                 <>numT = ${num_T_str} - 1 {id=tlim}
-                <> Tred = (2 * T_inv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
+                <> Tred = (2 * Tinv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
                 <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / (${Pmax_str} - ${Pmin_str})
                 ${ppoly0_str} = 1
                 ${ppoly1_str} = Pred
@@ -1851,12 +1908,12 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                     end
                     dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
                 end
-                dkf = -dkf * 2 * logten * T_inv * T_inv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
+                dkf = -dkf * 2 * logten * Tinv * Tinv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
         else:
             dkf_instructions = Template(
-                '<> dkf = (${beta_str} + ${Ta_str} * T_inv) * T_inv {id=dkf}'
+                '<> dkf = (${beta_str} + ${Ta_str} * Tinv) * Tinv {id=dkf}'
             ).safe_substitute(**locals())
 
         # and put together instructions
