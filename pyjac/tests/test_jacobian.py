@@ -1583,8 +1583,6 @@ class SubTest(TestClass):
 
     def test_dRopi_plog_dE(self):
         self.test_dRopidT(reaction_type.plog, True, conp=True)
-        import pdb
-        pdb.set_trace()
         self.test_dRopidT(reaction_type.plog, True, conp=False)
 
     def __get_non_ad_params(self, conp):

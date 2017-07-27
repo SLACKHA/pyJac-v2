@@ -323,6 +323,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
 
                 # add plog instruction
                 pre_instructions.extend([rate.default_pre_instructs(
+                    'logP', P_str, 'LOG'), rate.default_pre_instructs(
                     'logT', T_str, 'LOG'), rate.default_pre_instructs(
                     'Tinv', T_str, 'INV')])
 
