@@ -16,7 +16,7 @@ from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE)
+    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1406,6 +1406,10 @@ class SubTest(TestClass):
                 self.store.rev_rxn_rate, order=x),
             'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
+            'b': lambda x: np.zeros_like(
+                    self.store.ref_B_rev, order=x),
+            'Kc': lambda x: np.zeros_like(
+                self.store.equilibrium_constants, order=x),
         }
 
         if test_variable:
@@ -1418,10 +1422,6 @@ class SubTest(TestClass):
             args.update({
                 'kf': lambda x: np.zeros_like(kf, order=x),
                 'kr': lambda x: np.zeros_like(kr, order=x),
-                'b': lambda x: np.zeros_like(
-                    self.store.ref_B_rev, order=x),
-                'Kc': lambda x: np.zeros_like(
-                    self.store.equilibrium_constants, order=x),
                 'kf_fall': lambda x: np.zeros_like(
                     self.store.ref_Pr, order=x)
             })
@@ -1451,11 +1451,9 @@ class SubTest(TestClass):
 
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, conp,
-            extra_funcs=[get_concentrations] + ([
-                rate_sub, self.__get_poly_wrapper('b', conp),
-                get_rev_rates]
-                if not test_variable else []) +
-            [get_rop, get_rop_net, get_spec_rates],
+            extra_funcs=[get_concentrations, rate_sub,
+                         self.__get_poly_wrapper('b', conp),
+                         get_rev_rates, get_rop, get_rop_net, get_spec_rates],
             allint=allint)
 
         # get our form of rop_fwd / rop_rev
@@ -1518,7 +1516,7 @@ class SubTest(TestClass):
         tester = dRopidT if not test_variable else dRopidE
         if rxn_type == reaction_type.plog:
             name_desc = '_plog'
-            tester = dRopi_plog_dT
+            tester = dRopi_plog_dT if not test_variable else dRopi_plog_dE
             other_args['maxP'] = rate_info['plog']['max_P']
         elif rxn_type == reaction_type.cheb:
             name_desc = '_cheb'
@@ -1563,7 +1561,7 @@ class SubTest(TestClass):
                           allow_skip=test_variable, **args),
               kernel_call('dRopi{}d{}_ns'.format(name_desc, var_name),
                           [fd_jac], compare_mask=[(
-                            test_conditions, test, diff_index)],
+                              test_conditions, test, diff_index)],
                           compare_axis=(0, 1, 2), chain=_chainer,
                           strict_name_match=True,
                           allow_skip=True,
@@ -1582,6 +1580,12 @@ class SubTest(TestClass):
     def test_dRopi_dE(self):
         self.test_dRopidT(reaction_type.elementary, True, conp=True)
         self.test_dRopidT(reaction_type.elementary, True, conp=False)
+
+    def test_dRopi_plog_dE(self):
+        self.test_dRopidT(reaction_type.plog, True, conp=True)
+        import pdb
+        pdb.set_trace()
+        self.test_dRopidT(reaction_type.plog, True, conp=False)
 
     def __get_non_ad_params(self, conp):
         reacs = self.store.reacs
