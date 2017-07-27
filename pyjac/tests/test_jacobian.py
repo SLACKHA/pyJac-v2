@@ -16,7 +16,8 @@ from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE)
+    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
+    dRopi_cheb_dE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1520,7 +1521,7 @@ class SubTest(TestClass):
             other_args['maxP'] = rate_info['plog']['max_P']
         elif rxn_type == reaction_type.cheb:
             name_desc = '_cheb'
-            tester = dRopi_cheb_dT
+            tester = dRopi_cheb_dT if not test_variable else dRopi_cheb_dE
             other_args['maxP'] = np.max(rate_info['cheb']['num_P'])
             other_args['maxT'] = np.max(rate_info['cheb']['num_T'])
 
@@ -1584,6 +1585,10 @@ class SubTest(TestClass):
     def test_dRopi_plog_dE(self):
         self.test_dRopidT(reaction_type.plog, True, conp=True)
         self.test_dRopidT(reaction_type.plog, True, conp=False)
+
+    def test_dRopi_cheb_dE(self):
+        self.test_dRopidT(reaction_type.cheb, True, conp=True)
+        self.test_dRopidT(reaction_type.cheb, True, conp=False)
 
     def __get_non_ad_params(self, conp):
         reacs = self.store.reacs
