@@ -43,19 +43,23 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
 
         mapstore.finalize()
 
+    # empty mask
     if not mask_arr:
         return ''
 
+    # ensure mask array in domains
     assert mask_arr in mapstore.domain_to_nodes, (
         'Cannot create update instruction - mask array '
         ' {} not in mapstore domains'.format(
             mask_arr.name))
 
+    # check to see if there are any empty mask entries
     mask = mapstore.domain_to_nodes[mask_arr]
     mask = mask if mask.parent in mapstore.transformed_domains \
         else None
     if mask:
         mask_iname = mask.iname
+        # if so, return a guarded update insn
         return Template(
             """
     if ${mask_iname} >= 0
@@ -63,4 +67,5 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
     end
     """).safe_substitute(**locals())
 
+    # else return the base update insn
     return base_update_insn

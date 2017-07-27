@@ -225,44 +225,42 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
 
             deps = ':'.join(['dE_init'] + ['dE_update'] if rev_update else [])
-            pres_mod_update = ic.get_update_instruction(
-                mapstore, namestore.pres_mod,
-                Template(
-                    'dRopi_dE = dRopi_dE * ${pres_mod_str} \
-                {id=dE_update2, dep=${deps}}').safe_substitute(**locals()))
+            pres_mod_update = ''
+            if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
+                pres_mod_update = ic.get_update_instruction(
+                    mapstore, namestore.pres_mod,
+                    Template(
+                        'dRopi_dE = dRopi_dE * ${pres_mod_str} \
+                    {id=dE_update2, dep=${deps}}').safe_substitute(**locals()))
 
             # handle constant pressure qi term
-            if conp:
-                conp_init = Template(
-                    '<> ropnet = ${rop_fwd_str} {id=qi1}').safe_substitute(
-                    **locals()) if conp else ''
+            conp_init = Template(
+                '<> ropnet = ${rop_fwd_str} {id=qi1}').safe_substitute(
+                **locals()) if conp else ''
 
-                conp_rev_update = ic.get_update_instruction(
-                    mapstore, namestore.rop_rev,
-                    Template(
-                        'ropnet = ropnet - ${rop_rev_str} \
-                    {id=qi2, dep=qi1}').safe_substitute(**locals()))
+            conp_rev_update = ic.get_update_instruction(
+                mapstore, namestore.rop_rev,
+                Template(
+                    'ropnet = ropnet - ${rop_rev_str} \
+                {id=qi2, dep=qi1}').safe_substitute(**locals()))
 
-                deps = ':'.join(['qi1'] + ['qi2'] if conp_rev_update else [])
+            deps = ':'.join(['qi1'] + ['qi2'] if conp_rev_update else [])
+            conp_pmod_update = ''
+            if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
                 conp_pmod_update = ic.get_update_instruction(
                     mapstore, namestore.pres_mod,
                     Template(
                         'ropnet = ropnet * ${pres_mod_str} \
                     {id=qi3, dep=${deps}}').safe_substitute(**locals()))
 
-                dRopE_deps = ':'.join(
-                    ['dE_init'] + ['dE_update*']
-                    if (rev_update or pres_mod_update)
-                    else [])
-                conp_final = Template(
-                    'dRopi_dE = dRopi_dE + ropnet \
-                    {id=dE_final, dep=${dRopE_deps}:qi*}').safe_substitute(
-                    **locals())
-            else:
-                conp_init = ''
-                conp_rev_update = ''
-                conp_pmod_update = ''
-                conp_final = ''
+            dRopE_deps = ':'.join(
+                ['dE_init'] + ['dE_update*']
+                if (rev_update or pres_mod_update)
+                else [])
+            conp_final = Template(
+                'dRopi_dE = dRopi_dE + ropnet \
+                {id=dE_final, dep=${dRopE_deps}:qi*}').safe_substitute(
+                **locals())
 
             # all constant pressure cases are the same (Rop * sum of nu)
             instructions = Template("""
@@ -355,18 +353,20 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
             elif rxn_type == reaction_type.cheb:
                 # conp & cheb
                 # max degrees in mechanism
-                poly_max = int(max(maxP, maxT - 1))
+                # derivative by P decreases pressure poly degree by 1
+                poly_max = int(max(maxP - 1, maxT))
 
                 # extra inames
                 pres_poly_ind = 'k'
                 temp_poly_ind = 'm'
                 poly_compute_ind = 'p'
                 lim_ind = 'dummy'
+                # derivative by P decreases pressure poly degree by 1
                 extra_inames.extend([
                     (pres_poly_ind, '0 <= {} < {}'.format(
-                        pres_poly_ind, maxP)),
+                        pres_poly_ind, maxP - 1)),
                     (temp_poly_ind, '0 <= {} < {}'.format(
-                        temp_poly_ind, maxT - 1)),
+                        temp_poly_ind, maxT)),
                     (poly_compute_ind, '2 <= {} < {}'.format(
                         poly_compute_ind, poly_max))])
 
@@ -376,9 +376,12 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     namestore.cheb_numP, var_name)
                 num_T_lp, num_T_str = mapstore.apply_maps(
                     namestore.cheb_numT, var_name)
+                # derivative by P forces us to look 1 over in the pressure
+                # polynomial index
                 params_lp, params_str = mapstore.apply_maps(
-                    namestore.cheb_params, var_name, temp_poly_ind, pres_poly_ind,
-                    affine={temp_poly_ind: 1})
+                    namestore.cheb_params, var_name, temp_poly_ind,
+                    pres_poly_ind,
+                    affine={pres_poly_ind: 1})
                 plim_lp, _ = mapstore.apply_maps(
                     namestore.cheb_Plim, var_name, lim_ind)
                 tlim_lp, _ = mapstore.apply_maps(
@@ -393,12 +396,13 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 # create temperature and pressure arrays
                 P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
 
-                kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp, P_lp,
-                                    tlim_lp, pres_poly_lp, temp_poly_lp])
+                kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp,
+                                    P_lp, tlim_lp, pres_poly_lp, temp_poly_lp])
 
                 # preinstructions
                 pre_instructions.extend(
-                    [rate.default_pre_instructs('logP', P_str, 'LOG')])
+                    [rate.default_pre_instructs('logP', P_str, 'LOG'),
+                     rate.default_pre_instructs('Tinv', T_str, 'INV')])
 
                 # various strings for preindexed limits, params, etc
                 _, Pmin_str = mapstore.apply_maps(
@@ -438,22 +442,26 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                                                       affine=-2)
 
                 dkf_instructions = Template("""
-                    <>numP = ${num_P_str} {id=plim}
-                    <>numT = ${num_T_str} - 1 {id=tlim}
-                    <> Tred = (2 * Tinv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
-                    <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / (${Pmax_str} - ${Pmin_str})
+                    <>numP = ${num_P_str} - 1 {id=plim} # derivative by P
+                    <>numT = ${num_T_str} {id=tlim}
+                    <> Tred = (2 * Tinv - ${Tmax_str}- ${Tmin_str}) / \
+                        (${Tmax_str} - ${Tmin_str})
+                    <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / \
+                        (${Pmax_str} - ${Pmin_str})
                     ${ppoly0_str} = 1
-                    ${ppoly1_str} = Pred
+                    ${ppoly1_str} = 2 * Pred # derivative by P
                     ${tpoly0_str} = 1
-                    ${tpoly1_str} = 2 * Tred
+                    ${tpoly1_str} = Tred
 
                     # compute polynomial terms
                     for p
                         if p < numP
-                            ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} {id=ppoly, dep=plim}
+                            ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - \
+                                ${ppolypm2_str} {id=ppoly, dep=plim}
                         end
                         if p < numT
-                            ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} {id=tpoly, dep=tlim}
+                            ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - \
+                                ${tpolypm2_str} {id=tpoly, dep=tlim}
                         end
                     end
 
@@ -461,11 +469,15 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     for m
                         <>temp = 0
                         for k
-                            temp = temp + ${ppoly_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+                            # derivative by P
+                            temp = temp + (k + 1) * ${ppoly_str} * \
+                                ${params_str} {id=temp, dep=ppoly:tpoly}
                         end
-                        dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
+                        dkf = dkf + ${tpoly_str} * temp \
+                            {id=dkf_update, dep=temp:dkf_init}
                     end
-                    dkf = -dkf * 2 * logten * Tinv * Tinv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
+                    dkf = dkf * 2 * logten / (${P_str} * \
+                        (${Pmax_str} - ${Pmin_str})) {id=dkf, dep=dkf_update}
                 """).safe_substitute(**locals())
                 parameters['logten'] = log(10)
 
@@ -519,11 +531,13 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 'kr_i = ${kr_str} \
                     {id=kr_up, dep=kr_in}').safe_substitute(**locals()))
 
-        pres_mod_update = ic.get_update_instruction(
-            mapstore, namestore.pres_mod,
-            Template('ci = ${pres_mod_str} \
-                    {id=ci, dep=ci_init}').safe_substitute(
-                **locals()))
+        pres_mod_update = ''
+        if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
+            pres_mod_update = ic.get_update_instruction(
+                mapstore, namestore.pres_mod,
+                Template('ci = ${pres_mod_str} \
+                        {id=ci, dep=ci_init}').safe_substitute(
+                    **locals()),)
 
         instructions = Template("""
         <> kr_i = 0 {id=kr_in}
@@ -664,15 +678,69 @@ def dRopi_plog_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dRopidE(eqs, loopy_opts, namestore,
-                                  test_size=test_size, do_ns=False,
-                                  rxn_type=reaction_type.plog, conp=conp,
-                                  maxP=maxP),
-                        __dRopidE(eqs, loopy_opts, namestore,
-                                  test_size=test_size, do_ns=True,
-                                  rxn_type=reaction_type.plog, conp=conp,
-                                  maxP=maxP)]
-            if x is not None]
+    ret = [__dRopidE(eqs, loopy_opts, namestore,
+                     test_size=test_size, do_ns=False,
+                     rxn_type=reaction_type.plog, conp=conp,
+                     maxP=maxP)]
+    if test_size == 'problem_size':
+        # include the ns version for convenience in testing
+        ret.append(__dRopidE(eqs, loopy_opts, namestore,
+                             test_size=test_size, do_ns=True,
+                             rxn_type=reaction_type.plog, conp=conp,
+                             maxP=maxP))
+    return [x for x in ret if x is not None]
+
+
+def dRopi_cheb_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
+                  maxP=None, maxT=None):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the rate of progress (for CHEB reactions)
+    with respect to the extra variable -- volume/pressure for constant
+    volume / pressure respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dRopidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+    maxP : int [None]
+        The maximum degree of pressure polynomials for chebyshev reactions in
+        this mechanism
+    maxT : int [None]
+        The maximum degree of temperature polynomials for chebyshev reactions
+        in this mechanism
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    ret = [__dRopidE(eqs, loopy_opts, namestore,
+                     test_size=test_size, do_ns=False,
+                     rxn_type=reaction_type.cheb, conp=conp,
+                     maxP=maxP, maxT=maxT)]
+    if test_size == 'problem_size':
+        # include the ns version for convenience in testing
+        ret.append(__dRopidE(eqs, loopy_opts, namestore,
+                             test_size=test_size, do_ns=True,
+                             rxn_type=reaction_type.cheb, conp=conp,
+                             maxP=maxP, maxT=maxT))
+    return [x for x in ret if x is not None]
 
 
 def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
