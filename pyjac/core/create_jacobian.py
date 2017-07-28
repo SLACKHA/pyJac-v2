@@ -1277,16 +1277,14 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     mapstore.check_and_add_transform(rxn_range, thd_range)
 
     # setup third body stuff
-    mapstore.check_and_add_transform(
-        namestore.thd_type, thd_range)
-    mapstore.check_and_add_transform(
-        namestore.thd_offset, thd_range)
+    mapstore.check_and_add_transform(namestore.thd_type, thd_range)
+    mapstore.check_and_add_transform(namestore.thd_offset, thd_range)
 
-    # and place rop net / species maps, etc.
-    mapstore.check_and_add_transform(
-        namestore.rop_net, rxn_range)
-    mapstore.check_and_add_transform(
-        namestore.rxn_to_spec_offsets, rxn_range)
+    # and place rop's / species maps, etc.
+    mapstore.check_and_add_transform(namestore.rop_fwd, rxn_range)
+    mapstore.check_and_add_transform(namestore.rev_mask, rxn_range)
+    mapstore.check_and_add_transform(namestore.rop_rev, namestore.rev_mask)
+    mapstore.check_and_add_transform(namestore.rxn_to_spec_offsets, rxn_range)
 
     if rxn_type != reaction_type.thd:
         # pressure mod term
@@ -1345,8 +1343,10 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2})
 
     # ropnet
-    rop_net_lp, rop_net_str = mapstore.apply_maps(
-        namestore.rop_net, *default_inds)
+    rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
+        namestore.rop_fwd, *default_inds)
+    rop_rev_lp, rop_rev_str = mapstore.apply_maps(
+        namestore.rop_rev, *default_inds)
 
     # T, P, V
     T_lp, T_str = mapstore.apply_maps(
@@ -1358,8 +1358,8 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
 
     # update kernel data
     kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
-                        nu_offset_lp, nu_lp, spec_lp, rop_net_lp, jac_lp,
-                        T_lp, V_lp, P_lp])
+                        nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
+                        jac_lp, T_lp, V_lp, P_lp])
 
     pre_instructions = [rate.default_pre_instructs('Tinv', T_str, 'INV')]
     parameters = {}
@@ -1367,7 +1367,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
     factor = 'dci_thd_dT'
-    thd_fac = ' * {} * {} '.format(V_str, rop_net_str)
+    thd_fac = ' * {} * rop_net '.format(V_str)
     fall_instructions = ''
     if rxn_type != reaction_type.thd:
         # update factors
@@ -1490,13 +1490,21 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             # falloff
             dci_fall_dT = dci_fall_dT + theta_Pr * pmod + ${Fi_str} * theta_no_Pr / (${Pr_str} + 1) {id=dfall_up1, dep=dfall_init}
         end
-        dci_fall_dT = dci_fall_dT * ${V_str} * ${rop_net_str} {id=dfall_final, dep=dfall_up1}
+        dci_fall_dT = dci_fall_dT * ${V_str} * rop_net {id=dfall_final, dep=dfall_up1}
         """).safe_substitute(**locals())
 
+    rop_net_rev_update = ic.get_update_instruction(
+                mapstore, namestore.rop_rev,
+                Template(
+                    'rop_net = rop_net - ${rop_rev_str} \
+                        {id=rop_net_up, dep=rop_net_init}').safe_substitute(
+                        **locals()))
     mix = int(thd_body_type.mix)
     spec = int(thd_body_type.species)
     # and instructions
     instructions = Template("""
+    <> rop_net = ${rop_fwd_str} {id=rop_net_init}
+    ${rop_net_rev_update}
     <> mod = 1 {id=mod_init}
     if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
         mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
@@ -1504,12 +1512,14 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     if ${thd_type_str} == ${spec}
         mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
     end
-    <> dci_thd_dT = -${P_str} * mod * Ru_inv * Tinv * Tinv${thd_fac} {dep=mod*}
+    <> dci_thd_dT = -${P_str} * mod * Ru_inv * Tinv * Tinv${thd_fac} \
+        {dep=mod*:rop_net*}
     ${fall_instructions}
     <> offset = ${offset_str}
     <> offset_next = ${offset_next_str}
     for ${k_ind}
-        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * ${factor}
+        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
+            ${factor}
     end
     """).safe_substitute(**locals())
 

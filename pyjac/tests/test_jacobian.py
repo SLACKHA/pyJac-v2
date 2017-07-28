@@ -1680,9 +1680,10 @@ class SubTest(TestClass):
         # test conv
         __subtest(False)
 
-    def test_dci_thd_dT(self, rxn_type=reaction_type.thd):
+    def test_dci_thd_dT(self, rxn_type=reaction_type.thd, test_variable=False,
+                        conp=True):
         # test conp (form doesn't matter)
-        namestore, rate_info = self._make_namestore(True)
+        namestore, rate_info = self._make_namestore(conp)
         ad_opts = namestore.loopy_opts
 
         # setup arguements
@@ -1693,8 +1694,6 @@ class SubTest(TestClass):
         args = {
             'pres_mod': lambda x: np.zeros_like(
                 self.store.ref_pres_mod, order=x),
-            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
-            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
             'conc': lambda x: np.zeros_like(self.store.concs, order=x),
             'wdot': lambda x: np.zeros_like(self.store.species_rates, order=x),
             'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
@@ -1712,11 +1711,25 @@ class SubTest(TestClass):
             'X': lambda x: np.zeros(namestore.X_sri.shape, order=x)
         }
 
+        if conp:
+            args.update({
+                'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cp, order=x, copy=True)
+            })
+        else:
+            args.update({
+                'V_arr': lambda x: np.array(self.store.V, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cv, order=x, copy=True)
+            })
+
         # obtain the finite difference jacobian
         kc = kernel_call('dci_dT', [None], **args)
         # create the editor
         edit = editor(
-            namestore.T_arr, namestore.n_dot, self.store.test_size,
+            namestore.T_arr if not test_variable else namestore.E_arr,
+            namestore.n_dot, self.store.test_size,
             order=ad_opts.order)
 
         rate_sub = None
@@ -1727,7 +1740,7 @@ class SubTest(TestClass):
         elif rxn_type == falloff_form.troe:
             rate_sub = get_troe_kernel
         fd_jac = self._get_jacobian(
-            get_molar_rates, kc, edit, ad_opts, True,
+            get_molar_rates, kc, edit, ad_opts, conp,
             extra_funcs=[x for x in [get_concentrations, get_thd_body_concs,
                                      get_simple_arrhenius_rates,
                                      self.__get_fall_call_wrapper(),
@@ -1738,13 +1751,14 @@ class SubTest(TestClass):
         # setup args
 
         # create rop net w/o pres mod
-        rop_net = fwd_removed.copy()
-        rop_net[:, self.store.rev_inds] -= rev_removed
         args = {
-            'rop_net': lambda x: np.array(rop_net, order=x, copy=True),
+            'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
+            'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
             'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
             'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+            'pres_mod': lambda x: np.array(
+                    self.store.ref_pres_mod, order=x, copy=True)
         }
 
         def over_rxn(rxn):
@@ -1767,12 +1781,10 @@ class SubTest(TestClass):
             return (isinstance(rxn, ct.FalloffReaction)
                     and rxn.falloff.type == desc)
 
-        tester = dci_thd_dT
+        tester = dci_thd_dT if not test_variable else dci_thd_dE
         to_test = np.arange(self.store.test_size)
         if rxn_type != reaction_type.thd:
             args.update({
-                'pres_mod': lambda x: np.array(
-                    self.store.ref_pres_mod, order=x, copy=True),
                 'Pr': lambda x: np.array(
                     self.store.ref_Pr, order=x, copy=True),
                 'Fi': lambda x: np.array(
@@ -1807,8 +1819,9 @@ class SubTest(TestClass):
         test = self.__get_check(include, over_rxn)
 
         # and get mask
+        check_ind = 1 if test_variable else 0
         kc = [kernel_call('dci_dT',
-                          [fd_jac], compare_mask=[(to_test, test, 0)],
+                          [fd_jac], compare_mask=[(to_test, test, check_ind)],
                           compare_axis=(0, 1, 2),
                           other_compare=self.nan_compare,
                           **args)]
