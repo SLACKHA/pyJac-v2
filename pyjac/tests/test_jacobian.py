@@ -17,7 +17,7 @@ from ..core.create_jacobian import (
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
-    dRopi_cheb_dE)
+    dRopi_cheb_dE, dci_thd_dE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1705,10 +1705,14 @@ class SubTest(TestClass):
             'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'Fcent': lambda x: np.zeros(namestore.Fcent.shape, order=x),
-            'Atroe': lambda x: np.zeros(namestore.Atroe.shape, order=x),
-            'Btroe': lambda x: np.zeros(namestore.Btroe.shape, order=x),
-            'X': lambda x: np.zeros(namestore.X_sri.shape, order=x)
+            'Fcent': lambda x: np.zeros((
+                self.store.test_size, self.store.troe_inds.size), order=x),
+            'Atroe': lambda x: np.zeros((
+                self.store.test_size, self.store.troe_inds.size), order=x),
+            'Btroe': lambda x: np.zeros((
+                self.store.test_size, self.store.troe_inds.size), order=x),
+            'X': lambda x: np.zeros((
+                self.store.test_size, self.store.sri_inds.size), order=x)
         }
 
         if conp:
@@ -1754,12 +1758,24 @@ class SubTest(TestClass):
         args = {
             'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
             'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
+            'conc': lambda x: np.zeros_like(self.store.concs, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
-            'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
             'pres_mod': lambda x: np.array(
                     self.store.ref_pres_mod, order=x, copy=True)
         }
+
+        if conp:
+            args.update({
+                'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cp, order=x, copy=True)
+            })
+        else:
+            args.update({
+                'V_arr': lambda x: np.array(self.store.V, order=x, copy=True),
+                'phi': lambda x: np.array(
+                    self.store.phi_cv, order=x, copy=True)
+            })
 
         def over_rxn(rxn):
             if rxn_type == reaction_type.thd:
@@ -1818,6 +1834,45 @@ class SubTest(TestClass):
 
         test = self.__get_check(include, over_rxn)
 
+        if test_variable and conp:
+            # need to adjust the reference answer to account for the addition
+            # of the net ROP resulting from the volume derivative in this
+            # Jacobian entry.
+
+            starting_jac = np.zeros(namestore.jac.shape)
+
+            from ..utils import get_nu
+            for i, rxn in enumerate(self.store.reacs):
+
+                # this is a bit tricky: in order to get the proper derivatives
+                # in the auto-differentiation version, we set the falloff
+                # blending term to zero for reaction types
+                # not under consideration.  This has the side effect of forcing
+                # the net ROP for these reactions to be zero in the AD-code
+                #
+                # Therefore, we must exclude the ROP for falloff/chemically
+                # activated reactions when looking at the third body
+                # derivatives
+                ct_rxn = self.store.gas.reaction(i)
+                if isinstance(ct_rxn, ct.FalloffReaction) and \
+                        rxn_type == reaction_type.thd:
+                    continue
+
+                # get the net rate of progress
+                ropnet = self.store.rxn_rates[:, i]
+                for spec in set(rxn.reac + rxn.prod):
+                    # ignore last species
+                    if spec < len(self.store.specs) - 1:
+                        # and the nu value for each species
+                        nu = get_nu(spec, rxn)
+                        # now subtract of this reactions contribution to
+                        # this species' Jacobian entry
+                        starting_jac[:, spec + 2, 1] += nu * ropnet
+
+            # and place in the args
+            args.update({'jac': lambda x: np.array(
+                starting_jac, order=x, copy=True)})
+
         # and get mask
         check_ind = 1 if test_variable else 0
         kc = [kernel_call('dci_dT',
@@ -1826,7 +1881,11 @@ class SubTest(TestClass):
                           other_compare=self.nan_compare,
                           **args)]
 
-        return self._generic_jac_tester(tester, kc)
+        extra_args = {}
+        if test_variable:
+            extra_args['conp'] = conp
+
+        return self._generic_jac_tester(tester, kc, **extra_args)
 
     def test_dci_lind_dT(self):
         self.test_dci_thd_dT(falloff_form.lind)
@@ -1836,6 +1895,10 @@ class SubTest(TestClass):
 
     def test_dci_sri_dT(self):
         self.test_dci_thd_dT(falloff_form.sri)
+
+    def test_dci_thd_dE(self):
+        self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=True)
+        self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=False)
 
     def test_dEdot_dT(self):
         def __subtest(conp):
