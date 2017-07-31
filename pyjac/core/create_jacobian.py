@@ -52,6 +52,412 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
+def __dcidE(eqs, loopy_opts, namestore, test_size=None,
+            rxn_type=reaction_type.thd, conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term for all third body /
+    falloff / chemically activated reactions with respect to the extra variable
+    (volume / pressure) for constant pressure/volume respectively
+
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    rxn_type: [reaction_type.thd, falloff_form.lind, falloff_form.sri,
+               falloff_form.troe]
+        The reaction type to generate the pressure modification derivative for
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    num_range_dict = {reaction_type.thd: namestore.num_thd_only,
+                      falloff_form.lind: namestore.num_lind,
+                      falloff_form.sri: namestore.num_sri,
+                      falloff_form.troe: namestore.num_troe}
+    thd_range_dict = {reaction_type.thd: namestore.thd_only_map,
+                      falloff_form.lind: namestore.fall_to_thd_map,
+                      falloff_form.sri: namestore.fall_to_thd_map,
+                      falloff_form.troe: namestore.fall_to_thd_map}
+    fall_range_dict = {falloff_form.lind: namestore.lind_map,
+                       falloff_form.sri: namestore.sri_map,
+                       falloff_form.troe: namestore.troe_map}
+    name_description = {reaction_type.thd: 'thd',
+                        falloff_form.lind: 'lind',
+                        falloff_form.sri: 'sri',
+                        falloff_form.troe: 'troe'}
+    # get num
+    num_range = num_range_dict[rxn_type]
+    thd_range = thd_range_dict[rxn_type]
+    rxn_range = namestore.thd_map
+
+    # number of species
+    ns = namestore.num_specs.initializer[-1]
+
+    # create mapstore
+    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+
+    # setup static mappings
+
+    if rxn_type in fall_range_dict:
+        fall_range = fall_range_dict[rxn_type]
+
+        # falloff index depends on num_range
+        mapstore.check_and_add_transform(fall_range, num_range)
+
+        # and the third body index depends on the falloff index
+        mapstore.check_and_add_transform(thd_range, fall_range)
+
+    # and finally the reaction index depends on the third body index
+    mapstore.check_and_add_transform(rxn_range, thd_range)
+
+    # setup third body stuff
+    mapstore.check_and_add_transform(namestore.thd_type, thd_range)
+    mapstore.check_and_add_transform(namestore.thd_offset, thd_range)
+
+    # and place rop's / species maps, etc.
+    mapstore.check_and_add_transform(namestore.rop_fwd, rxn_range)
+    mapstore.check_and_add_transform(namestore.rev_mask, rxn_range)
+    mapstore.check_and_add_transform(namestore.rop_rev, namestore.rev_mask)
+    mapstore.check_and_add_transform(namestore.rxn_to_spec_offsets, rxn_range)
+
+    # pressure mod term
+    mapstore.check_and_add_transform(namestore.pres_mod, thd_range)
+    if rxn_type != reaction_type.thd:
+        # falloff type
+        mapstore.check_and_add_transform(namestore.fall_type, fall_range)
+        # need falloff blending / reduced pressure
+        mapstore.check_and_add_transform(namestore.Fi, fall_range)
+        mapstore.check_and_add_transform(namestore.Pr, fall_range)
+
+        # in addition we (most likely) need the falloff / regular kf rates
+        mapstore.check_and_add_transform(namestore.kf, rxn_range)
+        mapstore.check_and_add_transform(namestore.kf_fall, fall_range)
+
+        # and the beta / Ta parameters for falloff / regular kf
+        mapstore.check_and_add_transform(namestore.fall_beta, fall_range)
+        mapstore.check_and_add_transform(namestore.fall_Ta, fall_range)
+
+        # the regular kf params require the simple_mask
+        mapstore.check_and_add_transform(namestore.simple_mask, rxn_range)
+        mapstore.check_and_add_transform(
+            namestore.simple_beta, namestore.simple_mask)
+        mapstore.check_and_add_transform(
+            namestore.simple_Ta, namestore.simple_mask)
+
+    # get the third body types
+    thd_type_lp, thd_type_str = mapstore.apply_maps(
+        namestore.thd_type, var_name)
+    thd_offset_lp, thd_offset_next_str = mapstore.apply_maps(
+        namestore.thd_offset, var_name, affine=1)
+    # get third body efficiencies & species
+    thd_eff_lp, thd_eff_last_str = mapstore.apply_maps(
+        namestore.thd_eff, thd_offset_next_str, affine=-1)
+    thd_spec_lp, thd_spec_last_str = mapstore.apply_maps(
+        namestore.thd_spec, thd_offset_next_str, affine=-1)
+
+    k_ind = 'k_ind'
+    # nu offsets
+    nu_offset_lp, offset_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name)
+    _, offset_next_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name, affine=1)
+    # setup species k loop
+    extra_inames = [(k_ind, 'offset <= {} < offset_next'.format(k_ind))]
+
+    # reac and prod nu for net
+    nu_lp, reac_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, k_ind, affine=k_ind)
+    _, prod_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, k_ind, affine=k_ind)
+    # get species
+    spec_lp, spec_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, k_ind)
+    # and jac
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2})
+
+    # ropnet
+    rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
+        namestore.rop_fwd, *default_inds)
+    rop_rev_lp, rop_rev_str = mapstore.apply_maps(
+        namestore.rop_rev, *default_inds)
+
+    # T, P, V
+    T_lp, T_str = mapstore.apply_maps(
+        namestore.T_arr, global_ind)
+    V_lp, V_str = mapstore.apply_maps(
+        namestore.V_arr, global_ind)
+    P_lp, P_str = mapstore.apply_maps(
+        namestore.P_arr, global_ind)
+    pres_mod_lp, pres_mod_str = mapstore.apply_maps(
+        namestore.pres_mod, *default_inds)
+
+    # update kernel data
+    kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
+                        nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
+                        jac_lp, pres_mod_lp, T_lp, V_lp, P_lp])
+
+    parameters = {'Ru': chem.RU}
+    pre_instructions = [Template(
+        '<> fac = 1 / (Ru * ${T_str})').safe_substitute(**locals())]
+    if not conp:
+        thd_fac = '* fac * {} * rop_net '.format(V_str)
+    else:
+        thd_fac = ' * rop_net '
+    manglers = []
+    # by default we are using the third body factors (these may be changed
+    # in the falloff types below)
+    factor = 'dci_thd_dE'
+    fall_instructions = ''
+    if rxn_type != reaction_type.thd:
+        # update factors
+        factor = 'dci_fall_dT'
+        thd_fac = ''
+        # create arrays
+        fall_type_lp, fall_type_str = mapstore.apply_maps(
+            namestore.fall_type, var_name)
+        Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
+        Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
+        kf_lp, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
+        s_beta_lp, s_beta_str = mapstore.apply_maps(
+            namestore.simple_beta, var_name)
+        s_Ta_lp, s_Ta_str = mapstore.apply_maps(
+            namestore.simple_Ta, var_name)
+        kf_fall_lp, kf_fall_str = mapstore.apply_maps(
+            namestore.kf_fall, *default_inds)
+        f_beta_lp, f_beta_str = mapstore.apply_maps(
+            namestore.fall_beta, var_name)
+        f_Ta_lp, f_Ta_str = mapstore.apply_maps(
+            namestore.fall_Ta, var_name)
+
+        kernel_data.extend([pres_mod_lp, fall_type_lp, Fi_lp, Pr_lp, kf_lp,
+                            s_beta_lp, s_Ta_lp, kf_fall_lp, f_beta_lp,
+                            f_Ta_lp])
+
+        # check for Troe / SRI
+        if rxn_type == falloff_form.troe:
+            Atroe_lp, Atroe_str = mapstore.apply_maps(
+                namestore.Atroe, *default_inds)
+            Btroe_lp, Btroe_str = mapstore.apply_maps(
+                namestore.Btroe, *default_inds)
+            Fcent_lp, Fcent_str = mapstore.apply_maps(
+                namestore.Fcent, *default_inds)
+            troe_a_lp, troe_a_str = mapstore.apply_maps(
+                namestore.troe_a, var_name)
+            troe_T1_lp, troe_T1_str = mapstore.apply_maps(
+                namestore.troe_T1, var_name)
+            troe_T2_lp, troe_T2_str = mapstore.apply_maps(
+                namestore.troe_T2, var_name)
+            troe_T3_lp, troe_T3_str = mapstore.apply_maps(
+                namestore.troe_T3, var_name)
+            kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
+                                troe_T1_lp, troe_T2_lp, troe_T3_lp])
+            pre_instructions.append(
+                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+            dFi_instructions = Template("""
+                <> T1inv = -1 / ${troe_T1_str}
+                <> T3inv = -1 / ${troe_T3_str}
+                <> dFcent = ${troe_a_str} * T1inv * exp(Tval * T1inv) + \
+                (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + \
+                ${troe_T2_str} * Tinv * Tinv * exp(-${troe_T2_str} * Tinv)
+                <> logFcent = log(${Fcent_str})
+                <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=ab_init}
+                <> absqsq = absq * absq {id=ab_fin}
+                <> dFi = -${Btroe_str} * (2 * ${Atroe_str} * ${Fcent_str} * \
+                (0.14 * ${Atroe_str} + ${Btroe_str}) * \
+                (${Pr_str} * theta_Pr + theta_no_Pr) * logFcent + \
+                ${Pr_str} * dFcent * (2 * ${Atroe_str} * \
+                (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent \
+                - ${Btroe_str} * absq * logten)) / \
+                (${Fcent_str} * ${Pr_str} * absqsq * logten) {id=dFi_final}
+            """).safe_substitute(**locals())
+            parameters['logten'] = log(10)
+        elif rxn_type == falloff_form.sri:
+            X_lp, X_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
+            a_lp, a_str = mapstore.apply_maps(namestore.sri_a, var_name)
+            b_lp, b_str = mapstore.apply_maps(namestore.sri_b, var_name)
+            c_lp, c_str = mapstore.apply_maps(namestore.sri_c, var_name)
+            d_lp, d_str = mapstore.apply_maps(namestore.sri_d, var_name)
+            e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
+            kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
+            pre_instructions.append(
+                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+            manglers.append(lp_pregen.fmax())
+
+            dFi_instructions = Template("""
+                <> cinv = 1 / ${c_str}
+                <> dFi = -${X_str} * (\
+                exp(-Tval * cinv) * cinv - ${a_str} * ${b_str} * Tinv * \
+                Tinv * exp(-${b_str} * Tinv)) / \
+                (${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) \
+                + ${e_str} * Tinv - \
+                2 * ${X_str} * ${X_str} * \
+                log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) * \
+                (${Pr_str} * theta_Pr + theta_no_Pr) * \
+                log(fmax(${Pr_str}, 1e-300d)) / \
+                (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
+            """).safe_substitute(**locals())
+            parameters['logtensquared'] = log(10) * log(10)
+        else:
+            dFi_instructions = '<> dFi = 0 {id=dFi_final}'
+
+        fall_instructions = Template("""
+        if ${fall_type_str}
+            # chemically activated
+            <>kf_0 = ${kf_str} {id=kf_chem}
+            <>beta_0 = ${s_beta_str} {id=beta0_chem}
+            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem}
+            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
+            <>beta_inf = ${f_beta_str} {id=betaf_chem}
+            <>Ta_inf = ${f_Ta_str} {id=Taf_chem}
+        else
+            # fall-off
+            kf_0 = ${kf_fall_str} {id=kf_fall}
+            beta_0 = ${f_beta_str} {id=beta0_fall}
+            Ta_0 = ${f_Ta_str} {id=Ta0_fall}
+            kf_inf = ${kf_str} {id=kf_inf_fall}
+            beta_inf = ${s_beta_str} {id=betaf_fall}
+            Ta_inf = ${s_Ta_str} {id=Taf_fall}
+        end
+        <> pmod = ${pres_mod_str}
+        <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) {id=theta_Pr, dep=beta*:kf*:Ta*}
+        <> theta_no_Pr = dci_thd_dT * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
+        ${dFi_instructions}
+        <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / (${Pr_str} + 1) + dFi) {id=dfall_init}
+        if not ${fall_type_str}
+            # falloff
+            dci_fall_dT = dci_fall_dT + theta_Pr * pmod + ${Fi_str} * theta_no_Pr / (${Pr_str} + 1) {id=dfall_up1, dep=dfall_init}
+        end
+        dci_fall_dT = dci_fall_dT * ${V_str} * ${rop_net_str} {id=dfall_final, dep=dfall_up1}
+        """).safe_substitute(**locals())
+
+    mix = int(thd_body_type.mix)
+    spec = int(thd_body_type.species)
+    unity = int(thd_body_type.unity)
+
+    rop_net_rev_update = ic.get_update_instruction(
+                mapstore, namestore.rop_rev,
+                Template(
+                    'rop_net = rop_net - ${rop_rev_str} \
+                        {id=rop_net_up, dep=rop_net_init}').safe_substitute(
+                        **locals()))
+
+    if conp:
+        # get the concentrations of the third body species
+        conc_lp, conc_last_str = mapstore.apply_maps(
+            namestore.conc_arr, global_ind, thd_spec_last_str)
+        kernel_data.append(conc_lp)
+
+        thd_mod_insns = Template("""
+        <> mod = ${thd_type_str} == ${mix} {id=mod_init}
+        if ${thd_type_str} == ${spec}
+            mod = ${conc_last_str} {id=mod_spec, dep=mod_init}
+            if ${thd_spec_last_str} == ${ns}
+                mod = ${P_str} * fac - mod {id=mod_spec_up, dep=mod_spec}
+            end
+        end
+        if ${thd_type_str} == ${mix}
+            if ${thd_spec_last_str} == ${ns}
+                mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
+            end
+            mod = mod * ${P_str} * fac - ${pres_mod_str}
+        end
+        """).safe_substitute(**locals())
+    else:
+        thd_mod_insns = Template("""
+        <> mod = 1 {id=mod_init}
+        if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
+            mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
+        end
+        if ${thd_type_str} == ${spec}
+            mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
+        end
+        """).safe_substitute(**locals())
+
+    # and instructions
+    instructions = Template("""
+    <> rop_net = ${rop_fwd_str} {id=rop_net_init}
+    ${rop_net_rev_update}
+    ${thd_mod_insns}
+    <> dci_thd_dE = mod${thd_fac} {id=dci_thd_init, dep=mod*:rop_net*}
+    ${fall_instructions}
+    <> offset = ${offset_str}
+    <> offset_next = ${offset_next_str}
+    for ${k_ind}
+        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
+            ${factor} {dep=dci_thd*}
+    end
+    """).safe_substitute(**locals())
+
+    return k_gen.knl_info(name='dci_{}_dE'.format(
+        name_description[rxn_type]),
+        extra_inames=extra_inames,
+        instructions=instructions,
+        pre_instructions=pre_instructions,
+        var_name=var_name,
+        kernel_data=kernel_data,
+        mapstore=mapstore,
+        parameters=parameters,
+        manglers=manglers
+    )
+
+
+def dci_thd_dE(eqs, loopy_opts, namestore, test_size=None,
+               conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term w.r.t. the extra variable
+    (volume / pressure) for constant pressure/volume respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dcidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+                                reaction_type.thd, conp=conp)]
+            if x is not None]
+
+
 def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
               maxT=None, conp=True):
