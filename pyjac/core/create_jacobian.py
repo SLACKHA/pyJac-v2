@@ -371,15 +371,13 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         <> mod = ${thd_type_str} == ${mix} {id=mod_init}
         if ${thd_type_str} == ${spec}
             mod = ${conc_last_str} {id=mod_spec, dep=mod_init}
-            if ${thd_spec_last_str} == ${ns}
-                mod = ${P_str} * fac - mod {id=mod_spec_up, dep=mod_spec}
-            end
         end
-        if ${thd_type_str} == ${mix}
-            if ${thd_spec_last_str} == ${ns}
-                mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
-            end
-            mod = mod * ${P_str} * fac - ${pres_mod_str}
+        if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
+            mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
+        end
+        if ${thd_type_str} != ${unity}
+            mod = mod * ${P_str} * fac - ${pres_mod_str} \
+                {id=mod_up, dep=mod_mix:mod_spec}
         end
         """).safe_substitute(**locals())
     else:
