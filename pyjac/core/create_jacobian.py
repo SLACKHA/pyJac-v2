@@ -202,6 +202,10 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
                         jac_lp, pres_mod_lp, T_lp, V_lp, P_lp])
 
+    mix = int(thd_body_type.mix)
+    spec = int(thd_body_type.species)
+    unity = int(thd_body_type.unity)
+
     parameters = {'Ru': chem.RU}
     pre_instructions = [Template(
         '<> rt_inv = 1 / (Ru * ${T_str})').safe_substitute(**locals())]
@@ -231,6 +235,11 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         kernel_data.extend([pres_mod_lp, fall_type_lp, Fi_lp, Pr_lp, kf_lp,
                             kf_fall_lp])
 
+        # factor used for the Theta_Pr part of conp Pr derivative
+        conp_theta_pr_fac = Template('- ${Pr_str} * (\
+                ${thd_type_str} != ${unity})').safe_substitute(
+                **locals()) if conp else ''
+
         # check for Troe / SRI
         if rxn_type == falloff_form.troe:
             Atroe_lp, Atroe_str = mapstore.apply_maps(
@@ -239,34 +248,15 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
                 namestore.Btroe, *default_inds)
             Fcent_lp, Fcent_str = mapstore.apply_maps(
                 namestore.Fcent, *default_inds)
-            troe_a_lp, troe_a_str = mapstore.apply_maps(
-                namestore.troe_a, var_name)
-            troe_T1_lp, troe_T1_str = mapstore.apply_maps(
-                namestore.troe_T1, var_name)
-            troe_T2_lp, troe_T2_str = mapstore.apply_maps(
-                namestore.troe_T2, var_name)
-            troe_T3_lp, troe_T3_str = mapstore.apply_maps(
-                namestore.troe_T3, var_name)
-            kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
-                                troe_T1_lp, troe_T2_lp, troe_T3_lp])
-            pre_instructions.append(
-                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+            kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp])
             dFi_instructions = Template("""
-                <> T1inv = -1 / ${troe_T1_str}
-                <> T3inv = -1 / ${troe_T3_str}
-                <> dFcent = ${troe_a_str} * T1inv * exp(Tval * T1inv) + \
-                (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + \
-                ${troe_T2_str} * Tinv * Tinv * exp(-${troe_T2_str} * Tinv)
-                <> logFcent = log(${Fcent_str})
-                <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=ab_init}
-                <> absqsq = absq * absq {id=ab_fin}
-                <> dFi = -${Btroe_str} * (2 * ${Atroe_str} * ${Fcent_str} * \
-                (0.14 * ${Atroe_str} + ${Btroe_str}) * \
-                (${Pr_str} * theta_Pr + theta_no_Pr) * logFcent + \
-                ${Pr_str} * dFcent * (2 * ${Atroe_str} * \
-                (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent \
-                - ${Btroe_str} * absq * logten)) / \
-                (${Fcent_str} * ${Pr_str} * absqsq * logten) {id=dFi_final}
+                <> absqsq = ${Atroe_str} * ${Atroe_str} + \
+                    ${Btroe_str} * ${Btroe_str} {id=ab_init}
+                absqsq = absqsq * absqsq {id=ab_fin, dep=ab_init}
+                <> dFi = -2 * ${Atroe_str} * ${Btroe_str} * log(${Fcent_str}) \
+                * (0.14 * ${Atroe_str} + ${Btroe_str}) * \
+                (mod ${conp_theta_pr_fac}) / \
+                (${Pr_str} * absqsq * logten) {id=dFi_final, dep=ab_fin}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
         elif rxn_type == falloff_form.sri:
@@ -274,34 +264,40 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
             a_lp, a_str = mapstore.apply_maps(namestore.sri_a, var_name)
             b_lp, b_str = mapstore.apply_maps(namestore.sri_b, var_name)
             c_lp, c_str = mapstore.apply_maps(namestore.sri_c, var_name)
-            d_lp, d_str = mapstore.apply_maps(namestore.sri_d, var_name)
-            e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
-            kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
+            kernel_data.extend([X_lp, a_lp, b_lp, c_lp])
             pre_instructions.append(
                 rate.default_pre_instructs('Tval', T_str, 'VAL'))
+            pre_instructions.append(
+                rate.default_pre_instructs('Tinv', T_str, 'INV'))
             manglers.append(lp_pregen.fmax())
 
+            sri_fac = (Template("""\
+                log((${a_str} * exp(Tval * cinv) + exp(${b_str} * Tinv)) * \
+                     exp(-${b_str} * Tinv - Tval * cinv))\
+                """) if conp else Template("""\
+                log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv))\
+                """)).safe_substitute(
+                **locals())
             dFi_instructions = Template("""
                 <> cinv = 1 / ${c_str}
-                <> dFi = -${X_str} * (\
-                exp(-Tval * cinv) * cinv - ${a_str} * ${b_str} * Tinv * \
-                Tinv * exp(-${b_str} * Tinv)) / \
-                (${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) \
-                + ${e_str} * Tinv - \
-                2 * ${X_str} * ${X_str} * \
-                log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) * \
-                (${Pr_str} * theta_Pr + theta_no_Pr) * \
-                log(fmax(${Pr_str}, 1e-300d)) / \
-                (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
+                <> dFi = -2 * ${X_str} * ${X_str} * (\
+                    mod ${conp_theta_pr_fac}) * ${sri_fac} * \
+                    log(fmax(${Pr_str}, 1e-300d)) / \
+                    (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
         else:
             dFi_instructions = '<> dFi = 0 {id=dFi_final}'
 
+        # the theta_Pr term that appears inside the pressure modification
+        # term.  We simplify it to this to put in the falloff (non-chemically
+        # activated) if statement
         conp_theta_pr_outer_fac = Template(
             '- ${pres_mod_str}').safe_substitute(**locals()) if conp else ''
-        conp_theta_pr_fac = Template('+ ${Pr_str}').safe_substitute(
-            **locals()) if conp else ''
+        # change the sign on this factor
+        conp_theta_pr_fac = Template(' + ${Pr_str} * (\
+                ${thd_type_str} != ${unity})').safe_substitute(
+                **locals()) if conp else ''
         fall_finish = '{} * rop_net '.format(V_str) if not conp else \
             ' rop_net'
         Pfac = ' * ' + P_str if conp else ''
@@ -329,10 +325,6 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         dci_fall_dE = dci_fall_dE * ${fall_finish} \
             {id=dci_fall_final, dep=dci_fall_up1}
         """).safe_substitute(**locals())
-
-    mix = int(thd_body_type.mix)
-    spec = int(thd_body_type.species)
-    unity = int(thd_body_type.unity)
 
     rop_net_rev_update = ic.get_update_instruction(
                 mapstore, namestore.rop_rev,
@@ -478,6 +470,82 @@ def dci_lind_dE(eqs, loopy_opts, namestore, test_size=None,
 
     return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
                                 falloff_form.lind, conp=conp)]
+            if x is not None]
+
+
+def dci_troe_dE(eqs, loopy_opts, namestore, test_size=None,
+                conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term of Troe falloff
+    reactions w.r.t. the extra variable (volume / pressure)
+    for constant pressure/volume respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dcidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+                                falloff_form.troe, conp=conp)]
+            if x is not None]
+
+
+def dci_sri_dE(eqs, loopy_opts, namestore, test_size=None,
+               conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term of SRI falloff
+    reactions w.r.t. the extra variable (volume / pressure)
+    for constant pressure/volume respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dcidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+                                falloff_form.sri, conp=conp)]
             if x is not None]
 
 

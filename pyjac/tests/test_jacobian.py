@@ -17,7 +17,7 @@ from ..core.create_jacobian import (
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
-    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE)
+    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1817,14 +1817,14 @@ class SubTest(TestClass):
                 to_test = np.all(
                     self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
                     axis=1)
-                tester = dci_sri_dT
+                tester = dci_sri_dT if not test_variable else dci_sri_dE
                 X = self.__get_sri_params(namestore)
                 args.update({'X': lambda x: np.array(X, order=x, copy=True)})
             elif rxn_type == falloff_form.troe:
                 to_test = np.all(
                     self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0,
                     axis=1)
-                tester = dci_troe_dT
+                tester = dci_troe_dT if not test_variable else dci_troe_dE
                 Fcent, Atroe, Btroe = self.__get_troe_params(namestore)
                 args.update({
                     'Fcent': lambda x: np.array(Fcent, order=x, copy=True),
@@ -1905,6 +1905,15 @@ class SubTest(TestClass):
     def test_dci_lind_dE(self):
         self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=True)
         self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=False)
+
+    def test_dci_troe_dE(self):
+        self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=True)
+        self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=False)
+
+    def test_dci_sri_dE(self):
+        import pdb; pdb.set_trace()
+        self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=True)
+        self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=False)
 
     def test_dEdot_dT(self):
         def __subtest(conp):
