@@ -17,7 +17,7 @@ from ..core.create_jacobian import (
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
-    dRopi_cheb_dE, dci_thd_dE)
+    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -1812,7 +1812,7 @@ class SubTest(TestClass):
                 to_test = np.all(
                     self.store.ref_Pr[:, self.store.lind_to_pr_map] != 0.0,
                     axis=1)
-                tester = dci_lind_dT
+                tester = dci_lind_dT if not test_variable else dci_lind_dE
             elif rxn_type == falloff_form.sri:
                 to_test = np.all(
                     self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
@@ -1857,6 +1857,8 @@ class SubTest(TestClass):
                 if isinstance(ct_rxn, ct.FalloffReaction) and \
                         rxn_type == reaction_type.thd:
                     continue
+                elif rxn_type == reaction_type.thd and not include(ct_rxn):
+                    continue
 
                 # get the net rate of progress
                 ropnet = self.store.rxn_rates[:, i]
@@ -1899,6 +1901,10 @@ class SubTest(TestClass):
     def test_dci_thd_dE(self):
         self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=True)
         self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=False)
+
+    def test_dci_lind_dE(self):
+        self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=True)
+        self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=False)
 
     def test_dEdot_dT(self):
         def __subtest(conp):
