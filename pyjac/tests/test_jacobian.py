@@ -1911,7 +1911,6 @@ class SubTest(TestClass):
         self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=False)
 
     def test_dci_sri_dE(self):
-        import pdb; pdb.set_trace()
         self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=True)
         self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=False)
 
