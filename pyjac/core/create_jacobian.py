@@ -152,17 +152,6 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         mapstore.check_and_add_transform(namestore.kf, rxn_range)
         mapstore.check_and_add_transform(namestore.kf_fall, fall_range)
 
-        # and the beta / Ta parameters for falloff / regular kf
-        mapstore.check_and_add_transform(namestore.fall_beta, fall_range)
-        mapstore.check_and_add_transform(namestore.fall_Ta, fall_range)
-
-        # the regular kf params require the simple_mask
-        mapstore.check_and_add_transform(namestore.simple_mask, rxn_range)
-        mapstore.check_and_add_transform(
-            namestore.simple_beta, namestore.simple_mask)
-        mapstore.check_and_add_transform(
-            namestore.simple_Ta, namestore.simple_mask)
-
     # get the third body types
     thd_type_lp, thd_type_str = mapstore.apply_maps(
         namestore.thd_type, var_name)
@@ -202,12 +191,9 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         namestore.rop_rev, *default_inds)
 
     # T, P, V
-    T_lp, T_str = mapstore.apply_maps(
-        namestore.T_arr, global_ind)
-    V_lp, V_str = mapstore.apply_maps(
-        namestore.V_arr, global_ind)
-    P_lp, P_str = mapstore.apply_maps(
-        namestore.P_arr, global_ind)
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
+    P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
     pres_mod_lp, pres_mod_str = mapstore.apply_maps(
         namestore.pres_mod, *default_inds)
 
@@ -218,40 +204,32 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
 
     parameters = {'Ru': chem.RU}
     pre_instructions = [Template(
-        '<> fac = 1 / (Ru * ${T_str})').safe_substitute(**locals())]
-    if not conp:
-        thd_fac = '* fac * {} * rop_net '.format(V_str)
-    else:
-        thd_fac = ' * rop_net '
+        '<> rt_inv = 1 / (Ru * ${T_str})').safe_substitute(**locals())]
+    # the factor to multiply the 'factor' term by for updat
+    fac_term = (
+        '* rt_inv * {} * rop_net '.format(V_str) if not conp else ' * rop_net')
+    # the k0 / kinf factor
     manglers = []
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
     factor = 'dci_thd_dE'
+    # the pressure modification term to use (pres_mod for thd, Pr for falloff)
     fall_instructions = ''
     if rxn_type != reaction_type.thd:
         # update factors
-        factor = 'dci_fall_dT'
-        thd_fac = ''
+        factor = 'dci_fall_dE'
         # create arrays
         fall_type_lp, fall_type_str = mapstore.apply_maps(
             namestore.fall_type, var_name)
         Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
         Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
+        # set the pmod factor
         kf_lp, kf_str = mapstore.apply_maps(namestore.kf, *default_inds)
-        s_beta_lp, s_beta_str = mapstore.apply_maps(
-            namestore.simple_beta, var_name)
-        s_Ta_lp, s_Ta_str = mapstore.apply_maps(
-            namestore.simple_Ta, var_name)
         kf_fall_lp, kf_fall_str = mapstore.apply_maps(
             namestore.kf_fall, *default_inds)
-        f_beta_lp, f_beta_str = mapstore.apply_maps(
-            namestore.fall_beta, var_name)
-        f_Ta_lp, f_Ta_str = mapstore.apply_maps(
-            namestore.fall_Ta, var_name)
 
         kernel_data.extend([pres_mod_lp, fall_type_lp, Fi_lp, Pr_lp, kf_lp,
-                            s_beta_lp, s_Ta_lp, kf_fall_lp, f_beta_lp,
-                            f_Ta_lp])
+                            kf_fall_lp])
 
         # check for Troe / SRI
         if rxn_type == falloff_form.troe:
@@ -320,34 +298,36 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         else:
             dFi_instructions = '<> dFi = 0 {id=dFi_final}'
 
+        conp_theta_pr_outer_fac = Template(
+            '- ${pres_mod_str}').safe_substitute(**locals()) if conp else ''
+        conp_theta_pr_fac = Template('+ ${Pr_str}').safe_substitute(
+            **locals()) if conp else ''
+        fall_finish = '{} * rop_net '.format(V_str) if not conp else \
+            ' rop_net'
+        Pfac = ' * ' + P_str if conp else ''
         fall_instructions = Template("""
         if ${fall_type_str}
             # chemically activated
             <>kf_0 = ${kf_str} {id=kf_chem}
-            <>beta_0 = ${s_beta_str} {id=beta0_chem}
-            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem}
             <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
-            <>beta_inf = ${f_beta_str} {id=betaf_chem}
-            <>Ta_inf = ${f_Ta_str} {id=Taf_chem}
         else
             # fall-off
             kf_0 = ${kf_fall_str} {id=kf_fall}
-            beta_0 = ${f_beta_str} {id=beta0_fall}
-            Ta_0 = ${f_Ta_str} {id=Ta0_fall}
             kf_inf = ${kf_str} {id=kf_inf_fall}
-            beta_inf = ${s_beta_str} {id=betaf_fall}
-            Ta_inf = ${s_Ta_str} {id=Taf_fall}
         end
-        <> pmod = ${pres_mod_str}
-        <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) {id=theta_Pr, dep=beta*:kf*:Ta*}
-        <> theta_no_Pr = dci_thd_dT * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
+        mod = mod${Pfac} * rt_inv * kf_0 / \
+            kf_inf {id=mod_final, dep=kf*:mod_mix:mod_spec}
         ${dFi_instructions}
-        <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / (${Pr_str} + 1) + dFi) {id=dfall_init}
+        <> dci_fall_dE = ${pres_mod_str} * \
+            ((-mod${conp_theta_pr_fac})/ (${Pr_str} + 1) + \
+                dFi) {id=dci_fall_init}
         if not ${fall_type_str}
             # falloff
-            dci_fall_dT = dci_fall_dT + theta_Pr * pmod + ${Fi_str} * theta_no_Pr / (${Pr_str} + 1) {id=dfall_up1, dep=dfall_init}
+            dci_fall_dE = dci_fall_dE + ${Fi_str} * mod / (${Pr_str} + 1) \
+                ${conp_theta_pr_outer_fac} {id=dci_fall_up1, dep=dci_fall_init}
         end
-        dci_fall_dT = dci_fall_dT * ${V_str} * ${rop_net_str} {id=dfall_final, dep=dfall_up1}
+        dci_fall_dE = dci_fall_dE * ${fall_finish} \
+            {id=dci_fall_final, dep=dci_fall_up1}
         """).safe_substitute(**locals())
 
     mix = int(thd_body_type.mix)
@@ -361,48 +341,54 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
                         {id=rop_net_up, dep=rop_net_init}').safe_substitute(
                         **locals()))
 
-    if conp:
-        # get the concentrations of the third body species
-        conc_lp, conc_last_str = mapstore.apply_maps(
-            namestore.conc_arr, global_ind, thd_spec_last_str)
-        kernel_data.append(conc_lp)
+    # need to update mod term by subtracting off either pres_mod or Pr
+    # for conp-third body or falloff respectively
+    fall_deps = ':kf*' if rxn_type != reaction_type.thd else ''
+    mod_update = Template("""
+    if ${thd_type_str} != ${unity}
+        mod = mod * ${P_str} * rt_inv$ - ${pres_mod_str} \
+            {id=mod_up, dep=mod_mix:mod_spec${fall_deps}}
+    end
+    """).safe_substitute(**locals()) if conp and rxn_type == reaction_type.thd\
+        else ''
 
-        thd_mod_insns = Template("""
-        <> mod = ${thd_type_str} == ${mix} {id=mod_init}
-        if ${thd_type_str} == ${spec}
-            mod = ${conc_last_str} {id=mod_spec, dep=mod_init}
-        end
-        if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
-            mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
-        end
-        if ${thd_type_str} != ${unity}
-            mod = mod * ${P_str} * fac - ${pres_mod_str} \
-                {id=mod_up, dep=mod_mix:mod_spec}
-        end
-        """).safe_substitute(**locals())
-    else:
-        thd_mod_insns = Template("""
-        <> mod = 1 {id=mod_init}
-        if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
-            mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
-        end
-        if ${thd_type_str} == ${spec}
-            mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
-        end
-        """).safe_substitute(**locals())
+    # mod term initialization depends on conp / conv
+    mod_init = Template("""
+    <> mod = ${thd_type_str} == ${mix} {id=mod_init}
+    """).safe_substitute(**locals()) if conp else (
+        '<> mod = 1 {id=mod_init}')
+
+    # set the third body factor for the reactions (thd only)
+    thd_factor_set = Template(
+        '<> dci_thd_dE = mod${fac_term} \
+        {id=dci_thd_init, dep=mod*:rop_net*}').safe_substitute(
+        **locals()) if rxn_type == reaction_type.thd else ''
+
+    # set up third body only instruction
+    # (which get the Pr deriv for falloff)
+    thd_mod_insns = Template("""
+    ${mod_init}
+    if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
+        mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
+    end
+    if ${thd_type_str} == ${spec}
+        mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
+    end
+    ${mod_update}
+    ${thd_factor_set}
+    """).safe_substitute(**locals())
 
     # and instructions
     instructions = Template("""
     <> rop_net = ${rop_fwd_str} {id=rop_net_init}
     ${rop_net_rev_update}
     ${thd_mod_insns}
-    <> dci_thd_dE = mod${thd_fac} {id=dci_thd_init, dep=mod*:rop_net*}
     ${fall_instructions}
     <> offset = ${offset_str}
     <> offset_next = ${offset_next_str}
     for ${k_ind}
         ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-            ${factor} {dep=dci_thd*}
+            ${factor} {dep=dci_*}
     end
     """).safe_substitute(**locals())
 
@@ -422,8 +408,9 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
 def dci_thd_dE(eqs, loopy_opts, namestore, test_size=None,
                conp=True):
     """Generates instructions, kernel arguements, and data for calculating
-    the derivative of the pressure modification term w.r.t. the extra variable
-    (volume / pressure) for constant pressure/volume respectively
+    the derivative of the pressure modification term of third body reactions
+    w.r.t. the extra variable (volume / pressure) for constant pressure/volume
+    respectively
 
     Notes
     -----
@@ -453,6 +440,44 @@ def dci_thd_dE(eqs, loopy_opts, namestore, test_size=None,
 
     return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
                                 reaction_type.thd, conp=conp)]
+            if x is not None]
+
+
+def dci_lind_dE(eqs, loopy_opts, namestore, test_size=None,
+                conp=True):
+    """Generates instructions, kernel arguements, and data for calculating
+    the derivative of the pressure modification term of Lindemann falloff
+    reactions w.r.t. the extra variable (volume / pressure)
+    for constant pressure/volume respectively
+
+    Notes
+    -----
+    See :meth:`pyjac.core.create_jacobian.__dcidE`
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+                                falloff_form.lind, conp=conp)]
             if x is not None]
 
 
