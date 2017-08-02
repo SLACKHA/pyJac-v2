@@ -2983,18 +2983,25 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
     pre_instructions = Template('${spec_heat_total_str} = 0').safe_substitute(
         spec_heat_total_str=spec_heat_total_str)
     instructions = Template("""
-        ${spec_heat_total_str} = ${spec_heat_total_str} + ${spec_heat_str} * ${conc_str}
+        ${spec_heat_total_str} = ${spec_heat_total_str} + ${spec_heat_str} * \
+            ${conc_str}
     """).safe_substitute(
         spec_heat_total_str=spec_heat_total_str,
         spec_heat_str=spec_heat_str,
         conc_str=conc_str)
+
+    can_vectorize = not loopy_opts.depth
+    vec_spec = (
+        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
 
     return k_gen.knl_info(name='{}_total'.format(namestore.spec_heat.name),
                           pre_instructions=[pre_instructions],
                           instructions=instructions,
                           var_name=var_name,
                           kernel_data=kernel_data,
-                          mapstore=mapstore
+                          mapstore=mapstore,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec
                           )
 
 
