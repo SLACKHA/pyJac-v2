@@ -717,8 +717,15 @@ class kernel_call(object):
             ax_fac = 0
             for i, ax in enumerate(self.compare_axis):
                 shape = len(outv.shape)
-                outv = np.take(outv, self.compare_mask[index][i],
-                               axis=ax-ax_fac)
+                inds = self.compare_mask[index][i]
+
+                # some versions of numpy complain about implicit casts of
+                # the indicies inside np.take
+                try:
+                    inds = inds.astype('int64')
+                except:
+                    pass
+                outv = np.take(outv, inds, axis=ax-ax_fac)
                 if len(outv.shape) != shape:
                     ax_fac += shape - len(outv.shape)
             return outv.squeeze()
