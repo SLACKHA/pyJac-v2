@@ -585,7 +585,7 @@ class SubTest(TestClass):
             # (defined here by > 1e295)
             # _or_ allow_our_nans is True _and_ they're all nan's
             is_correct = is_correct and (
-                np.all(np.abs(our_vals[bad]) >= 1e295)
+                np.all(np.abs(our_vals[bad]) >= 1e285)
                 or (allow_our_nans and np.all(np.isnan(our_vals[bad]))))
 
             return is_correct
