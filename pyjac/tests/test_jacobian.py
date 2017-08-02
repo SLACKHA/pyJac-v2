@@ -1537,6 +1537,10 @@ class SubTest(TestClass):
             cond, x, y = mask
             cond = np.where(np.logical_not(cond))[0]
 
+            # if comparing all in auto_run, return True
+            if not cond.size:
+                return True
+
             # find where there isn't a match
             outv = our_vals[cond, x, y]
             refv = ref_vals[cond, x, y]
@@ -1556,11 +1560,11 @@ class SubTest(TestClass):
         test = self.__get_check(include)
 
         # and get mask
-        kc = [kernel_call('dRopi{}d{}'.format(name_desc, var_name),
+        kc = [kernel_call('dRopi{}_d{}'.format(name_desc, var_name),
                           [fd_jac], check=False,
                           strict_name_match=True,
                           allow_skip=test_variable, **args),
-              kernel_call('dRopi{}d{}_ns'.format(name_desc, var_name),
+              kernel_call('dRopi{}_d{}_ns'.format(name_desc, var_name),
                           [fd_jac], compare_mask=[(
                               test_conditions, test, diff_index)],
                           compare_axis=(0, 1, 2), chain=_chainer,
