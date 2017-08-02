@@ -1513,7 +1513,7 @@ class SubTest(TestClass):
 
         # get descriptor
         name_desc = ''
-        other_args = {'conp': conp}
+        other_args = {'conp': conp} if test_variable else {}
         tester = dRopidT if not test_variable else dRopidE
         if rxn_type == reaction_type.plog:
             name_desc = '_plog'
