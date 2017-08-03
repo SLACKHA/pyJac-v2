@@ -697,15 +697,6 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     'dRopi_dE = dRopi_dE + nu_rev * ${rop_rev_str} \
                 {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
 
-            deps = ':'.join(['dE_init'] + ['dE_update'] if rev_update else [])
-            pres_mod_update = ''
-            if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
-                pres_mod_update = ic.get_update_instruction(
-                    mapstore, namestore.pres_mod,
-                    Template(
-                        'dRopi_dE = dRopi_dE * ${pres_mod_str} \
-                    {id=dE_update2, dep=${deps}}').safe_substitute(**locals()))
-
             # handle constant pressure qi term
             conp_init = Template(
                 '<> ropnet = ${rop_fwd_str} {id=qi1}').safe_substitute(
@@ -717,23 +708,22 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     'ropnet = ropnet - ${rop_rev_str} \
                 {id=qi2, dep=qi1}').safe_substitute(**locals()))
 
-            deps = ':'.join(['qi1'] + ['qi2'] if conp_rev_update else [])
-            conp_pmod_update = ''
-            if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
-                conp_pmod_update = ic.get_update_instruction(
-                    mapstore, namestore.pres_mod,
-                    Template(
-                        'ropnet = ropnet * ${pres_mod_str} \
-                    {id=qi3, dep=${deps}}').safe_substitute(**locals()))
-
-            dRopE_deps = ':'.join(
-                ['dE_init'] + ['dE_update*']
-                if (rev_update or pres_mod_update)
-                else [])
+            deps = ':'.join(['qi1', 'dE_init'] +
+                            ['qi2'] if conp_rev_update else [])
             conp_final = Template(
                 'dRopi_dE = dRopi_dE + ropnet \
-                {id=dE_final, dep=${dRopE_deps}:qi*}').safe_substitute(
+                {id=qi3, dep=${deps}}').safe_substitute(
                 **locals())
+
+            deps = ':'.join(['dE_init', 'qi*'] +
+                            ['dE_update*'] if rev_update else [])
+            pres_mod_update = ''
+            if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
+                pres_mod_update = ic.get_update_instruction(
+                    mapstore, namestore.pres_mod,
+                    Template(
+                        'dRopi_dE = dRopi_dE * ${pres_mod_str} \
+                    {id=dE_final, dep=${deps}}').safe_substitute(**locals()))
 
             # all constant pressure cases are the same (Rop * sum of nu)
             instructions = Template("""
@@ -747,9 +737,8 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 <> dRopi_dE = -nu_fwd * ${rop_fwd_str} {id=dE_init, dep=nu*}
                 ${rev_update}
                 ${conp_rev_update}
-                ${pres_mod_update}
-                ${conp_pmod_update}
                 ${conp_final}
+                ${pres_mod_update}
                 """).safe_substitute(**locals())
         else:
             # conv
