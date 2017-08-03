@@ -579,7 +579,8 @@ class SubTest(TestClass):
             # entries (sometimes the Pr will not be exactly zero if it's
             # based on the concentration of the last species)
             is_correct = is_correct or (
-                (np.min(ref_vals[bad]) / np.max(ref_vals[good])) > 1e15)
+                (np.min(np.abs(ref_vals[bad])) /
+                    np.max(np.abs(ref_vals[good]))) > 1e15)
 
             # and ensure all our values are 'large' but finite numbers
             # (defined here by > 1e295)
