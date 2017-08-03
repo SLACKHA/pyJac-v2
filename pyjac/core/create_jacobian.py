@@ -242,9 +242,9 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
             c_lp, c_str = mapstore.apply_maps(namestore.sri_c, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp])
             pre_instructions.append(
-                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+                ic.default_pre_instructs('Tval', T_str, 'VAL'))
             pre_instructions.append(
-                rate.default_pre_instructs('Tinv', T_str, 'INV'))
+                ic.default_pre_instructs('Tinv', T_str, 'INV'))
             manglers.append(lp_pregen.fmax())
 
             sri_fac = (Template("""\
@@ -793,9 +793,9 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
                 # add plog instruction
-                pre_instructions.extend([rate.default_pre_instructs(
-                    'logP', P_str, 'LOG'), rate.default_pre_instructs(
-                    'logT', T_str, 'LOG'), rate.default_pre_instructs(
+                pre_instructions.extend([ic.default_pre_instructs(
+                    'logP', P_str, 'LOG'), ic.default_pre_instructs(
+                    'logT', T_str, 'LOG'), ic.default_pre_instructs(
                     'Tinv', T_str, 'INV')])
 
                 # and dkf instructions
@@ -874,8 +874,8 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
 
                 # preinstructions
                 pre_instructions.extend(
-                    [rate.default_pre_instructs('logP', P_str, 'LOG'),
-                     rate.default_pre_instructs('Tinv', T_str, 'INV')])
+                    [ic.default_pre_instructs('logP', P_str, 'LOG'),
+                     ic.default_pre_instructs('Tinv', T_str, 'INV')])
 
                 # various strings for preindexed limits, params, etc
                 _, Pmin_str = mapstore.apply_maps(
@@ -1312,7 +1312,7 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     else:
         parameters['Ru'] = chem.RU
         pre_instructions = ['<> sum = 0',
-                            rate.default_pre_instructs('Vinv', V_str, 'INV')]
+                            ic.default_pre_instructs('Vinv', V_str, 'INV')]
         instructions = Template("""
             sum = sum + (${spec_energy_str} - ${spec_heat_ns_str} * \
                 ${mw_str}) * ${dnkdot_de_str} * Vinv {id=up, dep=*}
@@ -1553,8 +1553,8 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
 <> rate_sum = 0
     """).safe_substitute(**locals()).split('\n')
     pre_instructions.extend([
-        rate.default_pre_instructs('Vinv', V_str, 'INV'),
-        rate.default_pre_instructs('Tinv', T_str, 'INV')])
+        ic.default_pre_instructs('Vinv', V_str, 'INV'),
+        ic.default_pre_instructs('Tinv', T_str, 'INV')])
 
     instructions = Template("""
         dTsum = dTsum + (${spec_heat_ns_str} * Tinv - ${dspec_heat_str}) * ${conc_str}
@@ -1630,10 +1630,10 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
 
     # instructions
     pre_instructions = ['<> sum = 0',
-                        rate.default_pre_instructs('Tinv', T_str, 'INV')]
+                        ic.default_pre_instructs('Tinv', T_str, 'INV')]
     if conp:
         pre_instructions.append(
-            rate.default_pre_instructs('Vinv', V_str, 'INV'))
+            ic.default_pre_instructs('Vinv', V_str, 'INV'))
         # sums
         instructions = Template("""
             sum = sum + (1 - ${mw_str}) * (Vinv * ${dnkdot_dT_str} + Tinv * \
@@ -1834,7 +1834,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
                         jac_lp, T_lp, V_lp, P_lp])
 
-    pre_instructions = [rate.default_pre_instructs('Tinv', T_str, 'INV')]
+    pre_instructions = [ic.default_pre_instructs('Tinv', T_str, 'INV')]
     parameters = {}
     manglers = []
     # by default we are using the third body factors (these may be changed
@@ -1888,7 +1888,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
                                 troe_T1_lp, troe_T2_lp, troe_T3_lp])
             pre_instructions.append(
-                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+                ic.default_pre_instructs('Tval', T_str, 'VAL'))
             dFi_instructions = Template("""
                 <> T1inv = -1 / ${troe_T1_str}
                 <> T3inv = -1 / ${troe_T3_str}
@@ -1916,7 +1916,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
             pre_instructions.append(
-                rate.default_pre_instructs('Tval', T_str, 'VAL'))
+                ic.default_pre_instructs('Tval', T_str, 'VAL'))
             manglers.append(lp_pregen.fmax())
 
             dFi_instructions = Template("""
@@ -2292,7 +2292,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         kernel_data.extend([
             beta_lp, Ta_lp, rop_fwd_lp, rop_rev_lp, dB_lp])
 
-        pre_instructions = [rate.default_pre_instructs(
+        pre_instructions = [ic.default_pre_instructs(
             'Tinv', T_str, 'INV')]
         if rxn_type == reaction_type.plog:
             lo_ind = 'lo'
@@ -2329,7 +2329,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
             # add plog instruction
-            pre_instructions.append(rate.default_pre_instructs(
+            pre_instructions.append(ic.default_pre_instructs(
                 'logP', P_str, 'LOG'))
 
             # and dkf instructions
@@ -2398,7 +2398,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
 
             # preinstructions
             pre_instructions.extend(
-                [rate.default_pre_instructs('logP', P_str, 'LOG')])
+                [ic.default_pre_instructs('logP', P_str, 'LOG')])
 
             # various strings for preindexed limits, params, etc
             _, Pmin_str = mapstore.apply_maps(
