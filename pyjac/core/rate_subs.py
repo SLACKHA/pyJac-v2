@@ -577,7 +577,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
-    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_sepecialzation()
+    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_specialization()
 
     return k_gen.knl_info(name='get_concentrations',
                           pre_instructions=[pre_instructions],
@@ -786,7 +786,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
 
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
-    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_sepecialzation()
+    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_specialization()
     return k_gen.knl_info(name='get_extra_var_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,

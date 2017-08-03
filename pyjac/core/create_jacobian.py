@@ -1325,7 +1325,7 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
     vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_specialization())
     return k_gen.knl_info(name='dTdotd{}'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
@@ -1423,7 +1423,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
     vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_specialization())
 
     return k_gen.knl_info(name='d{0}dotd{0}'.format('V' if conp else 'P'),
                           instructions=instructions,
@@ -1546,7 +1546,7 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
     vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_specialization())
 
     pre_instructions = Template("""
 <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) * ${conc_ns_str})
@@ -1660,7 +1660,7 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
 
     can_vectorize = not loopy_opts.depth
     vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_specialization())
 
     parameters = {'Ru': chem.RU}
     return k_gen.knl_info(name='d{}dotdT'.format('P' if conp else 'V'),
@@ -2968,7 +2968,7 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
 
     can_vectorize = not loopy_opts.depth
     vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_specialization())
 
     return k_gen.knl_info(name='{}_total'.format(namestore.spec_heat.name),
                           pre_instructions=[pre_instructions],
