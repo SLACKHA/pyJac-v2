@@ -25,31 +25,7 @@ from ..kernel_utils import kernel_gen as k_gen
 from .reaction_types import reaction_type, falloff_form, thd_body_type
 from . import chem_model as chem
 from . import instruction_creator as ic
-
-# external packages
-
-global_ind = 'j'
-"""str: The global initial condition index
-
-This is the string index for the global condition loop in generated kernels
-of :module:`rate_subs`
-"""
-
-
-var_name = 'i'
-"""str: The inner loop index
-
-This is the string index for the inner loops in generated kernels of
-:module:`rate_subs`
-"""
-
-
-default_inds = (global_ind, var_name)
-"""str: The default indicies used in main loops of :module:`rate_subs`
-
-This is the string indicies for the main loops for generated kernels in
-:module:`rate_subs`
-"""
+from .array_creator import (global_ind, var_name, default_inds)
 
 
 def __dcidE(eqs, loopy_opts, namestore, test_size=None,
@@ -1349,7 +1325,7 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
     vec_spec = (
-        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
     return k_gen.knl_info(name='dTdotd{}'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
@@ -1447,7 +1423,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
     vec_spec = (
-        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
 
     return k_gen.knl_info(name='d{0}dotd{0}'.format('V' if conp else 'P'),
                           instructions=instructions,
@@ -1570,7 +1546,7 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
     vec_spec = (
-        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
 
     pre_instructions = Template("""
 <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) * ${conc_ns_str})
@@ -1684,7 +1660,7 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
 
     can_vectorize = not loopy_opts.depth
     vec_spec = (
-        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
 
     parameters = {'Ru': chem.RU}
     return k_gen.knl_info(name='d{}dotdT'.format('P' if conp else 'V'),
@@ -2992,7 +2968,7 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
 
     can_vectorize = not loopy_opts.depth
     vec_spec = (
-        None if not loopy_opts.depth else rate.dummy_deep_sepecialzation())
+        None if not loopy_opts.depth else ic.dummy_deep_sepecialzation())
 
     return k_gen.knl_info(name='{}_total'.format(namestore.spec_heat.name),
                           pre_instructions=[pre_instructions],

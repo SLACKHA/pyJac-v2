@@ -7,6 +7,49 @@ etc.)
 import logging
 import inspect
 from string import Template
+import loopy as lp
+
+
+class atomic_deep_specialzation(object):
+
+    """
+    A reusable-class to enable serialized deep vectorizations (i.e. reductions
+    on a single OpenCL lane)
+    """
+
+    def __init__(self, atomic_ids=[], ):
+        pass
+
+    def __call__(self, knl):
+        # do a dummy split
+        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+        for insn in knl.instructions:
+            if not insn.within_inames & frozenset(['i_inner', 'i_outer']):
+                # add a fake dependency on the split iname
+                insn.within_inames |= frozenset(['i_inner'])
+
+        return knl.copy(instructions=knl.instructions[:])
+
+
+class dummy_deep_specialzation(object):
+
+    """
+    A reusable-class to enable serialized deep vectorizations (i.e. reductions
+    on a single OpenCL lane)
+    """
+
+    def __init__(self):
+        pass
+
+    def __call__(self, knl):
+        # do a dummy split
+        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
+        for insn in knl.instructions:
+            if not insn.within_inames & frozenset(['i_inner', 'i_outer']):
+                # add a fake dependency on the split iname
+                insn.within_inames |= frozenset(['i_inner'])
+
+        return knl.copy(instructions=knl.instructions[:])
 
 
 def get_update_instruction(mapstore, mask_arr, base_update_insn):
