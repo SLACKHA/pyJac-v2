@@ -31,29 +31,7 @@ from . reaction_types import reaction_type, falloff_form, thd_body_type, \
 from . import array_creator as arc
 from ..loopy_utils import preambles_and_manglers as lp_pregen
 from . import instruction_creator as ic
-
-global_ind = 'j'
-"""str: The global initial condition index
-
-This is the string index for the global condition loop in generated kernels
-of :module:`rate_subs`
-"""
-
-
-var_name = 'i'
-"""str: The inner loop index
-
-This is the string index for the inner loops in generated kernels of
-:module:`rate_subs`
-"""
-
-
-default_inds = (global_ind, var_name)
-"""str: The default indicies used in main loops of :module:`rate_subs`
-
-This is the string indicies for the main loops for generated kernels in
-:module:`rate_subs`
-"""
+from .array_creator import (global_ind, var_name, default_inds)
 
 
 def assign_rates(reacs, specs, rate_spec):
@@ -506,56 +484,6 @@ def assign_rates(reacs, specs, rate_spec):
     }
 
 
-def default_pre_instructs(result_name, var_str, INSN_KEY):
-    """
-    Simple helper method to return a number of precomputes based off the passed
-    instruction key
-
-    Parameters
-    ----------
-    result_name : str
-        The loopy temporary variable name to store in
-    var_str : str
-        The stringified representation of the variable to construct
-    key : ['INV', 'LOG', 'VAL']
-        The transform / value to precompute
-
-    Returns
-    -------
-    precompute : str
-        A loopy instruction in the form:
-            '<>result_name = fn(var_str)'
-    """
-    default_preinstructs = {'INV': '1 / {}'.format(var_str),
-                            'LOG': 'log({})'.format(var_str),
-                            'VAL': '{}'.format(var_str),
-                            'LOG10': 'log10({})'.format(var_str)}
-    return Template("<>${result} = ${value}").safe_substitute(
-        result=result_name,
-        value=default_preinstructs[INSN_KEY])
-
-
-class dummy_deep_sepecialzation(object):
-
-    """
-    A reusable-class to enable serialized deep vectorizations (i.e. reductions
-    on a single OpenCL lane)
-    """
-
-    def __init__(self):
-        pass
-
-    def __call__(self, knl):
-        # do a dummy split
-        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
-        for insn in knl.instructions:
-            if not insn.within_inames & frozenset(['i_inner', 'i_outer']):
-                # add a fake dependency on the split iname
-                insn.within_inames |= frozenset(['i_inner'])
-
-        return knl.copy(instructions=knl.instructions[:])
-
-
 def get_concentrations(eqs, loopy_opts, namestore, conp=True,
                        test_size=None):
     """Determines concentrations from moles and state variables depending
@@ -649,7 +577,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
-    vec_spec = None if not loopy_opts.depth else dummy_deep_sepecialzation()
+    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_sepecialzation()
 
     return k_gen.knl_info(name='get_concentrations',
                           pre_instructions=[pre_instructions],
@@ -724,7 +652,7 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
                                       *fixed_inds)
 
     V_val = 'V_val'
-    pre_instructions = default_pre_instructs(V_val, V_str, 'VAL')
+    pre_instructions = ic.default_pre_instructs(V_val, V_str, 'VAL')
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
@@ -858,7 +786,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
 
     can_vectorize = loopy_opts.depth is None
     # finally do vectorization ability and specializer
-    vec_spec = None if not loopy_opts.depth else dummy_deep_sepecialzation()
+    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_sepecialzation()
     return k_gen.knl_info(name='get_extra_var_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,
@@ -2130,8 +2058,8 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
     # preinstructions
     logP = 'logP'
     Tinv = 'Tinv'
-    preinstructs = [default_pre_instructs(logP, P_str, 'LOG'),
-                    default_pre_instructs(Tinv, T_str, 'INV')]
+    preinstructs = [ic.default_pre_instructs(logP, P_str, 'LOG'),
+                    ic.default_pre_instructs(Tinv, T_str, 'INV')]
 
     # various strings for preindexed limits, params, etc
     _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
@@ -2410,9 +2338,9 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
                            pre_instructions=[
-                               default_pre_instructs(Tinv, T_str, 'INV'),
-                               default_pre_instructs(logT, T_str, 'LOG'),
-                               default_pre_instructs(logP, P_str, 'LOG')],
+                               ic.default_pre_instructs(Tinv, T_str, 'INV'),
+                               ic.default_pre_instructs(logT, T_str, 'LOG'),
+                               ic.default_pre_instructs(logP, P_str, 'LOG')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2825,7 +2753,7 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                               default_pre_instructs('T', T_str, 'VAL')],
+                               ic.default_pre_instructs('T', T_str, 'VAL')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2982,11 +2910,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                   'var_name': var_name}
 
     default_preinstructs = {'Tinv':
-                            default_pre_instructs('Tinv', T_str, 'INV'),
+                            ic.default_pre_instructs('Tinv', T_str, 'INV'),
                             'logT':
-                            default_pre_instructs('logT', T_str, 'LOG'),
+                            ic.default_pre_instructs('logT', T_str, 'LOG'),
                             'Tval':
-                            default_pre_instructs('Tval', T_str, 'VAL')}
+                            ic.default_pre_instructs('Tval', T_str, 'VAL')}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
@@ -3568,7 +3496,7 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
                              for i in range(poly_dim)]))
 
     T_val = 'T'
-    preinstructs = [default_pre_instructs(T_val, T_str, 'VAL')]
+    preinstructs = [ic.default_pre_instructs(T_val, T_str, 'VAL')]
 
     return k_gen.knl_info(instructions=Template("""
         for k

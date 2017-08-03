@@ -15,6 +15,29 @@ problem_size = lp.ValueArg('problem_size', dtype=np.int32)
     The problem size variable for non-testing
 """
 
+global_ind = 'j'
+"""str: The global initial condition index
+
+This is the string index for the global condition loop in generated kernels
+of :module:`rate_subs`
+"""
+
+
+var_name = 'i'
+"""str: The inner loop index
+
+This is the string index for the inner loops in generated kernels of
+:module:`rate_subs`
+"""
+
+
+default_inds = (global_ind, var_name)
+"""str: The default indicies used in main loops of :module:`rate_subs`
+
+This is the string indicies for the main loops for generated kernels in
+:module:`rate_subs`
+"""
+
 
 class tree_node(object):
 
