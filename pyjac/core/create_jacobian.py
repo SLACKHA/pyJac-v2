@@ -1058,7 +1058,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                         reaction_type.plog: '_plog',
                         reaction_type.cheb: '_cheb'}
 
-    return k_gen.knl_info(name='dRopi{}d{}{}'.format(
+    return k_gen.knl_info(name='dRopi{}_d{}{}'.format(
         name_description[rxn_type],
         'V' if conp else 'P',
         '_ns' if do_ns else ''),
