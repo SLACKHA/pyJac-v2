@@ -52,6 +52,35 @@ class dummy_deep_specialzation(object):
         return knl.copy(instructions=knl.instructions[:])
 
 
+def default_pre_instructs(result_name, var_str, INSN_KEY):
+    """
+    Simple helper method to return a number of precomputes based off the passed
+    instruction key
+
+    Parameters
+    ----------
+    result_name : str
+        The loopy temporary variable name to store in
+    var_str : str
+        The stringified representation of the variable to construct
+    key : ['INV', 'LOG', 'VAL']
+        The transform / value to precompute
+
+    Returns
+    -------
+    precompute : str
+        A loopy instruction in the form:
+            '<>result_name = fn(var_str)'
+    """
+    default_preinstructs = {'INV': '1 / {}'.format(var_str),
+                            'LOG': 'log({})'.format(var_str),
+                            'VAL': '{}'.format(var_str),
+                            'LOG10': 'log10({})'.format(var_str)}
+    return Template("<>${result} = ${value}").safe_substitute(
+        result=result_name,
+        value=default_preinstructs[INSN_KEY])
+
+
 def get_update_instruction(mapstore, mask_arr, base_update_insn):
     """
     Handles updating a value by a possibly specified (masked value),
