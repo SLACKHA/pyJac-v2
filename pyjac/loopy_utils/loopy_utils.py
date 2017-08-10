@@ -98,6 +98,10 @@ class loopy_options(object):
         * A mapped kernel loops over only necessary indicies
             (e.g. plog reactions vs all) This may be faster for a
             non-vectorized kernel or wide-vectorization
+    use_atomics : bool [True]
+        Use atomic updates where necessary for proper deep-vectorization
+        If not, a sequential deep-vectorization (with only one thread/lane
+        active) will be used
     """
 
     def __init__(self,
@@ -113,7 +117,8 @@ class loopy_options(object):
                  spec_rates_sum_over_reac=True,
                  platform='',
                  knl_type='map',
-                 auto_diff=False):
+                 auto_diff=False,
+                 use_atomics=True):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -136,6 +141,7 @@ class loopy_options(object):
         assert knl_type in ['mask', 'map']
         self.knl_type = knl_type
         self.auto_diff = auto_diff
+        self.use_atomics = use_atomics
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform:

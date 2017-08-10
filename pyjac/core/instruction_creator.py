@@ -36,10 +36,12 @@ def get_deep_specializer(loopy_opts, **kwargs):
     -------
     can_vectorize: bool [True]
         Whether the resulting kernel can be properly vectorized or not
-    vectorization_specializer: 
+    vectorization_specializer: :class:`Callable`(:class:`loopy.LoopKernel`)
+        A function that takes as an argument the constructed kernel, and
+        modifies it so as to enable the required vectorization
     """
 
-    if loopy_opts.use_atomic:
+    if loopy_opts.use_atomics:
         return True, atomic_deep_specialization(**kwargs)
     else:
         return False, dummy_deep_specialization()
