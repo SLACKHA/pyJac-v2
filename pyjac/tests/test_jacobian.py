@@ -607,7 +607,8 @@ class SubTest(TestClass):
             thd_in_rev = np.where(
                 np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
             rev_update_map = np.where(
-                np.in1d(self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
+                np.in1d(
+                    self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
             rev_removed[:, rev_update_map] = rev_removed[
                 :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
             # remove ref pres mod = 0 (this is a 0 rate)

@@ -404,18 +404,18 @@ def set_adept_editor(knl,
                 initializers.append(init_template.substitute(
                     name=arg.name,
                     size=size,
-                    ))
+                ))
                 if indexed is not None and arg.name not in written_vars:
                     initializers.append(set_template.substitute(
                         name=arg.name,
                         indexed=indexed,
                         size=size
-                        ))
+                    ))
                 else:
                     initializers.append(zero_template.substitute(
                         name=arg.name,
                         size=size
-                        ))
+                    ))
 
     dep_set_template = Template("""
         for (int i = 0; i < ${size}; ++i)
@@ -461,8 +461,8 @@ def set_adept_editor(knl,
             arg_list[i] = name
 
         kernel_calls.append('ad_{name}({args});'.format(
-                    name=k.name,
-                    args=', '.join(arg_list)))
+            name=k.name,
+            args=', '.join(arg_list)))
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
@@ -777,6 +777,7 @@ class kernel_call(object):
                     output_variables[i].copy().squeeze(),
                     self.transformed_ref_ans[i].copy().squeeze(),
                     self.compare_mask[i])
+
         return allclear
 
 
@@ -931,183 +932,6 @@ def auto_run(knl, kernel_calls, device='0'):
         return kernel_calls.compare(out[0])
 
 
-def generate_map_instruction(oldname, newname, map_arr, affine=''):
-    """
-    Generates a loopy instruction that maps oldname -> newname via the
-    mapping array
-
-    Parameters
-    ----------
-    oldname : str
-        The old index to map from
-    newname : str
-        The new temporary variable to map to
-    map_arr : str
-        The array that holds the mappings
-    affine : str, optional
-        An optional affine mapping term that may be passed in
-
-    Returns
-    -------
-    map_inst : str
-        A strings to be used `loopy.Instruction`'s) for
-                given mapping
-    """
-
-    if affine and not affine.startswith(' '):
-        affine = ' ' + affine
-
-    return '<>{newname} = {mapper}[{oldname}]{affine}'.format(
-        newname=newname,
-        mapper=map_arr,
-        oldname=oldname,
-        affine=affine)
-
-
-def get_loopy_order(indicies, dimensions, order, numpy_arg=None):
-    """
-    This method serves to reorder loopy (and optionally corresponding numpy arrays)
-    to ensure proper cache-access patterns
-
-    Parameters
-    ----------
-    indicies : list of str
-        The `loopy.iname`'s in current order
-    dimensions : list of str/int
-        The numerical / string dimensions of the loopy array.
-    order : list of str
-        If not equal to 'F' (the order used internally in pyJac), the
-        indicies and dimensions must be transposed
-    numpy_arg : :class:`numpy.ndarray`, optional
-        If supplied, the same transformations will be applied to the numpy
-        array as well.
-
-    Returns
-    -------
-    indicies : list of str
-        The `loopy.iname`'s in transformed order
-    dimensions : list of str/int
-        The transformed dimensions
-    numpy_arg : :class:`numpy.ndarray`
-        The transformed numpy array, is None
-    """
-
-    if order not in ['C', 'F']:
-        raise Exception(
-            'Parameter order passed with unknown value: {}'.format(order))
-
-    if order != 'F':
-        # need to flip indicies / dimensions
-        indicies = indicies[::-1]
-        dimensions = dimensions[::-1]
-        if numpy_arg is not None:
-            numpy_arg = np.ascontiguousarray(np.copy(numpy_arg.T))
-    return indicies, dimensions, numpy_arg
-
-
-def get_loopy_arg(arg_name, indicies, dimensions,
-                  order, map_name=None,
-                  initializer=None,
-                  scope=scopes.GLOBAL,
-                  dtype=np.float64,
-                  force_temporary=False,
-                  read_only=True,
-                  map_result='',
-                  **kwargs):
-    """
-    Convience method that generates a loopy GlobalArg with correct indicies
-    and sizes.
-
-    Parameters
-    ----------
-    arg_name : str
-        The name of the array
-    indicies : list of str
-        See :param:`indicies`
-    dimensions : list of str or int
-        The dimensions of the `loopy.inames` in :param:`order`
-    last_ind : str
-        See :param:`last_ind` in :meth:`get_loopy_order`
-    additional_ordering : list of str/int
-        See :param:`additional_ordering` in :meth:`get_loopy_order`
-    map_name : dict
-        If not None, contains replacements for various indicies
-    initializer : `numpy.array`
-        If not None, the arg is assumed to be a :class:`loopy.TemporaryVariable`
-        with :param:`scope`
-    scope : :class:`loopy.temp_var_scope`
-        The scope of the temporary variable definition,
-        if initializer is not None, this must be supplied
-    force_temporary: bool
-        If true, this arg is a :class:`loopy.TemporaryVariable` regardless of value
-        of initializer
-    read_only: bool
-        If True, the :class:`loopy.TemporaryVariable` will be readonly
-    map_result : str
-        If not empty, use instead of the default 'variable_name'_map
-    kwargs : **'d dict
-        The keyword args to pass to the resulting arg
-
-    Returns
-    -------
-    * arg : `loopy.GlobalArg`
-        The generated loopy arg
-    * arg_str : str
-        A string form of the argument
-    * map_instructs : list of str
-        A list of strings to be used `loopy.Instruction`'s for
-        given mappings
-    """
-
-    if initializer is not None:
-        assert initializer.dtype == dtype
-
-    # first do any reordering
-    indicies, dimensions, initializer = get_loopy_order(indicies, dimensions, order,
-                                                        numpy_arg=initializer)
-
-    # next, figure out mappings
-    string_inds = indicies[:]
-    map_instructs = {}
-    if map_name is not None:
-        for imap in map_name:
-            # make a new name off the replaced iname
-            if map_result:
-                mapped_name = map_result
-            else:
-                mapped_name = '{}_map'.format(imap)
-            if map_name[imap].startswith('<>'):
-                # already an instruction
-                map_instructs[imap] = map_name[imap]
-                continue
-            # add a mapping instruction
-            map_instructs[imap] = generate_map_instruction(
-                newname=mapped_name,
-                map_arr=map_name[imap],
-                oldname=imap)
-            # and replace the index
-            string_inds[string_inds.index(imap)] = mapped_name
-
-    # finally make the argument
-    if initializer is None and not force_temporary:
-        arg = lp.GlobalArg(arg_name, shape=tuple(dimensions), dtype=dtype,
-                           **kwargs)
-    else:
-        if initializer is not None:
-            initializer = np.asarray(initializer, order=order, dtype=dtype)
-        arg = lp.TemporaryVariable(arg_name,
-                                   shape=tuple(dimensions),
-                                   initializer=initializer,
-                                   scope=scope,
-                                   read_only=read_only,
-                                   dtype=dtype,
-                                   **kwargs)
-
-    # and return
-    return arg, '{name}[{inds}]'.format(name=arg_name,
-                                        inds=','.join(string_inds)), map_instructs
-
-
 def get_target(lang, device=None, compiler=None):
     """
 
@@ -1116,7 +940,10 @@ def get_target(lang, device=None, compiler=None):
     lang : str
         One of the supported languages, {'c', 'cuda', 'opencl'}
     device : :class:`pyopencl.Device`
-        If supplied, and lang is 'opencl', passed to the :class:`loopy.PyOpenCLTarget`
+        If supplied, and lang is 'opencl', passed to the
+        :class:`loopy.PyOpenCLTarget`
+    compiler: str
+        If supplied, the C-compiler to use
 
     Returns
     -------
