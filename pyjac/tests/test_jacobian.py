@@ -1,4 +1,4 @@
-from . import TestClass
+from . import TestClass, get_test_platforms
 from ..core.rate_subs import (
     assign_rates, get_concentrations,
     get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
@@ -72,17 +72,12 @@ class SubTest(TestClass):
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
                              do_spec_per_reac=False,
-                             use_platform_instead=True,
-                             do_conp=True,
-                             do_vector=True,
-                             langs=['opencl']):
+                             do_conp=True):
+
+        platforms = get_test_platforms()
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
-        vectypes = [4, None] if do_vector else [None]
-        oploop = [('lang', langs),
-                  ('width', vectypes[:]),
-                  ('depth', vectypes[:]),
-                  ('order', ['C', 'F']),
+        oploop = [('order', ['C', 'F']),
                   ('ilp', [False]),
                   ('unr', [None, 4]),
                   ('auto_diff', [False])
@@ -97,16 +92,18 @@ class SubTest(TestClass):
         if do_spec_per_reac:
             oploop += [
                 ('spec_rates_sum_over_reac', [True, False])]
-        if use_platform_instead:
-            oploop += [('platform', ['CPU'])]
-        else:
-            oploop += [('device', get_device_list())]
         if do_conp:
             oploop += [('conp', [True, False])]
         oploop += [('knl_type', ['map'])]
-        oploop = OptionLoop(OrderedDict(oploop))
+        out = None
+        for p in platforms:
+            val = OptionLoop(OrderedDict(p + oploop))
+            if out is None:
+                out = val
+            else:
+                out = out + val
 
-        return eqs, oploop
+        return eqs, out
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None, do_spec_per_reac=False,

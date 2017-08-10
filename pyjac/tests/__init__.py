@@ -3,6 +3,7 @@ import cantera as ct
 import numpy as np
 import unittest
 import loopy as lp
+import yaml
 
 # system
 import os
@@ -12,6 +13,8 @@ from ..sympy_utils.sympy_interpreter import load_equations
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
+from optionloop import OptionLoop
+from collections import OrderedDict
 
 logging.getLogger('root').setLevel(logging.WARNING)
 
@@ -22,6 +25,66 @@ build_dir = os.path.join(script_dir, 'out')
 obj_dir = os.path.join(script_dir, 'obj')
 lib_dir = os.path.join(script_dir, 'lib')
 utils.create_dir(build_dir)
+
+
+def get_test_platforms(do_vector=True, langs=['opencl']):
+    try:
+        # try to load user specified platforms
+        with open(os.path.join(script_dir, 'test_platforms.yaml'),
+                  'r') as file:
+            platforms = yaml.load(file.read())
+
+        oploop = []
+        # put into oploop form
+        for platform in platforms:
+            p = platforms[platform]
+
+            # get lang
+            inner_loop = [('lang', 'opencl' if 'lang' not in p else p['lang'])]
+
+            # get vectorization type and size
+            vectype = None if 'vectype' not in p else p['vectype']
+            vecsize = 4 if 'vecsize' not in p else int(p['vecsize'])
+            if vectype is not None:
+                for v in [x.lower() for x in vectype]:
+                    if v == 'wide':
+                        inner_loop.append(('width', [vecsize, None]))
+                    if v == 'deep':
+                        inner_loop.append(('depth', [vecsize, None]))
+
+            # fill in missing vectypes
+            for x in ['width', 'depth']:
+                if next((y for y in inner_loop if y[0] == x), None) is None:
+                    inner_loop.append((x, None))
+
+            # and store platform
+            inner_loop.append((
+                'platform', None if 'type' not in p else p['type']))
+
+            # create option loop and add
+            oploop += [inner_loop]
+
+        return oploop
+    except IOError:
+        # file not found, use default of opencl
+        import pyopencl as cl
+        device_types = [cl.device_type.CPU, cl.device_type.GPU,
+                        cl.device_type.ACCELERATOR]
+        platforms = cl.get_platforms()
+        dev_list = []
+        for p in platforms:
+            for dev_type in device_types:
+                devices = p.get_devices(dev_type=dev_type)
+                if devices:
+                    dev_list.append(devices[0])
+
+        vectypes = [4, None] if do_vector else [None]
+        oploop = [[
+            ('devices', dev_list),
+            ('width', vectypes[:]),
+            ('width', vectypes[:]),
+            ('lang', langs[:])]]
+        return oploop
 
 
 class storage(object):
