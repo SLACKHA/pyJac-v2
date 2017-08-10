@@ -3,8 +3,7 @@ from __future__ import print_function
 # package imports
 from enum import IntEnum
 import loopy as lp
-from loopy.kernel.data import temp_var_scope as scopes
-from loopy.target.c.c_execution import CppCompiler
+from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
 import pyopencl as cl
 from .. import utils
