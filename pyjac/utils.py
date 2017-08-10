@@ -20,7 +20,7 @@ comment = dict(c='//', cuda='//',
                )
 """dict: comment characters for each language"""
 
-langs = ['c', 'opencl']  # , 'cuda'
+langs = ['c', 'opencl', 'ispc']  # , 'cuda'
 """list(`str`): list of supported languages"""
 
 file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
@@ -42,7 +42,8 @@ decl_map = {'opencl': '__global',
 
 can_vectorize_lang = {'c': False,
                       'cuda': True,
-                      'opencl': True}
+                      'opencl': True,
+                      'ispc': True}
 """dict: defines whether a language can be 'vectorized' in the loopy sense"""
 
 exp_10_fun = dict(c="pow(10.0, ", cuda='exp10(',

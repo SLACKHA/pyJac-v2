@@ -806,7 +806,9 @@ def populate(knl, kernel_calls, device='0',
     assert len(knl), 'No kernels supplied!'
 
     # create context
-    ctx, queue = get_context(device)
+    queue = None
+    if any(isinstance(k.target, lp.PyOpenCLTarget) for k in knl):
+        _, queue = get_context(device)
 
     if editor is None:
         editor = set_editor
@@ -1125,8 +1127,17 @@ def get_target(lang, device=None, compiler=None):
         return lp.CTarget(compiler=compiler)
     elif lang == 'cuda':
         return lp.CudaTarget()
+    elif lang == 'ispc':
+        return lp.ISPCTarget()
 
 
-class AdeptCompiler(CppCompiler):
-    default_compile_flags = '-O3 -fopenmp -fPIC'.split()
-    default_link_flags = '-O3 -shared -ladept -fopenmp -fPIC'.split()
+class AdeptCompiler(CPlusPlusCompiler):
+    def __init__(self, *args, **kwargs):
+        defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
+                    'ldflags': '-O3 -shared -ladept -fopenmp -fPIC'.split()}
+
+        # update to use any user specified info
+        defaults.update(kwargs)
+
+        # and create
+        super(CppCompiler, self).__init__(*args, **defaults)
