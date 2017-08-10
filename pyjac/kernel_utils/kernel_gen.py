@@ -72,6 +72,8 @@ def make_kernel_generator(loopy_opts, *args, **kw_args):
             return autodiff_kernel_generator(loopy_opts, *args, **kw_args)
     if loopy_opts.lang == 'opencl':
         return opencl_kernel_generator(loopy_opts, *args, **kw_args)
+    if loopy_opts.lang == 'ispc':
+        return ispc_kernel_generator(loopy_opts, *args, **kw_args)
     raise NotImplementedError()
 
 
@@ -1207,6 +1209,13 @@ class autodiff_kernel_generator(c_kernel_generator):
         """
 
         self.extra_kernel_data.append(jacobian)
+
+
+class ispc_kernel_generator(kernel_generator):
+    def __init__(self, *args, **kw_args):
+        super(ispc_kernel_generator, self).__init__(*args, **kw_args)
+
+    # TODO: fill in
 
 
 class opencl_kernel_generator(kernel_generator):
