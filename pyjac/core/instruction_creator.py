@@ -8,10 +8,11 @@ import logging
 import inspect
 from string import Template
 import loopy as lp
+from loopy.types import AtomicType
 from .array_creator import var_name
 
 
-def get_deep_specializer(loopy_opts, **kwargs):
+def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[]):
     """
     Returns a deep specializer to enable deep vectorization using either
     atomic updates or a sequential (single-lane/thread) "dummy" deep
@@ -41,13 +42,40 @@ def get_deep_specializer(loopy_opts, **kwargs):
         modifies it so as to enable the required vectorization
     """
 
+    if not loopy_opts.depth:
+        # no need to do anything
+        return True, None
+
     if loopy_opts.use_atomics:
-        return True, atomic_deep_specialization(**kwargs)
+        return True, atomic_deep_specialization(
+            atomic_ids=atomic_ids, split_ids=split_ids)
     else:
         return False, dummy_deep_specialization()
 
 
-class atomic_deep_specialization(object):
+class within_inames_specializer(object):
+    """
+    A simple class designed to ensure all kernels are vectorizable
+    by putting instructions that do not use the local hardware axis inside the
+    correct loop.
+
+    This should _not_ be used for anything but deep-vectorizations
+    """
+    def __init__(self, var_name=var_name):
+        self.var_name = var_name
+
+    def __call__(self, knl):
+        # get resulting tags
+        in_tag = '{}_inner'.format(self.var_name)
+        for insn in knl.instructions:
+            if not insn.within_inames & frozenset([in_tag]):
+                # add a fake dependency on the vectorized iname
+                insn.within_inames |= frozenset([in_tag])
+
+        return knl.copy(instructions=knl.instructions[:])
+
+
+class atomic_deep_specialization(within_inames_specializer):
     """
     A class that turns write race instructions to atomics to enable deep
     vectorization
@@ -63,51 +91,49 @@ class atomic_deep_specialization(object):
     """
 
     def __init__(self, atomic_ids=[], split_ids=[]):
-        if not isinstance(atomic_ids, list):
-            atomic_ids = [atomic_ids]
-        self.atomic_ids = atomic_ids[:]
-        if not isinstance(split_ids, list):
-            split_ids = [split_ids]
-        self.split_ids = split_ids[:]
+        def _listify(x):
+            if not isinstance(x, list):
+                return [x]
+            return x
+        # set parameters
+        self.atomic_ids = _listify(atomic_ids)[:]
+        self.split_ids = _listify(split_ids)[:]
+
+        # and parent constructor
+        super(atomic_deep_specialization, self).__init__()
 
     def __call__(self, knl):
         insns = knl.instructions[:]
         data = knl.args[:]
         for insn_ind, insn in enumerate(insns):
             if insn.id in self.atomic_ids:
-                import pdb; pdb.set_trace()
-                written = insn.written_vars[0].copy()
+                # get the kernel arg written by this insn
+                written = insn.assignee_var_names()[0]
                 ind = next(
-                    i for i, d in enumerate(data) if d.name == written.name)
-                data[ind] = data[ind].copy(for_atomic=True)
+                    i for i, d in enumerate(data) if d.name == written)
+                # make sure the dtype is atomic, if not update it
+                if not isinstance(data[ind].dtype, AtomicType):
+                    data[ind] = data[ind].copy(for_atomic=True)
+                # and force the insn to an atomic update
                 insns[insn_ind] = insn.copy(
-                    atomic=lp.AtomicUpdate(written.name))
+                    atomicity=(lp.AtomicUpdate(written),))
 
-        return knl.copy(instructions=insns, args=data)
+        # now force all instructions into inner loop
+        return super(atomic_deep_specialization, self).__call__(
+            knl.copy(instructions=insns, args=data))
 
 
-class dummy_deep_specialization(object):
-
+class dummy_deep_specialization(within_inames_specializer):
     """
     A reusable-class to enable serialized deep vectorizations (i.e. reductions
     on a single OpenCL lane)
     """
 
-    def __init__(self, var_name=var_name):
-        self.var_name = var_name
-
     def __call__(self, knl):
         # do a dummy split
         knl = lp.split_iname(knl, self.var_name, 1, inner_tag='l.0')
-        # get resulting tags
-        in_tag = '{}_inner'.format(self.var_name)
-        out_tag = '{}_outer'.format(self.var_name)
-        for insn in knl.instructions:
-            if not insn.within_inames & frozenset([in_tag, out_tag]):
-                # add a fake dependency on the split iname
-                insn.within_inames |= frozenset([in_tag])
-
-        return knl.copy(instructions=knl.instructions[:])
+        # now call the base to force all instructions inside the inner loop
+        return super(dummy_deep_specialization, self).__call__(knl)
 
 
 def default_pre_instructs(result_name, var_str, INSN_KEY):
