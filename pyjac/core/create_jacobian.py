@@ -2945,23 +2945,25 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
 
     kernel_data.extend([spec_heat_lp, conc_lp, spec_heat_tot_lp])
 
-    pre_instructions = Template('${spec_heat_total_str} = 0').safe_substitute(
-        spec_heat_total_str=spec_heat_total_str)
+    pre_instructions = Template("""
+        <>spec_tot = 0
+        """).safe_substitute(**locals())
     instructions = Template("""
-        ${spec_heat_total_str} = ${spec_heat_total_str} + ${spec_heat_str} * \
-            ${conc_str}
-    """).safe_substitute(
-        spec_heat_total_str=spec_heat_total_str,
-        spec_heat_str=spec_heat_str,
-        conc_str=conc_str)
+        spec_tot = spec_tot + ${spec_heat_str} * \
+            ${conc_str} {id=update}
+    """).safe_substitute(**locals())
+    post_instructions = Template("""
+        ${spec_heat_total_str} = ${spec_heat_total_str} + spec_tot \
+            {id=sum, dep=update}
+    """).safe_substitute(**locals())
 
-    can_vectorize = not loopy_opts.depth
-    vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_specialization())
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['sum'])
 
     return k_gen.knl_info(name='{}_total'.format(namestore.spec_heat.name),
                           pre_instructions=[pre_instructions],
                           instructions=instructions,
+                          post_instructions=[post_instructions],
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,

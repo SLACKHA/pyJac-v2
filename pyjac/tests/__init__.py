@@ -13,8 +13,6 @@ from ..sympy_utils.sympy_interpreter import load_equations
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
-from optionloop import OptionLoop
-from collections import OrderedDict
 
 logging.getLogger('root').setLevel(logging.WARNING)
 
@@ -56,6 +54,10 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
             for x in ['width', 'depth']:
                 if next((y for y in inner_loop if y[0] == x), None) is None:
                     inner_loop.append((x, None))
+
+            # check for atomics
+            if 'atomics' in p:
+                inner_loop.append(('use_atomics', p['atomics']))
 
             # and store platform
             inner_loop.append((

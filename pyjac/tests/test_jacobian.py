@@ -1058,7 +1058,8 @@ class SubTest(TestClass):
         cp_args = {'cp': lambda x: np.array(
             self.store.spec_cp, order=x, copy=True),
             'conc': lambda x: np.array(
-            self.store.concs, order=x, copy=True)}
+            self.store.concs, order=x, copy=True),
+            'cp_tot': lambda x: np.zeros_like(ref_cp, order=x)}
 
         # call
         kc = [kernel_call('cp_total', [ref_cp], strict_name_match=True,
@@ -1073,7 +1074,8 @@ class SubTest(TestClass):
         cv_args = {'cv': lambda x: np.array(
             self.store.spec_cv, order=x, copy=True),
             'conc': lambda x: np.array(
-            self.store.concs, order=x, copy=True)}
+            self.store.concs, order=x, copy=True),
+            'cv_tot': lambda x: np.zeros_like(ref_cp, order=x)}
 
         # call
         kc = [kernel_call('cv_total', [ref_cv], strict_name_match=True,
