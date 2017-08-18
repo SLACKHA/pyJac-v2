@@ -12,7 +12,8 @@ from loopy.types import AtomicType
 from .array_creator import var_name
 
 
-def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[]):
+def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
+                         force_sequential=False):
     """
     Returns a deep specializer to enable deep vectorization using either
     atomic updates or a sequential (single-lane/thread) "dummy" deep
@@ -24,14 +25,16 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[]):
     loopy_opts: :class:`loopy_utils.loopy_opts`
         The loopy options used to create this kernel.  Determines the type
         of deep specializer to return
-    atomic_ids : list of str
+    atomic_ids: list of str
         A list of instruction id-names that require atomic updates for
         deep vectorization
-    split_ids : list of str
+    split_ids: list of str
         For instructions where (e.g.) a sum starts with a constant term,
         the easiest way to handle it is to split it over all the threads /
         lanes and have them contribute equally to the final sum.
         These instructions ids should be passed as split_ids
+    init_ids: list of str
+        List of instructions that initialize atomic variables
 
     Returns
     -------
@@ -46,9 +49,10 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[]):
         # no need to do anything
         return True, None
 
-    if loopy_opts.use_atomics:
+    if loopy_opts.use_atomics and not force_sequential:
         return True, atomic_deep_specialization(
-            atomic_ids=atomic_ids, split_ids=split_ids)
+            loopy_opts.depth, atomic_ids=atomic_ids,
+            split_ids=split_ids, init_ids=init_ids)
     else:
         return False, dummy_deep_specialization()
 
@@ -80,6 +84,8 @@ class atomic_deep_specialization(within_inames_specializer):
     A class that turns write race instructions to atomics to enable deep
     vectorization
 
+    vec_width: int
+        The vector width to split over
     atomic_ids : list of str
         A list of instruction id-names that require atomic updates for
         deep vectorization
@@ -88,16 +94,20 @@ class atomic_deep_specialization(within_inames_specializer):
         the easiest way to handle it is to split it over all the threads /
         lanes and have them contribute equally to the final sum.
         These instructions ids should be passed as split_ids
+    init_ids: list of str
+        Lit of instruction id-names that require atomic inits for deep vectorization
     """
 
-    def __init__(self, atomic_ids=[], split_ids=[]):
+    def __init__(self, vec_width, atomic_ids=[], split_ids=[], init_ids=[]):
         def _listify(x):
             if not isinstance(x, list):
                 return [x]
             return x
         # set parameters
+        self.vec_width = vec_width
         self.atomic_ids = _listify(atomic_ids)[:]
         self.split_ids = _listify(split_ids)[:]
+        self.init_ids = _listify(init_ids)[:]
 
         # and parent constructor
         super(atomic_deep_specialization, self).__init__()
@@ -105,22 +115,50 @@ class atomic_deep_specialization(within_inames_specializer):
     def __call__(self, knl):
         insns = knl.instructions[:]
         data = knl.args[:]
+
+        # we generally need to infer the dtypes for temporary variables at this stage
+        # in case any of them are atomic
+        from loopy.type_inference import infer_unknown_types
+        from loopy.types import to_loopy_type
+        knl = infer_unknown_types(knl, expect_completion=True)
+        temps = knl.temporary_variables.copy()
+
+        def _check_atomic_data(insn):
+            # get the kernel arg written by this insn
+            written = insn.assignee_var_names()[0]
+            ind = next(
+                (i for i, d in enumerate(data) if d.name == written), None)
+            # make sure the dtype is atomic, if not update it
+            if ind is not None and not isinstance(data[ind].dtype, AtomicType):
+                data[ind] = data[ind].copy(for_atomic=True)
+            elif ind is None:
+                assert written in temps, (
+                    'Cannot find written atomic variable: {}'.format(written))
+                if not isinstance(temps[written].dtype, AtomicType):
+                    temps[written] = temps[written].copy(dtype=to_loopy_type(
+                        temps[written].dtype, for_atomic=True))
+            return written
+
         for insn_ind, insn in enumerate(insns):
             if insn.id in self.atomic_ids:
-                # get the kernel arg written by this insn
-                written = insn.assignee_var_names()[0]
-                ind = next(
-                    i for i, d in enumerate(data) if d.name == written)
-                # make sure the dtype is atomic, if not update it
-                if not isinstance(data[ind].dtype, AtomicType):
-                    data[ind] = data[ind].copy(for_atomic=True)
+                written = _check_atomic_data(insn)
                 # and force the insn to an atomic update
                 insns[insn_ind] = insn.copy(
                     atomicity=(lp.AtomicUpdate(written),))
+            elif insn.id in self.init_ids:
+                written = _check_atomic_data(insn)
+                # setup an atomic init
+                insns[insn_ind] = insn.copy(
+                    atomicity=(lp.AtomicInit(written),))
+            elif insn.id in self.split_ids:
+                written = _check_atomic_data(insn)
+                insns[insn_ind] = insn.copy(
+                    expression=insn.expression / self.vec_width,
+                    atomicity=(lp.AtomicInit(written),))
 
         # now force all instructions into inner loop
         return super(atomic_deep_specialization, self).__call__(
-            knl.copy(instructions=insns, args=data))
+            knl.copy(instructions=insns, args=data, temporary_variables=temps))
 
 
 class dummy_deep_specialization(within_inames_specializer):
