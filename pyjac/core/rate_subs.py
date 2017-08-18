@@ -552,19 +552,19 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
     kernel_data.extend([n_arr, P_arr, V_arr, T_arr, conc_arr])
 
     pre_instructions = Template(
-        """
-            <>n = ${P_str} * ${V_str} / (R_u * ${T_str})
-            <>V_inv = 1.0d / ${V_str}
-            <>n_sum = 0 {id=n_init}
+        """<>V_inv = 1.0d / ${V_str}
+           <>n_sum = 0
+           ${cns_str} = ${P_str} / (R_u * ${T_str}) {id=cns_init}
         """).substitute(
             P_str=P_str,
             V_str=V_str,
-            T_str=T_str)
+            T_str=T_str,
+            cns_str=conc_ns_str)
 
     instructions = Template(
         """
-            ${conc_str} = ${n_str} * V_inv
-            n_sum = n_sum + ${n_str} {id=n_update, dep=n_init}
+            ${conc_str} = ${n_str} * V_inv {id=cn_init}
+            n_sum = n_sum + ${n_str} {id=n_update}
         """).substitute(
             conc_str=conc_str,
             n_str=n_str
@@ -572,12 +572,12 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     post_instructions = Template(
         """
-        ${cns_str} = (n - n_sum) * V_inv {dep=n_update}
+        ${cns_str} = ${cns_str} - n_sum * V_inv {id=cns_set, dep=n_update}
         """).substitute(cns_str=conc_ns_str)
 
-    can_vectorize = loopy_opts.depth is None
-    # finally do vectorization ability and specializer
-    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_specialization()
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['cns_set'],
+        init_ids=['cns_init', 'cn_init'])
 
     return k_gen.knl_info(name='get_concentrations',
                           pre_instructions=[pre_instructions],
@@ -733,60 +733,90 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
     Edot_lp, Edot_str = mapstore.apply_maps(namestore.E_dot,
                                             *fixed_inds)
 
-    T_lp, T_str = mapstore.apply_maps(namestore.T_arr,
-                                      *fixed_inds)
-    P_lp, P_str = mapstore.apply_maps(namestore.P_arr,
-                                      *fixed_inds)
-    Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot,
-                                            *fixed_inds)
-    mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr,
-                                        *(var_name,))
+    T_lp, T_str = mapstore.apply_maps(namestore.T_arr, *fixed_inds)
+    P_lp, P_str = mapstore.apply_maps(namestore.P_arr, *fixed_inds)
+    Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, *fixed_inds)
+    mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr, *(var_name,))
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, *fixed_inds)
 
     kernel_data.extend([wdot_lp, Edot_lp, T_lp, P_lp, Tdot_lp, mw_lp])
 
-    pre_instructions = ['<>dE = 0.0d {id=init}']
+    if conp:
+        pre_instructions = [
+            Template('${Edot_str} = ${V_str} * ${Tdot_str} / ${T_str} \
+                     {id=init}').safe_substitute(
+                **locals()),
+            '<>dE = 0.0d'
+        ]
+    else:
+        pre_instructions = [
+            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_str}\
+                     {id=init}').safe_substitute(
+                **locals()),
+            '<>dE = 0.0d'
+        ]
 
     instructions = Template(
         """
-            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum, dep=init}
+            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum}
             """
-    ).substitute(
-        mw_str=mw_str,
-        wdot_str=wdot_str)
+    ).safe_substitute(**locals())
 
     if conp:
-        V_lp, V_str = mapstore.apply_maps(namestore.V_arr,
-                                          *fixed_inds)
         kernel_data.append(V_lp)
 
-        post_instructions = [Template(
-            """
-            ${Edot_str} = ${V_str} * ((${T_str} * R_u / ${P_str}) * dE + ${Tdot_str} / ${T_str}) {id=end, dep=sum}
-            """
-        ).substitute(
-            V_str=V_str,
-            T_str=T_str,
-            P_str=P_str,
-            Tdot_str=Tdot_str,
-            Edot_str=Edot_str
-        )
-        ]
-    else:
-        post_instructions = [Template(
-            """
-            ${Edot_str} = ${T_str} * R_u * dE + ${Tdot_str} * ${P_str} / ${T_str} {id=end, dep=sum}
-            """
-        ).substitute(
-            T_str=T_str,
-            P_str=P_str,
-            Tdot_str=Tdot_str,
-            Edot_str=Edot_str
-        )
-        ]
+        if loopy_opts.use_atomics and loopy_opts.depth:
+            # need to fix the post instructions to work atomically
+            pre_instructions = ['<>dE = 0.0d']
+            post_instructions = [Template(
+                """
+                temp_sum = ${V_str} * ${Tdot_str} / ${T_str} {id=temp_init, dep=*,\
+                                                              atomic}
+                ... lbarrier {id=lb1, dep=temp_init}
+                temp_sum = temp_sum + ${V_str} * dE * ${T_str} * R_u /  ${P_str} \
+                    {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
+                ... lbarrier {id=lb2, dep=temp_sum}
+                ${Edot_str} = temp_sum {id=final, dep=lb2, atomic, nosync=temp_init}
+                """
+                ).safe_substitute(**locals())]
+            kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
+                                                    scope=scopes.LOCAL))
+        else:
+            post_instructions = [Template(
+                """
+                ${Edot_str} = ${Edot_str} + ${V_str} * dE * ${T_str} * R_u / \
+                    ${P_str} {id=end, dep=sum:init, nosync=init}
+                """).safe_substitute(**locals())
+            ]
 
-    can_vectorize = loopy_opts.depth is None
-    # finally do vectorization ability and specializer
-    vec_spec = None if not loopy_opts.depth else ic.dummy_deep_specialization()
+    else:
+        if loopy_opts.use_atomics and loopy_opts.depth:
+            # need to fix the post instructions to work atomically
+            pre_instructions = ['<>dE = 0.0d']
+            post_instructions = [Template(
+                """
+                temp_sum = ${P_str} * ${Tdot_str} / ${T_str} {id=temp_init, dep=*,\
+                                                              atomic}
+                ... lbarrier {id=lb1, dep=temp_init}
+                temp_sum = temp_sum + ${T_str} * R_u * dE \
+                    {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
+                ... lbarrier {id=lb2, dep=temp_sum}
+                ${Edot_str} = temp_sum {id=final, dep=lb2, atomic, nosync=temp_init}
+                """
+                ).safe_substitute(**locals())]
+            kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
+                                                    scope=scopes.LOCAL))
+        else:
+            post_instructions = [Template(
+                """
+                ${Edot_str} = ${Edot_str} + ${T_str} * R_u * dE {id=end, dep=sum:init, \
+                                                                 nosync=init}
+                """
+            ).safe_substitute(**locals())]
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['final', 'temp_sum'],
+        init_ids=['init', 'temp_init'])
     return k_gen.knl_info(name='get_extra_var_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,
@@ -862,10 +892,14 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
     if conp:
         h_lp, h_str = mapstore.apply_maps(namestore.h, *default_inds)
         cp_lp, cp_str = mapstore.apply_maps(namestore.cp, *default_inds)
+        energy_str = h_str
+        spec_heat_str = cp_str
         kernel_data.extend([h_lp, cp_lp])
     else:
         u_lp, u_str = mapstore.apply_maps(namestore.u, *default_inds)
         cv_lp, cv_str = mapstore.apply_maps(namestore.cv, *default_inds)
+        energy_str = u_str
+        spec_heat_str = cv_str
         kernel_data.extend([u_lp, cv_lp])
 
     conc_lp, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
@@ -875,94 +909,48 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
 
     kernel_data.extend([conc_lp, Tdot_lp, wdot_lp])
 
-    # put together conv/conp terms
-    if conp:
-        term = sp_utils.sanitize(term, subs={
-            'H[k]': h_str,
-            'dot{omega}[k]': wdot_str,
-            '[C][k]': conc_str,
-            '{C_p}[k]': cp_str,
-        })
-    else:
-        term = sp_utils.sanitize(term, subs={
-            'U[k]': u_str,
-            'dot{omega}[k]': wdot_str,
-            '[C][k]': conc_str,
-            '{C_v}[k]': cv_str,
-        })
-    # now split into upper / lower halves
-    factor = -1
+    pre_instructions = [Template(
+        """
+        <> upper = 0
+        <> lower = 0
+        ${Tdot_str} = 0 {id=init}
+        """).safe_substitute(**locals())]
+    instructions = Template(
+        """
+            upper = upper + ${energy_str} * ${wdot_str} {id=sum1}
+            lower = lower + ${conc_str} * ${spec_heat_str} {id=sum2}
+        """
+    ).safe_substitute(**locals())
 
-    def separate(term):
-        upper = sp.Mul(
-            *[x for x in sp.Mul.make_args(term) if not x.has(sp.Pow) and x.has(sp.Sum)])
-        lower = factor / (term / upper)  # take inverse
-        upper = sp.Mul(
-            *[x if not x.has(sp.Sum) else x.function for x in sp.Mul.make_args(upper)])
-        lower = lower.function
-        return upper, lower
+    post_instructions = [Template(
+        """
+        ${Tdot_str} = ${Tdot_str} - upper / lower {id=final, dep=sum*}
+        """
+    ).safe_substitute(**locals())]
 
-    upper, lower = separate(term)
+    if loopy_opts.use_atomics and loopy_opts.depth:
+        # need to fix the post instructions to work atomically
+        post_instructions = [Template(
+            """
+            temp_sum = 0 {id=temp_init, atomic}
+            temp_sum = temp_sum + lower {id=temp_sum, dep=temp_init:sum*,\
+                                         nosync=temp_init, atomic}
+            ... lbarrier {id=lb2, dep=temp_sum}
+            ${Tdot_str} = ${Tdot_str} - upper / temp_sum {id=final, dep=lb2:init, \
+                                                          nosync=init, atomic}
+            """
+            ).safe_substitute(**locals())]
+        kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
+                                                scope=scopes.LOCAL))
 
-    pre_instructions = Template(
-        '${Tdot_str} = ${factor} * simul_reduce(sum, ${var_name}, ${upper_term})'
-        ' / simul_reduce(sum, ${var_name}, ${lower_term}) {id=sum}'
-    ).safe_substitute(
-        Tdot_str=Tdot_str,
-        factor=factor,
-        var_name=var_name)
-
-    instructions = Template(pre_instructions).safe_substitute(
-        upper_term=str(upper),
-        lower_term=str(lower))
-
-    can_vectorize = loopy_opts.depth is None
-    # finally do vectorization ability and specializer
-
-    def __vec_spec_wide(knl):
-        # split the reduction
-        knl = lp.split_reduction_outward(knl, 'j_outer')
-        # and remove the sum_0 barrier
-        knl = lp.realize_reduction(knl)
-        # remove depends of update on end accumulator
-        instruction_list = [insn if 'update' not in insn.id
-                            else insn.copy(depends_on_is_final=True)
-                            for insn in knl.instructions]
-        # remove dummy sync of end accumulator on updates
-        instruction_list = [insn if insn.id != 'sum_0'
-                            else insn.copy(no_sync_with=insn.no_sync_with |
-                                           frozenset([('sum_i_update', 'any')]))
-                            for insn in instruction_list]
-        return knl.copy(instructions=instruction_list)
-
-    def __vec_spec_deep(knl):
-        # do a dummy split
-        knl = lp.split_iname(knl, 'i', 1, inner_tag='l.0')
-        # split outwards and expand reductions
-        knl = lp.split_reduction_outward(knl, 'i_inner')
-        knl = lp.realize_reduction(knl)
-        # abuse rename to fix 'two l.0 for sum_0'
-        knl = lp.rename_iname(
-            knl, 'red_i_inner_0', 'red_i_inner', existing_ok=True)
-        # resolve dependencies and syncs
-        sum_0_insn = next(
-            insn for insn in knl.instructions if insn.id == 'sum_0')
-        for insn in knl.instructions:
-            # fix sum_0 sync problems
-            if insn != sum_0_insn and 'sum_i' in insn.id:
-                sum_0_insn.no_sync_with |= frozenset([(insn.id, 'any')])
-            # check depends
-            if insn != sum_0_insn and \
-                    namestore.T_dot.name in insn.read_dependency_names():
-                insn.depends_on_is_final = True
-        return knl.copy(instructions=knl.instructions[:])
-    vec_spec = __vec_spec_wide
-    if loopy_opts.depth:
-        vec_spec = __vec_spec_deep
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, init_ids=['init', 'temp_init'],
+        atomic_ids=['temp_sum', 'final'])
 
     return k_gen.knl_info(name='temperature_rate',
-                          pre_instructions=[instructions],
-                          instructions='',
+                          pre_instructions=pre_instructions,
+                          instructions=instructions,
+                          post_instructions=post_instructions,
                           mapstore=mapstore,
                           var_name='i',
                           kernel_data=kernel_data,
