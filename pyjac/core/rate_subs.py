@@ -67,18 +67,16 @@ def assign_rates(reacs, specs, rate_spec):
     if rate_spec == lp_utils.rate_specialization.fixed
         0 -> kf = exp(logA + b * logT - Ta / T)
 
+    Note that the reactions in 'fall', 'chem' and 'thd' are also in
+            'simple'
+        Further, there are duplicates between 'thd' and 'fall' / 'chem'
+
     Returns
     -------
     rate_info : dict of parameters
         Keys are 'simple', 'plog', 'cheb', 'fall', 'chem', 'thd'
         Values are further dictionaries including addtional rate info, number,
         offset, maps, etc.
-
-    Notes
-    -----
-        Note that the reactions in 'fall', 'chem' and 'thd' are also in
-            'simple'
-        Further, there are duplicates between 'thd' and 'fall' / 'chem'
     """
 
     # determine specialization
@@ -476,12 +474,12 @@ def assign_rates(reacs, specs, rate_spec):
                 'a_lo': a_lo,
                 'a_hi': a_hi,
                 'T_mid': T_mid
-    },
-        'mws': mws,
-        'mw_post': mw_post,
-        'reac_has_ns': reac_has_ns,
-        'ns_nu': ns_nu
-    }
+            },
+            'mws': mws,
+            'mw_post': mw_post,
+            'reac_has_ns': reac_has_ns,
+            'ns_nu': ns_nu
+            }
 
 
 def reset_arrays(eqs, loopy_opts, namestore, test_size=None):

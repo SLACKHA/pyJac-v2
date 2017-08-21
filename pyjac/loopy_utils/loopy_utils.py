@@ -32,6 +32,18 @@ class RateSpecialization(IntEnum):
     full = 2
 
 
+class JacobianType(IntEnum):
+    """
+    The Jacobian type to be constructed.
+    A full Jacobian has no approximations for reactions including the last species,
+    while an approximate Jacobian ignores the derivatives of these reactions from
+    species not directly involved (i.e. fwd/rev stoich coeff == 0, and not a third
+    body species) while in a reaction including the last species
+    """
+    full = 0,
+    approximate = 1,
+
+
 class loopy_options(object):
 
     """
