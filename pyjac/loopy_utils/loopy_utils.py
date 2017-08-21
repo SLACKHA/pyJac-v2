@@ -972,4 +972,4 @@ class AdeptCompiler(CPlusPlusCompiler):
         defaults.update(kwargs)
 
         # and create
-        super(CppCompiler, self).__init__(*args, **defaults)
+        super(AdeptCompiler, self).__init__(*args, **defaults)
