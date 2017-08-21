@@ -20,12 +20,240 @@ from . import mech_auxiliary as aux
 from ..sympy_utils import sympy_interpreter as sp_interp
 from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen
+from ..loopy_utils.loopy_utils import JacobianType
 from . import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .reaction_types import reaction_type, falloff_form, thd_body_type
 from . import chem_model as chem
 from . import instruction_creator as ic
 from .array_creator import (global_ind, var_name, default_inds)
+from .rate_subs import assign_rates
+
+# external
+import numpy as np
+
+
+def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full):
+    """
+    From a given set of reactions, determine the populated jacobian indicies.
+    Additionally, populate the rate information from :meth:`pyjac.core.assign_rates`
+
+    Parameters
+    ----------
+    reacs : list of `ReacInfo`
+        The reactions in the mechanism
+    specs : list of `SpecInfo`
+        The species in the mechanism
+    rate_spec : `RateSpecialization` enum
+        The specialization option specified
+    JacobianType : :class:`JacobianType`
+        The Jacobian type to be constructed, a full Jacobian has no approximations
+        for reactions including the last species while an approximate Jacobian
+        ignores the contributions from species not involved
+
+    Notes
+    -----
+
+    See also :meth:`pyjac.core.assign_rates`, :class:`JacobianType`
+
+    Returns
+    -------
+    jac_info : dict of parameters
+        Keys are 'jac_inds', which contains:
+            'full': a flattened list of non-zero jacobian indicies.
+            'ccs': a dictionary of 'col_ind' and 'row_ptr' representing the indicies
+                in a compressed column storage format
+            'crs': a dictionary of 'col_ind' and 'row_ptr' representing the indicies
+                in a compressed row storage format
+
+        Additionally, `jac_info` will contain the results from
+        :meth:`pyjac.core.assign_rates`
+    """
+
+    val = assign_rates(reacs, specs, rate_spec)
+
+    inds = []
+    row_size = len(specs) + 1  # Ns - 1 species + temperature + extra variable
+    species_offset = 2  # temperature + extra variable
+
+    def __add_row(row):
+        inds.extend([(row, x) for x in range(row_size)])
+
+    # The first row is all derivatives of the dT/dt term, and no entries are zero
+    __add_row(0)
+
+    # the second row is derivatives of the extra variable, and again is non-zero
+    __add_row(1)
+
+    # From here on out:
+    #
+    # The first entry is the derivative of dnj/dt w.r.t Temperature
+    #       -> this is non-zero if this species has a non-zero net stoich. coeff in
+    #          any reaction
+    #
+    # The second entry is the derivative of dnj/dt w.r.t. the extra variable (P/V)
+    #       -> this is non-zero if this species has a non-zero net stoich. coeff in
+    #          any reaction
+
+    def __offset(arr):
+        return np.array(np.concatenate(
+            (np.cumsum(arr) - arr, np.array([np.sum(arr)]))),
+            dtype=np.int32)
+
+    # get list of species that have a non-zero nu in some reaction
+    non_zero_specs = val['net_per_spec']['map']
+    rxn_count = __offset(val['net_per_spec']['reac_count'])
+    rxn_maps = val['net_per_spec']['reacs']
+    rxn_to_specs_map = val['net']['reac_to_spec']
+    num_specs_in_rxn = val['net']['num_reac_to_spec']
+    num_specs_in_rxn = __offset(num_specs_in_rxn)
+    has_ns = val['reac_has_ns']
+    thd_has_ns = val['thd']['has_ns']
+    thd_spec = val['thd']['spec']
+    thd_map = val['thd']['map']
+    num_specs_in_thd = __offset(val['thd']['spec_num'])
+
+    seen = set()
+    for spec in non_zero_specs:
+        row = spec + 2
+        nonzero_derivs = set()
+
+        def __add_specs(slist):
+            # add species to derivative list
+            nonzero_derivs.update([x + species_offset for x in slist
+                                   if x + species_offset < row_size])
+
+        if spec not in seen:
+            # new species
+            seen.update([spec])
+            # add the temperature and extra var derivative
+            nonzero_derivs.update([0, 1])
+
+        # now we go through the reactions for which this species is non-zero
+        inner_ind = np.where(non_zero_specs == spec)[0][0]
+        for rxn in rxn_maps[rxn_count[inner_ind]:rxn_count[inner_ind + 1]]:
+            # get third body index
+            thd_ind = None
+            if rxn in thd_map:
+                thd_ind = np.where(thd_map == rxn)[0][0]
+
+            # if the last species directly participates in the reaction, and we're
+            # looking for a full Jacobian, this entire row has non-zero derivatives
+            if rxn in has_ns or thd_ind in thd_has_ns and \
+                    jacobian_type == JacobianType.full:
+                __add_specs(range(row_size))
+                break
+
+            # update species in the reaction
+            __add_specs(rxn_to_specs_map[
+                num_specs_in_rxn[rxn]:num_specs_in_rxn[rxn + 1]])
+
+            if thd_ind is not None:
+                # update third body species in the reaction
+                __add_specs(thd_spec[
+                    num_specs_in_thd[thd_ind]:num_specs_in_thd[thd_ind + 1]])
+
+        # finally add the non-zero derivatives
+        inds.extend([(row, x) for x in sorted(nonzero_derivs)])
+
+    # get the compressed storage
+    rows, cols = zip(*inds)
+    rows = np.array(rows, dtype=np.int32)
+    cols = np.array(cols, dtype=np.int32)
+
+    # turn into row and colum counts
+    import pdb; pdb.set_trace()
+    row_ptr = []
+    col_ind = []
+
+    col_ptr = []
+    row_ind = []
+    for i in range(row_size):
+        try:
+            in_row = np.where(rows == i)[0]
+            row_ptr.append(in_row.size)
+            col_ind.extend(cols[in_row])
+        except:
+            pass
+
+        try:
+            in_col = np.where(cols == i)[0]
+            col_ptr.append(in_col.size)
+            row_ind.extend(rows[in_col])
+        except:
+            pass
+
+    # update indicies in return value
+    val['jac_inds'] = {
+        'full': np.asarray(inds, dtype=np.int32),
+        'crs': {'col_ind': col_ind,
+                'row_ptr': __offset(row_ptr)},
+        'ccs': {'row_ind': row_ind,
+                'col_ptr': __offset(col_ptr)},
+    }
+    return val
+
+
+def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
+    """Resets the Jacobian array for use in the evaluations
+
+    kernel
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    conp : bool [True]
+        If supplied, True for constant pressure jacobian. False for constant
+        volume [Default: True]
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator for both
+        equation types
+    """
+
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.phi_inds,
+                            namestore.phi_inds)
+
+    # first, create all arrays
+    kernel_data = []
+
+    # add problem size
+    if namestore.problem_size is not None:
+        kernel_data.append(namestore.problem_size)
+
+    k_ind = 'k'
+    j_ind = 'j'
+    # need jac_array
+    jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, k_ind, j_ind)
+
+    # add arrays
+    kernel_data.extend([jac_lp])
+
+    instructions = Template(
+        """
+            ${ndot_str} = 0d
+            if ${ind} < ${ns}
+                ${wdot_str} = 0d
+            end
+        """).substitute(**locals())
+
+    return k_gen.knl_info(name='reset_arrays',
+                          instructions=instructions,
+                          mapstore=mapstore,
+                          var_name=var_name,
+                          kernel_data=kernel_data)
 
 
 def __dcidE(eqs, loopy_opts, namestore, test_size=None,

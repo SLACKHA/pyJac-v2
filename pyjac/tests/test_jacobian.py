@@ -17,7 +17,8 @@ from ..core.create_jacobian import (
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
-    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE)
+    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE,
+    determine_jac_inds)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -2070,3 +2071,39 @@ class SubTest(TestClass):
 
         __subtest(True)
         __subtest(False)
+
+    def test_index_determination(self):
+        # find FD jacobian
+        jac = self.__get_full_jac(True)
+        # find our non-zero indicies
+        ret = determine_jac_inds(self.store.reacs, self.store.specs,
+                                 RateSpecialization.fixed)['jac_inds']
+        non_zero_inds = ret['full']
+        non_zero_inds = np.column_stack(zip(*non_zero_inds)).T
+
+        jac_inds = np.where(jac != 0)[1:3]
+        jac_inds = np.column_stack((jac_inds[0], jac_inds[1]))
+        jac_inds = np.unique(jac_inds, axis=0).T
+
+        assert np.allclose(jac_inds, non_zero_inds)
+
+        # try to test CRS / CCS
+        try:
+            from scipy.sparse import csr_matrix, csc_matrix
+            # create a jacobian of the max of all the FD's to avoid zeros due to
+            # zero rates
+            jac = np.max(np.abs(jac), axis=0)
+
+            # create a CRS
+            crs = csr_matrix(jac)
+            assert np.allclose(ret['crs']['row_ptr'], crs.indptr) and \
+                np.allclose(ret['crs']['col_ind'], crs.indices)
+
+            # and repeat with CCS
+            ccs = csc_matrix(jac)
+            assert np.allclose(ret['ccs']['col_ptr'], ccs.indptr) and \
+                np.allclose(ret['ccs']['row_ind'], ccs.indices)
+
+        except ImportError:
+            # scipy not found, not _technically_ required
+            pass
