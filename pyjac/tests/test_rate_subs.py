@@ -14,12 +14,12 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
                               get_troe_kernel, get_rev_rates, get_rxn_pres_mod,
                               get_rop, get_rop_net, get_spec_rates,
                               get_temperature_rate, get_concentrations,
-                              get_molar_rates, get_extra_var_rates)
+                              get_molar_rates, get_extra_var_rates, reset_arrays)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization,
                                        get_device_list, populate,
                                        kernel_call)
-from . import TestClass
+from . import TestClass, get_test_platforms
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from ..kernel_utils import kernel_gen as k_gen
 from ..core.mech_auxiliary import write_aux
@@ -474,20 +474,15 @@ class SubTest(TestClass):
         assert np.array_equal(result['thd']['spec'], thd_sp)
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
-                             do_spec_per_reac=False,
-                             use_platform_instead=False,
-                             do_conp=False,
-                             do_vector=True,
-                             langs=['opencl']):
+                             do_conp=True):
+
+        platforms = get_test_platforms()
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
-        vectypes = [4, None] if do_vector else [None]
-        oploop = [('lang', langs),
-                  ('width', vectypes[:]),
-                  ('depth', vectypes[:]),
-                  ('order', ['C', 'F']),
+        oploop = [('order', ['C', 'F']),
                   ('ilp', [False]),
                   ('unr', [None, 4]),
+                  ('auto_diff', [False])
                   ]
         if do_ratespec:
             oploop += [
@@ -496,25 +491,24 @@ class SubTest(TestClass):
         if do_ropsplit:
             oploop += [
                 ('rop_net_kernels', [True])]
-        if do_spec_per_reac:
-            oploop += [
-                ('spec_rates_sum_over_reac', [True, False])]
-        if use_platform_instead:
-            oploop += [('platform', ['CPU', 'GPU'])]
-        else:
-            oploop += [('device', get_device_list())]
         if do_conp:
             oploop += [('conp', [True, False])]
         oploop += [('knl_type', ['map'])]
-        oploop = OptionLoop(OrderedDict(oploop))
+        out = None
+        for p in platforms:
+            val = OptionLoop(OrderedDict(p + oploop))
+            if out is None:
+                out = val
+            else:
+                out = out + val
 
-        return eqs, oploop
+        return eqs, out
 
-    def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False, do_ropsplit=None,
-                              do_spec_per_reac=False, do_conp=False,
-                              **kw_args):
+    def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False,
+                              do_ropsplit=None, do_conp=False, **kw_args):
         """
-        A generic testing method that can be used for rate constants, third bodies, ...
+        A generic testing method that can be used for rate constants, third bodies,
+        ...
 
         Parameters
         ----------
@@ -526,12 +520,10 @@ class SubTest(TestClass):
             If true, test rate specializations and kernel splitting for simple rates
         do_ropsplit : bool
             If true, test kernel splitting for rop_net
-        do_spec_per_reac : bool
-            If true, test species rates summing over reactions as well
         """
 
         eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_spec_per_reac, do_conp=do_conp)
+            do_ratespec, do_ropsplit, do_conp=do_conp)
 
         reacs = self.store.reacs
         specs = self.store.specs
@@ -579,7 +571,9 @@ class SubTest(TestClass):
             except:
                 kernel_calls.set_state(state['order'])
 
-            assert auto_run(knl.kernels, kernel_calls, device=state['device']), \
+            if state['lang'] == 'ispc':
+                continue
+            assert auto_run(knl.kernels, kernel_calls, device=opt.device), \
                 'Evaluate {} rates failed'.format(func.__name__)
 
     def __test_rateconst_type(self, rtype):
@@ -905,24 +899,20 @@ class SubTest(TestClass):
                          **args)
 
         # test regularly
-        self.__generic_rate_tester(get_spec_rates, kc, do_spec_per_reac=True)
+        self.__generic_rate_tester(get_spec_rates, kc)
 
     @attr('long')
     def test_temperature_rates(self):
-        args = {'wdot': lambda x: np.array(self.store.species_rates.copy(), order=x, copy=True),
+        args = {'wdot': lambda x: np.array(self.store.species_rates.copy(), order=x,
+                                           copy=True),
                 'conc': lambda x: np.array(self.store.concs, order=x, copy=True),
                 'cp': lambda x: np.array(self.store.spec_cp, order=x, copy=True),
                 'h': lambda x: np.array(self.store.spec_h, order=x, copy=True),
                 'cv': lambda x: np.array(self.store.spec_cv, order=x, copy=True),
-                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True)}
-        Tdot_cp = np.concatenate((self.store.conp_temperature_rates.reshape((-1, 1)),
-                                  np.zeros((self.store.test_size, self.store.gas.n_species))),
-                                 axis=1)
-        Tdot_cv = np.concatenate((self.store.conv_temperature_rates.reshape((-1, 1)),
-                                  np.zeros((self.store.test_size, self.store.gas.n_species))),
-                                 axis=1)
+                'u': lambda x: np.array(self.store.spec_u, order=x, copy=True),
+                'dphi': lambda x: np.zeros_like(self.store.dphi_cp, order=x)}
 
-        kc = [kernel_call('temperature_rate', [Tdot_cp],
+        kc = [kernel_call('temperature_rate', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
                           compare_mask=[0],
                           **args)]
@@ -933,7 +923,7 @@ class SubTest(TestClass):
                                    conp=True)
 
         # test conv
-        kc = [kernel_call('temperature_rate', [Tdot_cv],
+        kc = [kernel_call('temperature_rate', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
                           compare_mask=[0],
                           **args)]
@@ -1022,6 +1012,25 @@ class SubTest(TestClass):
         self.__generic_rate_tester(get_extra_var_rates, kc,
                                    do_spec_per_reac=True,
                                    conp=False)
+
+    @attr('long')
+    def test_reset_arrays(self):
+        dphi = np.zeros_like(self.store.dphi_cp)
+        dphi[:, 0] = self.store.conp_temperature_rates[:]
+        args = {
+            'dphi': lambda x: np.array(
+                self.store.phi_cp, order=x, copy=True),
+            'wdot': lambda x: np.array(
+                self.store.species_rates, order=x, copy=True)}
+
+        kc = [kernel_call('reset_arrays', [
+            np.zeros_like(self.store.phi_cp),
+            np.zeros_like(self.store.species_rates)],
+                          out_mask=[0, 1],
+                          **args)]
+
+        # test conp
+        self.__generic_rate_tester(reset_arrays, kc)
 
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')
