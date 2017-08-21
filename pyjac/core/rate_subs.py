@@ -584,7 +584,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
                           instructions=instructions,
                           post_instructions=[post_instructions],
                           mapstore=mapstore,
-                          var_name='i',
+                          var_name=var_name,
                           kernel_data=kernel_data,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
@@ -670,7 +670,7 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
                           pre_instructions=[pre_instructions],
                           instructions=instructions,
                           mapstore=mapstore,
-                          var_name='i',
+                          var_name=var_name,
                           kernel_data=kernel_data)
 
 
@@ -822,7 +822,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                           instructions=instructions,
                           post_instructions=post_instructions,
                           mapstore=mapstore,
-                          var_name='i',
+                          var_name=var_name,
                           kernel_data=kernel_data,
                           parameters={'R_u': np.float64(chem.RU)},
                           can_vectorize=can_vectorize,
@@ -952,7 +952,7 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
                           instructions=instructions,
                           post_instructions=post_instructions,
                           mapstore=mapstore,
-                          var_name='i',
+                          var_name=var_name,
                           kernel_data=kernel_data,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec)
@@ -987,142 +987,70 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
         equation types
     """
 
-    # find summation direction and consistency check
-    over_reac = loopy_opts.spec_rates_sum_over_reac
-    deep = loopy_opts.depth is not None
-    if deep and over_reac:
-        logging.warn('Cannot use summation over reaction with a deep '
-                     'vectorization [not currently supported].'
-                     '  Disabling...')
-        over_reac = False
-
     kernel_data = []
     # add problem size
     if namestore.problem_size is not None:
         kernel_data.append(namestore.problem_size)
 
-    if over_reac:
-        # various indicies
-        spec_ind = 'spec_ind'
-        ispec = 'ispec'
+    # various indicies
+    spec_ind = 'spec_ind'
+    ispec = 'ispec'
 
-        # create map store
-        mapstore = arc.MapStore(loopy_opts,
-                                namestore.num_reacs,
-                                namestore.num_reacs)
+    # create map store
+    mapstore = arc.MapStore(loopy_opts,
+                            namestore.num_reacs,
+                            namestore.num_reacs)
 
-        # create arrays
-        spec_lp, spec_str = mapstore.apply_maps(namestore.rxn_to_spec,
-                                                ispec)
-        num_spec_offsets_lp, \
-            num_spec_offsets_str = \
-            mapstore.apply_maps(namestore.rxn_to_spec_offsets, var_name)
-        num_spec_offsets_next_lp, \
-            num_spec_offsets_next_str = \
-            mapstore.apply_maps(namestore.rxn_to_spec_offsets,
-                                var_name, affine=1)
-        nu_lp, prod_nu_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_prod_nu, ispec, affine=ispec)
-        _, reac_nu_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_reac_nu, ispec, affine=ispec)
-        rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
-                                                      *default_inds)
-        wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
-                                                global_ind, spec_ind)
+    # create arrays
+    spec_lp, spec_str = mapstore.apply_maps(namestore.rxn_to_spec,
+                                            ispec)
+    num_spec_offsets_lp, \
+        num_spec_offsets_str = \
+        mapstore.apply_maps(namestore.rxn_to_spec_offsets, var_name)
+    num_spec_offsets_next_lp, \
+        num_spec_offsets_next_str = \
+        mapstore.apply_maps(namestore.rxn_to_spec_offsets,
+                            var_name, affine=1)
+    nu_lp, prod_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, ispec, affine=ispec)
+    _, reac_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, ispec, affine=ispec)
+    rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
+                                                  *default_inds)
+    wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
+                                            global_ind, spec_ind)
 
-        # update kernel args
-        kernel_data.extend(
-            [spec_lp, num_spec_offsets_lp, nu_lp, rop_net_lp, wdot_lp])
+    # update kernel args
+    kernel_data.extend(
+        [spec_lp, num_spec_offsets_lp, nu_lp, rop_net_lp, wdot_lp])
 
-        # now the instructions
-        instructions = Template(
-            """
-        <>net_rate = ${rop_net_str} {id=rate_init}
-        <>offset = ${num_spec_offsets_str}
-        <>offset_next = ${num_spec_offsets_next_str}
-        for ispec
-            <> ${spec_ind} = ${spec_str} # (offset handled in wdot str)
-            <> nu = ${prod_nu_str} - ${reac_nu_str}
-            ${wdot_str} = ${wdot_str} + nu * net_rate
-        end
-        """).safe_substitute(rop_net_str=rop_net_str,
-                             spec_str=spec_str,
-                             prod_nu_str=prod_nu_str,
-                             reac_nu_str=reac_nu_str,
-                             spec_ind=spec_ind,
-                             wdot_str=wdot_str,
-                             num_spec_offsets_str=num_spec_offsets_str,
-                             num_spec_offsets_next_str=num_spec_offsets_next_str)
+    # now the instructions
+    instructions = Template(
+        """
+    <>net_rate = ${rop_net_str} {id=rate_init}
+    <>offset = ${num_spec_offsets_str}
+    <>offset_next = ${num_spec_offsets_next_str}
+    for ispec
+        <> ${spec_ind} = ${spec_str} # (offset handled in wdot str)
+        <> nu = ${prod_nu_str} - ${reac_nu_str}
+        ${wdot_str} = ${wdot_str} + nu * net_rate {id=sum}
+    end
+    """).safe_substitute(**locals())
 
-        # extra inames
-        extra_inames = [('ispec', 'offset <= ispec < offset_next')]
+    # extra inames
+    extra_inames = [('ispec', 'offset <= ispec < offset_next')]
 
-    else:
-        # various indicies
-        reac_ind = 'reac_ind'
-        reac_map = 'reac_map'
-
-        # create map store
-        mapstore = arc.MapStore(loopy_opts,
-                                namestore.num_net_nonzero_spec,
-                                namestore.num_net_nonzero_spec)
-
-        # add mappings
-        mapstore.check_and_add_transform(namestore.spec_rates,
-                                         namestore.net_nonzero_spec)
-
-        # create arrays
-
-        # inner loop vars depend on reac_map
-        reac_lp, reac_str = mapstore.apply_maps(namestore.spec_to_rxn,
-                                                reac_map)
-        net_nu_lp, net_nu_str = \
-            mapstore.apply_maps(namestore.spec_to_rxn_nu,
-                                reac_map)
-        # offsets depend on 'i'
-        num_reac_offsets_lp, \
-            num_reac_offsets_str = \
-            mapstore.apply_maps(namestore.spec_to_rxn_offsets, var_name)
-        num_reac_offsets_next_lp, \
-            num_reac_offsets_next_str = \
-            mapstore.apply_maps(namestore.spec_to_rxn_offsets,
-                                var_name, affine=1)
-        # rop net depends on reac_ind
-        rop_net_lp, rop_net_str = mapstore.apply_maps(namestore.rop_net,
-                                                      global_ind, reac_ind)
-        # dphi dep
-        wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates,
-                                                *default_inds)
-        kernel_data.extend(
-            [reac_lp, net_nu_lp, num_reac_offsets_lp, wdot_lp, rop_net_lp])
-
-        # now the instructions
-        instructions = Template(
-            """
-        <>rxn_offset = ${num_reac_offsets_str}
-        <>num_rxn = ${num_reac_offsets_next_str} - rxn_offset
-        for irxn
-            <>${reac_map} = rxn_offset + irxn
-            <>${reac_ind} = ${reac_str}
-            ${wdot_str} = ${wdot_str} + ${net_nu_str} * ${rop_net_str}
-        end
-        """).safe_substitute(reac_map=reac_map,
-                             reac_ind=reac_ind,
-                             num_reac_offsets_str=num_reac_offsets_str,
-                             num_reac_offsets_next_str=num_reac_offsets_next_str,
-                             reac_str=reac_str,
-                             rop_net_str=rop_net_str,
-                             net_nu_str=net_nu_str,
-                             wdot_str=wdot_str)
-
-        extra_inames = [('irxn', '0 <= irxn < num_rxn')]
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['sum'])
 
     return k_gen.knl_info(name='spec_rates',
                           instructions=instructions,
                           mapstore=mapstore,
                           var_name=var_name,
                           kernel_data=kernel_data,
-                          extra_inames=extra_inames)
+                          extra_inames=extra_inames,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec)
 
 
 def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
@@ -1290,7 +1218,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
 
         return k_gen.knl_info(name='rop_net_fixed',
                               instructions=instructions,
-                              var_name='i',
+                              var_name=var_name,
                               kernel_data=kernel_data['fwd'],
                               mapstore=maps['fwd'])
 
@@ -1320,7 +1248,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
                 [x for x in instructions.split('\n') if x.strip()])
             infos.append(k_gen.knl_info(name='rop_net_{}'.format(kernel),
                                         instructions=instructions,
-                                        var_name='i',
+                                        var_name=var_name,
                                         kernel_data=kernel_data[kernel],
                                         mapstore=maps[kernel]))
         return infos

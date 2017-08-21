@@ -984,6 +984,12 @@ class NameStore(object):
                                      initializer=np.arange(
                                          rate_info['rev']['num'],
                                          dtype=np.int32))
+
+        self.phi_inds = creator('phi_inds',
+                                shape=(rate_info['Ns'] + 1),
+                                dtype=np.int32, order=self.order,
+                                initializer=np.arange(rate_info['Ns'] + 1,
+                                                      dtype=np.int32))
         self.phi_spec_inds = creator('phi_spec_inds',
                                      shape=(rate_info['Ns'] - 1,),
                                      dtype=np.int32, order=self.order,
