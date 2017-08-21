@@ -32,6 +32,7 @@ import cantera as ct
 from nose.plugins.attrib import attr
 from optionloop import OptionLoop
 from collections import OrderedDict
+from scipy.sparse import csr_matrix, csc_matrix
 
 
 class editor(object):
@@ -2078,8 +2079,8 @@ class SubTest(TestClass):
         # find our non-zero indicies
         ret = determine_jac_inds(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)['jac_inds']
-        non_zero_inds = ret['full']
-        non_zero_inds = np.column_stack(zip(*non_zero_inds)).T
+        non_zero_inds = ret['flat']
+        non_zero_inds = non_zero_inds.T
 
         jac_inds = np.where(jac != 0)[1:3]
         jac_inds = np.column_stack((jac_inds[0], jac_inds[1]))
@@ -2087,23 +2088,16 @@ class SubTest(TestClass):
 
         assert np.allclose(jac_inds, non_zero_inds)
 
-        # try to test CRS / CCS
-        try:
-            from scipy.sparse import csr_matrix, csc_matrix
-            # create a jacobian of the max of all the FD's to avoid zeros due to
-            # zero rates
-            jac = np.max(np.abs(jac), axis=0)
+        # create a jacobian of the max of all the FD's to avoid zeros due to
+        # zero rates
+        jac = np.max(np.abs(jac), axis=0)
 
-            # create a CRS
-            crs = csr_matrix(jac)
-            assert np.allclose(ret['crs']['row_ptr'], crs.indptr) and \
-                np.allclose(ret['crs']['col_ind'], crs.indices)
+        # create a CRS
+        crs = csr_matrix(jac)
+        assert np.allclose(ret['crs']['row_ptr'], crs.indptr) and \
+            np.allclose(ret['crs']['col_ind'], crs.indices)
 
-            # and repeat with CCS
-            ccs = csc_matrix(jac)
-            assert np.allclose(ret['ccs']['col_ptr'], ccs.indptr) and \
-                np.allclose(ret['ccs']['row_ind'], ccs.indices)
-
-        except ImportError:
-            # scipy not found, not _technically_ required
-            pass
+        # and repeat with CCS
+        ccs = csc_matrix(jac)
+        assert np.allclose(ret['ccs']['col_ptr'], ccs.indptr) and \
+            np.allclose(ret['ccs']['row_ind'], ccs.indices)

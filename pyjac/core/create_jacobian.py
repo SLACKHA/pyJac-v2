@@ -60,7 +60,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
     -------
     jac_info : dict of parameters
         Keys are 'jac_inds', which contains:
-            'full': a flattened list of non-zero jacobian indicies.
+            'flat': a flattened list of non-zero jacobian indicies.
             'ccs': a dictionary of 'col_ind' and 'row_ptr' representing the indicies
                 in a compressed column storage format
             'crs': a dictionary of 'col_ind' and 'row_ptr' representing the indicies
@@ -162,7 +162,6 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
     cols = np.array(cols, dtype=np.int32)
 
     # turn into row and colum counts
-    import pdb; pdb.set_trace()
     row_ptr = []
     col_ind = []
 
@@ -185,7 +184,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
 
     # update indicies in return value
     val['jac_inds'] = {
-        'full': np.asarray(inds, dtype=np.int32),
+        'flat': np.asarray(inds, dtype=np.int32),
         'crs': {'col_ind': col_ind,
                 'row_ptr': __offset(row_ptr)},
         'ccs': {'row_ind': row_ind,
