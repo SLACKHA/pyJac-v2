@@ -120,6 +120,7 @@ class atomic_deep_specialization(within_inames_specializer):
         # in case any of them are atomic
         from loopy.type_inference import infer_unknown_types
         from loopy.types import to_loopy_type
+        from pymbolic.primitives import Sum
         knl = infer_unknown_types(knl, expect_completion=True)
         temps = knl.temporary_variables.copy()
 
@@ -152,8 +153,16 @@ class atomic_deep_specialization(within_inames_specializer):
                     atomicity=(lp.AtomicInit(written),))
             elif insn.id in self.split_ids:
                 written = _check_atomic_data(insn)
+                assert isinstance(insn.expression, Sum) and \
+                    insn.assignee in insn.expression.children, (
+                    'Cannot split insn: {}, not Sum or assignee'
+                    ' not found therein'.format(insn.id))
+                # get children that are not the assignee and re-sum
+                others = Sum(
+                    tuple(x for x in insn.expression.children if x != insn.assignee))
+                # and finally, implement the split as a += sum(others) / vec_width
                 insns[insn_ind] = insn.copy(
-                    expression=insn.expression / self.vec_width,
+                    expression=insn.assignee + others / self.vec_width,
                     atomicity=(lp.AtomicInit(written),))
 
         # now force all instructions into inner loop
