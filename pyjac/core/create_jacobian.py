@@ -3627,7 +3627,7 @@ def __dci_dnj(loopy_opts, namestore,
                     <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
                     if ${spec_k} != ${ns}
                         ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} \
-                            {id=jac}
+                            {id=jac${fall_dep_str}}
                     end
                 end
             end
@@ -3656,8 +3656,8 @@ def __dci_dnj(loopy_opts, namestore,
             mix=int(thd_body_type.mix),
             species=int(thd_body_type.species),
             fall_update=fall_update,
-            fall_mul_str=(' * dFi {dep=fall}'
-                          if fall_type != falloff_form.none else '')
+            fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''),
+            fall_dep_str=(', dep=fall' if fall_type != falloff_form.none else '')
         )
     else:
         extra_inames.append((spec_j, '0 <= {} < {}'.format(
@@ -3689,7 +3689,7 @@ def __dci_dnj(loopy_opts, namestore,
             if ${spec_k} != ${ns}
                 for ${spec_j}
                     ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} \
-                        {id=jac}
+                        {id=jac${fall_dep_str}}
                 end
             end
         end
@@ -3717,8 +3717,8 @@ def __dci_dnj(loopy_opts, namestore,
             mix=int(thd_body_type.mix),
             species=int(thd_body_type.species),
             fall_update=fall_update,
-            fall_mul_str=(' * dFi {dep=fall}'
-                          if fall_type != falloff_form.none else '')
+            fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''),
+            fall_dep_str=(', dep=fall' if fall_type != falloff_form.none else '')
         )
 
     inames, ranges = zip(*extra_inames)
