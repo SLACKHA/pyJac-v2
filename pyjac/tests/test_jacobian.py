@@ -7,11 +7,8 @@ from ..core.rate_subs import (
     polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
     get_rev_rates, get_temperature_rate, get_extra_var_rates)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
-                                       RateSpecialization,
-                                       get_device_list,
-                                       kernel_call,
-                                       set_adept_editor,
-                                       populate)
+                                       RateSpecialization, kernel_call,
+                                       set_adept_editor, populate)
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
@@ -80,8 +77,6 @@ class SubTest(TestClass):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         oploop = [('order', ['C', 'F']),
-                  ('ilp', [False]),
-                  ('unr', [None, 4]),
                   ('auto_diff', [False])
                   ]
         if do_ratespec:
