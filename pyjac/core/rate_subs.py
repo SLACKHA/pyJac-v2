@@ -632,10 +632,16 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
             n_str=n_str
     )
 
+    barrier = (
+        '... lbarrier {id=break, dep=cns_init}'
+        if loopy_opts.use_atomics and loopy_opts.depth else
+        '... nop {id=break, dep=cns_init}')
     post_instructions = Template(
         """
-        ${cns_str} = ${cns_str} - n_sum * V_inv {id=cns_set, dep=n_update}
-        """).substitute(cns_str=conc_ns_str)
+        ${barrier}
+        ${conc_ns_str} = ${conc_ns_str} - n_sum * V_inv {id=cns_set,\
+            dep=n_update:break, nosync=cns_init}
+        """).substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, atomic_ids=['cns_set'],
@@ -2707,7 +2713,8 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     sri_instructions = Template("""
     <>Pr_val = fmax(1e-300d, ${pr_str}) {id=Pri}
     <>logPr = log10(Pr_val) {dep=Pri}
-    <>X_temp = ${Xeq} {id=X_decl} # this must be a temporary to avoid a race on Fi_temp assignment
+    # this is a temporary to avoid a race on Fi_temp assignment
+    <>X_temp = ${Xeq} {id=X_decl}
     <>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
     if ${d_str} != 1.0
         Fi_temp = Fi_temp * ${d_eval} {id=Fi_decl1, dep=Fi_decl}
