@@ -728,6 +728,9 @@ class kernel_call(object):
             return variable
 
         try:
+            if self.compare_axis == -1:
+                # list of indicies
+                return variable[self.compare_mask[index]].squeeze()
             # multiple axes
             outv = variable
             # account for change in variable size
@@ -766,9 +769,11 @@ class kernel_call(object):
             True IFF the masked output variables match the input
         """
 
-        assert isinstance(self.compare_mask, list) and \
-            len(self.compare_mask) == len(output_variables), (
-                'Compare mask does not match output variables!')
+        assert (
+            isinstance(self.compare_mask, list) and
+            len(self.compare_mask) == len(output_variables)) \
+            or self.compare_axis == -1, (
+                    'Compare mask does not match output variables!')
 
         allclear = True
         for i in range(len(output_variables)):

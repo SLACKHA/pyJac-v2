@@ -1,6 +1,6 @@
 from . import TestClass, get_test_platforms
 from ..core.rate_subs import (
-    assign_rates, get_concentrations,
+    get_concentrations,
     get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
     get_rxn_pres_mod, get_reduced_pressure_kernel, get_lind_kernel,
     get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates,
@@ -18,7 +18,7 @@ from ..core.create_jacobian import (
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
     dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE,
-    determine_jac_inds)
+    determine_jac_inds, reset_arrays)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -144,7 +144,7 @@ class SubTest(TestClass):
             opt = loopy_options(**{x: state[x] for x in
                                    state if x not in exceptions})
             # find rate info
-            rate_info = assign_rates(reacs, specs, opt.rate_spec)
+            rate_info = determine_jac_inds(reacs, specs, opt.rate_spec)
             try:
                 conp = state['conp']
             except:
@@ -216,7 +216,7 @@ class SubTest(TestClass):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         # find rate info
-        rate_info = assign_rates(
+        rate_info = determine_jac_inds(
             self.store.reacs,
             self.store.specs,
             ad_opts.rate_spec)
@@ -345,7 +345,7 @@ class SubTest(TestClass):
         # get number of sri reactions
         reacs = self.store.reacs
         specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
         ad_opts = loopy_options(order='C', knl_type='map', lang='c',
                                 auto_diff=True)
@@ -619,7 +619,7 @@ class SubTest(TestClass):
     def __get_kf_and_fall(self, conp=True):
         reacs = self.store.reacs
         specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
         # create args and parameters
         phi = self.store.phi_cp if conp else self.store.phi_cv
@@ -672,7 +672,7 @@ class SubTest(TestClass):
     def __get_kr(self, kf):
         reacs = self.store.reacs
         specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
         args = {
             'conc': lambda x: np.array(
@@ -697,7 +697,7 @@ class SubTest(TestClass):
     def __get_db(self):
         reacs = self.store.reacs
         specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
@@ -1600,7 +1600,7 @@ class SubTest(TestClass):
     def __get_non_ad_params(self, conp):
         reacs = self.store.reacs
         specs = self.store.specs
-        rate_info = assign_rates(reacs, specs, RateSpecialization.fixed)
+        rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
@@ -2101,3 +2101,23 @@ class SubTest(TestClass):
         ccs = csc_matrix(jac)
         assert np.allclose(ret['ccs']['col_ptr'], ccs.indptr) and \
             np.allclose(ret['ccs']['row_ind'], ccs.indices)
+
+    def test_reset_arrays(self):
+        namestore, _, _, _ = self.__get_non_ad_params(True)
+        # find our non-zero indicies
+        ret = determine_jac_inds(self.store.reacs, self.store.specs,
+                                 RateSpecialization.fixed)['jac_inds']
+        non_zero_inds = ret['flat']
+
+        args = {'jac': lambda x: np.ones(namestore.jac.shape, order=x)}
+
+        jac_size = namestore.jac.shape
+        # and get mask
+        kc = kernel_call('reset_arrays',
+                         [np.zeros(jac_size)],
+                         compare_mask=[[
+                            Ellipsis, non_zero_inds[:, 0], non_zero_inds[:, 1]]],
+                         compare_axis=-1,
+                         **args)
+
+        return self._generic_jac_tester(reset_arrays, kc)
