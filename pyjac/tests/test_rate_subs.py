@@ -480,8 +480,6 @@ class SubTest(TestClass):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         oploop = [('order', ['C', 'F']),
-                  ('ilp', [False]),
-                  ('unr', [None, 4]),
                   ('auto_diff', [False])
                   ]
         if do_ratespec:
@@ -571,8 +569,6 @@ class SubTest(TestClass):
             except:
                 kernel_calls.set_state(state['order'])
 
-            if state['lang'] == 'ispc':
-                continue
             assert auto_run(knl.kernels, kernel_calls, device=opt.device), \
                 'Evaluate {} rates failed'.format(func.__name__)
 
@@ -919,7 +915,6 @@ class SubTest(TestClass):
 
         # test conp
         self.__generic_rate_tester(get_temperature_rate, kc,
-                                   do_spec_per_reac=True,
                                    conp=True)
 
         # test conv
@@ -929,7 +924,6 @@ class SubTest(TestClass):
                           **args)]
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc,
-                                   do_spec_per_reac=True,
                                    conp=False)
 
     @attr('long')
@@ -948,7 +942,6 @@ class SubTest(TestClass):
 
         # test conp
         self.__generic_rate_tester(get_molar_rates, kc,
-                                   do_spec_per_reac=True,
                                    conp=True)
 
         args = {
@@ -964,7 +957,6 @@ class SubTest(TestClass):
                           **args)]
         # test conv
         self.__generic_rate_tester(get_molar_rates, kc,
-                                   do_spec_per_reac=True,
                                    conp=False)
 
     @attr('long')
@@ -988,7 +980,6 @@ class SubTest(TestClass):
 
         # test conp
         self.__generic_rate_tester(get_extra_var_rates, kc,
-                                   do_spec_per_reac=True,
                                    conp=True)
 
         dphi = np.zeros_like(self.store.dphi_cv)
@@ -1010,7 +1001,6 @@ class SubTest(TestClass):
                           **args)]
         # test conv
         self.__generic_rate_tester(get_extra_var_rates, kc,
-                                   do_spec_per_reac=True,
                                    conp=False)
 
     @attr('long')
