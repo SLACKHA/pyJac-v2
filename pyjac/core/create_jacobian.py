@@ -586,9 +586,12 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     <> offset_next = ${offset_next_str}
     for ${k_ind}
         ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-            ${factor} {dep=dci_*}
+            ${factor} {id=jac, dep=dci_*}
     end
     """).safe_substitute(**locals())
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
 
     return k_gen.knl_info(name='dci_{}_dE'.format(
         name_description[rxn_type]),
@@ -599,7 +602,9 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         kernel_data=kernel_data,
         mapstore=mapstore,
         parameters=parameters,
-        manglers=manglers
+        manglers=manglers,
+        can_vectorize=can_vectorize,
+        vectorization_specializer=vec_spec
     )
 
 
@@ -1269,7 +1274,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         ${instructions}
         for ${k_ind}
             ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) \
-                * dRopi_dE {dep=dE*}
+                * dRopi_dE {id=jac, dep=dE*}
         end
     """).substitute(**locals())
 
@@ -1277,6 +1282,8 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                         reaction_type.plog: '_plog',
                         reaction_type.cheb: '_cheb'}
 
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
     return k_gen.knl_info(name='dRopi{}_d{}{}'.format(
         name_description[rxn_type],
         'V' if conp else 'P',
@@ -1289,7 +1296,9 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         mapstore=mapstore,
         preambles=[lp_pregen.fastpowi_PreambleGen(),
                    lp_pregen.fastpowf_PreambleGen()],
-        parameters=parameters
+        parameters=parameters,
+        can_vectorize=can_vectorize,
+        vectorization_specializer=vec_spec
     )
 
 
@@ -1525,8 +1534,9 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
                 ${conc_str}
         """).safe_substitute(**locals())
         post_instructions = [Template("""
-            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum - specsum) / \
-                (${spec_heat_total_str} * ${V_str}) {dep=up, nosync=up}
+            <> spec_inv = 1 / (${spec_heat_total_str} * ${V_str})
+            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum) * spec_inv {id=jac_split}
+            ${jac_str} = ${jac_str} - specsum * spec_inv {id=jac, dep=up, nosync=up}
             """).safe_substitute(**locals())]
     else:
         parameters['Ru'] = chem.RU
@@ -1537,14 +1547,15 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
                 ${mw_str}) * ${dnkdot_de_str} * Vinv {id=up, dep=*}
         """).safe_substitute(**locals())
         post_instructions = [Template("""
-            ${jac_str} = ${jac_str} + (${Tdot_str} / (Ru * ${T_str}) - \
-                sum / ${V_str}) / (${spec_heat_total_str}) {dep=up, nosync=up}
+            <>spec_inv = 1 / (${spec_heat_total_str})
+            ${jac_str} = ${jac_str} + (${Tdot_str} / (Ru * ${T_str})) * spec_inv \
+                {id=jac_split}
+            ${jac_str} = ${jac_str} - (sum * Vinv) * spec_inv \
+                {id=jac, dep=up, nosync=up}
             """).safe_substitute(**locals())]
 
-    can_vectorize = loopy_opts.depth is None
-    # finally do vectorization ability and specializer
-    vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_specialization())
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
     return k_gen.knl_info(name='dTdotd{}'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
@@ -1552,9 +1563,9 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
+                          parameters=parameters,
                           can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec,
-                          parameters=parameters
+                          vectorization_specializer=vec_spec
                           )
 
 
@@ -1632,17 +1643,16 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     """).safe_substitute(**locals())
 
     post_instructions = [Template("""
-        ${jac_str} = ${jac_str} + Ru * ${T_str} * sum / ${param_str} + \
-            (${var_str} * ${dTdot_de_str} + ${Tdot_str}) / ${T_str} \
-            {dep=up, nosync=up}
+        ${jac_str} = ${jac_str} + Ru * ${T_str} * sum / ${param_str} \
+            {id=jac, dep=up, nosync=up}
+        ${jac_str} = ${jac_str} + (${var_str} * ${dTdot_de_str} + ${Tdot_str}) \
+            / ${T_str} {id=jac_split}
     """).safe_substitute(**locals())]
 
     parameters = {'Ru': chem.RU}
 
-    can_vectorize = loopy_opts.depth is None
-    # finally do vectorization ability and specializer
-    vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_specialization())
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
 
     return k_gen.knl_info(name='d{0}dotd{0}'.format('V' if conp else 'P'),
                           instructions=instructions,
@@ -1762,27 +1772,32 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
                         spec_energy_lp, mw_lp, conc_lp, V_lp, wdot_lp,
                         jac_lp, T_lp])
 
-    can_vectorize = loopy_opts.depth is None
-    # finally do vectorization ability and specializer
-    vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_specialization())
-
     pre_instructions = Template("""
-<> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) * ${conc_ns_str})
-<> rate_sum = 0
+    <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) \
+        * ${conc_ns_str}) {id=split}
+    <> rate_sum = 0
     """).safe_substitute(**locals()).split('\n')
     pre_instructions.extend([
         ic.default_pre_instructs('Vinv', V_str, 'INV'),
         ic.default_pre_instructs('Tinv', T_str, 'INV')])
 
     instructions = Template("""
-        dTsum = dTsum + (${spec_heat_ns_str} * Tinv - ${dspec_heat_str}) * ${conc_str}
-        rate_sum = rate_sum + ${wdot_str} * (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str}) + Vinv * ${ndot_str} * (-${spec_energy_str} + ${spec_energy_ns_str} * ${mw_str}) {id=rate_update, dep=*}
+        dTsum = dTsum + (${spec_heat_ns_str} * Tinv - ${dspec_heat_str}) \
+            * ${conc_str}
+        rate_sum = rate_sum + ${wdot_str} * \
+            (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str}) + \
+            Vinv * ${ndot_str} * \
+            (-${spec_energy_str} + ${spec_energy_ns_str} * ${mw_str}) \
+                {id=rate_update, dep=*}
     """).safe_substitute(**locals())
 
     post_instructions = Template("""
-        ${jac_str} = (${Tdot_str} * dTsum + rate_sum) / ${spec_heat_total_str} {dep=rate_update, nosync=rate_update}
+        ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum + rate_sum) \
+            / ${spec_heat_total_str} {id=jac, dep=rate_update, nosync=rate_update}
     """).safe_substitute(**locals()).split('\n')
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'], split_ids=['split'])
 
     return k_gen.knl_info(name='dTdot_dT',
                           instructions=instructions,
@@ -1860,9 +1875,10 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
         """).safe_substitute(**locals())
         # sum finish
         post_instructions = [Template("""
-            ${jac_str} = ${jac_str} + Ru * ${T_str} * ${V_str} * sum \
-                / ${P_str} + ${V_str} * Tinv * (\
-                    ${dTdot_dT_str} - Tinv * ${Tdot_str}) {nosync=sum, dep=sum}
+            ${jac_str} = ${jac_str} + Ru * ${T_str} * ${V_str} * sum / ${P_str} \
+                {id=jac, dep=sum, nosync=sum}
+            ${jac_str} = ${jac_str} + ${V_str} * Tinv * \
+                (${dTdot_dT_str} - Tinv * ${Tdot_str}) {id=jac_split}
         """).safe_substitute(**locals())]
     else:
         pre_instructions.append(Template(
@@ -1872,14 +1888,13 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
                 ${wdot_str}) {id=sum, dep=*}
         """).safe_substitute(**locals())
         post_instructions = [Template("""
-            ${jac_str} = ${jac_str} + Ru * sum + ${P_str} * \
-                (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv \
-                {nosync=sum, dep=sum}
+            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum, dep=sum}
+            ${jac_str} = ${jac_str} + ${P_str} * \
+                (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv {id=jac_split}
         """).safe_substitute(**locals())]
 
-    can_vectorize = not loopy_opts.depth
-    vec_spec = (
-        None if not loopy_opts.depth else ic.dummy_deep_specialization())
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
 
     parameters = {'Ru': chem.RU}
     return k_gen.knl_info(name='d{}dotdT'.format('P' if conp else 'V'),
@@ -2115,7 +2130,8 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                 (1 - ${troe_a_str}) * T3inv * exp(Tval * T3inv) + \
                 ${troe_T2_str} * Tinv * Tinv * exp(-${troe_T2_str} * Tinv)
                 <> logFcent = log(${Fcent_str})
-                <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=ab_init}
+                <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} \
+                    {id=ab_init}
                 <> absqsq = absq * absq {id=ab_fin}
                 <> dFi = -${Btroe_str} * (2 * ${Atroe_str} * ${Fcent_str} * \
                 (0.14 * ${Atroe_str} + ${Btroe_str}) * \
@@ -2174,15 +2190,19 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             Ta_inf = ${s_Ta_str} {id=Taf_fall}
         end
         <> pmod = ${pres_mod_str}
-        <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) {id=theta_Pr, dep=beta*:kf*:Ta*}
+        <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) \
+            {id=theta_Pr, dep=beta*:kf*:Ta*}
         <> theta_no_Pr = dci_thd_dT * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
         ${dFi_instructions}
-        <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / (${Pr_str} + 1) + dFi) {id=dfall_init}
+        <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / \
+            (${Pr_str} + 1) + dFi) {id=dfall_init}
         if not ${fall_type_str}
             # falloff
-            dci_fall_dT = dci_fall_dT + theta_Pr * pmod + ${Fi_str} * theta_no_Pr / (${Pr_str} + 1) {id=dfall_up1, dep=dfall_init}
+            dci_fall_dT = dci_fall_dT + theta_Pr * pmod + ${Fi_str} * theta_no_Pr / \
+                (${Pr_str} + 1) {id=dfall_up1, dep=dfall_init}
         end
-        dci_fall_dT = dci_fall_dT * ${V_str} * rop_net {id=dfall_final, dep=dfall_up1}
+        dci_fall_dT = dci_fall_dT * ${V_str} * rop_net \
+            {id=dfall_final, dep=dfall_up1}
         """).safe_substitute(**locals())
 
     rop_net_rev_update = ic.get_update_instruction(
@@ -2211,9 +2231,12 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     <> offset_next = ${offset_next_str}
     for ${k_ind}
         ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-            ${factor}
+            ${factor} {id=jac}
     end
     """).safe_substitute(**locals())
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
 
     parameters.update({'Ru_inv': 1.0 / chem.RU})
     return k_gen.knl_info(name='dci_{}_dT'.format(
@@ -2225,7 +2248,9 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         kernel_data=kernel_data,
         mapstore=mapstore,
         parameters=parameters,
-        manglers=manglers
+        manglers=manglers,
+        can_vectorize=can_vectorize,
+        vectorization_specializer=vec_spec
     )
 
 
@@ -2557,18 +2582,25 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                 <> hi = numP {id=hi_init}
                 <> numP = ${plog_num_param_str} - 1
                 for ${param_ind}
-                    if ${param_ind} <= numP and (logP > ${pressure_mid_lo}) and (logP <= ${pressure_mid_hi})
+                    if ${param_ind} <= numP and (logP > ${pressure_mid_lo}) and \
+                            (logP <= ${pressure_mid_hi})
                         lo = ${param_ind} {id=set_lo, dep=lo_init}
                         hi = ${param_ind} + 1 {id=set_hi, dep=hi_init}
                     end
                 end
                 if logP > ${pressure_hi} # out of range above
-                    <> dkf = (${beta_hi_str} + ${Ta_hi_str} * Tinv) * Tinv {id=dkf_init_hi, dep=set_*}
+                    <> dkf = (${beta_hi_str} + ${Ta_hi_str} * Tinv) * Tinv \
+                        {id=dkf_init_hi, dep=set_*}
                 else
-                    dkf = (${beta_lo_str} + ${Ta_lo_str} * Tinv) * Tinv {id=dkf_init_lo, dep=set_*}
+                    dkf = (${beta_lo_str} + ${Ta_lo_str} * Tinv) * Tinv \
+                        {id=dkf_init_lo, dep=set_*}
                 end
-                if logP > ${pressure_lo} and logP <= ${pressure_hi}  # not out of range
-                    dkf = dkf + Tinv * (logP - ${pres_lo_str}) * (${beta_hi_str} - ${beta_lo_str} + (${Ta_hi_str} - ${Ta_lo_str}) * Tinv) / (${pres_hi_str} - ${pres_lo_str}) {id=dkf_final, dep=dkf_init*}
+                if logP > ${pressure_lo} and logP <= ${pressure_hi}
+                    # not out of range
+                    dkf = dkf + Tinv * (logP - ${pres_lo_str}) * \
+                    (${beta_hi_str} - ${beta_lo_str} + \
+                        (${Ta_hi_str} - ${Ta_lo_str}) * Tinv) / \
+                    (${pres_hi_str} - ${pres_lo_str}) {id=dkf_final, dep=dkf_init*}
                 end
             """).safe_substitute(**locals())
             extra_inames.append((
@@ -2654,8 +2686,10 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             dkf_instructions = Template("""
                 <>numP = ${num_P_str} {id=plim}
                 <>numT = ${num_T_str} - 1 {id=tlim}
-                <> Tred = (2 * Tinv - ${Tmax_str}- ${Tmin_str}) / (${Tmax_str} - ${Tmin_str})
-                <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / (${Pmax_str} - ${Pmin_str})
+                <> Tred = (2 * Tinv - ${Tmax_str}- ${Tmin_str}) / \
+                    (${Tmax_str} - ${Tmin_str})
+                <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / \
+                    (${Pmax_str} - ${Pmin_str})
                 ${ppoly0_str} = 1
                 ${ppoly1_str} = Pred
                 ${tpoly0_str} = 1
@@ -2664,10 +2698,12 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                 # compute polynomial terms
                 for p
                     if p < numP
-                        ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} {id=ppoly, dep=plim}
+                        ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - \
+                            ${ppolypm2_str} {id=ppoly, dep=plim}
                     end
                     if p < numT
-                        ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} {id=tpoly, dep=tlim}
+                        ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - \
+                            ${tpolypm2_str} {id=tpoly, dep=tlim}
                     end
                 end
 
@@ -2675,11 +2711,14 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                 for m
                     <>temp = 0
                     for k
-                        temp = temp + ${ppoly_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+                        temp = temp + ${ppoly_str} * ${params_str} \
+                            {id=temp, dep=ppoly:tpoly}
                     end
-                    dkf = dkf + (m + 1) * ${tpoly_str} * temp {id=dkf_update, dep=temp:dkf_init}
+                    dkf = dkf + (m + 1) * ${tpoly_str} * temp \
+                        {id=dkf_update, dep=temp:dkf_init}
                 end
-                dkf = -dkf * 2 * logten * Tinv * Tinv / (${Tmax_str} - ${Tmin_str}) {id=dkf, dep=dkf_update}
+                dkf = -dkf * 2 * logten * Tinv * Tinv / (${Tmax_str} - ${Tmin_str}) \
+                    {id=dkf, dep=dkf_update}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
         else:
@@ -2695,9 +2734,11 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         if ${rev_mask_str} >= 0
             <> dBk_sum = 0
             for ${net_ind}
-                dBk_sum = dBk_sum + (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} {id=up}
+                dBk_sum = dBk_sum + \
+                    (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} {id=up}
             end
-            dRopidT = dRopidT - ${rop_rev_str} * (dkf - dBk_sum) {id=rev, dep=init:up}
+            dRopidT = dRopidT - ${rop_rev_str} * \
+                (dkf - dBk_sum) {id=rev, dep=init:up}
         end
         if ${thd_mask_str} >= 0
             ci = ${pres_mod_str} {id=ci}
@@ -2742,13 +2783,17 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
             if net_spec == ${ns}
                 nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) {id=Sns_fwd_up, dep=nuf_inner_up}
+            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) \
+                {id=Sns_fwd_up, dep=nuf_inner_up}
             if net_spec == ${ns}
                 nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) {id=Sns_rev_up, dep=nur_inner_up}
+            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) \
+                {id=Sns_rev_up, dep=nur_inner_up}
         end
-        <> dRopidT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) {id=Ropi_final, dep=Sns*}
+        <> dRopidT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * \
+            ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) \
+            {id=Ropi_final, dep=Sns*}
         """).substitute(**locals())
 
     # get nuk's
@@ -2761,13 +2806,18 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
         for ${k_ind}
-            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT {dep=Ropi_final}
+            ${jac_str} = ${jac_str} + \
+                (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT \
+                {id=jac, dep=Ropi_final}
         end
     """).substitute(**locals())
 
     name_description = {reaction_type.elementary: '',
                         reaction_type.plog: '_plog',
                         reaction_type.cheb: '_cheb'}
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
 
     return k_gen.knl_info(name='dRopi{}_dT{}'.format(
         name_description[rxn_type],
@@ -2780,7 +2830,9 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         mapstore=mapstore,
         preambles=[lp_pregen.fastpowi_PreambleGen(),
                    lp_pregen.fastpowf_PreambleGen()],
-        parameters=parameters
+        parameters=parameters,
+        can_vectorize=can_vectorize,
+        vectorization_specializer=vec_spec
     )
 
 
@@ -3026,8 +3078,8 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     for ${spec_k}
         sum = sum + (1 - ${mw_str}) * ${dnk_dnj_str} {id=sum, dep=*}
     end
-
-    ${jac_str} = ${T_str} * Ru * sum / ${fixed_var_str} + ${extra_var_str} * ${dTdot_dnj_str} / ${T_str} {dep=sum, nosync=sum}
+    ${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + \
+        ${extra_var_str} * ${dTdot_dnj_str} / ${T_str} {id=jac, dep=sum, nosync=sum}
     """).safe_substitute(**locals())
 
     return k_gen.knl_info(name='d{}dot_dnj'.format('P' if conp else 'V'),
@@ -3036,7 +3088,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
-                          parameters={'Ru': chem.RU}
+                          parameters={'Ru': chem.RU},
                           )
 
 
@@ -3115,10 +3167,12 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     instructions = Template("""
     <> sum = 0 {id=init}
     for ${spec_k}
-        sum = sum + (${energy_k_str} - ${energy_ns_str} * ${mw_str}) * ${jac_spec_str} {id=sum, dep=*}
+        sum = sum + (${energy_k_str} - ${energy_ns_str} * ${mw_str}) * \
+            ${jac_spec_str} {id=sum, dep=*}
     end
 
-    ${jac_str} = -(sum + ${T_dot_str} * (${spec_heat_k_str} - ${spec_heat_ns_str})) / (${V_str} * ${spec_heat_total_str}) {dep=sum, nosync=sum}
+    ${jac_str} = -(sum + ${T_dot_str} * (${spec_heat_k_str} - ${spec_heat_ns_str})) \
+        / (${V_str} * ${spec_heat_total_str}) {dep=sum, nosync=sum}
     """).safe_substitute(**locals())
 
     return k_gen.knl_info(name='dTdot_dnj',
@@ -3177,6 +3231,7 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
 
     pre_instructions = Template("""
         <>spec_tot = 0
+        ${spec_heat_total_str} = 0 {id=init}
         """).safe_substitute(**locals())
     instructions = Template("""
         spec_tot = spec_tot + ${spec_heat_str} * \
@@ -3184,11 +3239,11 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
     """).safe_substitute(**locals())
     post_instructions = Template("""
         ${spec_heat_total_str} = ${spec_heat_total_str} + spec_tot \
-            {id=sum, dep=update}
+            {id=sum, dep=update:init, nosync=init}
     """).safe_substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['sum'])
+        loopy_opts, atomic_ids=['sum'], init_ids=['init'])
 
     return k_gen.knl_info(name='{}_total'.format(namestore.spec_heat.name),
                           pre_instructions=[pre_instructions],
@@ -3462,7 +3517,10 @@ def __dci_dnj(loopy_opts, namestore,
 
             dFi = Template(
                 """
-        <> dFi = -2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * exp(-${sri_b_str} / ${T_str}) + exp(-${T_str} / ${sri_c_str})) * log(fmax(${Pr_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi}
+        <> dFi = -2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * \
+           exp(-${sri_b_str} / ${T_str}) + exp(-${T_str} / ${sri_c_str})) * \
+           log(fmax(${Pr_str}, 1e-300d)) / \
+           (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi}
         """).substitute(
                 sri_X_str=sri_X_str,
                 sri_a_str=sri_a_str,
@@ -3487,8 +3545,11 @@ def __dci_dnj(loopy_opts, namestore,
 
             dFi = Template(
                 """
-        <> dFi = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} {id=dFi_init}
-        dFi = -2 * ${Atroe_str} * ${Btroe_str} * (0.14 * ${Atroe_str} + ${Btroe_str}) * log(fmax(${Fcent_str}, 1e-300d)) / (fmax(${Pr_str}, 1e-300d) * dFi * dFi * logten) {id=dFi, dep=dFi_init}
+        <> dFi = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} \
+            {id=dFi_init}
+        dFi = -2 * ${Atroe_str} * ${Btroe_str} * \
+        (0.14 * ${Atroe_str} + ${Btroe_str}) * log(fmax(${Fcent_str}, 1e-300d)) / \
+        (fmax(${Pr_str}, 1e-300d) * dFi * dFi * logten) {id=dFi, dep=dFi_init}
         """).substitute(
                 Atroe_str=Atroe_str,
                 Btroe_str=Btroe_str,
@@ -3519,7 +3580,8 @@ def __dci_dnj(loopy_opts, namestore,
         end
 
         # and update dFi
-        dFi =  k0 * (${Fi_str} * Fi_fac - ${pres_mod_str}) / (kinf * (${Pr_str} + 1)) {id=fall, dep=kf_*:kinf_*:dFi_fac_*}
+        dFi =  k0 * (${Fi_str} * Fi_fac - ${pres_mod_str}) / \
+            (kinf * (${Pr_str} + 1)) {id=fall, dep=kf_*:kinf_*:dFi_fac_*}
         """).substitute(
             dFi=dFi,
             fall_type_str=fall_type_str,
@@ -3564,7 +3626,8 @@ def __dci_dnj(loopy_opts, namestore,
                     <> ${spec_k} = ${spec_k_str}
                     <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
                     if ${spec_k} != ${ns}
-                        ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str}
+                        ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} \
+                            {id=jac}
                     end
                 end
             end
@@ -3625,7 +3688,8 @@ def __dci_dnj(loopy_opts, namestore,
             <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
             if ${spec_k} != ${ns}
                 for ${spec_j}
-                    ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str}
+                    ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} \
+                        {id=jac}
                 end
             end
         end
@@ -3662,6 +3726,9 @@ def __dci_dnj(loopy_opts, namestore,
     extra_inames = [
         (','.join(inames), ' and '.join(ranges))]
 
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
+
     return k_gen.knl_info(name=knl_name,
                           instructions=instructions,
                           var_name=var_name,
@@ -3669,7 +3736,9 @@ def __dci_dnj(loopy_opts, namestore,
                           extra_inames=extra_inames,
                           mapstore=mapstore,
                           parameters=parameters,
-                          manglers=manglers
+                          manglers=manglers,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec
                           )
 
 
@@ -4039,11 +4108,15 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                             if ${spec_inner} == ${spec_j}
                                 nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
                             end
-                            Sj_fwd = Sj_fwd * fast_powi(${conc_inner_str}, nu_fwd) {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
-                            Sj_rev = Sj_rev * fast_powi(${conc_inner_str}, nu_rev) {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
+                            Sj_fwd = Sj_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                                {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
+                            Sj_rev = Sj_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                                {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
                         end
                         # and update Jacobian
-                        ${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev) * ci * nu_k {id=jac_up, dep=Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k}
+                        ${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev) * \
+                            ci * nu_k \
+                            {id=jac, dep=Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k}
                     end
                 end
             """)
@@ -4060,19 +4133,24 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                     # handle nu
                     if ${spec_inner} == ${ns}
                         Sns_fwd = Sns_fwd * nu_fwd {id=Sns_fwd_up, dep=Sns_fwd_init}
-                        nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
+                        nu_fwd = nu_fwd - 1 \
+                            {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
                     end
-                    Sns_fwd = Sns_fwd * fast_powi(${conc_inner_str}, nu_fwd) {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
+                    Sns_fwd = Sns_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                        {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
                     if ${spec_inner} == ${ns}
                         Sns_rev = Sns_rev * nu_rev {id=Sns_rev_up, dep=Sns_rev_init}
-                        nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
+                        nu_rev = nu_rev - 1 \
+                            {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
                     end
-                    Sns_rev = Sns_rev * fast_powi(${conc_inner_str}, nu_rev) {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
+                    Sns_rev = Sns_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                        {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
                 end
                 # and update Jacobian for all species in this row
-                <> jac_updater =  (kr_i * Sns_rev - kf_i * Sns_fwd) * ci * nu_k {id=jac_up, dep=Sns_fwd_up*:Sns_rev_up*:ci_up:nu_k:spec_k:kf:kr*}
+                <> jac_updater =  (kr_i * Sns_rev - kf_i * Sns_fwd) * ci * nu_k \
+                    {id=jac_up, dep=Sns_fwd_up*:Sns_rev_up*:ci_up:nu_k:spec_k:kf:kr*}
                 for ${spec_j}
-                    ${jac_str} = ${jac_str} + jac_updater
+                    ${jac_str} = ${jac_str} + jac_updater {id=jac}
                 end
             """)
 
@@ -4135,6 +4213,9 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         # join inames
         extra_inames = [
             (','.join(inames), ' and '.join(ranges))]
+
+        can_vectorize, vec_spec = ic.get_deep_specializer(
+            loopy_opts, atomic_ids=['jac'])
         return k_gen.knl_info(name='dRopidnj{}'.format('_ns' if do_ns else ''),
                               instructions=instructions,
                               var_name=var_name,
@@ -4143,7 +4224,9 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                               mapstore=mapstore,
                               preambles=[
                                    lp_pregen.fastpowi_PreambleGen(),
-                                   lp_pregen.fastpowf_PreambleGen()]
+                                   lp_pregen.fastpowf_PreambleGen()],
+                              can_vectorize=can_vectorize,
+                              vectorization_specializer=vec_spec
                               )
 
     return [x for x in [__dropidnj(False), __dropidnj(True)] if x is not None]
