@@ -152,18 +152,20 @@ class atomic_deep_specialization(within_inames_specializer):
                 insns[insn_ind] = insn.copy(
                     atomicity=(lp.AtomicInit(written),))
             elif insn.id in self.split_ids:
-                written = _check_atomic_data(insn)
-                assert isinstance(insn.expression, Sum) and \
-                    insn.assignee in insn.expression.children, (
-                    'Cannot split insn: {}, not Sum or assignee'
-                    ' not found therein'.format(insn.id))
-                # get children that are not the assignee and re-sum
-                others = Sum(
-                    tuple(x for x in insn.expression.children if x != insn.assignee))
-                # and finally, implement the split as a += sum(others) / vec_width
-                insns[insn_ind] = insn.copy(
-                    expression=insn.assignee + others / self.vec_width,
-                    atomicity=(lp.AtomicInit(written),))
+                if isinstance(insn.expression, Sum) and \
+                        insn.assignee in insn.expression.children:
+                    written = _check_atomic_data(insn)
+                    # get children that are not the assignee and re-sum
+                    others = Sum(tuple(
+                        x for x in insn.expression.children if x != insn.assignee))
+                    # finally implement the split as a += sum(others) / vec_width
+                    insns[insn_ind] = insn.copy(
+                        expression=insn.assignee + others / self.vec_width,
+                        atomicity=(lp.AtomicUpdate(written),))
+                else:
+                    # otherwise can simply divide
+                    insns[insn_ind] = insn.copy(
+                        expression=insn.expression / self.vec_width)
 
         # now force all instructions into inner loop
         return super(atomic_deep_specialization, self).__call__(
