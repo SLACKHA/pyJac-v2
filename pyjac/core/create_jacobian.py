@@ -3229,6 +3229,10 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
 
     kernel_data.extend([spec_heat_lp, conc_lp, spec_heat_tot_lp])
 
+    barrier = (
+        '... lbarrier {id=break, dep=init}'
+        if loopy_opts.use_atomics and loopy_opts.depth else
+        '... nop {id=break, dep=init}')
     pre_instructions = Template("""
         <>spec_tot = 0
         ${spec_heat_total_str} = 0 {id=init}
@@ -3238,8 +3242,9 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
             ${conc_str} {id=update}
     """).safe_substitute(**locals())
     post_instructions = Template("""
+        ${barrier}
         ${spec_heat_total_str} = ${spec_heat_total_str} + spec_tot \
-            {id=sum, dep=update:init, nosync=init}
+            {id=sum, dep=update:init:break, nosync=init}
     """).safe_substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
