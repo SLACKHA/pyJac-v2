@@ -185,9 +185,9 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
     # update indicies in return value
     val['jac_inds'] = {
         'flat': np.asarray(inds, dtype=np.int32),
-        'crs': {'col_ind': col_ind,
+        'crs': {'col_ind': np.array(col_ind, dtype=np.int32),
                 'row_ptr': __offset(row_ptr)},
-        'ccs': {'row_ind': row_ind,
+        'ccs': {'row_ind': np.array(row_ind, dtype=np.int32),
                 'col_ptr': __offset(col_ptr)},
     }
     return val
@@ -222,8 +222,8 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
     """
 
     mapstore = arc.MapStore(loopy_opts,
-                            namestore.phi_inds,
-                            namestore.phi_inds)
+                            namestore.num_nonzero_jac_inds,
+                            namestore.num_nonzero_jac_inds)
 
     # first, create all arrays
     kernel_data = []
@@ -232,20 +232,23 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
     if namestore.problem_size is not None:
         kernel_data.append(namestore.problem_size)
 
-    k_ind = 'k'
-    j_ind = 'j'
+    k_ind = 'row'
+    j_ind = 'col'
     # need jac_array
     jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, k_ind, j_ind)
 
+    # and row / col inds
+    row_lp, row_str = mapstore.apply_maps(namestore.flat_jac_row_inds, var_name)
+    col_lp, col_str = mapstore.apply_maps(namestore.flat_jac_col_inds, var_name)
+
     # add arrays
-    kernel_data.extend([jac_lp])
+    kernel_data.extend([jac_lp, row_lp, col_lp])
 
     instructions = Template(
         """
-            ${ndot_str} = 0d
-            if ${ind} < ${ns}
-                ${wdot_str} = 0d
-            end
+            <> ${k_ind} = ${row_str}
+            <> ${j_ind} = ${col_str}
+            ${jac_str} = 0d
         """).substitute(**locals())
 
     return k_gen.knl_info(name='reset_arrays',

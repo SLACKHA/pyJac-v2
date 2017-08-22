@@ -1000,6 +1000,12 @@ class NameStore(object):
         # flat / dense jacobian
         flat_row_inds = rate_info['jac_inds']['flat'][:, 0]
         flat_col_inds = rate_info['jac_inds']['flat'][:, 1]
+        self.num_nonzero_jac_inds = creator('num_jac_entries',
+                                            shape=flat_row_inds.shape,
+                                            dtype=np.int32,
+                                            order=self.order,
+                                            initializer=np.arange(
+                                                flat_row_inds.size, dtype=np.int32))
         self.flat_jac_row_inds = creator('jac_row_inds',
                                          shape=flat_row_inds.shape,
                                          dtype=np.int32,
