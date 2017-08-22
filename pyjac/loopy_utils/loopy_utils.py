@@ -209,10 +209,7 @@ def get_device_list():
     for p in cl.get_platforms():
         device_list.append(p.get_devices())
     # don't need multiple gpu's etc.
-    for i in range(len(device_list)):
-        device_list[i] = device_list[i][0]
-
-    return device_list
+    return [x[0] for x in device_list if x]
 
 
 def get_context(device='0'):
