@@ -998,52 +998,55 @@ class NameStore(object):
                                                            dtype=np.int32))
 
         # flat / dense jacobian
-        flat_row_inds = rate_info['jac_inds']['flat'][:, 0]
-        flat_col_inds = rate_info['jac_inds']['flat'][:, 1]
-        self.num_nonzero_jac_inds = creator('num_jac_entries',
-                                            shape=flat_row_inds.shape,
-                                            dtype=np.int32,
-                                            order=self.order,
-                                            initializer=np.arange(
-                                                flat_row_inds.size, dtype=np.int32))
-        self.flat_jac_row_inds = creator('jac_row_inds',
-                                         shape=flat_row_inds.shape,
-                                         dtype=np.int32,
-                                         order=self.order,
-                                         initializer=flat_row_inds)
-        self.flat_jac_col_inds = creator('jac_col_inds',
-                                         shape=flat_col_inds.shape,
-                                         dtype=np.int32,
-                                         order=self.order,
-                                         initializer=flat_col_inds)
+        if 'jac_inds' in rate_info:
+            # if we're actually creating a jacobian
+            flat_row_inds = rate_info['jac_inds']['flat'][:, 0]
+            flat_col_inds = rate_info['jac_inds']['flat'][:, 1]
+            self.num_nonzero_jac_inds = creator('num_jac_entries',
+                                                shape=flat_row_inds.shape,
+                                                dtype=np.int32,
+                                                order=self.order,
+                                                initializer=np.arange(
+                                                    flat_row_inds.size,
+                                                    dtype=np.int32))
+            self.flat_jac_row_inds = creator('jac_row_inds',
+                                             shape=flat_row_inds.shape,
+                                             dtype=np.int32,
+                                             order=self.order,
+                                             initializer=flat_row_inds)
+            self.flat_jac_col_inds = creator('jac_col_inds',
+                                             shape=flat_col_inds.shape,
+                                             dtype=np.int32,
+                                             order=self.order,
+                                             initializer=flat_col_inds)
 
-        # Compressed Row Storage jacobian
-        crs_col_ind = rate_info['jac_inds']['crs']['col_ind']
-        self.crs_jac_col_ind = creator('jac_col_inds',
-                                       shape=crs_col_ind.shape,
-                                       dtype=np.int32,
-                                       order=self.order,
-                                       initializer=crs_col_ind)
-        crs_row_ptr = rate_info['jac_inds']['crs']['row_ptr']
-        self.crs_jac_row_ptr = creator('jac_row_ptr',
-                                       shape=crs_row_ptr.shape,
-                                       dtype=np.int32,
-                                       order=self.order,
-                                       initializer=crs_row_ptr)
+            # Compressed Row Storage jacobian
+            crs_col_ind = rate_info['jac_inds']['crs']['col_ind']
+            self.crs_jac_col_ind = creator('jac_col_inds',
+                                           shape=crs_col_ind.shape,
+                                           dtype=np.int32,
+                                           order=self.order,
+                                           initializer=crs_col_ind)
+            crs_row_ptr = rate_info['jac_inds']['crs']['row_ptr']
+            self.crs_jac_row_ptr = creator('jac_row_ptr',
+                                           shape=crs_row_ptr.shape,
+                                           dtype=np.int32,
+                                           order=self.order,
+                                           initializer=crs_row_ptr)
 
-        # Compressed Column Storage jacobian
-        ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
-        self.ccs_jac_row_ind = creator('jac_row_inds',
-                                       shape=ccs_row_ind.shape,
-                                       dtype=np.int32,
-                                       order=self.order,
-                                       initializer=ccs_row_ind)
-        ccs_col_ptr = rate_info['jac_inds']['ccs']['col_ptr']
-        self.ccs_jac_col_ptr = creator('jac_col_ptr',
-                                       shape=ccs_col_ptr.shape,
-                                       dtype=np.int32,
-                                       order=self.order,
-                                       initializer=ccs_col_ptr)
+            # Compressed Column Storage jacobian
+            ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
+            self.ccs_jac_row_ind = creator('jac_row_inds',
+                                           shape=ccs_row_ind.shape,
+                                           dtype=np.int32,
+                                           order=self.order,
+                                           initializer=ccs_row_ind)
+            ccs_col_ptr = rate_info['jac_inds']['ccs']['col_ptr']
+            self.ccs_jac_col_ptr = creator('jac_col_ptr',
+                                           shape=ccs_col_ptr.shape,
+                                           dtype=np.int32,
+                                           order=self.order,
+                                           initializer=ccs_col_ptr)
 
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
