@@ -604,9 +604,11 @@ class SubTest(TestClass):
                            if x.match((reaction_type.cheb,))])],
                 get_cheb_arrhenius_rates)}
 
-        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                'kf': lambda x: np.zeros_like(ref_const, order=x)}
         if rtype != 'simple':
             args['P_arr'] = P
+
         kw_args = {}
         if rtype == 'plog':
             kw_args['maxP'] = np.max([
