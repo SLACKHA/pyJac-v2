@@ -4255,7 +4255,6 @@ def create_jacobian(lang,
                     rate_specialization='full',
                     split_rate_kernels=True,
                     split_rop_net_kernels=False,
-                    spec_rates_sum_over_reac=True,
                     conp=True,
                     data_filename='data.bin',
                     output_full_rop=False
@@ -4309,24 +4308,6 @@ def create_jacobian(lang,
         into different kernels
     split_rop_net_kernels : bool
         If True, break different ROP values (fwd / back / pdep) into different kernels
-    spec_rates_sum_over_reac : bool
-        Controls the manner in which the species rates are calculated
-        *  If True, the summation occurs as:
-            for reac:
-                rate = reac_rates[reac]
-                for spec in reac:
-                    spec_rate[spec] += nu(spec, reac) * reac_rate
-        *  If False, the summation occurs as:
-            for spec:
-                for reac in spec_to_reacs[spec]:
-                    rate = reac_rates[reac]
-                    spec_rate[spec] += nu(spec, reac) * reac_rate
-        *  Of these, the first choice appears to be slightly more efficient, likely due to less
-        thread divergence / SIMD wastage, HOWEVER it causes issues with deep vectorization
-        (an atomic update of the spec_rate is needed, and doesn't appear to work in current loopy)
-        Hence, we supply both.
-        *  Note that if True, and deep vectorization is passed this switch will be ignored
-        and a warning will be issued
     conp : bool
         If True, use the constant pressure assumption.  If False, use the constant volume assumption.
     data_filename : str
@@ -4382,7 +4363,6 @@ def create_jacobian(lang,
                                         rate_spec=rate_spec_val,
                                         rate_spec_kernels=split_rate_kernels,
                                         rop_net_kernels=split_rop_net_kernels,
-                                        spec_rates_sum_over_reac=spec_rates_sum_over_reac,
                                         platform=platform)
 
     # create output directory if none exists
