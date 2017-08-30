@@ -162,6 +162,9 @@ class MapStore(object):
 
     loopy_opts : :class:`LoopyOptions`
         The loopy options for kernel creation
+    use_private_memory : Bool [False]
+        If True, use _private_ OpenCL/CUDA/etc. memory for array creation.
+        If False, use _global_ memory.
     knl_type : ['map', 'mask']
         The kernel mapping / masking type.  Controls whether this kernel should
         generate maps vs masks and the index ranges
@@ -185,6 +188,7 @@ class MapStore(object):
     def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
                  raise_on_final=True):
         self.loopy_opts = loopy_opts
+        self.use_private_memory = loopy_opts.use_private_memory
         self.knl_type = loopy_opts.knl_type
         self.map_domain = map_domain
         self.mask_domain = mask_domain
@@ -699,7 +703,8 @@ class MapStore(object):
                          for x in indicies)
 
         # return affine mapping
-        return variable(*tuple(__get_affine(i) for i in indicies), **kwargs)
+        return variable(*tuple(__get_affine(i) for i in indicies),
+                        use_private_memory=self.use_private_memory, **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
@@ -778,11 +783,9 @@ class creator(object):
     """
 
     def __init__(self, name, dtype, shape, order,
-                 initializer=None,
-                 scope=scopes.GLOBAL,
-                 fixed_indicies=None,
-                 is_temporary=False,
-                 affine=None):
+                 initializer=None, scope=scopes.GLOBAL,
+                 fixed_indicies=None, is_temporary=False, affine=None,
+                 is_input_or_output=False):
         """
         Initializes the creator object
 
@@ -808,6 +811,10 @@ class creator(object):
         affine : int
             If supplied, this represents an offset that should be applied to
             the creator upon indexing
+        is_input_or_output : bool [False]
+            If true, this creator is an input or output variable for pyJac.
+            Hence, it should not use private memory, regardless of the value of
+            :param:`use_private_memory` in :func:`creator.__call__`
         """
 
         self.name = name
@@ -821,6 +828,7 @@ class creator(object):
         self.num_indicies = len(shape)
         self.order = order
         self.affine = affine
+        self.is_input_or_output = is_input_or_output
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
         if is_temporary or initializer is not None:
@@ -855,25 +863,37 @@ class creator(object):
             return indicies[:]
 
     def __temp_var_creator(self, **kwargs):
-        return lp.TemporaryVariable(self.name,
-                                    shape=self.shape,
-                                    initializer=self.initializer,
-                                    scope=self.scope,
-                                    read_only=self.initializer is not None,
-                                    dtype=self.dtype,
-                                    order=self.order,
-                                    **kwargs)
+        # set default args
+        arg_dict = {'shape': self.shape,
+                    'dtype': self.dtype,
+                    'order': self.order,
+                    'initializer': self.initializer,
+                    'scope': self.scope,
+                    'read_only': self.initializer is not None}
+
+        # and update any supplied overrides
+        arg_dict.update(kwargs)
+        return lp.TemporaryVariable(self.name, **arg_dict)
 
     def __glob_arg_creator(self, **kwargs):
-        return lp.GlobalArg(self.name,
-                            shape=self.shape,
-                            dtype=self.dtype,
-                            order=self.order,
-                            **kwargs)
+        # set default args
+        arg_dict = {'shape': self.shape,
+                    'dtype': self.dtype,
+                    'order': self.order}
+        # and update any supplied overrides
+        arg_dict.update(kwargs)
+        return lp.GlobalArg(self.name, **arg_dict)
 
     def __call__(self, *indicies, **kwargs):
+        # figure out whether to use private memory or not
+        use_private_memory = kwargs.pop('use_private_memory', False)
         inds = self.__get_indicies(*indicies)
-        lp_arr = self.creator(**kwargs)
+        if use_private_memory and not self.is_input_or_output:
+            inds = inds[1:]
+            lp_arr = self.__temp_var_creator(shape=self.shape[1:],
+                                             scope=scopes.PRIVATE, **kwargs)
+        else:
+            lp_arr = self.creator(**kwargs)
         return (lp_arr, lp_arr.name + '[{}]'.format(', '.join(
             str(x) for x in inds)))
 
@@ -913,11 +933,15 @@ class NameStore(object):
         If true, use the constant pressure formulation
     test_size : str or int
         Optional size used in testing.  If not supplied, this is a kernel arg
+    use_private_memory : Bool [False]
+        If True, use _private_ OpenCL/CUDA/etc. memory for array creation.
+        If False, use _global_ memory.
     """
 
     def __init__(self, loopy_opts, rate_info, conp=True,
                  test_size='problem_size'):
         self.loopy_opts = loopy_opts
+        self.use_private_memory = loopy_opts.use_private_memory
         self.rate_info = rate_info
         self.order = loopy_opts.order
         self.test_size = test_size
@@ -1051,42 +1075,51 @@ class NameStore(object):
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 0)])
+                             fixed_indicies=[(1, 0)],
+                             is_input_or_output=True)
 
         # handle extra variable and P / V arrays
         self.E_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 1)])
+                             fixed_indicies=[(1, 1)],
+                             is_input_or_output=True)
         if self.conp:
             self.P_arr = creator('P_arr', shape=(test_size,),
-                                 dtype=np.float64, order=self.order)
+                                 dtype=np.float64, order=self.order,
+                                 is_input_or_output=True)
             self.V_arr = self.E_arr
         else:
             self.P_arr = self.E_arr
             self.V_arr = creator('V_arr', shape=(test_size,),
-                                 dtype=np.float64, order=self.order)
+                                 dtype=np.float64, order=self.order,
+                                 is_input_or_output=True)
 
         self.n_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order)
+                             dtype=np.float64, order=self.order,
+                             is_input_or_output=True)
         self.conc_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                 dtype=np.float64, order=self.order)
         self.conc_ns_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                    dtype=np.float64, order=self.order,
                                    fixed_indicies=[(1, rate_info['Ns'] - 1)])
         self.n_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order)
+                             dtype=np.float64, order=self.order,
+                             is_input_or_output=True)
         self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 0)])
+                             fixed_indicies=[(1, 0)],
+                             is_input_or_output=True)
         self.E_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 1)])
+                             fixed_indicies=[(1, 1)],
+                             is_input_or_output=True)
 
         self.jac = creator('jac',
                            shape=(
                                test_size, rate_info['Ns'] + 1, rate_info['Ns'] + 1),
                            order=self.order,
-                           dtype=np.float64)
+                           dtype=np.float64,
+                           is_input_or_output=True)
 
         self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
                                   dtype=np.float64, order=self.order)

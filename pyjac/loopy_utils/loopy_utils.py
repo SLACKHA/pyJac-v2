@@ -113,23 +113,18 @@ class loopy_options(object):
         Use atomic updates where necessary for proper deep-vectorization
         If not, a sequential deep-vectorization (with only one thread/lane
         active) will be used
+    use_private_memory : bool [False]
+        If True, use private CUDA/OpenCL memory for internal work arrays (e.g.,
+        concentrations).  If False, use global device memory (requiring passing in
+        from kernel call). Note for C use_private_memory==True corresponds to
+        stack based memory allocation
     """
 
-    def __init__(self,
-                 width=None,
-                 depth=None,
-                 ilp=False,
-                 unr=None,
-                 lang='opencl',
-                 order='C',
-                 rate_spec=RateSpecialization.fixed,
-                 rate_spec_kernels=False,
-                 rop_net_kernels=False,
-                 spec_rates_sum_over_reac=True,
-                 platform='',
-                 knl_type='map',
-                 auto_diff=False,
-                 use_atomics=True):
+    def __init__(self, width=None, depth=None, ilp=False, unr=None,
+                 lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
+                 rate_spec_kernels=False, rop_net_kernels=False,
+                 platform='', knl_type='map', auto_diff=False, use_atomics=True,
+                 use_private_memory=False):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -153,6 +148,7 @@ class loopy_options(object):
         self.knl_type = knl_type
         self.auto_diff = auto_diff
         self.use_atomics = use_atomics
+        self.use_private_memory = use_private_memory
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform:
