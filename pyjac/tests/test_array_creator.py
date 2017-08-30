@@ -1,5 +1,5 @@
 # compatibility
-from builtins import range
+from six.moves import range
 
 # local imports
 from ..core import array_creator as arc
@@ -15,12 +15,13 @@ import loopy as lp
 import numpy as np
 
 
-def _dummy_opts(knl_type):
+def _dummy_opts(knl_type, order='C', use_private_memory=False):
     class dummy(object):
-        def __init__(self, knl_type, order='C'):
+        def __init__(self, knl_type, order='C', use_private_memory=False):
             self.knl_type = knl_type
             self.order = order
-    return dummy(knl_type)
+            self.use_private_memory = use_private_memory
+    return dummy(knl_type, order=order, use_private_memory=use_private_memory)
 
 
 def test_creator_asserts():
@@ -723,6 +724,31 @@ def test_force_inline(maptype):
     assert len(mstore.transform_insns) == 0
 
 
+def test_private_memory_creations():
+    lp_opt = _dummy_opts('map', use_private_memory=True)
+
+    # make a creator to form the base of the mapstore
+    c = arc.creator('', np.int32, (10,), 'C',
+                    initializer=np.arange(10, dtype=np.int32))
+
+    # and the array to test
+    arr = arc.creator('a', np.int32, (10, 10), 'C')
+
+    # and a final "input" array
+    inp = arc.creator('b', np.int32, (10, 10), 'C',
+                      is_input_or_output=True)
+
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
+    assert isinstance(arr_lp, lp.TemporaryVariable) and arr_lp.shape == (10,)
+    assert arr_str == 'a[i]'
+
+    inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i')
+    assert isinstance(inp_lp, lp.GlobalArg) and inp_lp.shape == (10, 10)
+    assert inp_str == 'b[j, i]'
+
+
 class SubTest(TestClass):
     @attr('long')
     def test_namestore_init(self):
@@ -732,3 +758,20 @@ class SubTest(TestClass):
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
+
+    @attr('long')
+    def test_input_private_memory_creations(self):
+        lp_opt = _dummy_opts('map', use_private_memory=True)
+        from ..core.rate_subs import assign_rates
+        from ..loopy_utils.loopy_utils import RateSpecialization
+        rate_info = assign_rates(self.store.reacs, self.store.specs,
+                                 RateSpecialization.fixed)
+        # create name and mapstores
+        nstore = arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
+        mstore = arc.MapStore(lp_opt, nstore.phi_inds, nstore.phi_inds, 'i')
+
+        # create known input
+        jac_lp, jac_str = mstore.apply_maps(nstore.jac, 'j', 'k', 'i')
+
+        assert isinstance(jac_lp, lp.GlobalArg) and jac_lp.shape == nstore.jac.shape
+        assert jac_str == 'jac[j, k, i]'
