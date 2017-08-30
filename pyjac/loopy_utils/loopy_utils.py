@@ -33,6 +33,7 @@ class RateSpecialization(IntEnum):
 
 
 class JacobianType(IntEnum):
+
     """
     The Jacobian type to be constructed.
     A full Jacobian has no approximations for reactions including the last species,
@@ -76,25 +77,6 @@ class loopy_options(object):
     rop_net_kernels : bool
         If True, break different ROP values (fwd / back / pdep) into different
         kernels
-    spec_rates_sum_over_reac : bool
-        Controls the manner in which the species rates are calculated
-        *  If True, the summation occurs as:
-            for reac:
-                rate = reac_rates[reac]
-                for spec in reac:
-                    spec_rate[spec] += nu(spec, reac) * reac_rate
-        *  If False, the summation occurs as:
-            for spec:
-                for reac in spec_to_reacs[spec]:
-                    rate = reac_rates[reac]
-                    spec_rate[spec] += nu(spec, reac) * reac_rate
-        *  Of these, the first choice appears to be slightly more efficient,
-           likely due to less thread divergence / SIMD wastage, HOWEVER it
-           causes issues with deep vectorization -- an atomic update of the
-           spec_rate is needed, and doesn't appear to work in loopy/OpenCL1.2,
-           hence, we supply both.
-        *  Note that if True, and deep vectorization is passed this switch will
-        be ignored and a warning will be issued
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be
@@ -140,7 +122,6 @@ class loopy_options(object):
         self.rate_spec = rate_spec
         self.rate_spec_kernels = rate_spec_kernels
         self.rop_net_kernels = rop_net_kernels
-        self.spec_rates_sum_over_reac = spec_rates_sum_over_reac
         self.platform = platform
         self.device_type = None
         self.device = None
@@ -766,7 +747,7 @@ class kernel_call(object):
             isinstance(self.compare_mask, list) and
             len(self.compare_mask) == len(output_variables)) \
             or self.compare_axis == -1, (
-                    'Compare mask does not match output variables!')
+            'Compare mask does not match output variables!')
 
         allclear = True
         for i in range(len(output_variables)):
@@ -975,6 +956,7 @@ def get_target(lang, device=None, compiler=None):
 
 
 class AdeptCompiler(CPlusPlusCompiler):
+
     def __init__(self, *args, **kwargs):
         defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
                     'ldflags': '-O3 -shared -ladept -fopenmp -fPIC'.split()}

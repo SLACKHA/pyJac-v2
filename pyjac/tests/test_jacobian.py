@@ -70,7 +70,6 @@ class editor(object):
 class SubTest(TestClass):
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
-                             do_spec_per_reac=False,
                              do_conp=True):
 
         platforms = get_test_platforms()
@@ -86,9 +85,6 @@ class SubTest(TestClass):
         if do_ropsplit:
             oploop += [
                 ('rop_net_kernels', [True])]
-        if do_spec_per_reac:
-            oploop += [
-                ('spec_rates_sum_over_reac', [True, False])]
         if do_conp:
             oploop += [('conp', [True, False])]
         oploop += [('knl_type', ['map'])]
@@ -103,7 +99,7 @@ class SubTest(TestClass):
         return eqs, out
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
-                            do_ropsplit=None, do_spec_per_reac=False,
+                            do_ropsplit=None,
                             do_conp=False,
                             **kw_args):
         """
@@ -121,12 +117,10 @@ class SubTest(TestClass):
             rates
         do_ropsplit : bool
             If true, test kernel splitting for rop_net
-        do_spec_per_reac : bool
-            If true, test species rates summing over reactions as well
         """
 
         eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_spec_per_reac, do_conp=do_conp)
+            do_ratespec, do_ropsplit, do_conp=do_conp)
 
         reacs = self.store.reacs
         specs = self.store.specs
