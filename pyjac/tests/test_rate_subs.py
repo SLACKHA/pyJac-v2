@@ -474,9 +474,9 @@ class SubTest(TestClass):
         assert np.array_equal(result['thd']['spec'], thd_sp)
 
     def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
-                             do_conp=True):
+                             do_conp=True, langs=['opencl'], do_vector=True):
 
-        platforms = get_test_platforms()
+        platforms = get_test_platforms(do_vector=do_vector, langs=langs)
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         oploop = [('order', ['C', 'F']),
@@ -1027,11 +1027,11 @@ class SubTest(TestClass):
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')
     def test_specrates(self, lang):
-        eqs, oploop = self.__get_eqs_and_oploop(True, True, True,
-                                                use_platform_instead=True,
-                                                do_conp=True,
-                                                do_vector=lang != 'c',
-                                                langs=[lang])
+        eqs, oploop = self.__get_eqs_and_oploop(
+                do_ratespec=True, do_ropsplit=True,
+                do_conp=True,
+                do_vector=lang != 'c',
+                langs=[lang])
 
         package_lang = {'opencl': 'ocl',
                         'c': 'c'}
