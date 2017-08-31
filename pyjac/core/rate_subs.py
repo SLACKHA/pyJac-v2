@@ -1322,7 +1322,7 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
         return infos
 
 
-def get_rop(eqs, loopy_opts, namestore, allint={'net': True}, test_size=None):
+def get_rop(eqs, loopy_opts, namestore, allint={'net': False}, test_size=None):
     """Generates instructions, kernel arguements, and data for the Rate of Progress
     kernels
 
@@ -3174,6 +3174,10 @@ def write_specrates_kernel(eqs, reacs, specs,
     # kernel calls
     # hence, any data dependencies should be expressed in the order added here
 
+    # first, add the concentration kernel
+    __add_knl(get_concentrations(eqs, loopy_opts, nstore, conp=conp,
+                                 test_size=test_size))
+
     # get the simple arrhenius k_gen.knl_info's
     __add_knl(get_simple_arrhenius_rates(eqs, loopy_opts,
                                          nstore, test_size=test_size))
@@ -3232,9 +3236,7 @@ def write_specrates_kernel(eqs, reacs, specs,
         # add Kc / rev rates
         __add_knl(get_rev_rates(eqs, loopy_opts,
                                 nstore,
-                                allint={'fwd': rate_info['fwd']['allint'],
-                                        'rev': rate_info['rev']['allint'],
-                                        'net': rate_info['net']['allint']},
+                                allint={'net': rate_info['net']['allint']},
                                 test_size=test_size))
 
     # check for falloff
@@ -3245,9 +3247,7 @@ def write_specrates_kernel(eqs, reacs, specs,
 
     # add ROP
     __add_knl(get_rop(eqs, loopy_opts,
-                      nstore, allint={'fwd': rate_info['fwd']['allint'],
-                                      'rev': rate_info['rev']['allint'],
-                                      'net': rate_info['net']['allint']},
+                      nstore, allint={'net': rate_info['net']['allint']},
                       test_size=test_size))
     # add ROP net
     __add_knl(get_rop_net(eqs, loopy_opts,
@@ -3255,6 +3255,10 @@ def write_specrates_kernel(eqs, reacs, specs,
     # add spec rates
     __add_knl(get_spec_rates(eqs, loopy_opts,
                              nstore, test_size))
+
+    # add molar rates
+    __add_knl(get_molar_rates(eqs, loopy_opts, nstore, conp=conp,
+                              test_size=test_size))
 
     if conp:
         # get h / cp evals
@@ -3273,15 +3277,17 @@ def write_specrates_kernel(eqs, reacs, specs,
     # and temperature rates
     __add_knl(get_temperature_rate(eqs, loopy_opts,
                                    nstore, test_size=test_size, conp=conp))
+    # and finally the extra variable rates
+    __add_knl(get_extra_var_rates(eqs, loopy_opts, nstore, conp=conp,
+                                  test_size=None))
 
     # get a wrapper for the dependecies
     thermo_wrap = k_gen.make_kernel_generator(name='chem_utils_kernel',
                                               loopy_opts=loopy_opts,
                                               kernels=depends_on,
                                               input_arrays=['T_arr'],
-                                              output_arrays=[
-                                                  'h', 'cp'] if conp else
-                                              ['u', 'cv'],
+                                              output_arrays=['h', 'cp'] if conp else
+                                                            ['u', 'cv'],
                                               auto_diff=auto_diff,
                                               test_size=test_size
                                               )

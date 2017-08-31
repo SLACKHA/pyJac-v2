@@ -13,50 +13,72 @@ import importlib
 import sys
 
 if __name__ == '__main__':
-	#load package
-	package = '${package}'
-	package = importlib.import_module(package)
+    # load package
+    package = '${package}'
+    package = importlib.import_module(package)
 
-	#load input data
-	input_args = [${input_args}]
-	#load from filenames
-	for i in range(len(input_args)):
-		input_args[i] = np.load(input_args[i])
+    # load input data
+    input_args = [${input_args}]
+    # load from filenames
+    for i in range(len(input_args)):
+        input_args[i] = np.load(input_args[i])
 
-	#load test arrays
-	test_arrays = [${test_arrays}]
-	#load from filenames
-	for i in range(len(test_arrays)):
-		test_arrays[i] = np.load(test_arrays[i])
+    # load test arrays
+    test_arrays = [${test_arrays}]
+    # load from filenames
+    for i in range(len(test_arrays)):
+        test_arrays[i] = np.load(test_arrays[i])
 
-	#create output args in same shape as test arrays
-	output_args = [np.zeros_like(x) for x in test_arrays]
+    # create output args in same shape as test arrays
+    output_args = [np.zeros_like(x) for x in test_arrays]
 
-	#get non-arrays
-	non_array_args = [${non_array_args}]
+    # get non-arrays
+    non_array_args = [${non_array_args}]
 
-	#put all args together
-	args = non_array_args + input_args + output_args
+    # put all args together
+    args = non_array_args + input_args + output_args
 
-	if len(sys.argv) > 1:
-		#get compile arg
-		force_no_compile = int(sys.argv[1])
-		args += [force_no_compile]
+    if len(sys.argv) > 1:
+        # get compile arg
+        force_no_compile = int(sys.argv[1])
+        args += [force_no_compile]
 
-	#finally call
-	package.${call_name}(*args)
+    # finally call
+    package.${call_name}(*args)
 
-	output_files = [${output_files}]
-	if output_files:
-		assert len(output_files) == len(output_args)
+    output_files = [${output_files}]
+    if output_files:
+        assert len(output_files) == len(output_args)
 
-	#if save err to file,
-	if output_files:
-		for i in range(len(output_args)):
-			np.save(output_files[i], output_args[i])
-	else:
-		#check allclose
-		for i in range(len(output_args)):
-			if not np.allclose(output_args[i], test_arrays[i]):
-				#if not a match, exit
-				sys.exit(-1)
+    # for cases where the moles of the last species is set to zero in the test
+    # condition initializer, this may not be the exact case here due to floating
+    # point accuracy concerns, hence we provide a way to specify output indicies
+    # that require looser tolerances for proper comparison
+    looser_tols = [${looser_tols}]
+
+    # if save err to file,
+    if output_files:
+        for i in range(len(output_args)):
+            np.save(output_files[i], output_args[i])
+    else:
+        # check allclose
+        for i in range(len(output_args)):
+            if not np.allclose(output_args[i], test_arrays[i]):
+                if looser_tols and looser_tols[i]:
+                    # first check that all the misses are in looser_tols
+                    lt = looser_tols[i]
+
+                    # find misses
+                    misses = np.where(np.logical_not(np.isclose(
+                        output_args[i], test_arrays[i])))[0]
+
+                    if not np.all(np.in1d(misses, lt)):
+                        sys.exit(-1)
+
+                    # next check for match at looser tols
+                    if np.allclose(output_args[i][lt], test_arrays[i][lt],
+                                   rtol=${rtol}, atol=${atol}):
+                        continue
+
+                # if not a match, exit
+                sys.exit(-1)
