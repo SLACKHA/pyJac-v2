@@ -888,12 +888,23 @@ class creator(object):
         # figure out whether to use private memory or not
         use_private_memory = kwargs.pop('use_private_memory', False)
         inds = self.__get_indicies(*indicies)
+
+        # handle private memory request
+        glob_ind = None
         if use_private_memory and not self.is_input_or_output:
-            inds = inds[1:]
-            lp_arr = self.__temp_var_creator(shape=self.shape[1:],
+            # find the global ind if there
+            glob_ind = next((i for i, ind in enumerate(inds) if ind == global_ind),
+                            None)
+
+        if glob_ind is not None:
+            # need to remove any index corresponding to the global_ind
+            inds = tuple(ind for i, ind in enumerate(inds) if i != glob_ind)
+            shape = tuple(s for i, s in enumerate(self.shape) if i != glob_ind)
+            lp_arr = self.__temp_var_creator(shape=shape,
                                              scope=scopes.PRIVATE, **kwargs)
         else:
             lp_arr = self.creator(**kwargs)
+
         return (lp_arr, lp_arr.name + '[{}]'.format(', '.join(
             str(x) for x in inds)))
 
