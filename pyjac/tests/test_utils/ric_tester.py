@@ -4,22 +4,25 @@ import sys
 
 read_ics = importlib.import_module('py_readics')
 
-T_test = np.fromfile('T_test.npy')
-P_test = np.fromfile('P_test.npy')
-conc_test = np.fromfile('conc_test.npy')
+phi_test = np.fromfile('phi_test.npy')
+param_test = np.fromfile('param_test.npy')
 
 order = sys.argv[1]
 num = int(sys.argv[2])
 assert order in ['C', 'F']
 
-T_in = np.zeros_like(T_test)
-P_in = np.zeros_like(P_test)
-conc_in = np.zeros_like(conc_test)
+param_in = np.zeros_like(param_test)
+phi_in = np.zeros_like(phi_test)
 
-read_ics.read_ics(num, T_in, P_in, conc_in, order=='C')
+read_ics.read_ics(num, phi_in, param_in, order == 'C')
 
-allclear = np.allclose(T_in, T_test)
-allclear = allclear and np.allclose(P_in, P_test)
-allclear = allclear and np.allclose(conc_in, conc_test)
+# check extra variable
+allclear = np.allclose(param_in, param_test)
+
+# reshape phi_in / phi_test
+phi_in = phi_in.reshape((num, -1), order=order)
+phi_test = phi_test.reshape((num, -1), order=order)
+# and check
+allclear = allclear and np.allclose(phi_in, phi_test)
 
 sys.exit(not allclear)
