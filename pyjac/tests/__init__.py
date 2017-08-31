@@ -28,8 +28,7 @@ utils.create_dir(build_dir)
 def get_test_platforms(do_vector=True, langs=['opencl']):
     try:
         # try to load user specified platforms
-        with open(os.path.join(script_dir, 'test_platforms.yaml'),
-                  'r') as file:
+        with open(os.path.join(script_dir, 'test_platforms.yaml'), 'r') as file:
             platforms = yaml.load(file.read())
 
         oploop = []
@@ -37,11 +36,22 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
         for platform in platforms:
             p = platforms[platform]
 
-            # get lang
-            inner_loop = [('lang', 'opencl' if 'lang' not in p else p['lang'])]
+            # limit to supplied languages
+            inner_loop = []
+            allowed_langs = langs[:]
+            if 'lang' in p:
+                # pull from platform languages if possible
+                allowed_langs = [p['lang']] if p['lang'] in allowed_langs else []
+
+            if not allowed_langs:
+                # empty
+                continue
+
+            # set lang
+            inner_loop.extend([('lang', l) for l in allowed_langs])
 
             # get vectorization type and size
-            vectype = None if 'vectype' not in p else p['vectype']
+            vectype = None if ('vectype' not in p or not do_vector) else p['vectype']
             vecsize = 4 if 'vecsize' not in p else int(p['vecsize'])
             if vectype is not None:
                 for v in [x.lower() for x in vectype]:
@@ -65,28 +75,31 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
 
             # create option loop and add
             oploop += [inner_loop]
-
-        return oploop
     except IOError:
-        # file not found, use default of opencl
-        import pyopencl as cl
-        device_types = [cl.device_type.CPU, cl.device_type.GPU,
-                        cl.device_type.ACCELERATOR]
-        platforms = cl.get_platforms()
-        dev_list = []
-        for p in platforms:
-            for dev_type in device_types:
-                devices = p.get_devices(dev_type=dev_type)
-                if devices:
-                    dev_list.append(devices[0])
+        pass
+    finally:
+        if not oploop:
+            # file not found, use default of opencl
+            import pyopencl as cl
+            dev_list = []
+            if 'opencl' in langs:
+                device_types = [cl.device_type.CPU, cl.device_type.GPU,
+                                cl.device_type.ACCELERATOR]
+                platforms = cl.get_platforms()
+                for p in platforms:
+                    for dev_type in device_types:
+                        devices = p.get_devices(dev_type=dev_type)
+                        if devices:
+                            dev_list.append(devices[0])
 
-        vectypes = [4, None] if do_vector else [None]
-        oploop = [[
-            ('devices', dev_list),
-            ('width', vectypes[:]),
-            ('width', vectypes[:]),
-            ('lang', langs[:])]]
-        return oploop
+            vectypes = [4, None] if do_vector else [None]
+            oploop = [[
+                ('width', vectypes[:]),
+                ('depth', vectypes[:]),
+                ('lang', langs[:])]]
+            if lang == 'opencl':
+                oploop += [('devices', dev_list)]
+    return oploop
 
 
 class storage(object):
