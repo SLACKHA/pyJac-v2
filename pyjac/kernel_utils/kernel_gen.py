@@ -606,8 +606,8 @@ ${name} : ${type}
 
         file_src = self._special_kernel_subs(file_src)
 
-        with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[self.lang]),
-                            self.lang, use_filter=False) as file:
+        with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[
+                self.lang]), self.lang, use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
                 mem_declares=mem_declares,
                 knl_args=knl_args,

@@ -1044,14 +1044,15 @@ class SubTest(TestClass):
             test_utils.clean_dir(lib_dir)
             # remove build
             test_utils.clean_dir(obj_dir)
-            # clean sources
-            test_utils.clean_dir(build_dir)
             # clean dummy builder
-            dist_build = os.path.join(self.store.script_dir, 'build')
+            dist_build = os.path.join(build_dir, 'build')
             if os.path.exists(dist_build):
                 shutil.rmtree(dist_build)
-        T = self.store.T
+            # clean sources
+            test_utils.clean_dir(build_dir)
+
         P = self.store.P
+        V = self.store.V
         exceptions = ['conp']
 
         # load the module tester template
@@ -1065,6 +1066,11 @@ class SubTest(TestClass):
             opts = loopy_options(**{x: state[x] for x in
                                     state if x not in exceptions})
 
+            # check to see if device is CPU
+            # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
+            #        and (opts.depth is None or not opts.use_atomics):
+            #    opts.use_private_memory = True
+
             conp = state['conp']
 
             # generate kernel
@@ -1075,6 +1081,7 @@ class SubTest(TestClass):
             # generate
             kgen.generate(
                 build_dir, data_filename=os.path.join(os.getcwd(), 'data.bin'))
+
             # write header
             write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
@@ -1084,7 +1091,8 @@ class SubTest(TestClass):
 
             # get arrays
             phi = np.array(
-                self.store.phi, order=opts.order, copy=True).flatten('K')
+                self.store.phi_cp if conp else self.store.phi_cv,
+                order=opts.order, copy=True).flatten('K')
 
             dphi = self.store.dphi_cp if conp else self.store.dphi_cv
             # put together species rates
@@ -1098,11 +1106,22 @@ class SubTest(TestClass):
 
             args = []
             __saver(phi, 'phi', args)
-            __saver(P, 'P', args)
+            __saver(P if conp else V, 'param', args)
 
             # and now the test values
             tests = []
             __saver(dphi, 'dphi', tests)
+
+            # find where the last species concentration is zero to mess with the
+            # tolerances there
+            last_zero = np.where(np.isclose(self.store.concs[:, -1], 0))[0]
+            start = np.where(dphi == (self.store.dphi_cp if conp else
+                                      self.store.dphi_cv)[last_zero, 0])[0][0]
+            # get the increment
+            increment = self.store.test_size if opts.order == 'F' else 1
+            # and set as multiples of the mode
+            looser_tols = [start + i * increment for i in range(
+                           self.store.dphi_cp.shape[1])]
 
             # write the module tester
             with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
@@ -1111,13 +1130,18 @@ class SubTest(TestClass):
                         lang=package_lang[opts.lang]),
                     input_args=', '.join('"{}"'.format(x) for x in args),
                     test_arrays=', '.join('"{}"'.format(x) for x in tests),
+                    looser_tols='[{}]'.format(
+                        ', '.join(str(x) for x in looser_tols)),
+                    rtol=5e-3,
+                    atol=1e-8,
                     non_array_args='{}, 12'.format(self.store.test_size),
                     call_name='species_rates',
                     output_files=''))
 
-            out_arr = np.concatenate((T.reshape((-1, 1)),
-                                      P.reshape((-1, 1)),
-                                      self.store.concs),
+            phi = self.store.phi_cp if conp else self.store.phi_cv
+            out_arr = np.concatenate((phi[:, 0].reshape((-1, 1)),
+                                      (P if conp else V).reshape((-1, 1)),
+                                      phi[:, 1:]),
                                      axis=1)
             out_arr = np.array(out_arr, order=opts.order, copy=True)
 
@@ -1134,7 +1158,3 @@ class SubTest(TestClass):
                 os.remove(os.path.join(lib_dir, 'test.py'))
             except:
                 assert False, 'Species rates error'
-
-            # test species rates
-            # pywrap.species_rates(np.uint32(self.store.test_size),
-            #    np.uint32(12), T, P, concs, spec_rates_test)
