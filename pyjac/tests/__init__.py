@@ -79,26 +79,30 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
         pass
     finally:
         if not oploop:
-            # file not found, use default of opencl
+            # file not found, or no appropriate targets for specified languages
             import pyopencl as cl
-            dev_list = []
-            if 'opencl' in langs:
-                device_types = [cl.device_type.CPU, cl.device_type.GPU,
-                                cl.device_type.ACCELERATOR]
-                platforms = cl.get_platforms()
-                for p in platforms:
-                    for dev_type in device_types:
-                        devices = p.get_devices(dev_type=dev_type)
-                        if devices:
-                            dev_list.append(devices[0])
+            for lang in langs:
+                inner_loop = []
+                vectypes = [4, None] if do_vector else [None]
+                inner_loop = [
+                    ('width', vectypes[:]),
+                    ('depth', vectypes[:]),
+                    ('lang', langs[:])]
+                if lang == 'opencl':
+                    # add all devices
+                    device_types = [cl.device_type.CPU, cl.device_type.GPU,
+                                    cl.device_type.ACCELERATOR]
+                    platforms = cl.get_platforms()
+                    dev_list = []
+                    for p in platforms:
+                        for dev_type in device_types:
+                            devices = p.get_devices(dev_type=dev_type)
+                            if devices:
+                                dev_list.append(devices[0])
+                    inner_loop += [('devices', dev_list)]
 
-            vectypes = [4, None] if do_vector else [None]
-            oploop = [[
-                ('width', vectypes[:]),
-                ('depth', vectypes[:]),
-                ('lang', langs[:])]]
-            if lang == 'opencl':
-                oploop += [('devices', dev_list)]
+                # create option loop and add
+                oploop += [inner_loop]
     return oploop
 
 
