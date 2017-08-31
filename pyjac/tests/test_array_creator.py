@@ -748,6 +748,11 @@ def test_private_memory_creations():
     assert isinstance(inp_lp, lp.GlobalArg) and inp_lp.shape == (10, 10)
     assert inp_str == 'b[j, i]'
 
+    # now test input without the global index
+    arr_lp, arr_str = mstore.apply_maps(arr, 'k', 'i')
+    assert isinstance(arr_lp, lp.GlobalArg) and arr_lp.shape == (10, 10)
+    assert arr_str == 'a[k, i]'
+
 
 class SubTest(TestClass):
     @attr('long')
