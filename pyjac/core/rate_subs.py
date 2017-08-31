@@ -3322,7 +3322,7 @@ def write_specrates_kernel(eqs, reacs, specs,
         __insert_at('spec_rates', True)
         __insert_at('temperature_rate', True)
 
-    input_arrays = ['phi', 'P_arr', 'dphi']
+    input_arrays = ['phi', 'P_arr' if conp else 'V_arr', 'dphi']
     output_arrays = ['dphi']
     if output_full_rop:
         output_arrays += ['rop_fwd']
