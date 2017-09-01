@@ -3,12 +3,13 @@
 Module that maintains abstract file classes that ease file I/O
 """
 
-#system imports
+# system imports
 import os
 import subprocess
 
-#local imports
+# local imports
 from .. import utils
+
 
 def get_standard_headers(lang):
     """
@@ -26,6 +27,7 @@ def get_standard_headers(lang):
     elif lang == 'cuda':
         return []
     return []
+
 
 def get_preamble(lang):
     utils.check_lang(lang)
@@ -48,9 +50,11 @@ def get_header_file(name, lang, mode='w', **kwargs):
 
     return FileWriter(name, lang, mode=mode, is_header=True, **kwargs)
 
+
 def get_file(name, lang, mode='w', **kwargs):
     """
-    Returns the appropriate FileWriter class for a regular file for the given language
+    Returns the appropriate FileWriter class for a regular file for the given
+    language
 
     Parameters
     ----------
@@ -64,7 +68,9 @@ def get_file(name, lang, mode='w', **kwargs):
 
     return FileWriter(name, lang, mode=mode, is_header=False, **kwargs)
 
+
 class FileWriter(object):
+
     """
     The base FileWriter class.
     Defines various functions to be reimplmented
@@ -92,10 +98,12 @@ class FileWriter(object):
         If true, use the default filter for this file type:
             None for header files
             Preamble filters for source files
+    try_indent : bool [False]
+        Use GNU's indent to indent source file
     """
 
     def __init__(self, name, lang, mode='w', is_header=False,
-                    include_own_header=False, use_filter=True):
+                 include_own_header=False, use_filter=True, try_indent=False):
         self.name = name
         self.mode = mode
         self.lang = lang
@@ -105,8 +113,8 @@ class FileWriter(object):
         self.is_header = is_header
         self.include_own_header = include_own_header
         if self.is_header:
-            self.headers = ['mechanism'] if not self.name.endswith('mechanism' +
-                utils.header_ext[lang]) else []
+            self.headers = ['mechanism'] if not self.name.endswith(
+                'mechanism' + utils.header_ext[lang]) else []
             self.std_headers = get_standard_headers(lang)
             self.filter = lambda x: x
             assert not self.include_own_header, 'Cannot include this file in itself'
@@ -117,6 +125,7 @@ class FileWriter(object):
             self.filter = lambda x: x
         self.lines = []
         self.defines = []
+        self.try_indent = try_indent
 
     def __enter__(self):
         self.file = open(self.name, self.mode)
@@ -125,16 +134,17 @@ class FileWriter(object):
     def __exit__(self, type, value, traceback):
         self.write()
         self.file.close()
-        #try indenting w/ gnu's indent
+        # try indenting w/ gnu's indent
         try:
-            subprocess.check_call(['indent', self.name, '-o', self.name])
+            if self.try_indent:
+                subprocess.check_call(['indent', self.name, '-o', self.name])
         except subprocess.CalledProcessError:
-            #missing indent, no big deal
+            # missing indent, no big deal
             pass
 
     def preamble_filter(self, lines):
-        #check things outside of function definitions for duplicated lines
-        #first, find the kernel text
+        # check things outside of function definitions for duplicated lines
+        # first, find the kernel text
 
         seen = set()
         out_lines = []
@@ -146,14 +156,14 @@ class FileWriter(object):
                 assert brace_counter == 0
 
             if in_preamble:
-                #check for dupes
+                # check for dupes
                 if line not in seen or not line.strip():
                     seen.add(line)
                     out_lines.append(line)
             else:
                 out_lines.append(line)
 
-            #update braces
+            # update braces
             if not in_preamble and '{' in line:
                 brace_counter += 1
             if not in_preamble and '}' in line:
@@ -162,7 +172,6 @@ class FileWriter(object):
                     in_preamble = True
 
         return out_lines
-
 
     def write(self):
         lines = []
@@ -185,21 +194,20 @@ class FileWriter(object):
                 header = header + utils.header_ext[self.lang]
             if not (header.endswith('>') or header.endswith('"')):
                 lines.append('#include "{}"'.format(header,
-                    ext))
+                                                    ext))
             else:
                 lines.append(header)
 
         if self.is_header and self.defines:
             lines.extend(['#define {name} ({value})'.format(
-                    name=x[0], value=x[1]) if x[1] is not None
+                name=x[0], value=x[1]) if x[1] is not None
                 else '#define {name}'.format(name=x[0])
-                    for x in self.defines])
+                for x in self.defines])
 
         lines.extend(self.lines)
         if self.is_header:
             lines.append('#endif')
         self.file.write('\n'.join(lines))
-
 
     def add_headers(self, headers):
         if isinstance(headers, list):

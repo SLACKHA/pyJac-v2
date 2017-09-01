@@ -726,7 +726,7 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
 
     instructions = Template(
         """
-        ${ndot_str} = ${V_val} * ${wdot_str}
+        ${ndot_str} = ${V_val} * ${wdot_str} {id=set}
         """
     ).substitute(
         ndot_str=ndot_str,
@@ -734,12 +734,20 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
         wdot_str=wdot_str
     )
 
+    vec_spec = None
+    can_vectorize = True
+    if ic.use_atomics(loopy_opts):
+        can_vectorize, vec_spec = ic.get_deep_specializer(
+            loopy_opts, init_ids=['set'])
+
     return k_gen.knl_info(name='get_molar_rates',
                           pre_instructions=[pre_instructions],
                           instructions=instructions,
                           mapstore=mapstore,
                           var_name=var_name,
-                          kernel_data=kernel_data)
+                          kernel_data=kernel_data,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec)
 
 
 def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,

@@ -19,7 +19,7 @@ ext_modules=[Extension("pyjac_ocl",
      language='c',
      extra_objects=['$libname'],
      libraries=[${libs}],
-     library_dirs=[${libdirs}],
+     library_dirs=[${libdirs}]
      )]
 
 setup(

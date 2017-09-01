@@ -593,7 +593,7 @@ ${name} : ${type}
         local_allocs = self.mem.get_mem_allocs(True)
         # read args are those that aren't initalized elsewhere
         read_args = ', '.join(['h_' + x + '_local' for x in self.mem.in_arrays
-                               if x in ['phi', 'P_arr']])
+                               if x in ['phi', 'P_arr', 'V_arr']])
         # memory frees
         mem_frees = self.mem.get_mem_frees()
         # input frees
@@ -661,6 +661,8 @@ ${name} : ${type}
         None
         """
 
+        from loopy.types import AtomicNumpyType, to_loopy_type
+
         assert all(
             isinstance(x, lp.LoopKernel) or
             next((y for y in self.external_kernels if x.name == y.name), None)
@@ -717,10 +719,41 @@ ${name} : ${type}
         # check for dupicates
         nameset = sorted(set(d.name for d in defines))
         for name in nameset:
-            same_name = [x for x in defines if x.name == name]
-            assert all(same_name[0] == y for y in same_name[1:])
-            same_name = same_name[0]
-            same_name.read_only = False
+            same_name = set([x for x in defines if x.name == name])
+            if len(same_name) != 1:
+                # need to see if differences are resolvable
+                atomic = next((x for x in same_name if
+                               isinstance(x.dtype, AtomicNumpyType)), None)
+
+                def __raise():
+                    raise Exception('Cannot resolve different arguements of '
+                                    'same name: {}'.format(', '.join(
+                                        str(x) for x in same_name)))
+
+                if atomic is None or len(same_name) > 2:
+                    # if we don't have an atomic, or we have multiple different
+                    # args of the same name...
+                    __raise()
+
+                other = next(x for x in same_name if x != atomic)
+
+                # check that all other properties are the same
+                if other != atomic and other.copy(
+                        dtype=to_loopy_type(other.dtype, for_atomic=True)) != atomic:
+                    __raise()
+
+                # otherwise, they're the same and the only difference is the
+                # the atomic.
+                # Next, we try to copy all the other kernels with this arg in it
+                # with the atomic arg
+                for i, knl in enumerate(self.kernels):
+                    if other in knl.args:
+                        self.kernels[i] = knl.copy(args=[
+                            x if x != other else atomic for x in knl.args])
+
+                same_name.discard(other)
+
+            same_name = same_name.pop()
             kernel_data.append(same_name)
 
         # remove and insert at front
@@ -730,7 +763,7 @@ ${name} : ${type}
         self.mem.add_arrays(kernel_data)
 
         def _name_assign(arr):
-            if arr.name not in ['P_arr', 'phi'] and not \
+            if arr.name not in ['P_arr', 'V_arr', 'phi'] and not \
                     isinstance(arr, lp.ValueArg):
                 return arr.name + '[{ind}] = 0'.format(
                     ind=', '.join(['0'] * len(arr.shape)))
@@ -750,11 +783,16 @@ ${name} : ${type}
             domains.append('{{[{iname}]: 0 <= {iname} < {size}}}'.format(
                 iname=iname,
                 size=self.vec_width))
+
+        def __get_non_atomic(arr):
+            if isinstance(arr.dtype, AtomicNumpyType):
+                return arr.copy(dtype=to_loopy_type(arr.dtype.dtype))
+            return arr
         # create a dummy kernel to get the defn
         knl = lp.make_kernel(domains,
                              '\n'.join(_name_assign(arr)
                                        for arr in kernel_data),
-                             kernel_data,
+                             [__get_non_atomic(x) for x in kernel_data],
                              name=self.name,
                              target=lp_utils.get_target(
                                  self.lang, self.loopy_opts.device)
@@ -773,7 +811,8 @@ ${name} : ${type}
                 args=','.join([arg.name for arg in knl.args
                                if not isinstance(arg, lp.TemporaryVariable)]),
                 end=utils.line_end[self.lang]
-                # dep='id=call_{}{}'.format(idx, ', dep=call_{}'.format(idx - 1) if idx > 0 else '')
+                # dep='id=call_{}{}'.format(idx,
+                # ', dep=call_{}'.format(idx - 1) if idx > 0 else '')
             )
             if condition:
                 call = Template("""
@@ -819,8 +858,7 @@ ${name} : ${type}
                 file.add_headers([x.name for x in self.depends_on])
 
         # and the header file
-        headers = ([lp_utils.get_header(x) + utils.line_end[self.lang]
-                   for x in self.kernels] +
+        headers = ([lp_utils.get_header(x) + '\n' for x in self.kernels] +
                    [defn_str + utils.line_end[self.lang]])
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + self.name +
@@ -1241,6 +1279,12 @@ class opencl_kernel_generator(kernel_generator):
             'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
         }
 
+        # add atomic types to typemap
+        from loopy.types import to_loopy_type
+        # these don't need to be volatile, as they are on the host side
+        self.type_map[to_loopy_type(np.float64, for_atomic=True)] = 'double'
+        self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
+
     def _special_kernel_subs(self, file_src):
         """
         An override of the :method:`kernel_generator._special_kernel_subs`
@@ -1333,10 +1377,12 @@ class opencl_kernel_generator(kernel_generator):
         None
         """
 
-        assert self.filename, 'Cannot generate compiler before wrapping kernel is generated...'
+        assert self.filename, (
+            'Cannot generate compiler before wrapping kernel is generated...')
         if self.depends_on:
-            assert [x.filename for x in self.depends_on], ('Cannot generate compiler before wrapping kernel '
-                                                           'for dependencies are generated...')
+            assert [x.filename for x in self.depends_on], (
+                'Cannot generate compiler before wrapping kernel '
+                'for dependencies are generated...')
 
         self.build_options = ''
         if self.lang == 'opencl':
@@ -1447,8 +1493,8 @@ class knl_info(object):
     can_vectorize : bool
         If False, the vectorization specializer must be used to vectorize this kernel
     vectorization_specializer : function
-        If specified, use this specialization function to fix problems that would arise
-        in vectorization
+        If specified, use this specialization function to fix problems that would
+        arise in vectorization
     preambles : :class:`preamble.PreambleGen`
         A list of preamble generators to insert code into loopy / opencl
     """
