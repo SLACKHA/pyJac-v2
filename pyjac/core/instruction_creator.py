@@ -12,6 +12,26 @@ from loopy.types import AtomicType
 from .array_creator import var_name
 
 
+def use_atomics(loopy_opts):
+    """ Convenience method to detect whether atomics will be used or not.
+        Useful in that we need to apply atomic modifiers to some instructions,
+        but _not_ the sequential specializer
+
+    Parameters
+    ----------
+    loopy_opts: :class:`loopy_utils.loopy_opts`
+        The loopy options used to create this kernel.
+
+    Returns
+    -------
+    use_atomics : [bool]
+        Whether an atomic specializer would be returned by
+        :meth:`get_deep_specializer`
+    """
+
+    return loopy_opts.depth and loopy_opts.use_atomics
+
+
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
                          force_sequential=False):
     """

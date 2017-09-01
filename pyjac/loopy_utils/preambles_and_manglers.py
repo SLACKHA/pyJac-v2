@@ -25,10 +25,28 @@ class MangleGen(object):
         """
         if name != self.name:
             return None
+
         from loopy.types import to_loopy_type
         from loopy.kernel.data import CallMangleInfo
+
+        def __compare(d1, d2):
+            # compare dtypes ignoring atomic
+            return to_loopy_type(d1, for_atomic=True) == \
+                to_loopy_type(d2, for_atomic=True)
+
         # check types
-        assert tuple(to_loopy_type(x) for x in self.arg_dtypes) == arg_dtypes
+        if len(arg_dtypes) != len(self.arg_dtypes):
+            raise Exception('Unexpected number of arguements provided to mangler {},'
+                            ' expected {}, got {}'.format(self.name,
+                                                          len(self.arg_dtypes),
+                                                          len(arg_dtypes)))
+
+        for i, (d1, d2) in enumerate(zip(self.arg_dtypes, arg_dtypes)):
+            if not __compare(d1, d2):
+                raise Exception('Argument at index {} for mangler {} does not match'
+                                'expected dtype.  Expected {}, got {}'.format(
+                                    i, self.name, str(d1), str(d2)))
+
         # get target for creation
         target = arg_dtypes[0].target
         return CallMangleInfo(
