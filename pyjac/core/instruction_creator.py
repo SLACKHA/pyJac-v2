@@ -4,12 +4,116 @@
 etc.)
 """
 
+from __future__ import division
+
 import logging
 import inspect
 from string import Template
+
+
 import loopy as lp
+import numpy as np
 from loopy.types import AtomicType
 from .array_creator import var_name
+
+
+class array_splitter(object):
+    """
+        A convenience object that handles splitting arrays to improve vectorized
+        data-access patterns, etc.
+
+        Can handle reshaping of both loopy and numpy arrays to the desired shape
+
+        Properties
+        ----------
+        depth: int [None]
+            If is not None, the vector-width to use for deep-vectorization
+        wide: bool [False]
+            If is not None, the vector-width to use for wide-vectorization
+        data_order: ['C', 'F']
+            The data ordering of the kernel
+    """
+
+    def __init__(self, loopy_opts):
+        self.depth = loopy_opts.depth
+        self.width = loopy_opts.width
+        self.vector_width = self.depth if self.depth is not None else self.width
+        self.data_order = loopy_opts.order
+
+    def _have_split(self):
+        """
+        Returns True if there is anything for this :class:`array_splitter` to do
+        """
+
+        return self.vector_width is not None and ((
+            self.data_order == 'C' and self.width) or (
+            self.data_order == 'F' and self.depth))
+
+    def _split_numpy_array(self, input_array):
+        """
+        Spits the supplied numpy array according to desired pattern
+
+        Parameters
+        ----------
+        input_array : :class:`numpy.ndarray`
+            The input array to split
+
+        Returns
+        -------
+        output : :class:`numpy.ndarray`
+            The properly split / resized numpy array
+        """
+
+        if not self._have_split():
+            return input_array
+
+        def _split_and_pad(arr, axis, width, ax_trans):
+            # get the last split as the ceiling
+            end = np.ceil(arr.shape[axis] / width) * width
+            # create split indicies
+            indicies = np.arange(width, end + 1, width, dtype=np.int32)
+            # split array
+            arr = np.split(arr, indicies, axis=axis)
+            # filter out empties
+            arr = [a for a in arr if a.size]
+            # check for pad
+            if arr[-1].shape[axis] != width:
+                pads = [(0, 0) for x in arr[-1].shape]
+                pads[axis] = (0, width - arr[-1].shape[axis])
+                arr[-1] = np.pad(arr[-1], pads, 'constant')
+            # get joined
+            arr = np.stack(arr, axis=axis)
+            # and move array dims
+            return np.moveaxis(arr, *ax_trans).copy(order=self.data_order)
+
+        # figure out split
+        dim = len(input_array.shape) - 1
+        if self.data_order == 'C' and self.width:
+            return _split_and_pad(input_array, 0, self.width, (dim, -1))
+        elif self.data_order == 'F' and self.depth:
+            return _split_and_pad(input_array, dim, self.depth, (-1, 0))
+
+    def split_numpy_arrays(self, arrays):
+        """
+        Splits the provided numpy arrays
+
+        See :func:`_split_numpy_array`
+
+        Parameters
+        ----------
+        arrays: list of :class:`numpy.ndarray`
+            The arrays to split
+
+        Returns
+        -------
+        out_arrays: list of :class:`numpy.ndarray`
+            The split arrays
+        """
+
+        if isinstance(arrays, np.ndarray):
+            arrays = [arrays]
+
+        return [self._split_numpy_array(a) for a in arrays]
 
 
 def use_atomics(loopy_opts):
