@@ -38,7 +38,6 @@ This is the string indicies for the main loops for generated kernels in
 :module:`rate_subs`
 """
 
-
 class tree_node(object):
 
     """
