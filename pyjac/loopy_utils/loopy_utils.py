@@ -113,6 +113,8 @@ class loopy_options(object):
             assert width is None and depth is None, (
                 "Can't use a vectorized form with unvectorizable language,"
                 " {}".format(lang))
+        assert not (self.depth is not None and self.width is not None), (
+            'Cannot use deep and wide vectorizations simulataneously')
         self.ilp = ilp
         self.unr = unr
         check_lang(lang)
