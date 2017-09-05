@@ -49,6 +49,139 @@ class array_splitter(object):
             self.data_order == 'C' and self.width) or (
             self.data_order == 'F' and self.depth))
 
+    def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
+                                count, order='C'):
+        if count == 1:
+            return kernel
+
+        # {{{ adjust arrays
+
+        from loopy.kernel.tools import ArrayChanger
+        from loopy.symbolic import SubstitutionRuleMappingContext
+        from loopy.transform.padding import ArrayAxisSplitHelper
+
+        achng = ArrayChanger(kernel, array_name)
+        ary = achng.get()
+
+        from pytools import div_ceil
+
+        # {{{ adjust shape
+
+        new_shape = ary.shape
+        assert new_shape is not None, 'Cannot split auto-sized arrays'
+        new_shape = list(new_shape)
+        axis_len = new_shape[split_axis]
+        outer_len = div_ceil(axis_len, count)
+        new_shape[split_axis] = outer_len
+        new_shape.insert(dest_axis, count)
+        new_shape = tuple(new_shape)
+
+        # }}}
+
+        # {{{ adjust dim tags
+
+        if ary.dim_tags is None:
+            raise RuntimeError("dim_tags of '%s' are not known" % array_name)
+        new_dim_tags = list(ary.dim_tags)
+
+        old_dim_tag = ary.dim_tags[split_axis]
+
+        from loopy.kernel.array import FixedStrideArrayDimTag
+        if not isinstance(old_dim_tag, FixedStrideArrayDimTag):
+            raise RuntimeError("axis %d of '%s' is not tagged fixed-stride".format(
+                split_axis, array_name))
+
+        new_dim_tags.insert(dest_axis, FixedStrideArrayDimTag(1))
+        # fix strides
+        toiter = reversed(list(enumerate(new_shape))) if order == 'C' \
+            else enumerate(new_shape)
+
+        stride = 1
+        for i, shape in toiter:
+            new_dim_tags[i] = new_dim_tags[i].copy(stride=stride)
+            stride *= shape
+
+        new_dim_tags = tuple(new_dim_tags)
+
+        # }}}
+
+        # {{{ adjust dim_names
+
+        new_dim_names = ary.dim_names
+        if new_dim_names is not None:
+            new_dim_names = list(new_dim_names)
+            existing_name = new_dim_names[split_axis]
+            outer_name = existing_name + "_outer"
+            new_dim_names[split_axis] = outer_name
+            new_dim_names.insert(dest_axis, existing_name + "_inner")
+            new_dim_names = tuple(new_dim_names)
+
+        # }}}
+
+        kernel = achng.with_changed_array(ary.copy(
+            shape=new_shape, dim_tags=new_dim_tags, dim_names=new_dim_names))
+
+        # }}}
+
+        var_name_gen = kernel.get_var_name_generator()
+
+        def split_access_axis(expr):
+            idx = expr.index
+            if not isinstance(idx, tuple):
+                idx = (idx,)
+            idx = list(idx)
+
+            axis_idx = idx[split_axis]
+
+            from loopy.symbolic import simplify_using_aff
+            inner_index = simplify_using_aff(kernel, axis_idx % count)
+            outer_index = simplify_using_aff(kernel, axis_idx // count)
+            idx[split_axis] = outer_index
+            idx.insert(dest_axis, inner_index)
+            return expr.aggregate.index(tuple(idx))
+
+        rule_mapping_context = SubstitutionRuleMappingContext(
+                kernel.substitutions, var_name_gen)
+        aash = ArrayAxisSplitHelper(rule_mapping_context,
+                                    set([array_name]), split_access_axis)
+        kernel = rule_mapping_context.finish_kernel(aash.map_kernel(kernel))
+
+        return kernel
+
+    def _split_loopy_arrays(self, kernel):
+        """
+        Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
+        to conform to this split pattern
+
+        Parameters
+        ----------
+        kernel : `loopy.LoopKernel`
+            The kernel to apply the splits to
+
+        Returns
+        -------
+        split_kernel : `loopy.LoopKernel`
+            The kernel with the array splittings applied
+        """
+
+        if not self._have_split():
+            return kernel
+
+        for array_name in [x.name for x in kernel.args
+                           if isinstance(x, lp.GlobalArg)]:
+            if self.data_order == 'C' and self.width:
+                split_axis = 0
+                dest_axis = len(x.shape)
+            else:
+                split_axis = len(x.shape) - 1
+                dest_axis = 0
+
+            kernel = self._split_array_axis_inner(
+                kernel, array_name, split_axis, dest_axis,
+                self.vector_width, self.data_order)
+
+        return kernel
+
     def _split_numpy_array(self, input_array):
         """
         Spits the supplied numpy array according to desired pattern
