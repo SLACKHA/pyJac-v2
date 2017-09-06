@@ -719,7 +719,10 @@ ${name} : ${type}
         # check for dupicates
         nameset = sorted(set(d.name for d in defines))
         for name in nameset:
-            same_name = set([x for x in defines if x.name == name])
+            same_name = []
+            for x in defines:
+                if x.name == name and not any(x == y for y in same_name):
+                    same_name.append(x)
             if len(same_name) != 1:
                 # need to see if differences are resolvable
                 atomic = next((x for x in same_name if
@@ -751,7 +754,7 @@ ${name} : ${type}
                         self.kernels[i] = knl.copy(args=[
                             x if x != other else atomic for x in knl.args])
 
-                same_name.discard(other)
+                same_name.remove(other)
 
             same_name = same_name.pop()
             kernel_data.append(same_name)
