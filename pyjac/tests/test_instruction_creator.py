@@ -98,7 +98,7 @@ def test_lpy_array_splitter_c_wide():
             target=lp.CTarget())
 
     k = lp.split_iname(_create(), 'i', 8)
-    k = asplit._split_loopy_arrays(k)
+    k = asplit.split_loopy_arrays(k)
 
     # test that it runs
     k()
@@ -143,7 +143,7 @@ def test_lpy_array_splitter_f_deep():
             target=lp.CTarget())
 
     k = lp.split_iname(_create(), 'i', 8)
-    k = asplit._split_loopy_arrays(k)
+    k = asplit.split_loopy_arrays(k)
 
     # test that it runs
     k()
