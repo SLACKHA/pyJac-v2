@@ -229,11 +229,9 @@ class kernel_generator(object):
 
         assumpt_list = ['{0} > 0'.format(test_size)]
         # get vector width
-        vec_width = None
-        if self.loopy_opts.depth or self.loopy_opts.width:
-            vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
-                else self.loopy_opts.width
-        if vec_width:
+        vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
+            else self.loopy_opts.width
+        if vec_width is not None:
             assumpt_list.append('{0} mod {1} = 0'.format(
                 test_size, vec_width))
         return assumpt_list
