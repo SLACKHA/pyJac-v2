@@ -702,7 +702,7 @@ class kernel_call(object):
         else:
             return [out[0]]
 
-    def __get_comparable(self, variable, index):
+    def _get_comparable(self, variable, index):
         """
         Selects the data to compare from the supplied variable depending on
         the compare mask / axes supplied
@@ -713,9 +713,17 @@ class kernel_call(object):
             return variable
 
         try:
+            # see if it's a supplied callable
+            return self.compare_mask[index](self, variable)
+        except TypeError:
+            pass
+
+        try:
+            # test if list of indicies
             if self.compare_axis == -1:
-                # list of indicies
                 return variable[self.compare_mask[index]].squeeze()
+            # next try iterable
+
             # multiple axes
             outv = variable
             # account for change in variable size
@@ -734,8 +742,8 @@ class kernel_call(object):
                 if len(outv.shape) != shape:
                     ax_fac += shape - len(outv.shape)
             return outv.squeeze()
-        except:
-            # if simple mask
+        except TypeError:
+            # finally, take a simple mask
             return np.take(variable, self.compare_mask[index],
                            self.compare_axis).squeeze()
 
@@ -765,11 +773,10 @@ class kernel_call(object):
             outv = output_variables[i].copy().squeeze()
             ref_answer = self.transformed_ref_ans[i].copy().squeeze()
             if self.compare_mask[i] is not None:
-                outv = self.__get_comparable(outv, i)
+                outv = self._get_comparable(outv, i)
                 if outv.shape != ref_answer.shape:
                     # apply the same transformation to the answer
-                    ref_answer = self.__get_comparable(ref_answer, i)
-
+                    ref_answer = self._get_comparable(ref_answer, i)
             allclear = allclear and np.allclose(outv, ref_answer,
                                                 rtol=self.rtol,
                                                 atol=self.atol,
