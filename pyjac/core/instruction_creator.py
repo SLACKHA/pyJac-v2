@@ -10,7 +10,7 @@ import logging
 import inspect
 from string import Template
 
-
+import six
 import loopy as lp
 import numpy as np
 from loopy.types import AtomicType
@@ -148,7 +148,7 @@ class array_splitter(object):
 
         return kernel
 
-    def _split_loopy_arrays(self, kernel):
+    def split_loopy_arrays(self, kernel):
         """
         Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
         to conform to this split pattern
@@ -168,7 +168,8 @@ class array_splitter(object):
             return kernel
 
         for array_name in [x.name for x in kernel.args
-                           if isinstance(x, lp.GlobalArg)]:
+                           if isinstance(x, lp.GlobalArg)
+                           and len(x.shape) >= 2]:
             if self.data_order == 'C' and self.width:
                 split_axis = 0
                 dest_axis = len(x.shape)
@@ -197,7 +198,7 @@ class array_splitter(object):
             The properly split / resized numpy array
         """
 
-        if not self._have_split():
+        if not self._have_split() or len(input_array.shape) <= 1:
             return input_array
 
         def _split_and_pad(arr, axis, width, ax_trans):
@@ -245,6 +246,8 @@ class array_splitter(object):
 
         if isinstance(arrays, np.ndarray):
             arrays = [arrays]
+        elif isinstance(arrays, dict):
+            return {k: self._split_numpy_array(v) for k, v in six.iteritems(arrays)}
 
         return [self._split_numpy_array(a) for a in arrays]
 
