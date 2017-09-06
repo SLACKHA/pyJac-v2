@@ -1161,7 +1161,9 @@ class SubTest(TestClass):
             # save args to dir
             def __saver(arr, name, namelist):
                 myname = os.path.join(lib_dir, name + '.npy')
-                np.save(myname, arr)
+                # need to split inputs / answer
+                np.save(myname, kgen.array_split.split_numpy_arrays(
+                    arr)[0].flatten('K'))
                 namelist.append(myname)
 
             args = []
@@ -1198,14 +1200,15 @@ class SubTest(TestClass):
                     call_name='species_rates',
                     output_files=''))
 
-            phi = self.store.phi_cp if conp else self.store.phi_cv
-            out_arr = np.concatenate((phi[:, 0].reshape((-1, 1)),
-                                      (P if conp else V).reshape((-1, 1)),
-                                      phi[:, 1:]),
-                                     axis=1)
-            out_arr = np.array(out_arr, order=opts.order, copy=True)
+            # construct phi array for input
+            #phi = self.store.phi_cp if conp else self.store.phi_cv
+            #out_arr = np.array(phi, order=opts.order, copy=True)
 
-            out_arr.flatten('K').tofile(os.path.join(os.getcwd(), 'data.bin'))
+            # and finally, split array
+            #out_arr = kgen.array_split.split_numpy_arrays(out_arr)
+
+            # flatten and save
+            #out_arr.flatten('K').tofile(os.path.join(os.getcwd(), 'data.bin'))
             # and call
             try:
                 subprocess.check_call([
