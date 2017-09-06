@@ -167,14 +167,14 @@ class array_splitter(object):
         if not self._have_split():
             return kernel
 
-        for array_name in [x.name for x in kernel.args
-                           if isinstance(x, lp.GlobalArg)
-                           and len(x.shape) >= 2]:
+        for array_name, arr in [(x.name, x) for x in kernel.args
+                                if isinstance(x, lp.GlobalArg)
+                                and len(x.shape) >= 2]:
             if self.data_order == 'C' and self.width:
                 split_axis = 0
-                dest_axis = len(x.shape)
+                dest_axis = len(arr.shape)
             else:
-                split_axis = len(x.shape) - 1
+                split_axis = len(arr.shape) - 1
                 dest_axis = 0
 
             kernel = self._split_array_axis_inner(
