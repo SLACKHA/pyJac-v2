@@ -623,8 +623,64 @@ class SubTest(TestClass):
                 rxn.nTemperature for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.ChebyshevReaction)])
 
+        def _parse_index(arr, ind, order):
+            # the index is a linear combination of the first and last indicies
+            # in the split array
+            if order == 'F':
+                # For 'F' order, where vw is the vector width:
+                # (0, 1, ... vw - 1) in the first index corresponds to the
+                # last index = 0
+                # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
+                # etc.
+                return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
+            else:
+                # For 'C' order, where (s, l) corresponds to the second and last
+                # index in the array:
+                #
+                # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
+                # for IC 0
+                # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
+                # for IC 1, etc.
+
+                return (slice(None), ind, slice(None))
+
+        def __simple_get_comparable(kc, outv):
+            # check for vectorized data order
+            if not len(outv.shape) == 3:
+                from ..loopy_utils.loopy_utils import kernel_call
+                # return the default, as it can handle it
+                return kernel_call(
+                    '', ref_const, compare_mask=masks[rtype][0])._get_comparable(
+                    outv, 0)
+
+            ind_list = []
+            # get comparable index
+            for ind in masks[rtype][0][0]:
+                ind_list.append(_parse_index(outv, ind, kc.current_order))
+
+            ind_list = zip(*ind_list)
+            # filter ellipsis'
+            for i in range(len(ind_list)):
+                if all(x == slice(None) for x in ind_list[i]):
+                    ind_list[i] = slice(None)
+            return outv[ind_list]
+
         def __simple_post(kc, out):
-            out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
+            if len(out[0].shape) == 3:
+                # vectorized data order
+                # the index is the combination of the first axis and the last
+                for i, thd_i in enumerate(self.store.thd_inds):
+                    f, s, l = _parse_index(
+                        out[0], thd_i, kc.current_order)
+                    if kc.current_order == 'F':
+                        out[0][f, s, l] *= self.store.ref_pres_mod[:, i]
+                    else:
+                        out[0][f, s, l] *= np.reshape(
+                            self.store.ref_pres_mod[:, i],
+                            out[0][f, s, l].shape,
+                            order='C')
+            else:
+                out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
 
         compare_mask, rate_func = masks[rtype]
         post = None if rtype != 'simple' else __simple_post
@@ -632,6 +688,9 @@ class SubTest(TestClass):
         # see if mechanism has this type
         if not compare_mask[0].size:
             return
+
+        if rtype == 'simple':
+            compare_mask = [__simple_get_comparable]
 
         # create the kernel call
         kc = kernel_call(rtype,
