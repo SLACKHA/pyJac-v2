@@ -167,9 +167,9 @@ class SubTest(TestClass):
             # create a list of answers to check
             try:
                 for kc in kernel_calls:
-                    kc.set_state(state['order'])
+                    kc.set_state(knl.array_split, state['order'])
             except:
-                kernel_calls.set_state(state['order'])
+                kernel_calls.set_state(knl.array_split, state['order'])
 
             assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
                 'Evaluate {} rates failed'.format(func.__name__)

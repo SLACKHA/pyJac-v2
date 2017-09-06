@@ -83,7 +83,7 @@ class kernel_runner(object):
         kc = kernel_call('dummy',
                          [None],
                          **self.args)
-        kc.set_state(loopy_opts.order)
+        kc.set_state(gen.array_split, loopy_opts.order)
         self.out_arg_names = [[
             x for x in k.get_written_variables()
             if x not in k.temporary_variables]
@@ -565,9 +565,9 @@ class SubTest(TestClass):
             # create a list of answers to check
             try:
                 for kc in kernel_calls:
-                    kc.set_state(state['order'])
+                    kc.set_state(knl.array_split, state['order'])
             except:
-                kernel_calls.set_state(state['order'])
+                kernel_calls.set_state(knl.array_split, state['order'])
 
             assert auto_run(knl.kernels, kernel_calls, device=opt.device), \
                 'Evaluate {} rates failed'.format(func.__name__)
@@ -587,6 +587,7 @@ class SubTest(TestClass):
         ref_const = self.store.fwd_rate_constants
 
         reacs = self.store.reacs
+
         masks = {
             'simple': (
                 [np.array([i for i, x in enumerate(reacs)
