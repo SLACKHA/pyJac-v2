@@ -57,7 +57,7 @@ class SubTest(TestClass):
             knl._make_kernels()
 
             # now run
-            kc.set_state(state['order'])
+            kc.set_state(knl.array_split, state['order'])
             assert auto_run(knl.kernels, kc, device=state['device'])
 
     @attr('long')

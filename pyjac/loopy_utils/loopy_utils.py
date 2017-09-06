@@ -632,13 +632,17 @@ class kernel_call(object):
             return self.name == knl.name
         return True
 
-    def set_state(self, order='F'):
+    def set_state(self, array_splitter, order='F'):
         """
         Updates the kernel arguements, and  and compare axis to the order given
         If the 'arg' is a function, it will be called to get the correct answer
 
         Parameters
         ----------
+        array_splitter: :class:`core.instruction_creator.array_splitter`
+            The array splitter of the owning
+            :class:`kernek_utils.kernel_gen.kernel.kernel_generator`, used to
+            operate on numpy arrays if necessary
         order : {'C', 'F'}
             The memory layout of the arrays, C (row major) or
             Fortran (column major)
@@ -663,6 +667,11 @@ class kernel_call(object):
         self.kernel_args = args_copy
         self.transformed_ref_ans = [np.array(ans, order=order, copy=True)
                                     for ans in self.ref_answer]
+
+        # and finally feed through the array splitter
+        self.kernel_args = array_splitter.split_numpy_arrays(self.kernel_args)
+        self.transformed_ref_ans = array_splitter.split_numpy_arrays(
+            self.transformed_ref_ans)
 
     def __call__(self, knl, queue):
         """
