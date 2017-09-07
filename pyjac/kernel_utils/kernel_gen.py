@@ -13,6 +13,7 @@ import six
 import loopy as lp
 import pyopencl as cl
 import numpy as np
+import cgen
 
 from . import file_writers as filew
 from .memory_manager import memory_manager
@@ -772,8 +773,10 @@ ${name} : ${type}
         def _name_assign(arr):
             if arr.name not in ['P_arr', 'V_arr', 'phi'] and not \
                     isinstance(arr, lp.ValueArg):
-                return arr.name + '[{ind}] = 0'.format(
-                    ind=', '.join(['0'] * len(arr.shape)))
+                return arr.name + '[{ind}] = 0 {atomic}'.format(
+                    ind=', '.join(['0'] * len(arr.shape)),
+                    atomic='{atomic}' if isinstance(arr.dtype, AtomicNumpyType)
+                           else '')
             return ''
 
         # generate the kernel definition
@@ -791,15 +794,11 @@ ${name} : ${type}
                 iname=iname,
                 size=self.vec_width))
 
-        def __get_non_atomic(arr):
-            if isinstance(arr.dtype, AtomicNumpyType):
-                return arr.copy(dtype=to_loopy_type(arr.dtype.dtype))
-            return arr
         # create a dummy kernel to get the defn
         knl = lp.make_kernel(domains,
                              '\n'.join(_name_assign(arr)
                                        for arr in kernel_data),
-                             [__get_non_atomic(x) for x in kernel_data],
+                             kernel_data[:],
                              name=self.name,
                              target=lp_utils.get_target(
                                  self.lang, self.loopy_opts.device)
@@ -811,37 +810,47 @@ ${name} : ${type}
         # get defn
         defn_str = lp_utils.get_header(knl)
 
-        # next create the call instructions
-        def __gen_call(knl, idx, condition=None):
-            call = Template('${name}(${args})${end}').safe_substitute(
-                name=knl.name,
-                args=','.join([arg.name for arg in knl.args
-                               if not isinstance(arg, lp.TemporaryVariable)]),
-                end=utils.line_end[self.lang]
-                # dep='id=call_{}{}'.format(idx,
-                # ', dep=call_{}'.format(idx - 1) if idx > 0 else '')
-            )
-            if condition:
-                call = Template("""
-    #ifdef ${cond}
-        ${call}
-    #endif
-    """).safe_substitute(cond=condition, call=call)
-            return call
+        # and finally, generate the kernel code
 
-        instructions = [__gen_call(x, i)
-                        for i, x in enumerate(self.kernels)]
+        preambles = []
+        inits = []
+        instructions = []
+        # split into bodies, preambles, etc.
+        for k in self.kernels:
+            cgr = lp.generate_code_v2(k)
+            # grab preambles
+            for _, preamble in cgr.device_preambles:
+                if preamble not in preambles:
+                    preambles.append(preamble)
+
+            # now scan device program
+            assert len(cgr.device_programs) == 1
+            cgr = cgr.device_programs[0]
+            if isinstance(cgr.ast, cgen.Collection):
+                # look for preambles
+                for item in cgr.ast.contents:
+                    # initializers go in the preamble
+                    if isinstance(item, cgen.Initializer):
+                        if str(item) not in inits:
+                            inits.append(str(item))
+
+                    # blanklines and bodies can be ignored (as they will be added
+                    # below)
+                    elif not (isinstance(item, cgen.Line)
+                              or isinstance(item, cgen.FunctionBody)):
+                        raise NotImplementedError(type(item))
+
+            # leave a comment to distinguish the name
+            # and put the body in
+            instructions.append('// {name}\n{body}\n'.format(
+                name=k.name, body=str(cgr.body_ast)))
+
         # insert barriers if any
         instructions = self.apply_barriers(self.barriers, instructions)
 
         # join to str
         instructions = '\n'.join(instructions)
-
-        # and finally, generate the additional kernels [excluding additional
-        # knls]
-        additional_kernels = '\n'.join([
-            lp_utils.get_code(k) for k in self.kernels
-            if not any(y.name == k.name for y in self.external_kernels)])
+        preamble = '\n'.join(preambles + inits)
 
         file_src = self._special_wrapper_subs(file_src)
 
@@ -852,17 +861,16 @@ ${name} : ${type}
         with filew.get_file(
                 self.filename, self.lang, include_own_header=True) as file:
             instructions = _find_indent(file_str, 'body', instructions)
+            preamble = _find_indent(file_str, 'preamble', preamble)
             lines = file_src.safe_substitute(
                 defines='',
+                preamble=preamble,
                 func_define=defn_str[:defn_str.index(';')],
-                body=instructions,
-                additional_kernels=additional_kernels).split('\n')
+                body=instructions).split('\n')
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
-            if self.depends_on:
-                file.add_headers([x.name for x in self.depends_on])
 
         # and the header file
         headers = ([lp_utils.get_header(x) + '\n' for x in self.kernels] +
@@ -1322,7 +1330,7 @@ class opencl_kernel_generator(kernel_generator):
         # kernel arg setting
         kernel_arg_set = self.get_kernel_arg_setting()
         # kernel list
-        kernel_paths = [self.bin_name] + [x.bin_name for x in self.depends_on]
+        kernel_paths = [self.bin_name]
         kernel_paths = ', '.join('"{}"'.format(x)
                                  for x in kernel_paths if x.strip())
 
@@ -1409,7 +1417,7 @@ class opencl_kernel_generator(kernel_generator):
             self.build_options.append('-cl-std=CL{}'.format(site.CL_VERSION))
             self.build_options = ' '.join(self.build_options)
 
-            file_list = [self.filename] + [x.filename for x in self.depends_on]
+            file_list = [self.filename]
             file_list = ', '.join('"{}"'.format(x) for x in file_list)
 
             self.bin_name = self.filename[:self.filename.index(
@@ -1424,7 +1432,7 @@ class opencl_kernel_generator(kernel_generator):
                     platform=platform_str,
                     build_options=self.build_options,
                     # compiler expects all source strings
-                    num_source=1+len(self.depends_on)
+                    num_source=1
                 ))
 
     def apply_barriers(self, barriers, instructions):

@@ -2,8 +2,7 @@
 #include <stdlib.h>
 
 ${defines}
-
-${additional_kernels}
+${preamble}
 
 ${func_define}
 {
