@@ -85,21 +85,21 @@ void compiler()
     if (return_code != CL_SUCCESS)
     {
           printf("OpenCL failed to build the program...\n");
-          size_t len;
-          char *buffer;
-          check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &len));
-          buffer = calloc(len, sizeof(char));
-          check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, len * sizeof(char), buffer, NULL));
-          printf("%s\n", buffer);
-          free(buffer);
-
-          clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_STATUS, sizeof(char*), NULL, &len);
-          buffer = calloc(len, sizeof(char));
-          clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_STATUS, len * sizeof(char), buffer, NULL);
-          printf("%s\n", buffer);
-          free(buffer);
-          check_err(return_code);
     }
+    size_t len;
+    char *buffer;
+    check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &len));
+    buffer = calloc(len, sizeof(char));
+    check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, len * sizeof(char), buffer, NULL));
+    printf("%s\n", buffer);
+    free(buffer);
+
+    clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_STATUS, sizeof(char*), NULL, &len);
+    buffer = calloc(len, sizeof(char));
+    clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_STATUS, len * sizeof(char), buffer, NULL);
+    printf("%s\n", buffer);
+    free(buffer);
+    check_err(return_code);
 
     // Get compiled binary from runtime
 
