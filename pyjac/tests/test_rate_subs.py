@@ -572,6 +572,27 @@ class SubTest(TestClass):
             assert auto_run(knl.kernels, kernel_calls, device=opt.device), \
                 'Evaluate {} rates failed'.format(func.__name__)
 
+    def _parse_split_index(self, arr, ind, order):
+        # the index is a linear combination of the first and last indicies
+        # in the split array
+        if order == 'F':
+            # For 'F' order, where vw is the vector width:
+            # (0, 1, ... vw - 1) in the first index corresponds to the
+            # last index = 0
+            # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
+            # etc.
+            return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
+        else:
+            # For 'C' order, where (s, l) corresponds to the second and last
+            # index in the array:
+            #
+            # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
+            # for IC 0
+            # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
+            # for IC 1, etc.
+
+            return (slice(None), ind, slice(None))
+
     def __test_rateconst_type(self, rtype):
         """
         Performs tests for a single reaction rate type
@@ -623,27 +644,6 @@ class SubTest(TestClass):
                 rxn.nTemperature for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.ChebyshevReaction)])
 
-        def _parse_index(arr, ind, order):
-            # the index is a linear combination of the first and last indicies
-            # in the split array
-            if order == 'F':
-                # For 'F' order, where vw is the vector width:
-                # (0, 1, ... vw - 1) in the first index corresponds to the
-                # last index = 0
-                # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
-                # etc.
-                return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
-            else:
-                # For 'C' order, where (s, l) corresponds to the second and last
-                # index in the array:
-                #
-                # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
-                # for IC 0
-                # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
-                # for IC 1, etc.
-
-                return (slice(None), ind, slice(None))
-
         def __simple_get_comparable(kc, outv):
             # check for vectorized data order
             if not len(outv.shape) == 3:
@@ -656,7 +656,7 @@ class SubTest(TestClass):
             ind_list = []
             # get comparable index
             for ind in masks[rtype][0][0]:
-                ind_list.append(_parse_index(outv, ind, kc.current_order))
+                ind_list.append(self._parse_split_index(outv, ind, kc.current_order))
 
             ind_list = zip(*ind_list)
             # filter ellipsis'
@@ -670,7 +670,7 @@ class SubTest(TestClass):
                 # vectorized data order
                 # the index is the combination of the first axis and the last
                 for i, thd_i in enumerate(self.store.thd_inds):
-                    f, s, l = _parse_index(
+                    f, s, l = self._parse_split_index(
                         out[0], thd_i, kc.current_order)
                     if kc.current_order == 'F':
                         out[0][f, s, l] *= self.store.ref_pres_mod[:, i]
@@ -1175,14 +1175,35 @@ class SubTest(TestClass):
 
             # find where the last species concentration is zero to mess with the
             # tolerances there
-            last_zero = np.where(np.isclose(self.store.concs[:, -1], 0))[0]
-            start = np.where(dphi == (self.store.dphi_cp if conp else
-                                      self.store.dphi_cv)[last_zero, 0])[0][0]
-            # get the increment
-            increment = self.store.test_size if opts.order == 'F' else 1
-            # and set as multiples of the mode
-            looser_tols = [start + i * increment for i in range(
-                           self.store.dphi_cp.shape[1])]
+
+            # get split arrays
+            concs, dphi = kgen.array_split.split_numpy_arrays([
+                self.store.concs, self.store.dphi_cp if conp
+                else self.store.dphi_cv])
+
+            # index into concs to ge the last species
+            if concs.ndim == 3:
+                slice_ind = self._parse_split_index(
+                    concs, len(self.store.specs) - 1, opts.order)
+            else:
+                slice_ind = [slice(None), -1]
+
+            # find where it's zero
+            last_zeros = np.where(concs[slice_ind] == 0)
+            count = 0
+
+            # create a ravel index
+            ravel_ind = list(slice_ind[:])
+            for i in range(len(slice_ind)):
+                if slice_ind[i] != slice(None):
+                    ravel_ind[i] = range(self.store.dphi_cp.shape[1])
+                else:
+                    ravel_ind[i] = last_zeros[count]
+                    count += 1
+
+            # and use multi_ravel to convert to linear for dphi
+            looser_tols = np.ravel_multi_index(ravel_ind, dphi.shape,
+                                               order=opts.order)
 
             # write the module tester
             with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
@@ -1199,16 +1220,6 @@ class SubTest(TestClass):
                     call_name='species_rates',
                     output_files=''))
 
-            # construct phi array for input
-            #phi = self.store.phi_cp if conp else self.store.phi_cv
-            #out_arr = np.array(phi, order=opts.order, copy=True)
-
-            # and finally, split array
-            #out_arr = kgen.array_split.split_numpy_arrays(out_arr)
-
-            # flatten and save
-            #out_arr.flatten('K').tofile(os.path.join(os.getcwd(), 'data.bin'))
-            # and call
             try:
                 subprocess.check_call([
                     'python{}.{}'.format(
