@@ -8,6 +8,7 @@ from .. import utils
 from string import Template
 import numpy as np
 import loopy as lp
+import re
 
 
 class memory_manager(object):
@@ -220,18 +221,36 @@ class memory_manager(object):
 
     def _get_size(self, arr, subs_n='problem_size'):
         size = arr.shape
+        nsize = []
         str_size = []
+        skip = []
         # remove 'problem_size' from shape if present, as it's baked into the
         # various defns
-        for x in size:
-            # but allow for substitutions
-            if str(x) == 'problem_size' and subs_n:
-                str_size.append(subs_n)
-        size = [x for x in size if str(x) != 'problem_size']
+        for i, x in enumerate(size):
+            s = str(x)
+            # check for non-integer sizes
+            if 'problem_size' in s:
+                str_size.append('problem_size')
+                if s != 'problem_size':
+                    # it's a floor division thing, need to do some cleanup here
+                    vsize = re.search(
+                        r'\(-1\)\*\(\(\(-1\)\*problem_size\) // (\d+)\)', s)
+                    # make sure we found the vector width
+                    assert vsize is not None and len(vsize.groups()) > 0, (
+                        'Unknown size for array {}, :{}'.format(arr.name, s))
+                    vsize = int(vsize.group(1))
+                    assert vsize in size, (
+                        'Unknown vector-width: {}, found for array {}'.format(
+                            vsize, arr.name))
+                    # and eliminate it from the list
+                    skip.append(size.index(vsize))
+                # skip this entry
+                skip.append(i)
 
-        if size:
-            size = str(np.cumprod(size, dtype=np.int32)[-1])
-            str_size.append(size)
+        nsize = [size[i] for i in range(len(size)) if i not in skip]
+        if nsize:
+            nsize = str(np.cumprod(nsize, dtype=np.int32)[-1])
+            str_size.append(nsize)
         return ' * '.join(str_size)
 
     def _mem_transfers(self, to_device=True):
