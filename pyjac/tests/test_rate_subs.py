@@ -1152,11 +1152,10 @@ class SubTest(TestClass):
             # get arrays
             phi = np.array(
                 self.store.phi_cp if conp else self.store.phi_cv,
-                order=opts.order, copy=True).flatten('K')
-
-            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
-            # put together species rates
-            dphi = np.array(dphi, order=opts.order, copy=True).flatten('K')
+                order=opts.order, copy=True)
+            dphi = np.array(self.store.dphi_cp if conp else self.store.dphi_cv,
+                            order=opts.order, copy=True)
+            param = np.array(P if conp else V, copy=True)
 
             # save args to dir
             def __saver(arr, name, namelist):
@@ -1168,7 +1167,7 @@ class SubTest(TestClass):
 
             args = []
             __saver(phi, 'phi', args)
-            __saver(P if conp else V, 'param', args)
+            __saver(param, 'param', args)
 
             # and now the test values
             tests = []
