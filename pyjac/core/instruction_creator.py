@@ -75,7 +75,7 @@ class array_splitter(object):
         if str(axis_len) == arc.problem_size.name:
             # bake in the assumption that the problem size is divisible by the
             # vector width
-            outer_len = axis_len / count
+            outer_len = div_ceil(axis_len, count) # axis_len / count
         else:
             outer_len = div_ceil(axis_len, count)
         new_shape[split_axis] = outer_len
