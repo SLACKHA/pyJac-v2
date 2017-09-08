@@ -560,6 +560,9 @@ ${name} : ${type}
             elif x == 'P_arr':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
                     name=x, type='double*', desc='The array of pressures'))
+            elif x == 'V_arr':
+                knl_args_doc.append(knl_args_doc_template.safe_substitute(
+                    name=x, type='double*', desc='The array of volumes'))
             elif x == 'dphi':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
                     name=x, type='double*', desc=('The time rate of change of'
