@@ -1067,19 +1067,16 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_reset_arrays(self):
-        dphi = np.zeros_like(self.store.dphi_cp)
-        dphi[:, 0] = self.store.conp_temperature_rates[:]
         args = {
             'dphi': lambda x: np.array(
-                self.store.phi_cp, order=x, copy=True),
+                self.store.dphi_cp, order=x, copy=True),
             'wdot': lambda x: np.array(
                 self.store.species_rates, order=x, copy=True)}
 
-        kc = [kernel_call('reset_arrays', [
-            np.zeros_like(self.store.phi_cp),
-            np.zeros_like(self.store.species_rates)],
-                          out_mask=[0, 1],
-                          **args)]
+        kc = [kernel_call('ndot_reset', [np.zeros_like(self.store.dphi_cp)],
+                          strict_name_match=True, input_mask=['wdot'], **args),
+              kernel_call('wdot_reset', [np.zeros_like(self.store.species_rates)],
+                          strict_name_match=True, input_mask=['dphi'], **args)]
 
         # test conp
         self.__generic_rate_tester(reset_arrays, kc)

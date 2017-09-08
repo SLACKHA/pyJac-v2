@@ -507,43 +507,35 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None):
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.phi_inds,
-                            namestore.phi_inds)
+    def __create(arr, nrange, name):
+        # create reset kernel
+        mapstore = arc.MapStore(loopy_opts,
+                                nrange,
+                                nrange)
 
-    # first, create all arrays
-    kernel_data = []
+        # first, create all arrays
+        kernel_data = []
 
-    # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+        # add problem size
+        if namestore.problem_size is not None:
+            kernel_data.append(namestore.problem_size)
 
-    # need dphi and wdot arrays
+        # need arrays
+        arr_lp, arr_str = mapstore.apply_maps(arr, *default_inds)
+        kernel_data.append(arr_lp)
+        instructions = Template(
+            """
+                ${arr_str} = 0d
+            """).substitute(**locals())
 
-    ndot_lp, ndot_str = mapstore.apply_maps(namestore.n_dot, *default_inds)
-    wdot_lp, wdot_str = mapstore.apply_maps(namestore.spec_rates, *default_inds)
+        return k_gen.knl_info(name=name,
+                              instructions=instructions,
+                              mapstore=mapstore,
+                              var_name=var_name,
+                              kernel_data=kernel_data)
 
-    # number of species
-    ns = namestore.num_specs.initializer[-1]
-    # and index
-    ind = var_name
-
-    # add arrays
-    kernel_data.extend([ndot_lp, wdot_lp])
-
-    instructions = Template(
-        """
-            ${ndot_str} = 0d
-            if ${ind} < ${ns}
-                ${wdot_str} = 0d
-            end
-        """).substitute(**locals())
-
-    return k_gen.knl_info(name='reset_arrays',
-                          instructions=instructions,
-                          mapstore=mapstore,
-                          var_name=var_name,
-                          kernel_data=kernel_data)
+    return [__create(namestore.n_dot, namestore.phi_inds, 'ndot_reset'),
+            __create(namestore.spec_rates, namestore.num_specs, 'wdot_reset')]
 
 
 def get_concentrations(eqs, loopy_opts, namestore, conp=True,
@@ -885,8 +877,8 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
         else:
             post_instructions = [Template(
                 """
-                ${Edot_str} = ${Edot_str} + ${T_str} * R_u * dE {id=end, dep=sum:init, \
-                                                                 nosync=init}
+                ${Edot_str} = ${Edot_str} + ${T_str} * R_u * dE {id=end, \
+                    dep=sum:init, nosync=init}
                 """
             ).safe_substitute(**locals())]
 
