@@ -3306,7 +3306,9 @@ def write_specrates_kernel(eqs, reacs, specs,
                 else:
                     barriers.append((ind, ind + 1, 'global'))
         # need to add barriers
-        # first, find reduced pressure
+        # barrier at third bodies for get_concentrations
+        __insert_at('eval_thd_body_concs', True)
+        # barrier for reduced pressure based on thd body concs and kf_fall
         __insert_at('red_pres', True)
         # barrier before fall_troe for Pr
         __insert_at('fall_troe', True)
@@ -3322,8 +3324,12 @@ def write_specrates_kernel(eqs, reacs, specs,
             # if it's a fixed rop net, and there are reverse
             # or third body reactions
             __insert_at('rop_net_fixed', True)
+        # barrier at species rates for the net ROP
         __insert_at('spec_rates', True)
-        __insert_at('temperature_rate', True)
+        # barrier at molar rates for wdot
+        __insert_at('get_molar_rates', True)
+        # and at the extra variable rates for Tdot
+        __insert_at('get_extra_var_rates', True)
 
     input_arrays = ['phi', 'P_arr' if conp else 'V_arr', 'dphi']
     output_arrays = ['dphi']
