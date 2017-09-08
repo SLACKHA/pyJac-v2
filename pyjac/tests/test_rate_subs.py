@@ -4,6 +4,7 @@ from collections import OrderedDict, defaultdict
 import subprocess
 import sys
 import shutil
+from multiprocessing import cpu_count
 
 # local imports
 from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
@@ -33,6 +34,7 @@ import cantera as ct
 import numpy as np
 from nose.plugins.attrib import attr
 from parameterized import parameterized
+import pyopencl as cl
 
 
 class kernel_runner(object):
@@ -1202,6 +1204,10 @@ class SubTest(TestClass):
             looser_tols = np.ravel_multi_index(ravel_ind, dphi.shape,
                                                order=opts.order)
 
+            num_devices = cpu_count() / 2
+            if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
+                num_devices = 1
+
             # write the module tester
             with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
                 file.write(mod_test.safe_substitute(
@@ -1213,7 +1219,8 @@ class SubTest(TestClass):
                         ', '.join(str(x) for x in looser_tols)),
                     rtol=5e-3,
                     atol=1e-8,
-                    non_array_args='{}, 12'.format(self.store.test_size),
+                    non_array_args='{}, {}'.format(
+                        self.store.test_size, num_devices),
                     call_name='species_rates',
                     output_files=''))
 
