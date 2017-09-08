@@ -3174,6 +3174,9 @@ def write_specrates_kernel(eqs, reacs, specs,
     # kernel calls
     # hence, any data dependencies should be expressed in the order added here
 
+    # reset kernels
+    __add_knl(reset_arrays(eqs, loopy_opts, nstore, test_size=test_size))
+
     # first, add the concentration kernel
     __add_knl(get_concentrations(eqs, loopy_opts, nstore, conp=conp,
                                  test_size=test_size))
@@ -3339,7 +3342,6 @@ def write_specrates_kernel(eqs, reacs, specs,
         depends_on=[thermo_wrap],
         input_arrays=input_arrays,
         output_arrays=output_arrays,
-        init_arrays={'dphi': 0},
         auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers)
