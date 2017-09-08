@@ -987,7 +987,8 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
         """
         <> upper = 0
         <> lower = 0
-        ${Tdot_str} = 0 {id=init}
+        # handled by reset_arrays
+        # ${Tdot_str} = 0 {id=init}
         """).safe_substitute(**locals())]
     instructions = Template(
         """
@@ -1007,11 +1008,10 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
         post_instructions = [Template(
             """
             temp_sum = 0 {id=temp_init, atomic}
-            temp_sum = temp_sum + lower {id=temp_sum, dep=temp_init:sum*,\
-                                         nosync=temp_init, atomic}
+            ... lbarrier {id=lb1, dep=temp_init}
+            temp_sum = temp_sum + lower {id=temp_sum, dep=lb1:sum*, atomic}
             ... lbarrier {id=lb2, dep=temp_sum}
-            ${Tdot_str} = ${Tdot_str} - upper / temp_sum {id=final, dep=lb2:init, \
-                                                          nosync=init, atomic}
+            ${Tdot_str} = ${Tdot_str} - upper / temp_sum {id=final, dep=lb2, atomic}
             """
             ).safe_substitute(**locals())]
         kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
