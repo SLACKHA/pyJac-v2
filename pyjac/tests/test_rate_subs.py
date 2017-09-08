@@ -129,15 +129,18 @@ def parse_split_index(arr, ind, order):
 class get_comparable(object):
     def __init__(self, compare_mask, ref_answer):
         self.compare_mask = compare_mask
+        if not isinstance(self.compare_mask, list):
+            self.compare_mask = [self.compare_mask]
         self.ref_answer = ref_answer
 
     def __call__(self, kc, outv, index):
         mask = self.compare_mask[index]
+
         # check for vectorized data order
-        if outv.shape == self.ref_answer.shape:
+        if outv.ndim == self.ref_answer.ndim:
             from ..loopy_utils.loopy_utils import kernel_call
             # return the default, as it can handle it
-            return kernel_call('', [], compare_mask=mask)._get_comparable(outv, 0)
+            return kernel_call('', [], compare_mask=[mask])._get_comparable(outv, 0)
 
         ind_list = []
         # get comparable index
