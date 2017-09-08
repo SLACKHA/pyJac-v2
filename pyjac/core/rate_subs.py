@@ -525,14 +525,20 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None):
         kernel_data.append(arr_lp)
         instructions = Template(
             """
-                ${arr_str} = 0d
+                ${arr_str} = 0d {id=set}
             """).substitute(**locals())
+
+        # currently both reset arrays are atomic (if used)
+        can_vectorize, vec_spec = ic.get_deep_specializer(
+            loopy_opts, init_ids=['set'])
 
         return k_gen.knl_info(name=name,
                               instructions=instructions,
                               mapstore=mapstore,
                               var_name=var_name,
-                              kernel_data=kernel_data)
+                              kernel_data=kernel_data,
+                              can_vectorize=can_vectorize,
+                              vectorization_specializer=vec_spec)
 
     return [__create(namestore.n_dot, namestore.phi_inds, 'ndot_reset'),
             __create(namestore.spec_rates, namestore.num_specs, 'wdot_reset')]
