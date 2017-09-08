@@ -90,6 +90,69 @@ class kf_wrapper(object):
             eqs, loopy_opts, namestore, test_size)
 
 
+def parse_split_index(arr, ind, order):
+    """
+    A helper method to get the index of an element in a split array for all initial
+    conditions
+
+    Parameters
+    ----------
+    arr: :class:`numpy.ndarray`
+        The split array to use
+    ind: int
+        The element index
+    order: ['C', 'F']
+        The numpy data order
+    """
+
+    # the index is a linear combination of the first and last indicies
+    # in the split array
+    if order == 'F':
+        # For 'F' order, where vw is the vector width:
+        # (0, 1, ... vw - 1) in the first index corresponds to the
+        # last index = 0
+        # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
+        # etc.
+        return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
+    else:
+        # For 'C' order, where (s, l) corresponds to the second and last
+        # index in the array:
+        #
+        # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
+        # for IC 0
+        # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
+        # for IC 1, etc.
+
+        return (slice(None), ind, slice(None))
+
+
+class get_comparable(object):
+    def __init__(self, compare_mask, ref_answer):
+        self.compare_mask = compare_mask
+        self.ref_answer = ref_answer
+
+    def __call__(self, kc, outv, index):
+        mask = self.compare_mask[index]
+        # check for vectorized data order
+        if outv.shape == self.ref_answer.shape:
+            from ..loopy_utils.loopy_utils import kernel_call
+            # return the default, as it can handle it
+            return kernel_call('', [], compare_mask=mask)._get_comparable(outv, 0)
+
+        ind_list = []
+        # get comparable index
+        for ind in mask:
+            ind_list.append(parse_split_index(outv, ind, kc.current_order))
+
+        ind_list = zip(*ind_list)
+        # filter slice arrays from parser
+        for i in range(len(ind_list)):
+            if all(x == slice(None) for x in ind_list[i]):
+                ind_list[i] = slice(None)
+
+        return outv[ind_list]
+
+
 class SubTest(TestClass):
 
     def test_get_rate_eqs(self):
@@ -481,6 +544,7 @@ class SubTest(TestClass):
                 continue
             opt = loopy_options(**{x: state[x] for x in
                                    state if x not in exceptions})
+
             # find rate info
             rate_info = assign_rates(reacs, specs, opt.rate_spec)
 
@@ -519,27 +583,6 @@ class SubTest(TestClass):
 
             assert auto_run(knl.kernels, kernel_calls, device=opt.device), \
                 'Evaluate {} rates failed'.format(func.__name__)
-
-    def _parse_split_index(self, arr, ind, order):
-        # the index is a linear combination of the first and last indicies
-        # in the split array
-        if order == 'F':
-            # For 'F' order, where vw is the vector width:
-            # (0, 1, ... vw - 1) in the first index corresponds to the
-            # last index = 0
-            # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
-            # etc.
-            return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
-        else:
-            # For 'C' order, where (s, l) corresponds to the second and last
-            # index in the array:
-            #
-            # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
-            # for IC 0
-            # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
-            # for IC 1, etc.
-
-            return (slice(None), ind, slice(None))
 
     def __test_rateconst_type(self, rtype):
         """
@@ -592,33 +635,12 @@ class SubTest(TestClass):
                 rxn.nTemperature for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.ChebyshevReaction)])
 
-        def __simple_get_comparable(kc, outv):
-            # check for vectorized data order
-            if not len(outv.shape) == 3:
-                from ..loopy_utils.loopy_utils import kernel_call
-                # return the default, as it can handle it
-                return kernel_call(
-                    '', ref_const, compare_mask=masks[rtype][0])._get_comparable(
-                    outv, 0)
-
-            ind_list = []
-            # get comparable index
-            for ind in masks[rtype][0][0]:
-                ind_list.append(self._parse_split_index(outv, ind, kc.current_order))
-
-            ind_list = zip(*ind_list)
-            # filter ellipsis'
-            for i in range(len(ind_list)):
-                if all(x == slice(None) for x in ind_list[i]):
-                    ind_list[i] = slice(None)
-            return outv[ind_list]
-
         def __simple_post(kc, out):
             if len(out[0].shape) == 3:
                 # vectorized data order
                 # the index is the combination of the first axis and the last
                 for i, thd_i in enumerate(self.store.thd_inds):
-                    f, s, l = self._parse_split_index(
+                    f, s, l = parse_split_index(
                         out[0], thd_i, kc.current_order)
                     if kc.current_order == 'F':
                         out[0][f, s, l] *= self.store.ref_pres_mod[:, i]
@@ -637,8 +659,7 @@ class SubTest(TestClass):
         if not compare_mask[0].size:
             return
 
-        if rtype == 'simple':
-            compare_mask = [__simple_get_comparable]
+        compare_mask = [get_comparable(compare_mask, ref_const)]
 
         # create the kernel call
         kc = kernel_call(rtype,
@@ -730,7 +751,7 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
-                         compare_mask=[sri_mask], **args)
+                         compare_mask=[get_comparable(sri_mask, ref_ans)], **args)
         self.__generic_rate_tester(get_sri_kernel, kc)
 
     @attr('long')
@@ -749,7 +770,7 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
-                         compare_mask=[troe_mask], **args)
+                         compare_mask=[get_comparable(troe_mask, ref_ans)], **args)
         self.__generic_rate_tester(get_troe_kernel, kc)
 
     @attr('long')
@@ -762,7 +783,7 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
-                         compare_mask=[lind_mask])
+                         compare_mask=[get_comparable(lind_mask, ref_ans)])
         self.__generic_rate_tester(get_lind_kernel, kc)
 
     @attr('long')
@@ -807,12 +828,13 @@ class SubTest(TestClass):
         # create the kernel call
         kc = [kernel_call('ci_thd', [ref_pres_mod],
                           out_mask=[0],
-                          compare_mask=[thd_only_inds],
+                          compare_mask=[get_comparable(thd_only_inds, ref_pres_mod)],
                           input_mask=['Fi', 'Pr'],
                           strict_name_match=True, **args),
               kernel_call('ci_fall', [ref_pres_mod],
                           out_mask=[0],
-                          compare_mask=[fall_only_inds],
+                          compare_mask=[get_comparable(
+                            fall_only_inds, ref_pres_mod)],
                           input_mask=['thd_conc'],
                           strict_name_match=True, **args)]
         self.__generic_rate_tester(get_rxn_pres_mod, kc)
@@ -901,7 +923,8 @@ class SubTest(TestClass):
         wdot = self.store.species_rates
         kc = kernel_call('spec_rates', [wdot],
                          compare_mask=[
-                            np.arange(self.store.gas.n_species)],
+                            get_comparable(np.arange(self.store.gas.n_species),
+                                           wdot)],
                          **args)
 
         # test regularly
@@ -920,7 +943,8 @@ class SubTest(TestClass):
 
         kc = [kernel_call('temperature_rate', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[0],
+                          compare_mask=[get_comparable(np.array(0, dtype=np.int32),
+                                                       self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -930,7 +954,8 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('temperature_rate', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[0],
+                          compare_mask=[get_comparable(np.array(0, dtype=np.int32),
+                                                       self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc,
@@ -946,8 +971,10 @@ class SubTest(TestClass):
 
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[2 + np.arange(
-                            self.store.gas.n_species - 1)],
+                          compare_mask=[
+                            get_comparable(
+                                2 + np.arange(self.store.gas.n_species - 1),
+                                self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -962,8 +989,9 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[2 + np.arange(
-                            self.store.gas.n_species - 1)],
+                          compare_mask=[get_comparable(
+                            2 + np.arange(self.store.gas.n_species - 1),
+                            self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_molar_rates, kc,
@@ -985,7 +1013,8 @@ class SubTest(TestClass):
 
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[1],
+                          compare_mask=[get_comparable(np.array(1, dtype=np.int32),
+                                                       self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -1007,7 +1036,8 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[1],
+                          compare_mask=[get_comparable(np.array(1, dtype=np.int32),
+                                                       self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_extra_var_rates, kc,
@@ -1128,7 +1158,7 @@ class SubTest(TestClass):
 
             # index into concs to ge the last species
             if concs.ndim == 3:
-                slice_ind = self._parse_split_index(
+                slice_ind = parse_split_index(
                     concs, len(self.store.specs) - 1, opts.order)
             else:
                 slice_ind = [slice(None), -1]
