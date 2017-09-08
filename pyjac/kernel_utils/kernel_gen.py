@@ -573,21 +573,28 @@ ${name} : ${type}
         knl_args_doc = '\n'.join(knl_args_doc)
         # these are args passed in (from main, or python)
         # that require initialization, and hence must be passed to mem_init
-        input_initialized_args = ', ' + ', '.join([
+        input_initialized_args = ', '.join([
             self._get_pass(
                 next(x for x in self.mem.arrays if x.name == a),
                 include_type=False)
             for a in self.mem.in_arrays if a in self.mem.has_init])
+        if input_initialized_args:
+            input_initialized_args = ', ' + input_initialized_args
+
         # and the type included form thereof (for defn's)
-        input_initialized_args_defn = ', ' + ', '.join([
+        input_initialized_args_defn = ', '.join([
             self._get_pass(next(x for x in self.mem.arrays if x.name == a))
             for a in self.mem.in_arrays if a in self.mem.has_init])
+        if input_initialized_args_defn:
+            input_initialized_args_defn = ', ' + input_initialized_args_defn
         # and finally the local versions
-        input_initialized_args_local = ', ' + ', '.join([
+        input_initialized_args_local = ', '.join([
             self._get_pass(next(x for x in self.mem.arrays if x.name == a),
                            include_type=False,
                            postfix='_local')
             for a in self.mem.in_arrays if a in self.mem.has_init])
+        if input_initialized_args_local:
+            input_initialized_args_local = ', ' + input_initialized_args_local
         # memory transfers in
         mem_in = self.mem.get_mem_transfers_in()
         # memory transfers out
