@@ -10,6 +10,7 @@ from .. import utils
 import os
 import stat
 import re
+import six
 
 # local imports
 from ..utils import check_lang
@@ -660,7 +661,7 @@ class kernel_call(object):
                              if x not in self.input_mask}
 
         for key in args_copy:
-            if hasattr(args_copy[key], '__call__'):
+            if six.callable(args_copy[key]):
                 # it's a function
                 args_copy[key] = args_copy[key](order)
 
