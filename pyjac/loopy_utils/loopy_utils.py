@@ -715,7 +715,7 @@ class kernel_call(object):
 
         try:
             # see if it's a supplied callable
-            return self.compare_mask[index](self, variable)
+            return self.compare_mask[index](self, variable, index)
         except TypeError:
             pass
 
@@ -771,13 +771,16 @@ class kernel_call(object):
 
         allclear = True
         for i in range(len(output_variables)):
-            outv = output_variables[i].copy().squeeze()
-            ref_answer = self.transformed_ref_ans[i].copy().squeeze()
+            outv = output_variables[i].copy()
+            ref_answer = self.transformed_ref_ans[i].copy()
             if self.compare_mask[i] is not None:
                 outv = self._get_comparable(outv, i)
                 if outv.shape != ref_answer.shape:
                     # apply the same transformation to the answer
                     ref_answer = self._get_comparable(ref_answer, i)
+            else:
+                outv = outv.squeeze()
+                ref_answer = ref_answer.squeeze()
             allclear = allclear and np.allclose(outv, ref_answer,
                                                 rtol=self.rtol,
                                                 atol=self.atol,
