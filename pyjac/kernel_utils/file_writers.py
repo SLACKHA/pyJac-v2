@@ -31,6 +31,13 @@ def get_standard_headers(lang):
 
 def get_preamble(lang):
     utils.check_lang(lang)
+    if lang == 'opencl':
+        return [
+            """
+#if __OPENCL_C_VERSION__ < 120
+#pragma OPENCL EXTENSION cl_khr_fp64: enable
+#endif
+"""]
     return []
 
 
@@ -120,7 +127,8 @@ class FileWriter(object):
             assert not self.include_own_header, 'Cannot include this file in itself'
         else:
             self.filter = self.preamble_filter
-            self.preamble = get_preamble(lang)
+
+        self.preamble = get_preamble(lang)
         if not use_filter:
             self.filter = lambda x: x
         self.lines = []
@@ -184,7 +192,7 @@ class FileWriter(object):
         else:
             if self.include_own_header:
                 self.headers.append(filename)
-            self.lines.extend(self.preamble)
+        self.lines.extend(self.preamble)
 
         ext = utils.header_ext[self.lang]
         for header in self.std_headers:
