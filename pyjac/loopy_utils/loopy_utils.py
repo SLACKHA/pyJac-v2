@@ -713,11 +713,9 @@ class kernel_call(object):
         if self.compare_mask[index] is None:
             return variable
 
-        try:
+        if six.callable(self.compare_mask[index]):
             # see if it's a supplied callable
             return self.compare_mask[index](self, variable, index)
-        except TypeError:
-            pass
 
         try:
             # test if list of indicies
