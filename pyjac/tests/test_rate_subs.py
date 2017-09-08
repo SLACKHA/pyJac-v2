@@ -1195,7 +1195,7 @@ class SubTest(TestClass):
             ravel_ind = list(slice_ind[:])
             for i in range(len(slice_ind)):
                 if slice_ind[i] != slice(None):
-                    ravel_ind[i] = range(self.store.dphi_cp.shape[1])
+                    ravel_ind[i] = np.arange(dphi.shape[i], dtype=np.int32)
                 else:
                     ravel_ind[i] = last_zeros[count]
                     count += 1
