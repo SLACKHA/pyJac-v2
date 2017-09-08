@@ -19,7 +19,7 @@ from ..core.create_jacobian import (
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
-from .test_rate_subs import kernel_runner
+from .test_utils import kernel_runner
 
 import numpy as np
 import six
