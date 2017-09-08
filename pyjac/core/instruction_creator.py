@@ -19,19 +19,19 @@ from .array_creator import var_name
 
 class array_splitter(object):
     """
-        A convenience object that handles splitting arrays to improve vectorized
-        data-access patterns, etc.
+    A convenience object that handles splitting arrays to improve vectorized
+    data-access patterns, etc.
 
-        Can handle reshaping of both loopy and numpy arrays to the desired shape
+    Can handle reshaping of both loopy and numpy arrays to the desired shape
 
-        Properties
-        ----------
-        depth: int [None]
-            If is not None, the vector-width to use for deep-vectorization
-        wide: bool [False]
-            If is not None, the vector-width to use for wide-vectorization
-        data_order: ['C', 'F']
-            The data ordering of the kernel
+    Properties
+    ----------
+    depth: int [None]
+        If is not None, the vector-width to use for deep-vectorization
+    wide: bool [False]
+        If is not None, the vector-width to use for wide-vectorization
+    data_order: ['C', 'F']
+        The data ordering of the kernel
     """
 
     def __init__(self, loopy_opts):
