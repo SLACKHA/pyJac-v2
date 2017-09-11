@@ -16,10 +16,8 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
                               get_rop, get_rop_net, get_spec_rates,
                               get_temperature_rate, get_concentrations,
                               get_molar_rates, get_extra_var_rates, reset_arrays)
-from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
-                                       RateSpecialization,
-                                       get_device_list, populate,
-                                       kernel_call)
+from ..loopy_utils.loopy_utils import (auto_run, loopy_options, RateSpecialization,
+                                       populate, kernel_call)
 from . import TestClass, get_test_platforms
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from ..kernel_utils import kernel_gen as k_gen
@@ -694,7 +692,8 @@ class SubTest(TestClass):
 
         # do conp
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
-                'P_arr': lambda x: np.array(P, order=x, copy=True)}
+                'P_arr': lambda x: np.array(P, order=x, copy=True),
+                'conc': lambda x: np.zeros_like(ref_ans, order=x)}
 
         # create the kernel call
         kc = kernel_call('eval_', ref_ans, **args)
@@ -703,7 +702,8 @@ class SubTest(TestClass):
         # do conv
         phi = self.store.phi_cv
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
-                'V_arr': lambda x: np.array(V, order=x, copy=True)}
+                'V_arr': lambda x: np.array(V, order=x, copy=True),
+                'conc': lambda x: np.zeros_like(ref_ans, order=x)}
 
         # create the kernel call
         kc = kernel_call('eval_', ref_ans, **args)
@@ -717,7 +717,8 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_thd.copy()
         args = {'conc': lambda x: np.array(concs, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
-                'P_arr': lambda x: np.array(P, order=x, copy=True)}
+                'P_arr': lambda x: np.array(P, order=x, copy=True),
+                'thd_conc': lambda x: np.zeros_like(ref_ans, order=x)}
 
         # create the kernel call
         kc = kernel_call('eval_thd_body_concs', ref_ans, **args)
@@ -730,6 +731,7 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_Pr.copy()
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
                 'thd_conc': lambda x: np.array(ref_thd, order=x, copy=True),
+                'Pr': lambda x: np.zeros_like(ref_ans, order=x)
                 }
 
         wrapper = kf_wrapper(self, get_reduced_pressure_kernel, **args)
@@ -744,7 +746,7 @@ class SubTest(TestClass):
         ref_Pr = self.store.ref_Pr
         ref_ans = self.store.ref_Sri.copy().squeeze()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
-                'phi': lambda x: np.array(ref_phi, order=x, copy=True),
+                'phi': lambda x: np.array(ref_phi, order=x, copy=True)
                 }
 
         # get SRI reaction mask
@@ -754,7 +756,11 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
-                         compare_mask=[get_comparable(sri_mask, ref_ans)], **args)
+                         compare_mask=[get_comparable(sri_mask, ref_ans)],
+                         ref_ans_compare_mask=[get_comparable(
+                            np.arange(self.store.sri_inds.size, dtype=np.int32),
+                            ref_ans)],
+                         **args)
         self.__generic_rate_tester(get_sri_kernel, kc)
 
     @attr('long')
@@ -773,7 +779,10 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
-                         compare_mask=[get_comparable(troe_mask, ref_ans)], **args)
+                         compare_mask=[get_comparable(troe_mask, ref_ans)],
+                         ref_ans_compare_mask=[get_comparable(
+                            np.arange(self.store.troe_inds.size, dtype=np.int32),
+                            ref_ans)], **args)
         self.__generic_rate_tester(get_troe_kernel, kc)
 
     @attr('long')
@@ -800,7 +809,9 @@ class SubTest(TestClass):
         ref_B = self.store.ref_B_rev.copy()
         ref_rev = self.store.rev_rate_constants.copy()
         args = {'b': lambda x: np.array(ref_B, order=x, copy=True),
-                'kf': lambda x: np.array(ref_fwd_rates, order=x, copy=True)}
+                'kf': lambda x: np.array(ref_fwd_rates, order=x, copy=True),
+                'Kc': lambda x: np.zeros_like(ref_kc, order=x),
+                'kr': lambda x: np.zeros_like(ref_rev, order=x)}
 
         # create the dictionary for nu values stating if all integer
         allint = {'net':
@@ -865,14 +876,15 @@ class SubTest(TestClass):
                 np.array(fwd_rate_constants, order=x, copy=True),
                 'kr': lambda x:
                 np.array(rev_rate_constants, order=x, copy=True),
-                'conc': lambda x:
-                np.array(conc, order=x, copy=True)}
+                'conc': lambda x: np.array(conc, order=x, copy=True),
+                'rop_fwd': lambda x: np.zeros_like(fwd_rxn_rate, order=x),
+                'rop_rev': lambda x: np.zeros_like(rev_rxn_rate, order=x)}
 
         kc = [kernel_call('rop_eval_fwd', [fwd_rxn_rate],
-                          input_mask=['kr'],
+                          input_mask=['kr', 'rop_rev'],
                           strict_name_match=True, **args),
               kernel_call('rop_eval_rev', [rev_rxn_rate],
-                          input_mask=['kf'],
+                          input_mask=['kf', 'rop_fwd'],
                           strict_name_match=True, **args)]
         self.__generic_rate_tester(get_rop, kc, allint=allint)
 
@@ -895,7 +907,8 @@ class SubTest(TestClass):
         args = {'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
                 'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
                 'pres_mod': lambda x: np.array(self.store.ref_pres_mod,
-                                               order=x, copy=True)
+                                               order=x, copy=True),
+                'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x)
                 }
 
         # first test w/o the splitting
@@ -903,6 +916,9 @@ class SubTest(TestClass):
         self.__generic_rate_tester(get_rop_net, kc)
 
         def __input_mask(self, arg_name):
+            # have to include this so the zero'd array propigates
+            if arg_name == 'rop_net':
+                return True
             names = ['fwd', 'rev', 'pres_mod']
             return next(x for x in names if x in self.name) in arg_name
 
@@ -930,8 +946,8 @@ class SubTest(TestClass):
         wdot = self.store.species_rates
         kc = kernel_call('spec_rates', [wdot],
                          compare_mask=[
-                            get_comparable(np.arange(self.store.gas.n_species),
-                                           wdot)],
+                            get_comparable(np.arange(self.store.gas.n_species,
+                                                     dtype=np.int32), wdot)],
                          **args)
 
         # test regularly
@@ -950,7 +966,7 @@ class SubTest(TestClass):
 
         kc = [kernel_call('temperature_rate', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[get_comparable(np.array(0, dtype=np.int32),
+                          compare_mask=[get_comparable(np.array([0], dtype=np.int32),
                                                        self.store.dphi_cp)],
                           **args)]
 
@@ -961,7 +977,7 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('temperature_rate', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[get_comparable(np.array(0, dtype=np.int32),
+                          compare_mask=[get_comparable(np.array([0], dtype=np.int32),
                                                        self.store.dphi_cv)],
                           **args)]
         # test conv
@@ -1033,8 +1049,6 @@ class SubTest(TestClass):
         args = {
             'phi': lambda x: np.array(
                 self.store.phi_cv, order=x, copy=True),
-            'V_arr': lambda x: np.array(
-                self.store.V, order=x, copy=True),
             'wdot': lambda x: np.array(
                 self.store.species_rates, order=x, copy=True),
             'dphi': lambda x: np.array(
