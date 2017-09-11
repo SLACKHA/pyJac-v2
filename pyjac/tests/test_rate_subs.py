@@ -1219,6 +1219,8 @@ class SubTest(TestClass):
             else:
                 looser_tols = np.ravel_multi_index(
                     ravel_ind, dphi.shape, order=opts.order)
+            # and force to int for indexing
+            looser_tols = np.array(looser_tols, dtype=np.int32)
 
             num_devices = cpu_count() / 2
             if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
