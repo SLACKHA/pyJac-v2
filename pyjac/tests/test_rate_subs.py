@@ -1198,8 +1198,22 @@ class SubTest(TestClass):
                     count += 1
 
             # and use multi_ravel to convert to linear for dphi
-            looser_tols = np.ravel_multi_index(ravel_ind, dphi.shape,
-                                               order=opts.order)
+            # for whatever reason, if we have two ravel indicies with multiple values
+            # we need to need to iterate and stitch them together
+            if len([x for x in ravel_ind if x.size > 1]) > 1:
+                looser_tols = np.empty((0,))
+                # get next multi-valued ravel ind
+                iter_ind = next(i for i, x in enumerate(ravel_ind) if x.size > 1)
+                for x in ravel_ind[iter_ind]:
+                    # create copy w/ replaced index
+                    copy = ravel_ind[:]
+                    copy[iter_ind] = np.array([x], dtype=np.int32)
+                    # amd take union of the iterated ravels
+                    looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
+                        copy, dphi.shape, order=opts.order), dtype=np.int32)
+            else:
+                looser_tols = np.ravel_multi_index(
+                    ravel_ind, dphi.shape, order=opts.order)
 
             num_devices = cpu_count() / 2
             if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
