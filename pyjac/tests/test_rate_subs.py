@@ -1116,11 +1116,16 @@ class SubTest(TestClass):
 
         # now start test
         for i, state in enumerate(oploop):
-            __cleanup()
             if state['width'] is not None and state['depth'] is not None:
                 continue
+
+            # clean old files
+            __cleanup()
+
+            # create loopy options
             opts = loopy_options(**{x: state[x] for x in
                                     state if x not in exceptions})
+
 
             # check to see if device is CPU
             # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
