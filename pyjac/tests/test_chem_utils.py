@@ -7,7 +7,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        get_device_list, kernel_call,
                                        RateSpecialization)
 from ..kernel_utils import kernel_gen as k_gen
-from . import TestClass
+from . import TestClass, get_test_platforms
 from ..core.array_creator import NameStore
 
 # modules
@@ -17,15 +17,46 @@ import numpy as np
 
 
 class SubTest(TestClass):
+    def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
+                             do_conp=True, langs=['opencl'], do_vector=True):
+        platforms = get_test_platforms(do_vector=do_vector, langs=langs)
+        eqs = {'conp': self.store.conp_eqs,
+               'conv': self.store.conv_eqs}
+        oploop = [('order', ['C', 'F']),
+                  ('auto_diff', [False])
+                  ]
+        if do_ratespec:
+            oploop += [
+                ('rate_spec', [x for x in RateSpecialization]),
+                ('rate_spec_kernels', [True, False])]
+        if do_ropsplit:
+            oploop += [
+                ('rop_net_kernels', [True])]
+        if do_conp:
+            oploop += [('conp', [True, False])]
+        oploop += [('knl_type', ['map'])]
+        out = None
+        for p in platforms:
+            val = OptionLoop(OrderedDict(p + oploop))
+            if out is None:
+                out = val
+            else:
+                out = out + val
+
+        return eqs, out
 
     def __subtest(self, ref_ans, nicename, eqs):
-        oploop = OptionLoop(OrderedDict([('lang', ['opencl']),
-                                         ('width', [4, None]),
-                                         ('depth', [4, None]),
-                                         ('ilp', [True, False]),
-                                         ('unr', [None, 4]),
-                                         ('order', ['C', 'F']),
-                                         ('device', get_device_list())]))
+        platforms = get_test_platforms(do_vector=True, langs=['opencl'])
+        start = [('order', ['C', 'F']),
+                 ('auto_diff', False),
+                 ('knl_type', 'map')]
+        oploop = None
+        for p in platforms:
+            val = OptionLoop(OrderedDict(p + start))
+            if oploop is None:
+                oploop = val
+            else:
+                oploop = oploop + val
 
         test_size = self.store.test_size
         for i, state in enumerate(oploop):
@@ -40,12 +71,12 @@ class SubTest(TestClass):
             knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
                                      test_size=test_size)
 
+            args = {'phi': np.array(self.store.phi_cp, order=opt.order, copy=True),
+                    nicename: np.zeros_like(ref_ans, order=opt.order)}
             # create the kernel call
             kc = kernel_call('eval_' + nicename,
                              [ref_ans],
-                             phi=np.array(self.store.phi_cp,
-                                          order=state['order'],
-                                          copy=True))
+                             **args)
 
             # create a dummy kernel generator
             knl = k_gen.make_kernel_generator(
@@ -58,7 +89,7 @@ class SubTest(TestClass):
 
             # now run
             kc.set_state(knl.array_split, state['order'])
-            assert auto_run(knl.kernels, kc, device=state['device'])
+            assert auto_run(knl.kernels, kc, device=opt.device)
 
     @attr('long')
     def test_cp(self):
