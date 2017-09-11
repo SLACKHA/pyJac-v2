@@ -515,7 +515,7 @@ class kernel_call(object):
                  out_mask=None, input_mask=[], strict_name_match=False,
                  chain=None, check=True, post_process=None,
                  allow_skip=False, other_compare=None, atol=1e-8,
-                 rtol=1e-5, equal_nan=False,
+                 rtol=1e-5, equal_nan=False, ref_ans_compare_mask=None,
                  **input_args):
         """
         The initializer for the :class:`kernel_call` object
@@ -529,10 +529,15 @@ class kernel_call(object):
         compare_axis : int, optional
             An axis to apply the compare_mask along, unused if compare_mask
             is None
-        compare_mask : :class:`numpy.ndarray` or :class:`numpy.ndarray`
+        compare_mask : :class:`numpy.ndarray` or list of :class:`numpy.ndarray`
             An optional list of indexes to compare, useful when the kernel only
-            computes partial results.
-            Should match length of ref_answer
+            computes partial results. Should match length of ref_answer
+        ref_ans_compare_mask : :class:`numpy.ndarray` or
+                list of :class:`numpy.ndarray`
+            Same as the compare_mask, but for the reference answer.
+            Necessary for some kernel tests, as the reference answer is not the same
+            size as the output, which causes issues for split arrays.
+            If not supplied, the regular :param:`compare_mask` will be used
         out_mask : int, optional
             The index(ices) of the returned array to aggregate.
             Should match length of ref_answer
@@ -604,6 +609,11 @@ class kernel_call(object):
             self.compare_mask = compare_mask
         else:
             self.compare_mask = [None for i in range(num_check)]
+        if ref_ans_compare_mask is not None:
+            self.ref_ans_compare_mask = ref_ans_compare_mask
+        else:
+            self.ref_ans_compare_mask = [None for i in range(num_check)]
+
         self.out_mask = out_mask
         self.input_mask = input_mask
         self.input_args = input_args
@@ -653,7 +663,7 @@ class kernel_call(object):
         # filter out bad input
         args_copy = self.input_args.copy()
         if self.input_mask is not None:
-            if hasattr(self.input_mask, '__call__'):
+            if six.callable(self.input_mask):
                 args_copy = {x: args_copy[x] for x in args_copy
                              if self.input_mask(self, x)}
             else:
@@ -703,24 +713,32 @@ class kernel_call(object):
         else:
             return [out[0]]
 
-    def _get_comparable(self, variable, index):
+    def _get_comparable(self, variable, index, is_answer=False):
         """
         Selects the data to compare from the supplied variable depending on
         the compare mask / axes supplied
         """
 
+        mask = self.ref_ans_compare_mask[index] if is_answer \
+            else self.compare_mask[index]
+
+        if mask is None and is_answer:
+            # use the regular compare mask, as the reference answer specific one
+            # was not supplied
+            mask = self.compare_mask[index]
+
         # if no mask
-        if self.compare_mask[index] is None:
+        if mask is None:
             return variable
 
-        if six.callable(self.compare_mask[index]):
+        if six.callable(mask):
             # see if it's a supplied callable
-            return self.compare_mask[index](self, variable, index)
+            return mask(self, variable, index)
 
         try:
             # test if list of indicies
             if self.compare_axis == -1:
-                return variable[self.compare_mask[index]].squeeze()
+                return variable[mask].squeeze()
             # next try iterable
 
             # multiple axes
@@ -729,7 +747,7 @@ class kernel_call(object):
             ax_fac = 0
             for i, ax in enumerate(self.compare_axis):
                 shape = len(outv.shape)
-                inds = self.compare_mask[index][i]
+                inds = mask[i]
 
                 # some versions of numpy complain about implicit casts of
                 # the indicies inside np.take
@@ -743,8 +761,7 @@ class kernel_call(object):
             return outv.squeeze()
         except TypeError:
             # finally, take a simple mask
-            return np.take(variable, self.compare_mask[index],
-                           self.compare_axis).squeeze()
+            return np.take(variable, mask, self.compare_axis).squeeze()
 
     def compare(self, output_variables):
         """
@@ -758,14 +775,23 @@ class kernel_call(object):
         Returns
         -------
         match : bool
-            True IFF the masked output variables match the input
+            True IFF the masked output variables match the supplied reference answer
+            for this :class:`kernel_call`
         """
 
-        assert (
-            isinstance(self.compare_mask, list) and
-            len(self.compare_mask) == len(output_variables)) \
-            or self.compare_axis == -1, (
-            'Compare mask does not match output variables!')
+        def _check_mask(mask):
+            # check that the mask is one of:
+            # 1. a list of length equal to the size of the number of outputs
+            # 2. a list of indicies (indicated by the compare axis set to -1)
+            # 3. a callable function / object that can figure out extracting the
+            #    comparable entries on it's own
+            assert (isinstance(mask, list) and
+                    len(mask) == len(output_variables)) or \
+                self.compare_axis == -1 or six.callable(mask), (
+                    'Compare mask does not match output variables!')
+
+        _check_mask(self.compare_mask)
+        _check_mask(self.ref_ans_compare_mask)
 
         allclear = True
         for i in range(len(output_variables)):
@@ -775,7 +801,7 @@ class kernel_call(object):
                 outv = self._get_comparable(outv, i)
                 if outv.shape != ref_answer.shape:
                     # apply the same transformation to the answer
-                    ref_answer = self._get_comparable(ref_answer, i)
+                    ref_answer = self._get_comparable(ref_answer, i, is_answer=True)
             else:
                 outv = outv.squeeze()
                 ref_answer = ref_answer.squeeze()
@@ -939,9 +965,11 @@ def auto_run(knl, kernel_calls, device='0'):
                                if not any(x is None for x in out[ind]))
                 result = result and kc.compare(out[ind])
         return result
-    except TypeError:
-        # if not iterable
-        return kernel_calls.compare(out[0])
+    except TypeError as e:
+        if str(e) == "'kernel_call' object is not iterable":
+            # if not iterable
+            return kernel_calls.compare(out[0])
+        raise e
 
 
 def get_target(lang, device=None, compiler=None):
