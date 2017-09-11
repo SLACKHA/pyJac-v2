@@ -860,7 +860,7 @@ ${name} : ${type}
 
         # join to str
         instructions = '\n'.join(instructions)
-        preamble = '\n'.join(preambles + inits)
+        preamble = '\n'.join(textwrap.dedent(x) for x in preambles + inits)
 
         file_src = self._special_wrapper_subs(file_src)
 
