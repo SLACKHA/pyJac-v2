@@ -784,9 +784,13 @@ class SubTest(TestClass):
             np.in1d(self.store.fall_inds, self.store.lind_inds))[0]
         if not lind_mask.size:
             return
+        # need a seperate answer mask to deal with the shape difference
+        # in split arrays
+        ans_mask = [np.arange(self.store.lind_inds.size, dtype=np.int32)]
         # create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
-                         compare_mask=[get_comparable(lind_mask, ref_ans)])
+                         compare_mask=[get_comparable(lind_mask, ref_ans)],
+                         ref_ans_compare_mask=[get_comparable(ans_mask, ref_ans)])
         self.__generic_rate_tester(get_lind_kernel, kc)
 
     @attr('long')
@@ -1016,7 +1020,7 @@ class SubTest(TestClass):
 
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[get_comparable(np.array(1, dtype=np.int32),
+                          compare_mask=[get_comparable(np.array([1], dtype=np.int32),
                                                        self.store.dphi_cp)],
                           **args)]
 
@@ -1039,7 +1043,7 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[get_comparable(np.array(1, dtype=np.int32),
+                          compare_mask=[get_comparable(np.array([1], dtype=np.int32),
                                                        self.store.dphi_cv)],
                           **args)]
         # test conv
