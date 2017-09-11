@@ -76,7 +76,7 @@ if __name__ == '__main__':
                         sys.exit(-1)
 
                     # next check for match at looser tols
-                    if np.allclose(output_args[i][lt], test_arrays[i][lt],
+                    if np.allclose(output_args[i][misses], test_arrays[i][misses],
                                    rtol=${rtol}, atol=${atol}):
                         continue
 
