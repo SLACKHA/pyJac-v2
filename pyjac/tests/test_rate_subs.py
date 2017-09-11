@@ -1210,7 +1210,7 @@ class SubTest(TestClass):
                     copy[iter_ind] = np.array([x], dtype=np.int32)
                     # amd take union of the iterated ravels
                     looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
-                        copy, dphi.shape, order=opts.order), dtype=np.int32)
+                        copy, dphi.shape, order=opts.order))
             else:
                 looser_tols = np.ravel_multi_index(
                     ravel_ind, dphi.shape, order=opts.order)
