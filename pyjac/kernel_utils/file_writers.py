@@ -6,6 +6,7 @@ Module that maintains abstract file classes that ease file I/O
 # system imports
 import os
 import subprocess
+import textwrap
 
 # local imports
 from .. import utils
@@ -29,15 +30,28 @@ def get_standard_headers(lang):
     return []
 
 
-def get_preamble(lang):
+def get_header_preamble(lang):
+    """
+    Returns a list of defines, macros, etc. to be included in all headers for a given
+    languages
+
+    Parameters
+    ----------
+    lang: str
+        The target language
+
+    Returns
+    -------
+    preamble: list of str
+        The preamble to include
+    """
     utils.check_lang(lang)
     if lang == 'opencl':
-        return [
-            """
-#if __OPENCL_C_VERSION__ < 120
-#pragma OPENCL EXTENSION cl_khr_fp64: enable
-#endif
-"""]
+        return [textwrap.dedent("""
+    #if __OPENCL_C_VERSION__ < 120
+    #pragma OPENCL EXTENSION cl_khr_fp64: enable
+    #endif
+    """)]
     return []
 
 
@@ -125,10 +139,10 @@ class FileWriter(object):
             self.std_headers = get_standard_headers(lang)
             self.filter = lambda x: x
             assert not self.include_own_header, 'Cannot include this file in itself'
+            self.preamble = get_header_preamble(lang)
         else:
             self.filter = self.preamble_filter
 
-        self.preamble = get_preamble(lang)
         if not use_filter:
             self.filter = lambda x: x
         self.lines = []
@@ -189,10 +203,10 @@ class FileWriter(object):
             filename, ext = filename.upper(), ext.upper()
             lines.append('#ifndef {}_{}'.format(filename, ext))
             lines.append('#define {}_{}'.format(filename, ext))
+            lines.extend(self.preamble)
         else:
             if self.include_own_header:
                 self.headers.append(filename)
-        self.lines.extend(self.preamble)
 
         ext = utils.header_ext[self.lang]
         for header in self.std_headers:
