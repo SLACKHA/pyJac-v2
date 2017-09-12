@@ -15,6 +15,7 @@ import six
 # local imports
 from ..utils import check_lang
 from .loopy_edit_script import substitute as codefix
+from ..core.exceptions import MissingPlatformError, MissingDeviceError
 
 # make loopy's logging less verbose
 import logging
@@ -158,16 +159,12 @@ class loopy_options(object):
                 except cl.cffi_cl.RuntimeError:
                     pass
             if not self.platform:
-                raise Exception(
-                    'Cannot find matching platform for string: {}'.format(
-                        platform))
+                raise MissingPlatformError(platform)
             # finally a matching device
             self.device = self.platform.get_devices(
                 device_type=self.device_type)
             if not self.device:
-                raise Exception(
-                    'Cannot find devices of type {} on platform {}'.format(
-                        self.device_type, self.platform))
+                raise MissingDeviceError(self.device_type, self.platform)
             self.device = self.device[0]
             self.device_type = self.device.get_info(cl.device_info.TYPE)
 
