@@ -1,3 +1,5 @@
+from __future__ import division
+
 from ..core.instruction_creator import array_splitter
 import numpy as np
 import loopy as lp
@@ -10,6 +12,52 @@ class dummy_loopy_opts(object):
         self.order = order
 
 
+def __internal(asplit, shape, order='C', wide=8):
+    """
+    Assumes shape is square
+    """
+    side = shape[0]
+    # create array
+    arr = np.zeros(shape, order=order)
+    # set values
+    ind = [slice(None)] * arr.ndim
+    for i in range(shape[-1]):
+        ind[-1 if order == 'F' else 0] = i
+        arr[ind] = i
+    # split
+    arr, = asplit.split_numpy_arrays(arr)
+    shape = list(shape)
+    if order == 'F':
+        # put new dim at front
+        shape.insert(0, wide)
+        # and adjust end dim
+        shape[-1] = np.ceil(side / wide)
+    else:
+        # put new dim at end
+        shape.insert(len(shape), wide)
+        # and adjust start dim
+        shape[0] = np.ceil(side / wide)
+    # check dim
+    assert np.array_equal(arr.shape, shape)
+    # and values
+    ind = [0] * (arr.ndim - 1)
+    if order == 'F':
+        ind = [slice(None)] + ind
+        set_at = -1
+    else:
+        ind = ind + [slice(None)]
+        set_at = 0
+
+    start = 0
+    while start < side:
+        ind[set_at] = int(start / wide)
+        test = np.zeros(wide)
+        ar = np.arange(start, np.minimum(start + wide, side))
+        test[:ar.size] = ar[:]
+        assert np.array_equal(arr[ind], test)
+        start += wide
+
+
 def test_npy_array_splitter_c_wide():
     # create opts
     opts = dummy_loopy_opts(width=8, order='C')
@@ -17,29 +65,18 @@ def test_npy_array_splitter_c_wide():
     # create array split
     asplit = array_splitter(opts)
 
-    def _create(dim):
-        # create some test arrays
-        arr = np.zeros((dim, dim))
-        for i in range(dim):
-            arr[i, :] = i
-        return arr
+    def _test(shape):
+        __internal(asplit, shape, order='C', wide=opts.width)
 
-    arr, = asplit.split_numpy_arrays(_create(10))
-
-    # check dim
-    assert arr.shape == (2, 10, 8)
-    # check first
-    assert np.array_equal(arr[0, 0, :], np.arange(0, 8))
-    # and check after the first 8 run out
-    test = np.zeros(8)
-    test[0:2] = np.arange(8, 10)
-    assert np.array_equal(arr[1, 0, :], test)
+    # test with small square
+    _test((10, 10))
 
     # now test with evenly sized
-    arr, = asplit.split_numpy_arrays(_create(16))
-    assert arr.shape == (2, 16, 8)
-    assert np.array_equal(arr[0, 0, :], np.arange(0, 8))
-    assert np.array_equal(arr[1, 0, :], np.arange(8, 16))
+    _test((16, 16))
+
+    # finally, try with 3d arrays
+    _test((10, 10, 10))
+    _test((16, 16, 16))
 
 
 def test_npy_array_splitter_f_deep():
@@ -49,29 +86,18 @@ def test_npy_array_splitter_f_deep():
     # create array split
     asplit = array_splitter(opts)
 
-    # create some test arrays
-    arr = np.zeros((10, 10), order='F')
-    for i in range(10):
-        arr[:, i] = i
-    arr, = asplit.split_numpy_arrays(arr)
+    def _test(shape):
+        __internal(asplit, shape, order='F', wide=opts.depth)
 
-    # check dim
-    assert arr.shape == (8, 10, 2)
-    # check first
-    assert np.array_equal(arr[:, 0, 0], np.arange(0, 8))
-    # and check after the first 8 run out
-    test = np.zeros(8)
-    test[0:2] = np.arange(8, 10)
-    assert np.array_equal(arr[:, 0, 1], test)
+    # test with small square
+    _test((10, 10))
 
     # now test with evenly sized
-    arr = np.zeros((16, 16), order='F')
-    for i in range(16):
-        arr[:, i] = i
-    arr, = asplit.split_numpy_arrays(arr)
-    assert arr.shape == (8, 16, 2)
-    assert np.array_equal(arr[:, 0, 0], np.arange(0, 8))
-    assert np.array_equal(arr[:, 0, 1], np.arange(8, 16))
+    _test((16, 16))
+
+    # finally, try with 3d arrays
+    _test((10, 10, 10))
+    _test((16, 16, 16))
 
 
 def test_lpy_array_splitter_c_wide():
