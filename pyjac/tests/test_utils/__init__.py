@@ -2,6 +2,9 @@ import os
 from string import Template
 from ...loopy_utils.loopy_utils import get_device_list, kernel_call, populate
 from ...kernel_utils import kernel_gen as k_gen
+import numpy as np
+import six
+from collections import defaultdict
 
 
 def __get_template(fname):
@@ -85,7 +88,49 @@ class kernel_runner(object):
         return populate(gen.kernels, kc, device=device)[0]
 
 
-def parse_split_index(arr, ind, order):
+class indexer(object):
+    """
+    Utility class that helps in transformation of old indicies to split array
+    indicies
+    """
+
+    def _get_F_index(arr, i, ax):
+        """
+        for the 'F' order split, the last axis is split and moved to the beginning.
+        """
+        dim = arr.ndim
+        if ax != dim - 1:
+            # there is no change in the actual indexing here
+            # however, the destination index will be increased by one
+            # to account for the new inserted index at the front of the array
+            return (i,), (ax + 1,)
+        # here, we must change the indicies
+        # the first index is the remainder of the ind by the new dimension size
+        # and the last index is the floor division of the new dim size
+        (i % arr.shape[0], i // arr.shape[0]), (0, dim - 1)
+
+    def _get_C_index(arr, i, ax):
+        """
+        for the 'C' order split, the first axis is split and moved to the end.
+        """
+        dim = arr.ndim
+        if ax != 0:
+            # there is no change in the actual indexing here
+            return (i,), (ax,)
+        # here, we must change the indicies
+        # and first index is the floor division of the new dim size
+        # the last index is the remainder of the ind by the new dimension size
+        (i // arr.shape[-1], i % arr.shape[0]), (0, dim - 1)
+
+    def __init__(self, order='C'):
+        self._indexer = indexer._get_F_index if order == 'F' else \
+            indexer._get_C_index
+
+    def __call__(self, arr, i, ax):
+        return self._indexer(arr, i, ax)
+
+
+def parse_split_index(arr, ind, order, axis=1):
     """
     A helper method to get the index of an element in a split array for all initial
     conditions
@@ -94,10 +139,12 @@ def parse_split_index(arr, ind, order):
     ----------
     arr: :class:`numpy.ndarray`
         The split array to use
-    ind: int
-        The element index
+    ind: int or list of int
+        The element index(ices)
     order: ['C', 'F']
         The numpy data order
+    axis: int or list of int
+        The axes the ind's correspond to
 
     Returns
     -------
@@ -105,25 +152,21 @@ def parse_split_index(arr, ind, order):
         A proper indexing for the split array
     """
 
-    # the index is a linear combination of the first and last indicies
-    # in the split array
-    if order == 'F':
-        # For 'F' order, where vw is the vector width:
-        # (0, 1, ... vw - 1) in the first index corresponds to the
-        # last index = 0
-        # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
-        # etc.
-        return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
-    else:
-        # For 'C' order, where (s, l) corresponds to the second and last
-        # index in the array:
-        #
-        # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
-        # for IC 0
-        # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
-        # for IC 1, etc.
+    dim = arr.ndim
+    index = [slice(None)] * dim
 
-        return (slice(None), ind, slice(None))
+    _get_index = indexer(order)
+
+    try:
+        for i, ax in enumerate(zip(ind, axis)):
+            set_inds, set_axs = _get_index(arr, i, ax)
+            for i, ax in zip(set_inds, set_axs):
+                index[ax] = i
+    except TypeError:
+        inds, axs = _get_index(arr, ind, axis)
+        for i, ax in zip(inds, axs):
+            index[ax] = i
+    return tuple(index)
 
 
 class get_comparable(object):
@@ -133,13 +176,17 @@ class get_comparable(object):
 
     Properties
     ----------
-    compare_mask: list of :class:`numpy.ndarray`
-        The default comparison mask
+    compare_mask: list of :class:`numpy.ndarray` or list of tuples of
+            :class:`numpy.ndarray`
+        The default comparison mask.  If multi-dimensional, should be a list
+        of tuples of :class:`numpy.ndarray`'s corresponding to the compare axis
     ref_answer: :class:`numpy.ndarray`
         The answer to compare to, used to determine the proper shape
+    compare_axis: int or list of int
+        The axis (or axes) to compare along
     """
 
-    def __init__(self, compare_mask, ref_answer):
+    def __init__(self, compare_mask, ref_answer, compare_axis=1):
         self.compare_mask = compare_mask
         if not isinstance(self.compare_mask, list):
             self.compare_mask = [self.compare_mask]
@@ -148,6 +195,11 @@ class get_comparable(object):
         if not isinstance(self.ref_answer, list):
             self.ref_answer = [ref_answer]
 
+        self.compare_axis = compare_axis
+
+        assert all(len(x) == len(self.compare_axis) for x in self.compare_mask), (
+            "Can't use dissimilar compare masks / axes")
+
     def __call__(self, kc, outv, index):
         mask = self.compare_mask[index]
         ans = self.ref_answer[index]
@@ -155,17 +207,41 @@ class get_comparable(object):
         # check for vectorized data order
         if outv.ndim == ans.ndim:
             # return the default, as it can handle it
-            return kernel_call('', [], compare_mask=[mask])._get_comparable(outv, 0)
+            return kernel_call('', [], compare_mask=[mask],
+                               compare_axis=self.compare_axis)._get_comparable(
+                               outv, 0)
 
-        ind_list = []
-        # get comparable index
-        for ind in mask:
-            ind_list.append(parse_split_index(outv, ind, kc.current_order))
+        if self.compare_axis != -1:
+            _get_index = indexer(kc.current_order)
+            # this is a list of indicies in dimensions to take
+            try:
+                # try multi-dim
+                enumerate(self.compare_axis)
+                # get max size
+                for i, ax in enumerate(self.compare_axis):
+                    ind_list = defaultdict(lambda: list())
+                    # get comparable index
+                    for ind in mask[i]:
+                        for indi, axi in zip(*_get_index(outv, ind, ax)):
+                            # and update take inds
+                            ind_list[axi].append(indi)
+                    # finally turn into iter
+                    ind_list = six.iteritems(ind_list)
+                    for axi, inds in ind_list:
+                        outv = np.take(outv, inds, axis=axi)
+            except TypeError:
+                ind_list = defaultdict(lambda: list())
+                # otherwise, this is a single dim
+                for ind in mask:
+                    for indi, axi in zip(*_get_index(outv, ind, self.compare_axis)):
+                        # and update take inds
+                        ind_list[axi].append(indi)
 
-        ind_list = zip(*ind_list)
-        # filter slice arrays from parser
-        for i in range(len(ind_list)):
-            if all(x == slice(None) for x in ind_list[i]):
-                ind_list[i] = slice(None)
+                # and turn into "take" params
+                ind_list = six.iteritems(ind_list)
+                for axi, inds in ind_list:
+                    outv = np.take(outv, inds, axis=axi)
 
-        return outv[ind_list]
+            return outv
+
+        return NotImplementedError
