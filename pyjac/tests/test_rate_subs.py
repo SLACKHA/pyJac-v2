@@ -17,13 +17,14 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
                               get_temperature_rate, get_concentrations,
                               get_molar_rates, get_extra_var_rates, reset_arrays)
 from ..loopy_utils.loopy_utils import (auto_run, loopy_options, RateSpecialization,
-                                       populate, kernel_call)
+                                       kernel_call)
 from . import TestClass, get_test_platforms
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from ..kernel_utils import kernel_gen as k_gen
 from ..core.mech_auxiliary import write_aux
 from ..pywrap.pywrap_gen import generate_wrapper
-from ..tests import test_utils as test_utils
+from . import test_utils as test_utils
+from .test_utils import get_comparable, parse_split_index
 from ..core import array_creator as arc
 
 # modules
@@ -86,72 +87,6 @@ class kf_wrapper(object):
         # finally we can call the function
         return self.func(
             eqs, loopy_opts, namestore, test_size)
-
-
-def parse_split_index(arr, ind, order):
-    """
-    A helper method to get the index of an element in a split array for all initial
-    conditions
-
-    Parameters
-    ----------
-    arr: :class:`numpy.ndarray`
-        The split array to use
-    ind: int
-        The element index
-    order: ['C', 'F']
-        The numpy data order
-    """
-
-    # the index is a linear combination of the first and last indicies
-    # in the split array
-    if order == 'F':
-        # For 'F' order, where vw is the vector width:
-        # (0, 1, ... vw - 1) in the first index corresponds to the
-        # last index = 0
-        # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
-        # etc.
-        return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
-    else:
-        # For 'C' order, where (s, l) corresponds to the second and last
-        # index in the array:
-        #
-        # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
-        # for IC 0
-        # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
-        # for IC 1, etc.
-
-        return (slice(None), ind, slice(None))
-
-
-class get_comparable(object):
-    def __init__(self, compare_mask, ref_answer):
-        self.compare_mask = compare_mask
-        if not isinstance(self.compare_mask, list):
-            self.compare_mask = [self.compare_mask]
-        self.ref_answer = ref_answer
-
-    def __call__(self, kc, outv, index):
-        mask = self.compare_mask[index]
-
-        # check for vectorized data order
-        if outv.ndim == self.ref_answer.ndim:
-            from ..loopy_utils.loopy_utils import kernel_call
-            # return the default, as it can handle it
-            return kernel_call('', [], compare_mask=[mask])._get_comparable(outv, 0)
-
-        ind_list = []
-        # get comparable index
-        for ind in mask:
-            ind_list.append(parse_split_index(outv, ind, kc.current_order))
-
-        ind_list = zip(*ind_list)
-        # filter slice arrays from parser
-        for i in range(len(ind_list)):
-            if all(x == slice(None) for x in ind_list[i]):
-                ind_list[i] = slice(None)
-
-        return outv[ind_list]
 
 
 class SubTest(TestClass):
