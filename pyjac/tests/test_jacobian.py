@@ -27,9 +27,9 @@ import loopy as lp
 import cantera as ct
 
 from nose.plugins.attrib import attr
+from unittest.case import SkipTest
 from optionloop import OptionLoop
 from collections import OrderedDict
-from scipy.sparse import csr_matrix, csc_matrix
 
 
 class editor(object):
@@ -2063,6 +2063,10 @@ class SubTest(TestClass):
         __subtest(False)
 
     def test_index_determination(self):
+        try:
+            from scipy.sparse import csr_matrix, csc_matrix
+        except:
+            raise SkipTest('Cannot test sparse Jacobian without scipy')
         # find FD jacobian
         jac = self.__get_full_jac(True)
         # find our non-zero indicies
