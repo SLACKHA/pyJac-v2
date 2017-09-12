@@ -229,8 +229,12 @@ class array_splitter(object):
         # figure out split
         dim = len(input_array.shape) - 1
         if self.data_order == 'C' and self.width:
-            return _split_and_pad(input_array, 0, self.width, (dim, -1))
+            # split: first axis (ICs)
+            # move, split axis (1) to end (-1)
+            return _split_and_pad(input_array, 0, self.width, (1, -1))
         elif self.data_order == 'F' and self.depth:
+            # split: last axis
+            # move, split axis (-1) to front (0)
             return _split_and_pad(input_array, dim, self.depth, (-1, 0))
 
     def split_numpy_arrays(self, arrays):
