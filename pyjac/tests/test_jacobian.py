@@ -20,6 +20,7 @@ from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
 from .test_utils import kernel_runner, get_comparable, parse_split_index
+from ..core.exceptions import MissingPlatformError
 
 import numpy as np
 import six
@@ -30,6 +31,7 @@ from nose.plugins.attrib import attr
 from unittest.case import SkipTest
 from optionloop import OptionLoop
 from collections import OrderedDict
+import logging
 
 
 class editor(object):
@@ -126,12 +128,26 @@ class SubTest(TestClass):
         specs = self.store.specs
 
         exceptions = ['device', 'conp']
+        bad_platforms = set()
 
         for i, state in enumerate(oploop):
             if state['width'] is not None and state['depth'] is not None:
                 continue
-            opt = loopy_options(**{x: state[x] for x in
-                                   state if x not in exceptions})
+
+            # skip bad platforms
+            if 'platform' in state and state['platform'] in bad_platforms:
+                continue
+
+            try:
+                opt = loopy_options(**{x: state[x] for x in state
+                                    if x not in exceptions})
+            except MissingPlatformError:
+                # warn and skip future tests
+                logging.warn('Platform {} not found'.format(
+                    state['platform']))
+                bad_platforms.update([state['platform']])
+                continue
+
             # find rate info
             rate_info = determine_jac_inds(reacs, specs, opt.rate_spec)
             try:
