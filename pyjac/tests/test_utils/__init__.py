@@ -83,3 +83,89 @@ class kernel_runner(object):
             if x not in k.temporary_variables]
             for k in gen.kernels]
         return populate(gen.kernels, kc, device=device)[0]
+
+
+def parse_split_index(arr, ind, order):
+    """
+    A helper method to get the index of an element in a split array for all initial
+    conditions
+
+    Parameters
+    ----------
+    arr: :class:`numpy.ndarray`
+        The split array to use
+    ind: int
+        The element index
+    order: ['C', 'F']
+        The numpy data order
+
+    Returns
+    -------
+    index: tuple of int / slice
+        A proper indexing for the split array
+    """
+
+    # the index is a linear combination of the first and last indicies
+    # in the split array
+    if order == 'F':
+        # For 'F' order, where vw is the vector width:
+        # (0, 1, ... vw - 1) in the first index corresponds to the
+        # last index = 0
+        # (vw, vw+1, vw + 2, ... 2vw - 1) corresponds to the last index = 1,
+        # etc.
+        return (ind % arr.shape[0], slice(None), ind // arr.shape[0])
+    else:
+        # For 'C' order, where (s, l) corresponds to the second and last
+        # index in the array:
+        #
+        # ((0, 0), (1, 0), (2, 0)), etc. corresponds to index (0, 1, 2)
+        # for IC 0
+        # ((0, 1), (1, 1), (2, 1)), etc. corresponds to index (0, 1, 2)
+        # for IC 1, etc.
+
+        return (slice(None), ind, slice(None))
+
+
+class get_comparable(object):
+    """
+    A wrapper for the kernel_call's _get_comparable function that fixes
+    comparison for split arrays
+
+    Properties
+    ----------
+    compare_mask: list of :class:`numpy.ndarray`
+        The default comparison mask
+    ref_answer: :class:`numpy.ndarray`
+        The answer to compare to, used to determine the proper shape
+    """
+
+    def __init__(self, compare_mask, ref_answer):
+        self.compare_mask = compare_mask
+        if not isinstance(self.compare_mask, list):
+            self.compare_mask = [self.compare_mask]
+
+        self.ref_answer = ref_answer
+        if not isinstance(self.ref_answer, list):
+            self.ref_answer = [ref_answer]
+
+    def __call__(self, kc, outv, index):
+        mask = self.compare_mask[index]
+        ans = self.ref_answer[index]
+
+        # check for vectorized data order
+        if outv.ndim == ans.ndim:
+            # return the default, as it can handle it
+            return kernel_call('', [], compare_mask=[mask])._get_comparable(outv, 0)
+
+        ind_list = []
+        # get comparable index
+        for ind in mask:
+            ind_list.append(parse_split_index(outv, ind, kc.current_order))
+
+        ind_list = zip(*ind_list)
+        # filter slice arrays from parser
+        for i in range(len(ind_list)):
+            if all(x == slice(None) for x in ind_list[i]):
+                ind_list[i] = slice(None)
+
+        return outv[ind_list]
