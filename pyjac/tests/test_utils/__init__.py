@@ -8,6 +8,7 @@ from ...core import array_creator as arc
 from .. import get_test_platforms
 from optionloop import OptionLoop
 import numpy as np
+import six
 
 from collections import OrderedDict
 import logging
@@ -100,11 +101,23 @@ class indexer(object):
     indicies
     """
 
-    def _get_F_index(self, arr, i, ax):
+    def cached(func):
+        memo = {}
+
+        def inner(*args):
+            if args in memo:
+                return memo[args]
+            v = func(*args)
+            memo[args] = v
+            return v
+        return inner
+
+    @cached
+    def _get_F_index(self, i, ax):
         """
         for the 'F' order split, the last axis is split and moved to the beginning.
         """
-        if ax != self.ndim - 1:
+        if ax != self.ref_ndim - 1:
             # there is no change in the actual indexing here
             # however, the destination index will be increased by one
             # to account for the new inserted index at the front of the array
@@ -112,9 +125,10 @@ class indexer(object):
         # here, we must change the indicies
         # the first index is the remainder of the ind by the new dimension size
         # and the last index is the floor division of the new dim size
-        return (i % arr.shape[0], i // arr.shape[0]), (0, -1)
+        return (i % self.out_shape[0], i // self.out_shape[0]), (0, -1)
 
-    def _get_C_index(self, arr, i, ax):
+    @cached
+    def _get_C_index(self, i, ax):
         """
         for the 'C' order split, the first axis is split and moved to the end.
         """
@@ -124,24 +138,22 @@ class indexer(object):
         # here, we must change the indicies
         # and first index is the floor division of the new dim size
         # the last index is the remainder of the ind by the new dimension size
-        return (i // arr.shape[-1], i % arr.shape[-1]), (0, -1)
+        return (i // self.out_shape[-1], i % self.out_shape[-1]), (0, -1)
 
-    def __init__(self, ndim, order='C'):
-        self.ndim = ndim
+    def __init__(self, ref_ndim, out_ndim, out_shape, order='C'):
+        self.ref_ndim = ref_ndim
+        self.out_shape = out_shape
         self._indexer = self._get_F_index if order == 'F' else \
             self._get_C_index
+        self.default = np.full(out_ndim, slice(None))
 
-    def __call__(self, arr, ind, axis):
-        try:
-            inds = tuple()
-            axs = tuple()
-            for i, ax in zip(*(ind, axis)):
-                indi, axi = self._indexer(arr, i, ax)
-                inds += indi
-                axs += axi
-            return inds, axs
-        except:
-            return self._indexer(arr, ind, axis)
+    def __call__(self, ind, axis):
+        # reset fill
+        fill = self.default[:]
+        for i in six.moves.range(len(ind)):
+            indi, axi = self._indexer(ind[i], axis[i])
+            np.put(fill, axi, indi)
+        return tuple(fill)
 
 
 def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
@@ -171,15 +183,13 @@ def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
     dim = arr.ndim
     index = [slice(None)] * dim
 
-    _get_index = indexer(ref_ndim, order)
+    _get_index = indexer(ref_ndim, arr.ndim, arr.shape, order)
 
     try:
-        for i, ax in enumerate(zip(ind, axis)):
-            set_inds, set_axs = _get_index(arr, i, ax)
-            for i, ax in zip(set_inds, set_axs):
-                index[ax] = i
+        for i, ax in _get_index(ind, axis):
+            index[ax] = i
     except TypeError:
-        inds, axs = _get_index(arr, ind, axis)
+        inds, axs = _get_index(arr, (ind,), (axis,))
         for i, ax in zip(inds, axs):
             index[ax] = i
     return tuple(index)
@@ -232,9 +242,8 @@ class get_comparable(object):
                                outv, 0)
 
         if self.compare_axis != -1:
-            _get_index = indexer(ans.ndim, kc.current_order)
+            _get_index = indexer(ans.ndim, outv.ndim, outv.shape, kc.current_order)
             # this is a list of indicies in dimensions to take
-            ind_list = []
             # handle multi-dim combination of mask
             if not isinstance(mask, np.ndarray):
                 # use the dstack'd mask (almost like a zip())
@@ -248,17 +257,13 @@ class get_comparable(object):
                 # single dim, use simple mask
                 transformed = mask
 
+            # use mask array
+            arr_mask = np.full(outv.shape, False)
             for ind in transformed:
-                # get comparable index
-                inds = [slice(None)] * outv.ndim
-                for indi, axi in zip(*_get_index(outv, ind, self.compare_axis)):
-                    # and update slice inds
-                    inds[axi] = indi
-                ind_list.append(inds)
+                # and update slice inds
+                arr_mask[_get_index(ind, self.compare_axis)] = True
 
-            ind_list = list(zip(*ind_list))
-            ind_list = [x if x[0] != slice(None) else slice(None) for x in ind_list]
-            return outv[ind_list]
+            return outv[arr_mask]
 
         raise NotImplementedError
 
