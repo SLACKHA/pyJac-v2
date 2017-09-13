@@ -238,7 +238,12 @@ class get_comparable(object):
             # handle multi-dim combination of mask
             if not isinstance(mask, np.ndarray):
                 # use the dstack'd mask (almost like a zip())
-                transformed = np.dstack(mask).squeeze()
+                def __transform_generator():
+                    iteri = np.ndindex(tuple(x.size for x in mask))
+                    for inds in iteri:
+                        yield tuple(mask[i][ind] for i, ind in enumerate(inds))
+                transformed = __transform_generator()
+
             else:
                 # single dim, use simple mask
                 transformed = mask
