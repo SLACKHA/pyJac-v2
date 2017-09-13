@@ -8,8 +8,8 @@ from ...core import array_creator as arc
 from .. import get_test_platforms
 from optionloop import OptionLoop
 import numpy as np
-import six
-from collections import defaultdict, OrderedDict
+
+from collections import OrderedDict
 import logging
 
 
@@ -124,7 +124,7 @@ class indexer(object):
         # here, we must change the indicies
         # and first index is the floor division of the new dim size
         # the last index is the remainder of the ind by the new dimension size
-        return (i // arr.shape[-1], i % arr.shape[0]), (0, -1)
+        return (i // arr.shape[-1], i % arr.shape[-1]), (0, -1)
 
     def __init__(self, ndim, order='C'):
         self.ndim = ndim
@@ -141,7 +141,7 @@ class indexer(object):
                 axs += axi
             return inds, axs
         except:
-            return self._indexer(arr, i, ax)
+            return self._indexer(arr, ind, axis)
 
 
 def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
