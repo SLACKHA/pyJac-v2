@@ -32,8 +32,8 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
             platforms = yaml.load(file.read())
 
         oploop = []
-        # put into oploop form
-        for platform in platforms:
+        # put into oploop form, and make repeatable
+        for platform in sorted(platforms):
             p = platforms[platform]
 
             # limit to supplied languages
