@@ -131,8 +131,17 @@ class indexer(object):
         self._indexer = self._get_F_index if order == 'F' else \
             self._get_C_index
 
-    def __call__(self, arr, i, ax):
-        return self._indexer(arr, i, ax)
+    def __call__(self, arr, ind, axis):
+        try:
+            inds = tuple()
+            axs = tuple()
+            for i, ax in zip(*(ind, axis)):
+                indi, axi = self._indexer(arr, i, ax)
+                inds += indi
+                axs += axi
+            return inds, axs
+        except:
+            return self._indexer(arr, i, ax)
 
 
 def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
@@ -229,7 +238,7 @@ class get_comparable(object):
             # handle multi-dim combination of mask
             if not isinstance(mask, np.ndarray):
                 # use the dstack'd mask (almost like a zip())
-                transformed = np.dstack(mask)
+                transformed = np.dstack(mask).squeeze()
             else:
                 # single dim, use simple mask
                 transformed = mask
