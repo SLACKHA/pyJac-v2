@@ -2,13 +2,12 @@
 """
 from __future__ import print_function
 
-import shutil
-import re
 import os
 import subprocess
 import sys
 import multiprocessing
 import platform
+import logging
 
 from .. import utils
 from .. import site_conf as site
@@ -77,7 +76,7 @@ def get_cuda_path():
     """
     cuda_path = which('nvcc')
     if cuda_path is None:
-        print('nvcc not found!')
+        logging.warn('nvcc not found!')
         return []
 
     sixtyfourbit = platform.architecture()[0] == '64bit'

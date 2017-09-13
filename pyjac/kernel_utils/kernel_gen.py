@@ -938,7 +938,7 @@ ${name} : ${type}
 
     def make_kernel(self, info, target, test_size):
         """
-        Convience method to create loopy kernels from kernel_info
+        Convience method to create loopy kernels from :class:`knl_info`'s
 
         Parameters
         ----------
