@@ -1,6 +1,6 @@
 # system
 import os
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 import subprocess
 import sys
 import shutil
@@ -16,19 +16,16 @@ from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
                               get_rop, get_rop_net, get_spec_rates,
                               get_temperature_rate, get_concentrations,
                               get_molar_rates, get_extra_var_rates, reset_arrays)
-from ..loopy_utils.loopy_utils import (auto_run, loopy_options, RateSpecialization,
+from ..loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
                                        kernel_call)
-from . import TestClass, get_test_platforms
+from . import TestClass
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
-from ..kernel_utils import kernel_gen as k_gen
 from ..core.mech_auxiliary import write_aux
 from ..pywrap.pywrap_gen import generate_wrapper
 from . import test_utils as test_utils
-from .test_utils import get_comparable, parse_split_index
-from ..core import array_creator as arc
+from .test_utils import get_comparable, parse_split_index, _generic_tester
 
 # modules
-from optionloop import OptionLoop
 import cantera as ct
 import numpy as np
 from nose.plugins.attrib import attr
@@ -420,40 +417,13 @@ class SubTest(TestClass):
         assert np.array_equal(result['thd']['spec_num'], thd_sp_num)
         assert np.array_equal(result['thd']['spec'], thd_sp)
 
-    def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
-                             do_conp=True, langs=['opencl'], do_vector=True):
-
-        platforms = get_test_platforms(do_vector=do_vector, langs=langs)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        oploop = [('order', ['C', 'F']),
-                  ('auto_diff', [False])
-                  ]
-        if do_ratespec:
-            oploop += [
-                ('rate_spec', [x for x in RateSpecialization]),
-                ('rate_spec_kernels', [True, False])]
-        if do_ropsplit:
-            oploop += [
-                ('rop_net_kernels', [True])]
-        if do_conp:
-            oploop += [('conp', [True, False])]
-        oploop += [('knl_type', ['map'])]
-        out = None
-        for p in platforms:
-            val = OptionLoop(OrderedDict(p + oploop))
-            if out is None:
-                out = val
-            else:
-                out = out + val
-
-        return eqs, out
-
     def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False,
-                              do_ropsplit=None, do_conp=False, **kw_args):
+                              do_ropsplit=False, do_conp=False, **kw_args):
         """
         A generic testing method that can be used for rate constants, third bodies,
-        ...
+        etc.
+
+        This is primarily a thin wrapper for :func:`_generic_tester`
 
         Parameters
         ----------
@@ -461,64 +431,17 @@ class SubTest(TestClass):
             The function to test
         kernel_calls : :class:`kernel_call` or list thereof
             Contains the masks and reference answers for kernel testing
-        do_ratespec : bool
+        do_ratespec : bool [False]
             If true, test rate specializations and kernel splitting for simple rates
-        do_ropsplit : bool
+        do_ropsplit : bool [False]
             If true, test kernel splitting for rop_net
+        do_conp:  bool [False]
+            If true, test for both constant pressure _and_ constant volume
         """
 
-        eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_conp=do_conp)
-
-        reacs = self.store.reacs
-        specs = self.store.specs
-
-        exceptions = ['device', 'conp']
-
-        for i, state in enumerate(oploop):
-            if state['width'] is not None and state['depth'] is not None:
-                continue
-            opt = loopy_options(**{x: state[x] for x in
-                                   state if x not in exceptions})
-
-            # find rate info
-            rate_info = assign_rates(reacs, specs, opt.rate_spec)
-
-            conp = True
-            if 'conp' in kw_args:
-                conp = kw_args['conp']
-
-            # create namestore
-            namestore = arc.NameStore(opt, rate_info, conp,
-                                      self.store.test_size)
-            # create the kernel info
-            infos = func(eqs, opt, namestore,
-                         test_size=self.store.test_size, **kw_args)
-
-            if not isinstance(infos, list):
-                try:
-                    infos = list(infos)
-                except:
-                    infos = [infos]
-
-            # create a dummy kernel generator
-            knl = k_gen.make_kernel_generator(
-                name='spec_rates',
-                loopy_opts=opt,
-                kernels=infos,
-                test_size=self.store.test_size
-            )
-            knl._make_kernels()
-
-            # create a list of answers to check
-            try:
-                for kc in kernel_calls:
-                    kc.set_state(knl.array_split, state['order'])
-            except:
-                kernel_calls.set_state(knl.array_split, state['order'])
-
-            assert auto_run(knl.kernels, kernel_calls, device=opt.device), \
-                'Evaluate {} rates failed'.format(func.__name__)
+        _generic_tester(self, func, kernel_calls, assign_rates,
+                        do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
+                        do_conp=do_conp)
 
     def __test_rateconst_type(self, rtype):
         """
