@@ -1,4 +1,4 @@
-from . import TestClass, get_test_platforms
+from . import TestClass
 from ..core.rate_subs import (
     get_concentrations,
     get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
@@ -6,9 +6,8 @@ from ..core.rate_subs import (
     get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates,
     polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
     get_rev_rates, get_temperature_rate, get_extra_var_rates)
-from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
-                                       RateSpecialization, kernel_call,
-                                       set_adept_editor, populate)
+from ..loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
+                                       kernel_call, set_adept_editor, populate)
 from ..core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
@@ -19,8 +18,7 @@ from ..core.create_jacobian import (
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
-from .test_utils import kernel_runner, get_comparable, parse_split_index
-from ..core.exceptions import MissingPlatformError
+from .test_utils import kernel_runner, get_comparable, _generic_tester
 
 import numpy as np
 import six
@@ -29,9 +27,6 @@ import cantera as ct
 
 from nose.plugins.attrib import attr
 from unittest.case import SkipTest
-from optionloop import OptionLoop
-from collections import OrderedDict
-import logging
 
 
 class editor(object):
@@ -70,43 +65,14 @@ class editor(object):
 
 
 class SubTest(TestClass):
-
-    def __get_eqs_and_oploop(self, do_ratespec=False, do_ropsplit=None,
-                             do_conp=True):
-
-        platforms = get_test_platforms()
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        oploop = [('order', ['C', 'F']),
-                  ('auto_diff', [False])
-                  ]
-        if do_ratespec:
-            oploop += [
-                ('rate_spec', [x for x in RateSpecialization]),
-                ('rate_spec_kernels', [True, False])]
-        if do_ropsplit:
-            oploop += [
-                ('rop_net_kernels', [True])]
-        if do_conp:
-            oploop += [('conp', [True, False])]
-        oploop += [('knl_type', ['map'])]
-        out = None
-        for p in platforms:
-            val = OptionLoop(OrderedDict(p + oploop))
-            if out is None:
-                out = val
-            else:
-                out = out + val
-
-        return eqs, out
-
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None,
                             do_conp=False,
                             **kw_args):
         """
-        A generic testing method that can be used for rate constants,
-        third bodies, ...
+        A generic testing method that can be used for testing jacobian kernels
+
+        This is primarily a thin wrapper for :func:`_generic_tester`
 
         Parameters
         ----------
@@ -114,81 +80,17 @@ class SubTest(TestClass):
             The function to test
         kernel_calls : :class:`kernel_call` or list thereof
             Contains the masks and reference answers for kernel testing
-        do_ratespec : bool
-            If true, test rate specializations and kernel splitting for simple
-            rates
-        do_ropsplit : bool
+        do_ratespec : bool [False]
+            If true, test rate specializations and kernel splitting for simple rates
+        do_ropsplit : bool [False]
             If true, test kernel splitting for rop_net
+        do_conp:  bool [False]
+            If true, test for both constant pressure _and_ constant volume
         """
 
-        eqs, oploop = self.__get_eqs_and_oploop(
-            do_ratespec, do_ropsplit, do_conp=do_conp)
-
-        reacs = self.store.reacs
-        specs = self.store.specs
-
-        exceptions = ['device', 'conp']
-        bad_platforms = set()
-
-        for i, state in enumerate(oploop):
-            if state['width'] is not None and state['depth'] is not None:
-                continue
-
-            # skip bad platforms
-            if 'platform' in state and state['platform'] in bad_platforms:
-                continue
-
-            try:
-                opt = loopy_options(**{x: state[x] for x in state
-                                    if x not in exceptions})
-            except MissingPlatformError:
-                # warn and skip future tests
-                logging.warn('Platform {} not found'.format(
-                    state['platform']))
-                bad_platforms.update([state['platform']])
-                continue
-
-            # find rate info
-            rate_info = determine_jac_inds(reacs, specs, opt.rate_spec)
-            try:
-                conp = state['conp']
-            except:
-                try:
-                    conp = kw_args['conp']
-                except:
-                    conp = True
-            # create namestore
-            namestore = arc.NameStore(opt, rate_info, conp,
-                                      self.store.test_size)
-            # create the kernel info
-            infos = func(eqs, opt, namestore,
-                         test_size=self.store.test_size, **kw_args)
-
-            if not isinstance(infos, list):
-                try:
-                    infos = list(infos)
-                except:
-                    infos = [infos]
-
-            # create a dummy kernel generator
-            knl = k_gen.make_kernel_generator(
-                name='spec_rates',
-                loopy_opts=opt,
-                kernels=infos,
-                test_size=self.store.test_size
-            )
-
-            knl._make_kernels()
-
-            # create a list of answers to check
-            try:
-                for kc in kernel_calls:
-                    kc.set_state(knl.array_split, state['order'])
-            except:
-                kernel_calls.set_state(knl.array_split, state['order'])
-
-            assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
-                'Evaluate {} rates failed'.format(func.__name__)
+        _generic_tester(self, func, kernel_calls, determine_jac_inds,
+                        do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
+                        do_conp=do_conp, **kw_args)
 
     def _make_array(self, array):
         """
@@ -330,7 +232,7 @@ class SubTest(TestClass):
         # set in editor
         editor.set_single_kernel(single_knl.kernels)
 
-        kernel_call.set_state(ad_opts.order)
+        kernel_call.set_state(single_knl.array_split, ad_opts.order)
 
         # add dummy 'j' arguement
         kernel_call.kernel_args['j'] = -1
@@ -356,8 +258,7 @@ class SubTest(TestClass):
                                 auto_diff=True)
 
         # create namestore
-        namestore = arc.NameStore(ad_opts,
-                                  rate_info, conp, self.store.test_size)
+        namestore = arc.NameStore(ad_opts, rate_info, conp, self.store.test_size)
 
         return namestore, rate_info
 
