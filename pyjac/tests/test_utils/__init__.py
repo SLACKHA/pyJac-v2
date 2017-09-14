@@ -251,11 +251,11 @@ class get_comparable(object):
                 size = mask.size
 
             # get the index arrays
-            inds = _get_index(mask, self.compare_axis)
+            inds = np.array(_get_index(mask, self.compare_axis))
             stride_arr = np.array([np.unique(x).size for x in inds], dtype=np.int32)
             # get non-slice inds
-            non_slice = np.array([i for i, x in enumerate(inds) if i != slice(None)],
-                                 dtype=np.int32)
+            non_slice = np.array([i for i, x in enumerate(inds)
+                                  if isinstance(x, np.ndarray)], dtype=np.int32)
             # create the output masker
             masking = np.array([slice(None)] * outv.ndim)
             masking[non_slice] = [np.empty(size, dtype=np.int32)
@@ -265,10 +265,10 @@ class get_comparable(object):
             # the first and last indicies are split
             stride = 1
             for i in reversed(range(1, len(masking[non_slice]))):
-                repeats = int(np.ceil(size / (inds[i].size * stride)))
+                repeats = int(np.ceil(size / (inds[non_slice][i].size * stride)))
                 shape = (stride, repeats)
-                masking[non_slice][i][:] = np.tile(inds[i], shape).flatten(
-                    order='F')[:size]
+                masking[non_slice][i][:] = np.tile(
+                    inds[non_slice][i], shape).flatten(order='F')[:size]
                 # the first and last index are tied together by the split
                 if i == len(masking[non_slice]) - 1 and 0 in non_slice:
                     masking[0][:] = np.tile(inds[0], shape).flatten(
