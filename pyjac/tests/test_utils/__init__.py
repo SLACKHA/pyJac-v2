@@ -116,12 +116,12 @@ class indexer(object):
             # and the last index is the floor division of the new dim size
             rv[-1], rv[0] = np.divmod(inds[axi], self.out_shape[0], dtype=np.int32)
 
-        for i in six.moves.range(len(axes)):
-            if i != axi:
+        for i, ax in enumerate(axes):
+            if ax != axi:
                 # there is no change in the actual indexing here
                 # however, the destination index will be increased by one
                 # to account for the new inserted index at the front of the array
-                rv[i + 1] = inds[i][:].astype(np.int32)
+                rv[ax + 1] = inds[i][:].astype(np.int32)
 
         return rv
 
@@ -137,10 +137,10 @@ class indexer(object):
             # the last index is the remainder of the ind by the new dimension size
             rv[0], rv[-1] = np.divmod(inds[axi], self.out_shape[-1], dtype=np.int32)
 
-        for i in six.moves.range(len(axes)):
+        for i, ax in enumerate(axes):
             if i != axi:
                 # there is no change in the actual indexing here
-                rv[i] = inds[i][:].astype(np.int32)
+                rv[ax] = inds[i][:].astype(np.int32)
 
         return rv
 
