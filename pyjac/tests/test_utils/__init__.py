@@ -264,15 +264,21 @@ class get_comparable(object):
             # need to fill the masking array
             # the first and last indicies are split
             stride = 1
-            for i in reversed(range(1, len(masking[non_slice]))):
+            for i in reversed(range(len(masking[non_slice]))):
+                # handled below
+                if non_slice[i] == 0:
+                    continue
+                # find the number of times to tile this array
                 repeats = int(np.ceil(size / (inds[non_slice][i].size * stride)))
                 shape = (stride, repeats)
+                # tile and place in mask
                 masking[non_slice][i][:] = np.tile(
                     inds[non_slice][i], shape).flatten(order='F')[:size]
                 # the first and last index are tied together by the split
                 if i == len(masking[non_slice]) - 1 and 0 in non_slice:
                     masking[0][:] = np.tile(inds[0], shape).flatten(
                         order='F')[:size]
+                # and update stride
                 stride *= stride_arr[i]
 
             return outv[tuple(masking)]
