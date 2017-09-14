@@ -331,9 +331,11 @@ class SubTest(TestClass):
         # and test
         kc = [kernel_call('dRopidnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
-              kernel_call('dRopidnj_ns', [fd_jac], compare_mask=[(
+              kernel_call('dRopidnj_ns', [fd_jac], compare_mask=[
+                get_comparable([(
                   2 + np.arange(self.store.gas.n_species - 1),
-                  2 + np.arange(self.store.gas.n_species - 1))],
+                  2 + np.arange(self.store.gas.n_species - 1))], [fd_jac],
+                  compare_axis=(1, 2))],
             compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
             allow_skip=True,
             **args)]
@@ -371,6 +373,41 @@ class SubTest(TestClass):
                                 isinstance(rxn, ct.FalloffReaction) or
                                 isinstance(rxn, ct.ThreeBodyReaction))
 
+    def __get_comp_extractor(self, kc, mask):
+        cm = mask.compare_mask[0] if isinstance(mask, get_comparable) else mask
+        if len(cm) != 3:
+            return tuple([None]) * 4  # only compare masks w/ conditions
+
+        # first, invert the conditions mask
+        cond, x, y = cm
+        cond = np.where(np.logical_not(
+            np.in1d(np.arange(self.store.test_size), cond)))[0]
+
+        if not cond:
+            return tuple([None]) * 4   # nothing to test
+
+        def __get_val(vals, mask):
+            outv = vals.copy()
+            for ax, m in enumerate(mask):
+                outv = np.take(outv, m, axis=ax)
+            return outv
+        extractor = __get_val
+
+        # create a new compare mask if necessary
+        if isinstance(mask, get_comparable):
+            mask = get_comparable(
+                compare_mask=[(cond, x, y)],
+                compare_axis=mask.compare_axis,
+                ref_answer=mask.ref_answer)
+
+            # and redefine the value extractor
+            def __get_val(vals, *args):
+                return mask(kc, vals, 0)
+            extractor = __get_val
+
+        # and return the extractor
+        return extractor, cond, x, y
+
     @attr('long')
     def test_dci_thd_dnj(self):
         # test conp
@@ -395,10 +432,6 @@ class SubTest(TestClass):
             self.store.phi_cp, order=x, copy=True),
             'P_arr': lambda x: np.array(
             self.store.P, order=x, copy=True),
-            'kf': lambda x: np.array(
-            self.store.fwd_rate_constants, order=x, copy=True),
-            'kr': lambda x: np.array(
-            self.store.rev_rate_constants, order=x, copy=True),
             'conc': lambda x: np.zeros_like(
             self.store.concs, order=x),
             'wdot': lambda x: np.zeros_like(
@@ -444,33 +477,23 @@ class SubTest(TestClass):
                 order=self.current_order)
 
         # and get mask
+        comp = get_comparable(
+                  [(test, 2 + np.arange(self.store.gas.n_species - 1))],
+                  [fd_jac], compare_axis=(1, 2))
         kc = [kernel_call('dci_thd_dnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
-              kernel_call('dci_thd_dnj_ns', [fd_jac], compare_mask=[(
-                  test,
-                  2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True,
-            **args)]
+              kernel_call('dci_thd_dnj_ns', comp.ref_answer, compare_mask=[comp],
+                          compare_axis=comp.compare_axis, chain=_chainer,
+                          strict_name_match=True, allow_skip=True, **args)]
 
         return self._generic_jac_tester(dci_thd_dnj, kc)
 
-    def nan_compare(self, our_val, ref_val, mask, allow_our_nans=False):
-        if not len(mask) == 3:
-            return True  # only compare masks w/ conditions
-
-        # first, invert the conditions mask
-        cond, x, y = mask
-        cond = np.where(np.logical_not(cond))[0]
-
-        if not cond:
+    def nan_compare(self, kc, our_val, ref_val, mask, allow_our_nans=False):
+        # get the condition extractor
+        extractor, cond, x, y = self.__get_comp_extractor(kc, mask)
+        if extractor is None:
+            # no need to test
             return True
-
-        def __get_val(vals, mask):
-            outv = vals.copy()
-            for ax, m in enumerate(mask):
-                outv = np.take(outv, m, axis=ax)
-            return outv
 
         def __compare(our_vals, ref_vals):
             # find where close
@@ -496,11 +519,11 @@ class SubTest(TestClass):
 
             return is_correct
 
-        return __compare(__get_val(our_val, (cond, x, y)),
-                         __get_val(ref_val, (cond, x, y)))
+        return __compare(extractor(our_val, (cond, x, y)),
+                         extractor(ref_val, (cond, x, y)))
 
-    def our_nan_compare(self, our_val, ref_val, mask):
-        return self.nan_compare(our_val, ref_val, mask, allow_our_nans=True)
+    def our_nan_compare(self, kc, our_val, ref_val, mask):
+        return self.nan_compare(kc, our_val, ref_val, mask, allow_our_nans=True)
 
     def __get_removed(self):
         # get our form of rop_fwd / rop_rev
@@ -543,6 +566,8 @@ class SubTest(TestClass):
         kf = runner(eqs, opts, namestore, self.store.test_size)[0]
 
         if self.store.ref_Pr.size:
+            args = {'phi': lambda x: np.array(phi, order=x, copy=True),
+                    'kf_fall': lambda x: np.zeros_like(self.store.ref_Fall, order=x)}
             # get kf_fall
             runner = kernel_runner(get_simple_arrhenius_rates,
                                    self.store.test_size, args,
@@ -581,8 +606,6 @@ class SubTest(TestClass):
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
         args = {
-            'conc': lambda x: np.array(
-                self.store.concs, order=x, copy=True),
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'b': lambda x: np.array(
                 self.store.ref_B_rev, order=x, copy=True),
@@ -695,8 +718,6 @@ class SubTest(TestClass):
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'phi': lambda x: np.array(
-                self.store.phi_cp, order=x, copy=True)
         }
 
         lind_test = self.__get_dci_check(
@@ -708,14 +729,15 @@ class SubTest(TestClass):
                 order=self.current_order)
 
         # and get mask
-        kc = [kernel_call('dci_lind_dnj', [fd_jac], check=False,
+        comp = get_comparable(compare_mask=[(
+            lind_test, 2 + np.arange(self.store.gas.n_species - 1))],
+            ref_answer=[fd_jac],
+            compare_axis=(1, 2))
+        kc = [kernel_call('dci_lind_dnj', comp.ref_answer, check=False,
                           strict_name_match=True, **args),
-              kernel_call('dci_lind_dnj_ns', [fd_jac], compare_mask=[(
-                  lind_test,
-                  2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True,
-            **args)]
+              kernel_call('dci_lind_dnj_ns', comp.ref_answer, compare_mask=[comp],
+                          compare_axis=comp.compare_axis, chain=_chainer,
+                          strict_name_match=True, allow_skip=True, **args)]
 
         return self._generic_jac_tester(dci_lind_dnj, kc)
 
@@ -815,25 +837,25 @@ class SubTest(TestClass):
 
         # find non-NaN SRI entries for testing
         # NaN entries will be handled by :func:`nan_compare`
-        to_test = np.all(
-            self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0, axis=1)
+        to_test = np.where(np.all(
+            self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0, axis=1))[0]
 
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
         # and get mask
-        kc = [kernel_call('dci_sri_dnj', [fd_jac], check=False,
+        comp = get_comparable(compare_mask=[(
+            to_test, sri_test, 2 + np.arange(self.store.gas.n_species - 1))],
+            compare_axis=(0, 1, 2),
+            ref_answer=[fd_jac])
+        kc = [kernel_call('dci_sri_dnj', comp.ref_answer, check=False,
                           strict_name_match=True, **args),
-              kernel_call('dci_sri_dnj_ns', [fd_jac], compare_mask=[(
-                  to_test,
-                  sri_test,
-                  2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(0, 1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True,
-            other_compare=self.nan_compare,
-            rtol=5e-4,
-            **args)]
+              kernel_call('dci_sri_dnj_ns', comp.ref_answer,
+                          compare_mask=[comp],
+                          compare_axis=comp.compare_axis, chain=_chainer,
+                          strict_name_match=True, allow_skip=True,
+                          other_compare=self.nan_compare, rtol=5e-4, **args)]
 
         return self._generic_jac_tester(dci_sri_dnj, kc)
 
@@ -928,8 +950,6 @@ class SubTest(TestClass):
             'Btroe': lambda x: np.array(Btroe, order=x, copy=True),
             'Fcent': lambda x: np.array(Fcent, order=x, copy=True),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'phi': lambda x: np.array(
-                self.store.phi_cp, order=x, copy=True)
         }
 
         troe_test = self.__get_dci_check(
@@ -938,23 +958,26 @@ class SubTest(TestClass):
 
         # find non-NaN Troe entries for testing
         # NaN entries will be handled by :func:`nan_compare`
-        to_test = np.all(
-            self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0, axis=1)
+        to_test = np.where(np.all(
+            self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0, axis=1))[0]
 
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
-        # and get mask
-        kc = [kernel_call('dci_troe_dnj', [fd_jac], check=False,
-                          strict_name_match=True, **args),
-              kernel_call('dci_troe_dnj_ns', [fd_jac], compare_mask=[(
+        comp = get_comparable(compare_mask=[(
                   to_test,
                   troe_test,
                   2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(0, 1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True, other_compare=self.nan_compare,
-            **args)]
+                ref_answer=[fd_jac], compare_axis=(0, 1, 2))
+        # and get mask
+        kc = [kernel_call('dci_troe_dnj', comp.ref_answer, check=False,
+                          strict_name_match=True, **args),
+              kernel_call('dci_troe_dnj_ns', comp.ref_answer,
+                          compare_mask=[comp],
+                          compare_axis=comp.compare_axis, chain=_chainer,
+                          strict_name_match=True, allow_skip=True,
+                          other_compare=self.nan_compare, **args)]
 
         return self._generic_jac_tester(dci_troe_dnj, kc)
 
@@ -1132,7 +1155,12 @@ class SubTest(TestClass):
         # get species jacobian
         jac = self.__get_full_jac(True)
 
-        ref_answer = jac[:, 0, 2:].copy()
+        # instead of whittling this down to the actual answer [:, 0, 2:], it's
+        # way easier to keep this full sized such that we can use the same
+        # :class:`get_comparable` object as the output from the kernel
+        ref_answer = jac.copy()
+
+        # reset other values
         jac[:, :, :2] = 0
         jac[:, :2, :] = 0
 
@@ -1141,8 +1169,6 @@ class SubTest(TestClass):
             self.store.spec_cp, order=x, copy=True),
             'h': lambda x: np.array(
                 self.store.spec_h, order=x, copy=True),
-            'conc': lambda x: np.array(
-                self.store.concs, order=x, copy=True),
             'cp_tot': lambda x: np.array(
                 cp_sum, order=x, copy=True),
             'phi': lambda x: np.array(
@@ -1152,9 +1178,14 @@ class SubTest(TestClass):
             'jac': lambda x: np.array(
                 jac, order=x, copy=True)}
 
+        comp = get_comparable(compare_mask=[(np.array([0]),
+                                             np.arange(2, jac.shape[1]))],
+                              compare_axis=(1, 2),
+                              ref_answer=[ref_answer])
+
         # call
-        kc = [kernel_call('dTdot_dnj', [ref_answer], compare_axis=(1, 2),
-                          compare_mask=[(0, np.arange(2, jac.shape[1]))],
+        kc = [kernel_call('dTdot_dnj', comp.ref_answer,
+                          compare_axis=comp.compare_axis, compare_mask=[comp],
                           equal_nan=True, **cp_args)]
 
         self._generic_jac_tester(dTdot_dnj, kc, conp=True)
@@ -1165,7 +1196,13 @@ class SubTest(TestClass):
         # get species jacobian
         jac = self.__get_full_jac(False)
 
-        ref_answer = jac[:, 0, 2:].copy()
+        # instead of whittling this down to the actual answer [:, 0, 2:], it's
+        # way easier to keep this full sized such that we can use the same
+        # :class:`get_comparable` object as the output from the kernel
+        ref_answer = jac.copy()
+
+        # reset other values
+        jac[:, :, :2] = 0
         jac[:, :, :2] = 0
         jac[:, :2, :] = 0
 
@@ -1174,12 +1211,8 @@ class SubTest(TestClass):
             self.store.spec_cv, order=x, copy=True),
             'u': lambda x: np.array(
                 self.store.spec_u, order=x, copy=True),
-            'conc': lambda x: np.array(
-                self.store.concs, order=x, copy=True),
             'cv_tot': lambda x: np.array(
                 cv_sum, order=x, copy=True),
-            'phi': lambda x: np.array(
-                self.store.phi_cv, order=x, copy=True),
             'dphi': lambda x: np.array(
                 self.store.dphi_cv, order=x, copy=True),
             'V_arr': lambda x: np.array(
@@ -1187,9 +1220,13 @@ class SubTest(TestClass):
             'jac': lambda x: np.array(
                 jac, order=x, copy=True)}
 
+        comp = get_comparable(compare_mask=[(np.array([0]),
+                                             np.arange(2, jac.shape[1]))],
+                              compare_axis=(1, 2),
+                              ref_answer=[ref_answer])
         # call
-        kc = [kernel_call('dTdot_dnj', [ref_answer], compare_axis=(1, 2),
-                          compare_mask=[(0, np.arange(2, jac.shape[1]))],
+        kc = [kernel_call('dTdot_dnj', comp.ref_answer,
+                          compare_axis=comp.compare_axis, compare_mask=[comp],
                           equal_nan=True, **cv_args)]
 
         self._generic_jac_tester(dTdot_dnj, kc, conp=False)
@@ -1200,48 +1237,62 @@ class SubTest(TestClass):
         # get species jacobian
         jac = self.__get_full_jac(True)
 
-        ref_answer = jac[:, 1, 2:].copy()
+        # instead of whittling this down to the actual answer [:, 1, 2:], it's
+        # way easier to keep this full sized such that we can use the same
+        # :class:`get_comparable` object as the output from the kernel
+        ref_answer = jac.copy()
+
+        # reset set value for kernel
         jac[:, 1, :] = 0
 
         # cp args
         cp_args = {
             'phi': lambda x: np.array(
                 self.store.phi_cp, order=x, copy=True),
-            'dphi': lambda x: np.array(
-                self.store.dphi_cp, order=x, copy=True),
             'jac': lambda x: np.array(
                 jac, order=x, copy=True),
             'P_arr': lambda x: np.array(
                 self.store.P, order=x, copy=True)}
 
+        comp = get_comparable(ref_answer=[ref_answer], compare_axis=(1, 2),
+                              compare_mask=[(np.array([1]),
+                                             np.arange(2, jac.shape[1]))])
+
         # call
-        kc = [kernel_call('dVdot_dnj', [ref_answer], compare_axis=(1, 2),
-                          compare_mask=[(1, np.arange(2, jac.shape[1]))],
-                          equal_nan=True, **cp_args)]
+        kc = [kernel_call('dVdot_dnj', comp.ref_answer,
+                          compare_axis=comp.compare_axis, compare_mask=[comp],
+                          equal_nan=True, strict_name_match=True, **cp_args)]
 
         self._generic_jac_tester(dEdot_dnj, kc, conp=True)
 
         # get species jacobian
         jac = self.__get_full_jac(False)
 
-        ref_answer = jac[:, 1, 2:].copy()
+        # instead of whittling this down to the actual answer [:, 1, 2:], it's
+        # way easier to keep this full sized such that we can use the same
+        # :class:`get_comparable` object as the output from the kernel
+        ref_answer = jac.copy()
+
+        # reset set value for kernel
         jac[:, 1, :] = 0
 
         # cv args
         cv_args = {
             'phi': lambda x: np.array(
                 self.store.phi_cv, order=x, copy=True),
-            'dphi': lambda x: np.array(
-                self.store.dphi_cv, order=x, copy=True),
             'jac': lambda x: np.array(
                 jac, order=x, copy=True),
             'V_arr': lambda x: np.array(
                 self.store.V, order=x, copy=True)}
 
+        comp = get_comparable(ref_answer=[ref_answer], compare_axis=(1, 2),
+                              compare_mask=[(np.array([1]),
+                                             np.arange(2, jac.shape[1]))])
+
         # call
-        kc = [kernel_call('dPdot_dnj', [ref_answer], compare_axis=(1, 2),
-                          compare_mask=[(1, np.arange(2, jac.shape[1]))],
-                          equal_nan=True, **cv_args)]
+        kc = [kernel_call('dPdot_dnj', comp.ref_answer,
+                          compare_axis=comp.compare_axis, compare_mask=[comp],
+                          equal_nan=True, strict_name_match=True, **cv_args)]
 
         self._generic_jac_tester(dEdot_dnj, kc, conp=False)
 
@@ -1277,10 +1328,12 @@ class SubTest(TestClass):
                 __call_wrapper, kc, edit, ad_opts, namestore.conp)
             ref_ans = ref_ans[:, :, 0]
 
+            # force all entries to zero for split comparison
+            name = 'd' + myname
+            args.update({name: lambda x: np.zeros_like(ref_ans, order=x)})
             # call
             kc = [kernel_call(myname, [ref_ans], **args)]
 
-            name = 'd' + myname
             self._generic_jac_tester(__call_wrapper, kc)
 
         __test_name('cp')
@@ -1332,8 +1385,8 @@ class SubTest(TestClass):
             args.update({
                 'kf': lambda x: np.zeros_like(kf, order=x),
                 'kr': lambda x: np.zeros_like(kr, order=x),
-                'kf_fall': lambda x: np.zeros_like(
-                    self.store.ref_Pr, order=x)
+                #  'kf_fall': lambda x: np.zeros_like(
+                #    self.store.ref_Pr, order=x)
             })
 
         if conp:
@@ -1383,21 +1436,32 @@ class SubTest(TestClass):
 
         if conp:
             args.update({
-                'P_arr': lambda x: np.array(self.store.P, order=x, copy=True),
                 'phi': lambda x: np.array(
                     self.store.phi_cp, order=x, copy=True),
+                'P_arr': lambda x: np.array(self.store.P, order=x, copy=True)
             })
         else:
             args.update({
-                'V_arr': lambda x: np.array(self.store.V, order=x, copy=True),
                 'phi': lambda x: np.array(
                     self.store.phi_cv, order=x, copy=True),
+                'V_arr': lambda x: np.array(self.store.V, order=x, copy=True),
             })
 
+        # input_mask = []
         if not test_variable:
             # and finally dBk/dT
             dBkdT = self.__get_db()
             args['db'] = lambda x: np.array(dBkdT, order=x, copy=True)
+
+        # input masking
+        input_mask = ['V_arr']
+        if rxn_type == reaction_type.elementary:
+            input_mask.append('P_arr')
+        elif test_variable:
+            # needed for the test variable for the extras
+            input_mask = []
+            if conp and rxn_type != reaction_type.elementary:
+                input_mask = ['P_arr']
 
         def _chainer(self, out_vals):
             if out_vals[-1][0] is not None:
@@ -1434,25 +1498,25 @@ class SubTest(TestClass):
             other_args['maxP'] = np.max(rate_info['cheb']['num_P'])
             other_args['maxT'] = np.max(rate_info['cheb']['num_T'])
 
-        test_conditions = np.ones((self.store.test_size,))
+        test_conditions = np.arange(self.store.test_size)
         if test_variable:
             # find states where the last species conc should be zero, as this
             # can cause some problems in the FD Jac
-            test_conditions = self.store.concs[:, -1] != 0
+            test_conditions = np.where(self.store.concs[:, -1] != 0)[0]
 
-        rtol = 5e-4
+        rtol = 1e-3
+        atol = 1e-7
 
-        def _small_compare(our_vals, ref_vals, mask):
-            cond, x, y = mask
-            cond = np.where(np.logical_not(cond))[0]
-
-            # if comparing all in auto_run, return True
-            if not cond.size:
+        def _small_compare(kc, our_vals, ref_vals, mask):
+            # get the condition extractor
+            extractor, cond, x, y = self.__get_comp_extractor(kc, mask)
+            if extractor is None:
+                # no need to test
                 return True
 
             # find where there isn't a match
-            outv = our_vals[cond, x, y]
-            refv = ref_vals[cond, x, y]
+            outv = extractor(our_vals, (cond, x, y))
+            refv = extractor(ref_vals, (cond, x, y))
             check = np.where(
                 np.logical_not(np.isclose(outv, refv, rtol=rtol)))[0]
 
@@ -1462,25 +1526,30 @@ class SubTest(TestClass):
                 correct = np.all(outv[check] == 0)
 
                 # and that the reference values are "small"
-                correct &= np.all(np.abs(refv[check]) <= 1e-7)
+                correct &= np.all(np.abs(refv[check]) <= atol)
 
             return correct
 
         test = self.__get_check(include)
 
+        comp = get_comparable(compare_mask=[(test_conditions, test,
+                                            np.array([diff_index]))],
+                              ref_answer=[fd_jac],
+                              compare_axis=(0, 1, 2))
+
         # and get mask
         kc = [kernel_call('dRopi{}_d{}'.format(name_desc, var_name),
-                          [fd_jac], check=False,
+                          comp.ref_answer, check=False,
                           strict_name_match=True,
-                          allow_skip=test_variable, **args),
+                          allow_skip=test_variable,
+                          input_mask=['kf', 'kr', 'conc'] + input_mask,
+                          **args),
               kernel_call('dRopi{}_d{}_ns'.format(name_desc, var_name),
-                          [fd_jac], compare_mask=[(
-                              test_conditions, test, diff_index)],
-                          compare_axis=(0, 1, 2), chain=_chainer,
-                          strict_name_match=True,
-                          allow_skip=True,
-                          rtol=rtol,
-                          other_compare=_small_compare,
+                          comp.ref_answer, compare_mask=[comp],
+                          compare_axis=comp.compare_mask, chain=_chainer,
+                          strict_name_match=True, allow_skip=True,
+                          rtol=rtol, atol=atol, other_compare=_small_compare,
+                          input_mask=['db', 'rop_rev', 'rop_fwd'],
                           **args)]
 
         return self._generic_jac_tester(tester, kc, **other_args)
