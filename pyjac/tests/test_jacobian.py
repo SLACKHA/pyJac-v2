@@ -1455,8 +1455,13 @@ class SubTest(TestClass):
 
         # input masking
         input_mask = ['V_arr']
-        if rxn_type == rxn_type.elementary:
+        if rxn_type == reaction_type.elementary:
             input_mask.append('P_arr')
+        elif test_variable:
+            # needed for the test variable for the extras
+            input_mask = []
+            if conp and rxn_type != reaction_type.elementary:
+                input_mask = ['P_arr']
 
         def _chainer(self, out_vals):
             if out_vals[-1][0] is not None:
