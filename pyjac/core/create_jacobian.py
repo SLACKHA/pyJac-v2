@@ -1897,7 +1897,7 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
         loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
 
     parameters = {'Ru': chem.RU}
-    return k_gen.knl_info(name='d{}dotdT'.format('P' if conp else 'V'),
+    return k_gen.knl_info(name='d{}dotdT'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
                           post_instructions=post_instructions,
@@ -3082,7 +3082,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
         ${extra_var_str} * ${dTdot_dnj_str} / ${T_str} {id=jac, dep=sum, nosync=sum}
     """).safe_substitute(**locals())
 
-    return k_gen.knl_info(name='d{}dot_dnj'.format('P' if conp else 'V'),
+    return k_gen.knl_info(name='d{}dot_dnj'.format('V' if conp else 'P'),
                           extra_inames=extra_inames,
                           instructions=instructions,
                           var_name=var_name,
