@@ -117,7 +117,7 @@ class indexer(object):
             rv[-1], rv[0] = np.divmod(inds[axi], self.out_shape[0], dtype=np.int32)
 
         for i, ax in enumerate(axes):
-            if ax != axi:
+            if i != axi:
                 # there is no change in the actual indexing here
                 # however, the destination index will be increased by one
                 # to account for the new inserted index at the front of the array
