@@ -809,9 +809,8 @@ class kernel_call(object):
 
             if self.other_compare is not None:
                 allclear = allclear and self.other_compare(
-                    output_variables[i].copy().squeeze(),
-                    self.transformed_ref_ans[i].copy().squeeze(),
-                    self.compare_mask[i])
+                    self, output_variables[i].copy(),
+                    self.transformed_ref_ans[i].copy(), self.compare_mask[i])
 
         return allclear
 
