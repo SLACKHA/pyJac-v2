@@ -1,3 +1,5 @@
+from __future__ import division
+
 import os
 from string import Template
 from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
@@ -101,59 +103,56 @@ class indexer(object):
     indicies
     """
 
-    def cached(func):
-        memo = {}
-
-        def inner(*args):
-            if args in memo:
-                return memo[args]
-            v = func(*args)
-            memo[args] = v
-            return v
-        return inner
-
-    @cached
-    def _get_F_index(self, i, ax):
+    def _get_F_index(self, inds, axes):
         """
         for the 'F' order split, the last axis is split and moved to the beginning.
         """
-        if ax != self.ref_ndim - 1:
-            # there is no change in the actual indexing here
-            # however, the destination index will be increased by one
-            # to account for the new inserted index at the front of the array
-            return (i,), (ax + 1,)
-        # here, we must change the indicies
-        # the first index is the remainder of the ind by the new dimension size
-        # and the last index is the floor division of the new dim size
-        return (i % self.out_shape[0], i // self.out_shape[0]), (0, -1)
+        rv = [slice(None)] * self.out_ndim
+        axi = next((i for i in six.moves.range(len(axes))
+                    if axes[i] == self.ref_ndim - 1),
+                   None)
+        if axi is not None:
+            # the first index is the remainder of the ind by the new dimension size
+            # and the last index is the floor division of the new dim size
+            rv[-1], rv[0] = np.divmod(inds[axi], self.out_shape[0], dtype=np.int32)
 
-    @cached
-    def _get_C_index(self, i, ax):
+        for i in six.moves.range(len(axes)):
+            if i != axi:
+                # there is no change in the actual indexing here
+                # however, the destination index will be increased by one
+                # to account for the new inserted index at the front of the array
+                rv[i + 1] = inds[i][:].astype(np.int32)
+
+        return rv
+
+    def _get_C_index(self, inds, axes):
         """
         for the 'C' order split, the first axis is split and moved to the end.
         """
-        if ax != 0:
-            # there is no change in the actual indexing here
-            return (i,), (ax,)
-        # here, we must change the indicies
-        # and first index is the floor division of the new dim size
-        # the last index is the remainder of the ind by the new dimension size
-        return (i // self.out_shape[-1], i % self.out_shape[-1]), (0, -1)
+        rv = [slice(None)] * self.out_ndim
+        axi = next((i for i in six.moves.range(len(axes)) if axes[i] == 0),
+                   None)
+        if axi is not None:
+            # and first index is the floor division of the new dim size
+            # the last index is the remainder of the ind by the new dimension size
+            rv[0], rv[-1] = np.divmod(inds[axi], self.out_shape[-1], dtype=np.int32)
+
+        for i in six.moves.range(len(axes)):
+            if i != axi:
+                # there is no change in the actual indexing here
+                rv[i] = inds[i][:].astype(np.int32)
+
+        return rv
 
     def __init__(self, ref_ndim, out_ndim, out_shape, order='C'):
         self.ref_ndim = ref_ndim
         self.out_shape = out_shape
+        self.out_ndim = out_ndim
         self._indexer = self._get_F_index if order == 'F' else \
             self._get_C_index
-        self.default = np.full(out_ndim, slice(None))
 
-    def __call__(self, ind, axis):
-        # reset fill
-        fill = self.default[:]
-        for i in six.moves.range(len(ind)):
-            indi, axi = self._indexer(ind[i], axis[i])
-            np.put(fill, axi, indi)
-        return tuple(fill)
+    def __call__(self, inds, axes):
+        return self._indexer(inds, axes)
 
 
 def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
@@ -246,24 +245,37 @@ class get_comparable(object):
             # this is a list of indicies in dimensions to take
             # handle multi-dim combination of mask
             if not isinstance(mask, np.ndarray):
-                # use the dstack'd mask (almost like a zip())
-                def __transform_generator():
-                    iteri = np.ndindex(tuple(x.size for x in mask))
-                    for inds in iteri:
-                        yield tuple(mask[i][ind] for i, ind in enumerate(inds))
-                transformed = __transform_generator()
-
+                size = np.prod([x.size for x in mask])
             else:
                 # single dim, use simple mask
-                transformed = mask
+                size = mask.size
 
-            # use mask array
-            arr_mask = np.full(outv.shape, False)
-            for ind in transformed:
-                # and update slice inds
-                arr_mask[_get_index(ind, self.compare_axis)] = True
+            # get the index arrays
+            inds = _get_index(mask, self.compare_axis)
+            stride_arr = np.array([np.unique(x).size for x in inds], dtype=np.int32)
+            # get non-slice inds
+            non_slice = np.array([i for i, x in enumerate(inds) if i != slice(None)],
+                                 dtype=np.int32)
+            # create the output masker
+            masking = np.array([slice(None)] * outv.ndim)
+            masking[non_slice] = [np.empty(size, dtype=np.int32)
+                                  for x in range(non_slice.size)]
 
-            return outv[arr_mask]
+            # need to fill the masking array
+            # the first and last indicies are split
+            stride = 1
+            for i in reversed(range(1, len(masking[non_slice]))):
+                repeats = int(np.ceil(size / (inds[i].size * stride)))
+                shape = (stride, repeats)
+                masking[non_slice][i][:] = np.tile(inds[i], shape).flatten(
+                    order='F')[:size]
+                # the first and last index are tied together by the split
+                if i == len(masking[non_slice]) - 1 and 0 in non_slice:
+                    masking[0][:] = np.tile(inds[0], shape).flatten(
+                        order='F')[:size]
+                stride *= stride_arr[i]
+
+            return outv[tuple(masking)]
 
         raise NotImplementedError
 
