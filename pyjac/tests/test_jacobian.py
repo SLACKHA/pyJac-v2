@@ -383,7 +383,7 @@ class SubTest(TestClass):
         cond = np.where(np.logical_not(
             np.in1d(np.arange(self.store.test_size), cond)))[0]
 
-        if not cond:
+        if not cond.size:
             return tuple([None]) * 4   # nothing to test
 
         def __get_val(vals, mask):
@@ -1627,8 +1627,6 @@ class SubTest(TestClass):
                         self.store.spec_cp, order=x, copy=True),
                     'dcp': lambda x: np.array(
                         dc, order=x, copy=True),
-                    'P_arr': lambda x: np.array(
-                        self.store.P, order=x, copy=True),
                     'cp_tot': lambda x: np.array(
                         spec_heat, order=x, copy=True)})
             else:
@@ -1639,21 +1637,23 @@ class SubTest(TestClass):
                         self.store.spec_cv, order=x, copy=True),
                     'dcv': lambda x: np.array(
                         dc, order=x, copy=True),
-                    'V_arr': lambda x: np.array(
-                        self.store.V, order=x, copy=True),
                     'cv_tot': lambda x: np.array(
-                        spec_heat, order=x, copy=True)})
+                        spec_heat, order=x, copy=True),
+                    'V_arr': lambda x: np.array(
+                        self.store.V, order=x, copy=True)})
 
             # find NaN's
             to_test = np.setdiff1d(np.arange(self.store.test_size),
                                    np.unique(np.where(np.isnan(jac))[0]),
                                    assume_unique=True)
-            kc = kernel_call('dTdot_dT',
-                             [fd_jac], check=True,
-                             compare_mask=[(to_test, 0, 0)],
-                             compare_axis=(0, 1, 2),
-                             equal_nan=True,
-                             other_compare=self.our_nan_compare, **args)
+            comp = get_comparable(compare_mask=[(
+                to_test, np.array([0]), np.array([0]))],
+                                  compare_axis=(0, 1, 2),
+                                  ref_answer=[fd_jac])
+            kc = kernel_call('dTdot_dT', comp.ref_answer, check=True,
+                             compare_mask=[comp], compare_axis=comp.compare_axis,
+                             equal_nan=True, other_compare=self.our_nan_compare,
+                             **args)
 
             return self._generic_jac_tester(dTdotdT, kc, conp=conp)
 
@@ -1859,9 +1859,12 @@ class SubTest(TestClass):
 
         # and get mask
         check_ind = 1 if test_variable else 0
+        comp = get_comparable(compare_mask=[(to_test, test, np.array([check_ind]))],
+                              compare_axis=(0, 1, 2),
+                              ref_answer=[fd_jac])
         kc = [kernel_call('dci_dT',
-                          [fd_jac], compare_mask=[(to_test, test, check_ind)],
-                          compare_axis=(0, 1, 2),
+                          comp.ref_answer, compare_mask=[comp],
+                          compare_axis=comp.compare_axis,
                           other_compare=self.nan_compare,
                           **args)]
 
