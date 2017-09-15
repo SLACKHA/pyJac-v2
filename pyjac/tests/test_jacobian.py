@@ -496,6 +496,12 @@ class SubTest(TestClass):
             return True
 
         def __compare(our_vals, ref_vals):
+            # sometimes if only one value is selected, we end up with a
+            # non-dimensional array
+            if not ref_vals.shape and ref_vals:
+                ref_vals = np.expand_dims(ref_vals, axis=0)
+            if not our_vals.shape and our_vals:
+                our_vals = np.expand_dims(our_vals, axis=0)
             # find where close
             bad = np.where(np.logical_not(np.isclose(ref_vals, our_vals)))
             good = np.where(np.isclose(ref_vals, our_vals))
