@@ -1700,16 +1700,23 @@ class SubTest(TestClass):
             'kf_fall': lambda x: np.zeros_like(kf_fall, order=x),
             'Pr': lambda x: np.zeros_like(self.store.ref_Pr, order=x),
             'Fi': lambda x: np.zeros_like(self.store.ref_Fall, order=x),
-            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'Fcent': lambda x: np.zeros((
-                self.store.test_size, self.store.troe_inds.size), order=x),
-            'Atroe': lambda x: np.zeros((
-                self.store.test_size, self.store.troe_inds.size), order=x),
-            'Btroe': lambda x: np.zeros((
-                self.store.test_size, self.store.troe_inds.size), order=x),
-            'X': lambda x: np.zeros((
-                self.store.test_size, self.store.sri_inds.size), order=x)
+            'jac': lambda x: np.zeros(namestore.jac.shape, order=x)
         }
+
+        if rxn_type == falloff_form.troe:
+            args.update({
+                'Fcent': lambda x: np.zeros((
+                    self.store.test_size, self.store.troe_inds.size), order=x),
+                'Atroe': lambda x: np.zeros((
+                    self.store.test_size, self.store.troe_inds.size), order=x),
+                'Btroe': lambda x: np.zeros((
+                    self.store.test_size, self.store.troe_inds.size), order=x),
+                })
+        elif rxn_type == falloff_form.sri:
+            args.update({
+                'X': lambda x: np.zeros((
+                    self.store.test_size, self.store.sri_inds.size), order=x)
+                })
 
         if conp:
             args.update({
@@ -1754,10 +1761,8 @@ class SubTest(TestClass):
         args = {
             'rop_fwd': lambda x: np.array(fwd_removed, order=x, copy=True),
             'rop_rev': lambda x: np.array(rev_removed, order=x, copy=True),
-            'conc': lambda x: np.zeros_like(self.store.concs, order=x),
+            # 'conc': lambda x: np.zeros_like(self.store.concs, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'pres_mod': lambda x: np.array(
-                    self.store.ref_pres_mod, order=x, copy=True)
         }
 
         if conp:
@@ -1772,6 +1777,12 @@ class SubTest(TestClass):
                 'phi': lambda x: np.array(
                     self.store.phi_cv, order=x, copy=True)
             })
+
+        if test_variable:
+            args.update({
+                'pres_mod': lambda x: np.array(
+                    self.store.ref_pres_mod, order=x, copy=True)
+                })
 
         def over_rxn(rxn):
             if rxn_type == reaction_type.thd:
@@ -1802,24 +1813,26 @@ class SubTest(TestClass):
                 'Fi': lambda x: np.array(
                     self.store.ref_Fall, order=x, copy=True),
                 'kf': lambda x: np.array(kf, order=x, copy=True),
-                'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True)
+                'kf_fall': lambda x: np.array(kf_fall, order=x, copy=True),
+                'pres_mod': lambda x: np.array(
+                    self.store.ref_pres_mod, order=x, copy=True)
             })
             if rxn_type == falloff_form.lind:
-                to_test = np.all(
+                to_test = np.where(np.all(
                     self.store.ref_Pr[:, self.store.lind_to_pr_map] != 0.0,
-                    axis=1)
+                    axis=1))[0]
                 tester = dci_lind_dT if not test_variable else dci_lind_dE
             elif rxn_type == falloff_form.sri:
-                to_test = np.all(
+                to_test = np.where(np.all(
                     self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
-                    axis=1)
+                    axis=1))[0]
                 tester = dci_sri_dT if not test_variable else dci_sri_dE
                 X = self.__get_sri_params(namestore)
                 args.update({'X': lambda x: np.array(X, order=x, copy=True)})
             elif rxn_type == falloff_form.troe:
-                to_test = np.all(
+                to_test = np.where(np.all(
                     self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0,
-                    axis=1)
+                    axis=1))[0]
                 tester = dci_troe_dT if not test_variable else dci_troe_dE
                 Fcent, Atroe, Btroe = self.__get_troe_params(namestore)
                 args.update({
@@ -1946,11 +1959,15 @@ class SubTest(TestClass):
             to_test = np.setdiff1d(np.arange(self.store.test_size),
                                    np.unique(np.where(np.isnan(jac))[0]),
                                    assume_unique=True)
+            comp = get_comparable(compare_mask=[
+                (to_test, np.array([1]), np.array([0]))],
+                                  compare_axis=(0, 1, 2),
+                                  ref_answer=[fd_jac]
+                                  )
 
             # and get mask
-            kc = [kernel_call('dEdotdT',
-                              [fd_jac], compare_mask=[(to_test, 1, 0)],
-                              compare_axis=(0, 1, 2),
+            kc = [kernel_call('dEdotdT', comp.ref_answer, compare_mask=[comp],
+                              compare_axis=comp.compare_axis,
                               other_compare=self.our_nan_compare,
                               **args)]
 
@@ -1981,39 +1998,42 @@ class SubTest(TestClass):
                 'jac': lambda x: np.array(
                 jac, order=x, copy=True),
                 'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True),
-                'conc': lambda x: np.array(
-                self.store.concs, order=x, copy=True)
+                self.store.species_rates, order=x, copy=True)
             }
 
             if conp:
-                args.update({'P_arr': lambda x: np.array(
-                    self.store.P, order=x, copy=True),
+                args.update({
                     'cp': lambda x: np.array(
-                    spec_heat, order=x, copy=True),
+                        spec_heat, order=x, copy=True),
                     'cp_tot': lambda x: np.array(
-                    spec_heat_tot, order=x, copy=True),
+                        spec_heat_tot, order=x, copy=True),
                     'h': lambda x: np.array(
-                    spec_energy, order=x, copy=True)})
+                        spec_energy, order=x, copy=True),
+                    'conc': lambda x: np.array(
+                        self.store.concs, order=x, copy=True)},
+                    )
             else:
                 args.update({'V_arr': lambda x: np.array(
                     self.store.V, order=x, copy=True),
                     'cv': lambda x: np.array(
-                    spec_heat, order=x, copy=True),
+                        spec_heat, order=x, copy=True),
                     'cv_tot': lambda x: np.array(
-                    spec_heat_tot, order=x, copy=True),
+                        spec_heat_tot, order=x, copy=True),
                     'u': lambda x: np.array(
-                    spec_energy, order=x, copy=True)})
+                        spec_energy, order=x, copy=True)})
 
             # exclude purposefully included nan's
             to_test = np.setdiff1d(np.arange(self.store.test_size),
                                    np.unique(np.where(np.isnan(jac))[0]),
                                    assume_unique=True)
 
+            comp = get_comparable(ref_answer=[fd_jac],
+                                  compare_mask=[
+                                  (to_test, np.array([1]), np.array([0]))],
+                                  compare_axis=(0, 1, 2))
             # and get mask
-            kc = [kernel_call('dTdotdE',
-                              [fd_jac], compare_mask=[(to_test, 1, 0)],
-                              compare_axis=(0, 1, 2),
+            kc = [kernel_call('dTdotdE', comp.ref_answer,
+                              compare_mask=[comp], compare_axis=comp.compare_axis,
                               other_compare=self.our_nan_compare,
                               **args)]
 
@@ -2053,10 +2073,14 @@ class SubTest(TestClass):
                                    np.unique(np.where(np.isnan(jac))[0]),
                                    assume_unique=True)
 
+            comp = get_comparable(ref_answer=[fd_jac],
+                                  compare_mask=[
+                                    (to_test, np.array([1]), np.array([1]))],
+                                  compare_axis=(0, 1, 2))
+
             # and get mask
-            kc = [kernel_call('dEdotdE',
-                              [fd_jac], compare_mask=[(to_test, 1, 1)],
-                              compare_axis=(0, 1, 2),
+            kc = [kernel_call('dEdotdE', comp.ref_answer,
+                              compare_mask=[comp], compare_axis=comp.compare_axis,
                               other_compare=self.our_nan_compare,
                               **args)]
 
@@ -2105,15 +2129,22 @@ class SubTest(TestClass):
                                  RateSpecialization.fixed)['jac_inds']
         non_zero_inds = ret['flat']
 
-        args = {'jac': lambda x: np.ones(namestore.jac.shape, order=x)}
+        jac_shape = namestore.jac.shape
 
-        jac_size = namestore.jac.shape
+        def __set(order):
+            x = np.zeros(jac_shape, order=order)
+            x[:, non_zero_inds[:, 0], non_zero_inds[:, 1]] = 1
+            return x
+        args = {'jac': __set}
+
+        comp = get_comparable(ref_answer=[np.zeros(jac_shape)],
+                              compare_mask=[
+                                (slice(None), non_zero_inds[:, 0],
+                                    non_zero_inds[:, 1])],
+                              compare_axis=-1)
+
         # and get mask
-        kc = kernel_call('reset_arrays',
-                         [np.zeros(jac_size)],
-                         compare_mask=[[
-                            Ellipsis, non_zero_inds[:, 0], non_zero_inds[:, 1]]],
-                         compare_axis=-1,
-                         **args)
+        kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
+                         compare_axis=comp.compare_axis, **args)
 
         return self._generic_jac_tester(reset_arrays, kc)
