@@ -1049,6 +1049,11 @@ class SubTest(TestClass):
         return poly_wrapper
 
     def __get_full_jac(self, conp=True):
+        # see if we've already computed this, no need to redo if we have it
+        attr = 'fd_jac' + ('_cp' if conp else '_cv')
+        if hasattr(self.store, attr):
+            return getattr(self.store, attr).copy()
+
         # creates a FD version of the full species Jacobian
         namestore, rate_info = self._make_namestore(conp)
         ad_opts = namestore.loopy_opts
@@ -1149,6 +1154,9 @@ class SubTest(TestClass):
                 [__u_call_wrapper, __cv_call_wrapper]) + [
                 get_molar_rates, __temperature_wrapper],
             allint=allint)
+
+        # store the jacobian for later
+        setattr(self.store, attr, jac)
 
         return jac
 
