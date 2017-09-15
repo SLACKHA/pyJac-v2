@@ -109,19 +109,27 @@ class indexer(object):
         """
         rv = [slice(None)] * self.out_ndim
         axi = next((i for i in six.moves.range(len(axes))
-                    if axes[i] == self.ref_ndim - 1),
-                   None)
+                    if axes[i] == self.ref_ndim - 1), None)
         if axi is not None:
             # the first index is the remainder of the ind by the new dimension size
             # and the last index is the floor division of the new dim size
-            rv[-1], rv[0] = np.divmod(inds[axi], self.out_shape[0], dtype=np.int32)
+
+            # check that this is ind is not a slice
+            # if it is we don't need to to anything
+            if isinstance(inds[axi], np.ndarray):
+                rv[-1], rv[0] = np.divmod(
+                    inds[axi], self.out_shape[0], dtype=np.int32)
 
         for i, ax in enumerate(axes):
             if i != axi:
                 # there is no change in the actual indexing here
                 # however, the destination index will be increased by one
                 # to account for the new inserted index at the front of the array
-                rv[ax + 1] = inds[i][:].astype(np.int32)
+
+                # check that this is ind is not a slice
+                # if it is we don't need to to anything
+                if isinstance(inds[i], np.ndarray):
+                    rv[ax + 1] = inds[i][:].astype(np.int32)
 
         return rv
 
@@ -135,12 +143,22 @@ class indexer(object):
         if axi is not None:
             # and first index is the floor division of the new dim size
             # the last index is the remainder of the ind by the new dimension size
-            rv[0], rv[-1] = np.divmod(inds[axi], self.out_shape[-1], dtype=np.int32)
+
+            # check that this is ind is not a slice
+            # if it is we don't need to to anything
+            if isinstance(inds[axi], np.ndarray):
+                # it's a numpy array, so we can divmod
+                rv[0], rv[-1] = np.divmod(
+                    inds[axi], self.out_shape[-1], dtype=np.int32)
 
         for i, ax in enumerate(axes):
             if i != axi:
                 # there is no change in the actual indexing here
-                rv[ax] = inds[i][:].astype(np.int32)
+
+                # check that this is ind is not a slice
+                # if it is we don't need to to anything
+                if isinstance(inds[i], np.ndarray):
+                    rv[ax] = inds[i][:].astype(np.int32)
 
         return rv
 
@@ -240,8 +258,8 @@ class get_comparable(object):
                                compare_axis=self.compare_axis)._get_comparable(
                                outv, 0)
 
+        _get_index = indexer(ans.ndim, outv.ndim, outv.shape, kc.current_order)
         if self.compare_axis != -1:
-            _get_index = indexer(ans.ndim, outv.ndim, outv.shape, kc.current_order)
             # this is a list of indicies in dimensions to take
             # handle multi-dim combination of mask
             if not isinstance(mask, np.ndarray):
@@ -281,9 +299,19 @@ class get_comparable(object):
                 # and update stride
                 stride *= stride_arr[i]
 
-            return outv[tuple(masking)]
+        else:
+            # we supplied a list of indicies, all we really have to do is convert
+            # them and return
 
-        raise NotImplementedError
+            # first check we have a reasonable mask
+            assert ans.ndim == len(mask), "Can't use dissimilar compare masks / axes"
+            # dummy comparison axis
+            comp_axis = np.arange(ans.ndim)
+            # convert inds
+            masking = _get_index(mask, comp_axis)
+
+        # and return
+        return outv[tuple(masking)]
 
 
 def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
