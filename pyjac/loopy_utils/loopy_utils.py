@@ -677,6 +677,7 @@ class kernel_call(object):
                                     for ans in self.ref_answer]
 
         # and finally feed through the array splitter
+        self.current_split = array_splitter
         self.kernel_args = array_splitter.split_numpy_arrays(self.kernel_args)
         self.transformed_ref_ans = array_splitter.split_numpy_arrays(
             self.transformed_ref_ans)
