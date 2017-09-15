@@ -23,7 +23,7 @@ from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from ..core.mech_auxiliary import write_aux
 from ..pywrap.pywrap_gen import generate_wrapper
 from . import test_utils as test_utils
-from .test_utils import get_comparable, parse_split_index, _generic_tester
+from .test_utils import get_comparable, indexer, _generic_tester
 
 # modules
 import cantera as ct
@@ -60,6 +60,12 @@ class kf_wrapper(object):
     def __call__(self, eqs, loopy_opts, namestore, test_size):
         # check if we've found the kf / kf_fall values yet
         if not self.kf_val:
+            # ensure the loopy opts don't have a split in them, otherwise the
+            # shape of the base kf / kf_fall will be wrong
+            opts = loopy_options(order=loopy_opts.order,
+                                 rate_spec=RateSpecialization.fixed,
+                                 platform=loopy_opts.platform.name)
+
             # first we have to get the simple arrhenius rates
             # in order to evaluate the reduced pressure
 
@@ -70,7 +76,7 @@ class kf_wrapper(object):
                 {'falloff': True})
 
             self.kf_fall_val.append(
-                runner(eqs, loopy_opts, namestore, test_size)[0])
+                runner(eqs, opts, namestore, test_size)[0])
 
             # next with regular parameters
             runner = test_utils.kernel_runner(
@@ -79,7 +85,7 @@ class kf_wrapper(object):
                 {'phi': self.kwargs['phi']})
 
             self.kf_val.append(
-                runner(eqs, loopy_opts, namestore, test_size)[0])
+                runner(eqs, opts, namestore, test_size)[0])
 
         # finally we can call the function
         return self.func(
@@ -441,7 +447,7 @@ class SubTest(TestClass):
 
         _generic_tester(self, func, kernel_calls, assign_rates,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                        do_conp=do_conp)
+                        do_conp=do_conp, **kw_args)
 
     def __test_rateconst_type(self, rtype):
         """
@@ -461,19 +467,19 @@ class SubTest(TestClass):
 
         masks = {
             'simple': (
-                [np.array([i for i, x in enumerate(reacs)
-                           if x.match((
+                np.array([i for i, x in enumerate(reacs)
+                          if x.match((
                                reaction_type.elementary,
                                reaction_type.fall,
-                               reaction_type.chem))])],
+                               reaction_type.chem))]),
                 get_simple_arrhenius_rates),
             'plog': (
-                [np.array([i for i, x in enumerate(reacs)
-                           if x.match((reaction_type.plog,))])],
+                np.array([i for i, x in enumerate(reacs)
+                          if x.match((reaction_type.plog,))]),
                 get_plog_arrhenius_rates),
             'cheb': (
-                [np.array([i for i, x in enumerate(reacs)
-                           if x.match((reaction_type.cheb,))])],
+                np.array([i for i, x in enumerate(reacs)
+                          if x.match((reaction_type.cheb,))]),
                 get_cheb_arrhenius_rates)}
 
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
@@ -497,17 +503,15 @@ class SubTest(TestClass):
         def __simple_post(kc, out):
             if len(out[0].shape) == 3:
                 # vectorized data order
-                # the index is the combination of the first axis and the last
-                for i, thd_i in enumerate(self.store.thd_inds):
-                    f, s, l = parse_split_index(
-                        out[0], thd_i, kc.current_order)
-                    if kc.current_order == 'F':
-                        out[0][f, s, l] *= self.store.ref_pres_mod[:, i]
-                    else:
-                        out[0][f, s, l] *= np.reshape(
-                            self.store.ref_pres_mod[:, i],
-                            out[0][f, s, l].shape,
-                            order='C')
+                # get the new indicies
+                _get_index = indexer(ref_const.ndim, out[0].ndim, out[0].shape,
+                                     kc.current_order)
+                inds = _get_index((self.store.thd_inds,), (1,))
+                pmod_inds = _get_index((np.arange(self.store.thd_inds.size),), (1,))
+                # split the pres mod
+                pmod, = kc.current_split.split_numpy_arrays(
+                    self.store.ref_pres_mod.copy())
+                out[0][tuple(inds)] *= pmod[tuple(pmod_inds)]
             else:
                 out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
 
@@ -518,7 +522,7 @@ class SubTest(TestClass):
         if not compare_mask[0].size:
             return
 
-        compare_mask = [get_comparable(compare_mask, ref_const)]
+        compare_mask = [get_comparable((compare_mask,), ref_const)]
 
         # create the kernel call
         kc = kernel_call(rtype,
@@ -614,9 +618,9 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
-                         compare_mask=[get_comparable(sri_mask, ref_ans)],
+                         compare_mask=[get_comparable((sri_mask,), ref_ans)],
                          ref_ans_compare_mask=[get_comparable(
-                            np.arange(self.store.sri_inds.size, dtype=np.int32),
+                            (np.arange(self.store.sri_inds.size, dtype=np.int32),),
                             ref_ans)],
                          **args)
         self.__generic_rate_tester(get_sri_kernel, kc)
@@ -637,9 +641,9 @@ class SubTest(TestClass):
             return
         # create the kernel call
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
-                         compare_mask=[get_comparable(troe_mask, ref_ans)],
+                         compare_mask=[get_comparable((troe_mask,), ref_ans)],
                          ref_ans_compare_mask=[get_comparable(
-                            np.arange(self.store.troe_inds.size, dtype=np.int32),
+                            (np.arange(self.store.troe_inds.size, dtype=np.int32),),
                             ref_ans)], **args)
         self.__generic_rate_tester(get_troe_kernel, kc)
 
@@ -653,11 +657,11 @@ class SubTest(TestClass):
             return
         # need a seperate answer mask to deal with the shape difference
         # in split arrays
-        ans_mask = [np.arange(self.store.lind_inds.size, dtype=np.int32)]
+        ans_mask = np.arange(self.store.lind_inds.size, dtype=np.int32)
         # create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
-                         compare_mask=[get_comparable(lind_mask, ref_ans)],
-                         ref_ans_compare_mask=[get_comparable(ans_mask, ref_ans)])
+                         compare_mask=[get_comparable((lind_mask,), ref_ans)],
+                         ref_ans_compare_mask=[get_comparable((ans_mask,), ref_ans)])
         self.__generic_rate_tester(get_lind_kernel, kc)
 
     @attr('long')
@@ -704,13 +708,14 @@ class SubTest(TestClass):
         # create the kernel call
         kc = [kernel_call('ci_thd', [ref_pres_mod],
                           out_mask=[0],
-                          compare_mask=[get_comparable(thd_only_inds, ref_pres_mod)],
+                          compare_mask=[get_comparable((thd_only_inds,),
+                                                       ref_pres_mod)],
                           input_mask=['Fi', 'Pr'],
                           strict_name_match=True, **args),
               kernel_call('ci_fall', [ref_pres_mod],
                           out_mask=[0],
                           compare_mask=[get_comparable(
-                            fall_only_inds, ref_pres_mod)],
+                            (fall_only_inds,), ref_pres_mod)],
                           input_mask=['thd_conc'],
                           strict_name_match=True, **args)]
         self.__generic_rate_tester(get_rxn_pres_mod, kc)
@@ -804,8 +809,8 @@ class SubTest(TestClass):
         wdot = self.store.species_rates
         kc = kernel_call('spec_rates', [wdot],
                          compare_mask=[
-                            get_comparable(np.arange(self.store.gas.n_species,
-                                                     dtype=np.int32), wdot)],
+                            get_comparable((np.arange(self.store.gas.n_species,
+                                                      dtype=np.int32),), wdot)],
                          **args)
 
         # test regularly
@@ -824,8 +829,8 @@ class SubTest(TestClass):
 
         kc = [kernel_call('temperature_rate', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[get_comparable(np.array([0], dtype=np.int32),
-                                                       self.store.dphi_cp)],
+                          compare_mask=[get_comparable(
+                            (np.array([0], dtype=np.int32),), self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -835,8 +840,8 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('temperature_rate', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[get_comparable(np.array([0], dtype=np.int32),
-                                                       self.store.dphi_cv)],
+                          compare_mask=[get_comparable(
+                            (np.array([0], dtype=np.int32),), self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc,
@@ -854,7 +859,7 @@ class SubTest(TestClass):
                           input_mask=['cv', 'u'],
                           compare_mask=[
                             get_comparable(
-                                2 + np.arange(self.store.gas.n_species - 1),
+                                (2 + np.arange(self.store.gas.n_species - 1),),
                                 self.store.dphi_cp)],
                           **args)]
 
@@ -871,7 +876,7 @@ class SubTest(TestClass):
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
                           compare_mask=[get_comparable(
-                            2 + np.arange(self.store.gas.n_species - 1),
+                            (2 + np.arange(self.store.gas.n_species - 1),),
                             self.store.dphi_cv)],
                           **args)]
         # test conv
@@ -894,8 +899,8 @@ class SubTest(TestClass):
 
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
-                          compare_mask=[get_comparable(np.array([1], dtype=np.int32),
-                                                       self.store.dphi_cp)],
+                          compare_mask=[get_comparable(
+                            (np.array([1], dtype=np.int32),), self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -915,8 +920,8 @@ class SubTest(TestClass):
         # test conv
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
-                          compare_mask=[get_comparable(np.array([1], dtype=np.int32),
-                                                       self.store.dphi_cv)],
+                          compare_mask=[get_comparable(
+                            (np.array([1], dtype=np.int32),), self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_extra_var_rates, kc,
