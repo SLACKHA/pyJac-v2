@@ -512,9 +512,9 @@ class SubTest(TestClass):
             # or failing that, just that they're much "larger" than the other
             # entries (sometimes the Pr will not be exactly zero if it's
             # based on the concentration of the last species)
+            fac = 1 if not good[0].size else np.max(np.abs(ref_vals[good]))
             is_correct = is_correct or (
-                (np.min(np.abs(ref_vals[bad])) /
-                    np.max(np.abs(ref_vals[good]))) > 1e15)
+                (np.min(np.abs(ref_vals[bad])) / fac) > 1e12)
 
             # and ensure all our values are 'large' but finite numbers
             # (defined here by > 1e295)
