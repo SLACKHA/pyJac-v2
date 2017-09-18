@@ -47,7 +47,7 @@ class SubTest(TestClass):
         eqs = {'conp': self.store.conp_eqs, 'conv': self.store.conv_eqs}
 
         oploop = OptionLoop(OrderedDict([
-            ('conp', [True, False]),
+            ('conp', [True]),
             ('shared', [True, False])]))
         return opts, eqs, oploop
 
