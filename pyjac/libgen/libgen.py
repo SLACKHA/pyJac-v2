@@ -373,7 +373,7 @@ def generate_library(lang, source_dir, obj_dir=None,
     if out_dir is None:
         out_dir = os.getcwd()
     else:
-        out_dir = os.path.abspath(os.path.abspath(out_dir))
+        out_dir = os.path.abspath(out_dir)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
