@@ -1518,7 +1518,7 @@ class SubTest(TestClass):
             # can cause some problems in the FD Jac
             test_conditions = np.where(self.store.concs[:, -1] != 0)[0]
 
-        rtol = 1e-3
+        rtol = 1e-4
         atol = 1e-7
 
         def _small_compare(kc, our_vals, ref_vals, mask):
@@ -1889,10 +1889,19 @@ class SubTest(TestClass):
         comp = get_comparable(compare_mask=[(to_test, test, np.array([check_ind]))],
                               compare_axis=(0, 1, 2),
                               ref_answer=[fd_jac])
+
+        # sri is a bit more fincky
+        rtol = 1e-5
+        atol = 1e-8
+        if rxn_type == falloff_form.sri and conp:
+            rtol = 5e-4
+            atol = 1e-5
+
         kc = [kernel_call('dci_dT',
                           comp.ref_answer, compare_mask=[comp],
                           compare_axis=comp.compare_axis,
                           other_compare=self.nan_compare,
+                          rtol=rtol, atol=atol,
                           **args)]
 
         extra_args = {}
