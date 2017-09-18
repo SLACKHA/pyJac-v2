@@ -225,11 +225,11 @@ class get_comparable(object):
         of tuples of :class:`numpy.ndarray`'s corresponding to the compare axis
     ref_answer: :class:`numpy.ndarray`
         The answer to compare to, used to determine the proper shape
-    compare_axis: int or list of int
+    compare_axis: -1 or iterable of int
         The axis (or axes) to compare along
     """
 
-    def __init__(self, compare_mask, ref_answer, compare_axis=1):
+    def __init__(self, compare_mask, ref_answer, compare_axis=(1,)):
         self.compare_mask = compare_mask
         if not isinstance(self.compare_mask, list):
             self.compare_mask = [self.compare_mask]
