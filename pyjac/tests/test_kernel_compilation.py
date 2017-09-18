@@ -1,15 +1,13 @@
 import os
-from ..core.rate_subs import write_specrates_kernel, write_chem_utils, assign_rates
+from ..core.rate_subs import write_specrates_kernel
 from . import TestClass
-from ..loopy_utils.loopy_utils import loopy_options, RateSpecialization
+from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library
 from ..core.mech_auxiliary import write_aux, write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
-from ..core.array_creator import NameStore
 from . import test_utils as test_utils
 from optionloop import OptionLoop
 from collections import OrderedDict
-import importlib
 import shutil
 from string import Template
 import sys
@@ -75,7 +73,7 @@ class SubTest(TestClass):
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
-        cwd = os.getcwd()
+        packages = {'c': 'pyjac_c', 'opencl': 'pyjac_ocl'}
         for state in oploop:
             # clean old
             self.__cleanup()
@@ -84,10 +82,16 @@ class SubTest(TestClass):
             # test wrapper generation
             generate_wrapper(opts.lang, build_dir,
                              obj_dir=obj_dir, out_dir=lib_dir, auto_diff=False)
-            os.chdir(lib_dir)
-            # test import
-            importlib.import_module('pyjac_ocl')
-            os.chdir(cwd)
+
+            # create the test importer, and run
+            imp = test_utils.get_import_source()
+            with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
+                file.write(imp.substitute(path=lib_dir, package=packages[lang]))
+
+            python_str = 'python{}.{}'.format(
+                sys.version_info[0], sys.version_info[1])
+            subprocess.check_call([python_str,
+                                   os.path.join(lib_dir, 'test_import.py')])
 
     def test_read_initial_conditions(self):
         build_dir = self.store.build_dir

@@ -125,7 +125,7 @@ def functional_tester(work_dir):
                     'c': 'c'}
 
     # load the module tester template
-    mod_test = test_utils.get_import_source()
+    mod_test = test_utils.get_run_source()
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
                                        key=lambda x: x[1]['ns']

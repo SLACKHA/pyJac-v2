@@ -12,14 +12,15 @@ includes = [x for x in includes if x.strip()]
 
 distutils.ccompiler.CCompiler.compile = pcc.parallel_compile
 
-ext_modules=[Extension("pyjac_c",
-     sources=sources,
-     include_dirs=includes + [numpy.get_include()],
-     extra_compile_args=['-frounding-math', '-fsignaling-nans', '-fopenmp'],
-     language='c',
-     extra_objects=[os.path.join('$outpath', '$libname'),
-                    '-fopenmp']
-     )]
+ext_modules = [Extension("pyjac_c",
+                         sources=sources,
+                         include_dirs=includes + [numpy.get_include()],
+                         extra_compile_args=[
+                             '-frounding-math', '-fsignaling-nans', '-fopenmp'],
+                         language='c',
+                         extra_objects=[os.path.join('$outpath', '$libname'),
+                                        '-fopenmp']
+                         )]
 
 setup(
     name='pyjac_c',
