@@ -65,7 +65,8 @@ class kf_wrapper(object):
             # ensure the loopy opts don't have a split in them, otherwise the
             # shape of the base kf / kf_fall will be wrong
             opts = loopy_options(order=loopy_opts.order,
-                                 rate_spec=RateSpecialization.fixed,
+                                 rate_spec=loopy_opts.rate_spec,
+                                 rate_spec_kernels=loopy_opts.rate_spec_kernels,
                                  platform=loopy_opts.platform.name)
 
             # first we have to get the simple arrhenius rates
