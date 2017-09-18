@@ -292,9 +292,9 @@ def get_file_list(source_dir, lang, FD=False, AD=False):
     if lang == 'opencl':
         files += ['species_rates_kernel_compiler',
                   'species_rates_kernel_main', 'ocl_errorcheck']
-    else:
+    elif lang == 'c':
         files += ['species_rates_kernel_main', 'species_rates_kernel',
-                  'error_check', 'chem_utils_kernel']
+                  'error_check']
 
     # if FD:
         #files += ['fd_jacob']
