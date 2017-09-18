@@ -173,5 +173,8 @@ class SubTest(TestClass):
 
             # and run
             os.chdir(lib_dir)
-            subprocess.check_call(
-                [python_str, 'ric_tester.py', order, str(self.store.test_size)])
+            try:
+                subprocess.check_call(
+                    [python_str, 'ric_tester.py', order, str(self.store.test_size)])
+            finally:
+                os.chdir(home)
