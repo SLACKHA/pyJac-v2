@@ -975,7 +975,7 @@ class SubTest(TestClass):
         exceptions = ['conp']
 
         # load the module tester template
-        mod_test = test_utils.get_import_source()
+        mod_test = test_utils.get_run_source()
 
         # now start test
         for i, state in enumerate(oploop):

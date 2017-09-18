@@ -21,13 +21,18 @@ def __get_template(fname):
         return Template(file.read())
 
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+
+def get_run_source():
+    return __get_template(os.path.join(script_dir, 'test_run.py.in'))
+
+
 def get_import_source():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
     return __get_template(os.path.join(script_dir, 'test_import.py.in'))
 
 
 def get_read_ics_source():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
     return __get_template(os.path.join(script_dir, 'read_ic_setup.py.in'))
 
 
