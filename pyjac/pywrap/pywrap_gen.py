@@ -171,16 +171,18 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
 
     # save current
     cwd = os.getcwd()
-    # change to the script dir to avoid long build path
-    os.chdir(home_dir)
-    # buold
-    call = [python_str, os.path.join(home_dir,
-                                     setupfile[:setupfile.index('.in')]),
-            'build_ext', '--build-lib', out_dir
-            ]
-    if rpath:
-        call += ['--rpath', rpath]
+    try:
+        # change to the script dir to avoid long build path
+        os.chdir(home_dir)
+        # buold
+        call = [python_str, os.path.join(home_dir,
+                                         setupfile[:setupfile.index('.in')]),
+                'build_ext', '--build-lib', out_dir
+                ]
+        if rpath:
+            call += ['--rpath', rpath]
 
-    subprocess.check_call(call)
-    # and return to base dir
-    os.chdir(cwd)
+        subprocess.check_call(call)
+    finally:
+        # and return to base dir
+        os.chdir(cwd)
