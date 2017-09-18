@@ -75,6 +75,7 @@ class SubTest(TestClass):
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
+        cwd = os.getcwd()
         for state in oploop:
             # clean old
             self.__cleanup()
@@ -83,8 +84,10 @@ class SubTest(TestClass):
             # test wrapper generation
             generate_wrapper(opts.lang, build_dir,
                              obj_dir=obj_dir, out_dir=lib_dir, auto_diff=False)
+            os.chdir(lib_dir)
             # test import
             importlib.import_module('pyjac_ocl')
+            os.chdir(cwd)
 
     def test_read_initial_conditions(self):
         build_dir = self.store.build_dir

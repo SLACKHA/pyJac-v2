@@ -363,17 +363,17 @@ def generate_library(lang, source_dir, obj_dir=None,
 
     build_lang = lang if lang != 'icc' else 'c'
 
-    source_dir = os.path.abspath(os.path.normpath(source_dir))
+    source_dir = os.path.abspath(os.path.abspath(source_dir))
     if obj_dir is None:
         obj_dir = os.path.join(os.getcwd(), 'obj')
     else:
-        obj_dir = os.path.abspath(os.path.normpath(obj_dir))
+        obj_dir = os.path.abspath(os.path.abspath(obj_dir))
     if not os.path.exists(obj_dir):
         os.makedirs(obj_dir)
     if out_dir is None:
         out_dir = os.getcwd()
     else:
-        out_dir = os.path.abspath(os.path.normpath(out_dir))
+        out_dir = os.path.abspath(os.path.abspath(out_dir))
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 

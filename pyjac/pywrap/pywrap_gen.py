@@ -8,9 +8,10 @@ from string import Template
 from ..libgen import generate_library
 from .. import site_conf as site
 
+
 def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
-    extra_include_dirs=[], libraries=[], libdirs=[],
-    output_full_rop=False):
+                   extra_include_dirs=[], libraries=[], libdirs=[],
+                   output_full_rop=False):
     """Helper method to fill in the template .in files
 
     Parameters
@@ -34,7 +35,8 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
     output_full_rop : bool
         If ``True``, output forward and reversse rates of progress
         Useful in testing, as there are serious floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to Cantera
+        net production rates near equilibrium, invalidating direct comparison to
+        Cantera
 
     Returns
     -------
@@ -52,14 +54,14 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
         wrapper = wrapper + '_ropfull'
     wrapper += '_wrapper.pyx'
 
-    file_data = {'homepath' : home_dir,
-                 'buildpath' : build_dir,
-                 'libname' : libname,
-                 'outpath' : out_dir,
-                 'extra_include_dirs' : __arr_create(extra_include_dirs),
-                 'libs' : __arr_create(libraries),
-                 'libdirs' : __arr_create(libdirs),
-                 'wrapper' : wrapper
+    file_data = {'homepath': home_dir,
+                 'buildpath': build_dir,
+                 'libname': libname,
+                 'outpath': out_dir,
+                 'extra_include_dirs': __arr_create(extra_include_dirs),
+                 'libs': __arr_create(libraries),
+                 'libdirs': __arr_create(libdirs),
+                 'wrapper': wrapper
                  }
     src = src.safe_substitute(file_data)
     with open(setupfile[:setupfile.rindex('.in')], 'w') as file:
@@ -122,7 +124,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
 
     """
 
-    source_dir = os.path.normpath(source_dir)
+    source_dir = os.path.abspath(source_dir)
 
     if out_dir is None:
         out_dir = os.getcwd()
@@ -137,7 +139,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         # first generate the library
         lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
                                shared=shared, auto_diff=auto_diff)
-        lib = os.path.normpath(lib)
+        lib = os.path.abspath(lib)
         if shared:
             lib = lib[lib.index('lib') + len('lib'):lib.index(ext)]
 
@@ -167,11 +169,18 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
 
+    # save current
+    cwd = os.getcwd()
+    # change to the script dir to avoid long build path
+    os.chdir(home_dir)
+    # buold
     call = [python_str, os.path.join(home_dir,
-                           setupfile[:setupfile.index('.in')]),
-                           'build_ext', '--build-lib', out_dir
-                           ]
+                                     setupfile[:setupfile.index('.in')]),
+            'build_ext', '--build-lib', out_dir
+            ]
     if rpath:
         call += ['--rpath', rpath]
 
     subprocess.check_call(call)
+    # and return to base dir
+    os.chdir(cwd)
