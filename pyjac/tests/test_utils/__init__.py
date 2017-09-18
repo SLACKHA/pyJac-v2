@@ -173,7 +173,7 @@ class indexer(object):
         return self._indexer(inds, axes)
 
 
-def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
+def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,)):
     """
     A helper method to get the index of an element in a split array for all initial
     conditions
@@ -182,14 +182,15 @@ def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
     ----------
     arr: :class:`numpy.ndarray`
         The split array to use
-    ind: int or list of int
-        The element index(ices)
+    mask: :class:`numpy.ndarray` or list thereof
+        The indicies to determine
     order: ['C', 'F']
         The numpy data order
     ref_ndim: int [2]
         The dimension of the unsplit array
     axis: int or list of int
-        The axes the ind's correspond to
+        The axes the mask's correspond to.
+        Must be of the same shape / size as mask
 
     Returns
     -------
@@ -197,19 +198,47 @@ def parse_split_index(arr, ind, order, ref_ndim=2, axis=1):
         A proper indexing for the split array
     """
 
-    dim = arr.ndim
-    index = [slice(None)] * dim
-
     _get_index = indexer(ref_ndim, arr.ndim, arr.shape, order)
 
-    try:
-        for i, ax in _get_index(ind, axis):
-            index[ax] = i
-    except TypeError:
-        inds, axs = _get_index(arr, (ind,), (axis,))
-        for i, ax in zip(inds, axs):
-            index[ax] = i
-    return tuple(index)
+    # handle multi-dim combination of mask
+    if not isinstance(mask, np.ndarray):
+        size = np.prod([x.size for x in mask])
+    else:
+        # single dim, use simple mask
+        size = mask.size
+
+    # get the index arrays
+    inds = np.array(_get_index(mask, axis))
+    stride_arr = np.array([np.unique(x).size for x in inds], dtype=np.int32)
+    # get non-slice inds
+    non_slice = np.array([i for i, x in enumerate(inds)
+                          if isinstance(x, np.ndarray)], dtype=np.int32)
+    # create the output masker
+    masking = np.array([slice(None)] * arr.ndim)
+    masking[non_slice] = [np.empty(size, dtype=np.int32)
+                          for x in range(non_slice.size)]
+
+    # need to fill the masking array
+    # the first and last indicies are split
+    stride = 1
+    for i in reversed(range(len(masking[non_slice]))):
+        # handled below
+        if non_slice[i] == 0:
+            continue
+        # find the number of times to tile this array
+        repeats = int(np.ceil(size / (inds[non_slice][i].size * stride)))
+        shape = (stride, repeats)
+        # tile and place in mask
+        masking[non_slice][i][:] = np.tile(
+            inds[non_slice][i], shape).flatten(order='F')[:size]
+        # the first and last index are tied together by the split
+        if i == len(masking[non_slice]) - 1 and 0 in non_slice:
+            masking[0][:] = np.tile(inds[0], shape).flatten(
+                order='F')[:size]
+        # and update stride
+        stride *= stride_arr[i]
+
+    return tuple(masking)
 
 
 class get_comparable(object):
@@ -260,44 +289,9 @@ class get_comparable(object):
 
         _get_index = indexer(ans.ndim, outv.ndim, outv.shape, kc.current_order)
         if self.compare_axis != -1:
-            # this is a list of indicies in dimensions to take
-            # handle multi-dim combination of mask
-            if not isinstance(mask, np.ndarray):
-                size = np.prod([x.size for x in mask])
-            else:
-                # single dim, use simple mask
-                size = mask.size
-
-            # get the index arrays
-            inds = np.array(_get_index(mask, self.compare_axis))
-            stride_arr = np.array([np.unique(x).size for x in inds], dtype=np.int32)
-            # get non-slice inds
-            non_slice = np.array([i for i, x in enumerate(inds)
-                                  if isinstance(x, np.ndarray)], dtype=np.int32)
-            # create the output masker
-            masking = np.array([slice(None)] * outv.ndim)
-            masking[non_slice] = [np.empty(size, dtype=np.int32)
-                                  for x in range(non_slice.size)]
-
-            # need to fill the masking array
-            # the first and last indicies are split
-            stride = 1
-            for i in reversed(range(len(masking[non_slice]))):
-                # handled below
-                if non_slice[i] == 0:
-                    continue
-                # find the number of times to tile this array
-                repeats = int(np.ceil(size / (inds[non_slice][i].size * stride)))
-                shape = (stride, repeats)
-                # tile and place in mask
-                masking[non_slice][i][:] = np.tile(
-                    inds[non_slice][i], shape).flatten(order='F')[:size]
-                # the first and last index are tied together by the split
-                if i == len(masking[non_slice]) - 1 and 0 in non_slice:
-                    masking[0][:] = np.tile(inds[0], shape).flatten(
-                        order='F')[:size]
-                # and update stride
-                stride *= stride_arr[i]
+            # get the split indicies
+            masking = parse_split_index(
+                outv, mask, kc.current_order, ans.ndim, self.compare_axis)
 
         else:
             # we supplied a list of indicies, all we really have to do is convert
@@ -308,10 +302,10 @@ class get_comparable(object):
             # dummy comparison axis
             comp_axis = np.arange(ans.ndim)
             # convert inds
-            masking = _get_index(mask, comp_axis)
+            masking = tuple(_get_index(mask, comp_axis))
 
         # and return
-        return outv[tuple(masking)]
+        return outv[masking]
 
 
 def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
