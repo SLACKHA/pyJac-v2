@@ -6,7 +6,7 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 
 
 def test_sympy_exists():
-    sp_path = os.path.normpath(os.path.join(script_dir, os.pardir,
+    sp_path = os.path.abspath(os.path.join(script_dir, os.pardir,
         'sympy_utils'))
     assert os.path.isfile(os.path.join(sp_path, 'conp_derivation.sympy'))
     assert os.path.isfile(os.path.join(sp_path, 'conv_derivation.sympy'))
