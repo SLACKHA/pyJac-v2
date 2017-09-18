@@ -73,7 +73,7 @@ if __name__ == '__main__':
                         output_args[i], test_arrays[i])))[0]
 
                     if not np.all(np.in1d(misses, lt)):
-                        sys.exit(-1)
+                        sys.exit(1)
 
                     # next check for match at looser tols
                     if np.allclose(output_args[i][misses], test_arrays[i][misses],
@@ -81,4 +81,7 @@ if __name__ == '__main__':
                         continue
 
                 # if not a match, exit
-                sys.exit(-1)
+                sys.exit(2)
+
+    # success
+    sys.exit(0)
