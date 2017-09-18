@@ -89,8 +89,10 @@ def distutils_dir_name(dname):
 
 
 home_dir = os.path.abspath(os.path.dirname(__file__))
+
+
 def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=False,
-    platform='', output_full_rop=False):
+                     obj_dir=None, platform='', output_full_rop=False):
     """Generates a Python wrapper for the given language and source files
 
     Parameters
@@ -101,16 +103,19 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         Directory path of source files.
     build_dir : str
         Directory path of the generated c/cuda/opencl library
-    out_dir : Optional[str]
+    out_dir : Optional [str]
         Directory path for the output python library
-    auto_diff : Optional[bool]
+    obj_dir: Optional [str]
+        Directory path to place the compiled objects
+    auto_diff : Optional [bool]
         Optional; if ``True``, build autodifferentiation library
     platform : Optional[str]
         Optional; if specified, the platform for OpenCL execution
     output_full_rop : bool
         If ``True``, output forward and reversse rates of progress
-        Useful in testing, as there are serious floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to Cantera
+        -- Useful in testing, as there are serious floating point errors for
+        net production rates near equilibrium, invalidating direct comparison to
+        Cantera
     Returns
     -------
     None
@@ -129,10 +134,9 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
     ext = '.so' if shared else '.a'
     lib = None
     if lang != 'tchem':
-        #first generate the library
-        lib = generate_library(lang, source_dir, out_dir=build_dir,
-                               shared=shared, auto_diff=auto_diff
-                               )
+        # first generate the library
+        lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
+                               shared=shared, auto_diff=auto_diff)
         lib = os.path.normpath(lib)
         if shared:
             lib = lib[lib.index('lib') + len('lib'):lib.index(ext)]

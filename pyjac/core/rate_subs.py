@@ -3525,23 +3525,24 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
         mapstore=mapstore)
 
 
-def write_chem_utils(specs, eqs, loopy_opts,
+def write_chem_utils(eqs, reacs, specs, loopy_opts, conp=True,
                      test_size=None, auto_diff=False):
-    """Write subroutine to evaluate species thermodynamic properties.
-
-    Notes
-    -----
-    Thermodynamic properties include:  enthalpy, energy, specific heat
-    (constant pressure and volume).
+    """Helper function that generates kernels for
+       evaluation of species thermodynamic quantities
 
     Parameters
     ----------
-    specs : list of `SpecInfo`
-        List of species in the mechanism.
     eqs : dict
         Sympy equations / variables for constant pressure / constant volume systems
-    loopy_opts : `loopy_options` object
+    reacs : list of :class:`ReacInfo`
+        List of species in the mechanism.
+    specs : list of :class:`SpecInfo`
+        List of species in the mechanism.
+    loopy_opts : :class:`loopy_options` object
         A object containing all the loopy options to execute
+    conp : bool
+        If true, generate equations using constant pressure assumption
+        If false, use constant volume equations
     test_size : int
         If not None, this kernel is being used for testing.
     auto_diff : bool
@@ -3549,31 +3550,35 @@ def write_chem_utils(specs, eqs, loopy_opts,
 
     Returns
     -------
-    global_defines : list of :class:`loopy.TemporaryVariable`
-        The global variables for this kernel that need definition in the memory manager
+    kernel_gen : :class:`kernel_generator`
+        The generator responsible for creating the resulting code
 
     """
 
+    # figure out rates and info
+    rate_info = assign_rates(reacs, specs, loopy_opts.rate_spec)
+
+    # set test size
     if test_size is None:
         test_size = 'problem_size'
 
-    # generate the kernels
-    conp_eqs = eqs['conp']
-    conv_eqs = eqs['conv']
+    # create the namestore
+    nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
 
-    nicenames = ['cp', 'h', 'cv', 'u', 'b']
+    # generate the kernels
+    eq = eqs['conp'] if conp else eqs['conv']
+    output = ['cp', 'h', 'b'] if conp else ['cv', 'u', 'b']
     kernels = []
-    for nicename in nicenames:
-        eq = conp_eqs if nicename in ['h', 'cp'] else conv_eqs
-        kernels.append(polyfit_kernel_gen(nicename,
-                                          eq, specs, loopy_opts, test_size))
+    for nicename in output:
+        kernels.append(polyfit_kernel_gen(nicename, eq, loopy_opts,
+                                          nstore, test_size))
 
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='chem_utils',
         kernels=kernels,
         input_arrays=['phi'],
-        output_arrays=nicenames,
+        output_arrays=output,
         auto_diff=auto_diff,
         test_size=test_size
     )

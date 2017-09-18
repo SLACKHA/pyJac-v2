@@ -1,12 +1,11 @@
 import os
-import filecmp
-from ..core.rate_subs import write_specrates_kernel, write_chem_utils
+from ..core.rate_subs import write_specrates_kernel, write_chem_utils, assign_rates
 from . import TestClass
-from ..loopy_utils.loopy_utils import loopy_options
+from ..loopy_utils.loopy_utils import loopy_options, RateSpecialization
 from ..libgen import generate_library
 from ..core.mech_auxiliary import write_aux, write_mechanism_header
 from ..pywrap.pywrap_gen import generate_wrapper
-from .. import site_conf as site
+from ..core.array_creator import NameStore
 from . import test_utils as test_utils
 from optionloop import OptionLoop
 from collections import OrderedDict
@@ -17,25 +16,34 @@ import sys
 import subprocess
 import numpy as np
 from .. import utils
+from parameterized import parameterized
 
 
 class SubTest(TestClass):
+    def __cleanup(self):
+        # remove library
+        test_utils.clean_dir(self.store.lib_dir)
+        # remove build
+        test_utils.clean_dir(self.store.obj_dir)
+        # clean dummy builder
+        dist_build = os.path.join(self.store.build_dir, 'build')
+        if os.path.exists(dist_build):
+            shutil.rmtree(dist_build)
+        # clean sources
+        test_utils.clean_dir(self.store.build_dir)
 
     def __get_spec_lib(self, state, eqs, opts):
         build_dir = self.store.build_dir
         conp = state['conp']
         kgen = write_specrates_kernel(eqs, self.store.reacs, self.store.specs, opts,
                                       conp=conp)
-        kgen2 = write_chem_utils(self.store.specs, eqs, opts)
-        # add deps
-        kgen.add_depencencies([kgen2])
         # generate
         kgen.generate(build_dir)
         # write header
         write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
-    def __get_objs(self):
-        opts = loopy_options(lang='opencl',
+    def __get_objs(self, lang='opencl'):
+        opts = loopy_options(lang=lang,
                              width=None, depth=None, ilp=False,
                              unr=None, order='C', platform='CPU')
         eqs = {'conp': self.store.conp_eqs, 'conv': self.store.conv_eqs}
@@ -45,28 +53,36 @@ class SubTest(TestClass):
             ('shared', [True, False])]))
         return opts, eqs, oploop
 
-    def test_compile_specrates_knl(self):
-        opts, eqs, oploop = self.__get_objs()
+    @parameterized.expand([('opencl',), ('c',)])
+    def test_compile_specrates_knl(self, lang):
+        opts, eqs, oploop = self.__get_objs(lang=lang)
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
         for state in oploop:
+            # clean old
+            self.__cleanup()
+            # create / write files
             self.__get_spec_lib(state, eqs, opts)
             # compile
             generate_library(opts.lang, build_dir, obj_dir=obj_dir,
-                             build_dir=obj_dir,
                              out_dir=lib_dir, shared=state['shared'],
-                             finite_difference=False, auto_diff=False)
+                             auto_diff=False)
 
-    def test_specrates_pywrap(self):
-        opts, eqs, oploop = self.__get_objs()
+    @parameterized.expand([('opencl',), ('c',)])
+    def test_specrates_pywrap(self, lang):
+        opts, eqs, oploop = self.__get_objs(lang=lang)
         build_dir = self.store.build_dir
+        obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
         for state in oploop:
+            # clean old
+            self.__cleanup()
+            # create / write files
             self.__get_spec_lib(state, eqs, opts)
             # test wrapper generation
             generate_wrapper(opts.lang, build_dir,
-                             out_dir=lib_dir)
+                             obj_dir=obj_dir, out_dir=lib_dir, auto_diff=False)
             # test import
             importlib.import_module('pyjac_ocl')
 
