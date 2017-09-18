@@ -5,6 +5,7 @@ import subprocess
 import sys
 import shutil
 from multiprocessing import cpu_count
+import logging
 
 # local imports
 from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
@@ -23,7 +24,8 @@ from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from ..core.mech_auxiliary import write_aux
 from ..pywrap.pywrap_gen import generate_wrapper
 from . import test_utils as test_utils
-from .test_utils import get_comparable, indexer, _generic_tester
+from .test_utils import (get_comparable, indexer, _generic_tester, parse_split_index,
+                         _get_eqs_and_oploop)
 
 # modules
 import cantera as ct
@@ -946,11 +948,9 @@ class SubTest(TestClass):
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')
     def test_specrates(self, lang):
-        eqs, oploop = self.__get_eqs_and_oploop(
-                do_ratespec=True, do_ropsplit=True,
-                do_conp=True,
-                do_vector=lang != 'c',
-                langs=[lang])
+        eqs, oploop = _get_eqs_and_oploop(
+                self, do_ratespec=True, do_ropsplit=True, do_conp=True,
+                do_vector=lang != 'c', langs=[lang])
 
         package_lang = {'opencl': 'ocl',
                         'c': 'c'}
@@ -1048,7 +1048,7 @@ class SubTest(TestClass):
             # index into concs to ge the last species
             if concs.ndim == 3:
                 slice_ind = parse_split_index(
-                    concs, len(self.store.specs) - 1, opts.order)
+                    concs, (np.array([len(self.store.specs) - 1]),), opts.order)
             else:
                 slice_ind = [slice(None), -1]
 
@@ -1114,5 +1114,6 @@ class SubTest(TestClass):
                 for x in args + tests:
                     os.remove(x)
                 os.remove(os.path.join(lib_dir, 'test.py'))
-            except:
+            except Exception as e:
+                logging.error(e)
                 assert False, 'Species rates error'
