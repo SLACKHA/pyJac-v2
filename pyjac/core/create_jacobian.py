@@ -4672,7 +4672,7 @@ def create_jacobian(lang,
         gen = get_jacobian_kernel(eqs, reacs, specs, loopy_opts, gen, conp=conp)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
 
-    # write the kerenl
+    # write the kernel
     gen.generate(build_path, data_filename=data_filename)
     return 0
 

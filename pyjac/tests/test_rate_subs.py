@@ -16,8 +16,7 @@ from ..loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
 from . import TestClass
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from . import test_utils as test_utils
-from .test_utils import (get_comparable, indexer, _generic_tester,
-                         _get_eqs_and_oploop, _full_kernel_test)
+from .test_utils import (get_comparable, indexer, _generic_tester, _full_kernel_test)
 
 # modules
 import cantera as ct
