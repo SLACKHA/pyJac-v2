@@ -4313,8 +4313,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     allint = {'net': rate_info['net']['allint']}
 
     # rate of progress derivatives
-    __add_knl(dRopi_dnj(eqs, loopy_opts, nstore, allint, conp=conp,
-                        test_size=test_size))
+    __add_knl(dRopi_dnj(eqs, loopy_opts, nstore, allint, test_size=test_size))
 
     # and the third body / falloff derivatives
     if rate_info['thd']['num']:
@@ -4335,11 +4334,11 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     # and thermo derivatives
     __add_knl(thermo_temperature_derivative(
-        nstore.dspec_heat.name, eqs, loopy_opts, nstore, test_size=None))
+        nstore.dspec_heat.name, eqs, loopy_opts, nstore, test_size=test_size))
 
     if rate_info['rev']['num']:
         __add_knl(thermo_temperature_derivative(
-            nstore.db.name, eqs, loopy_opts, nstore, test_size=None))
+            nstore.db.name, eqs, loopy_opts, nstore, test_size=test_size))
 
     # next, the temperature derivative w.r.t. species
     __add_knl(dTdot_dnj(eqs, loopy_opts, nstore, test_size=test_size))
@@ -4356,14 +4355,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     # check for plog
     if rate_info['plog']['num']:
-        __add_knl(dRopi_plog_dT(eqs, loopy_opts, nstore, rate_info['plog']['max_P'],
+        __add_knl(dRopi_plog_dT(eqs, loopy_opts, nstore,
+                                maxP=rate_info['plog']['max_P'],
                                 test_size=test_size))
 
     # check for chebyshev
     if rate_info['cheb']['num']:
         __add_knl(dRopi_cheb_dT(eqs, loopy_opts, nstore,
-                                np.max(rate_info['cheb']['num_P']),
-                                np.max(rate_info['cheb']['num_T']),
+                                maxP=np.max(rate_info['cheb']['num_P']),
+                                maxT=np.max(rate_info['cheb']['num_T']),
                                 test_size=test_size))
 
     # check for third body terms
@@ -4395,14 +4395,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     # check for plog
     if rate_info['plog']['num']:
         __add_knl(dRopi_plog_dE(
-            eqs, loopy_opts, nstore, rate_info['plog']['max_P'],
+            eqs, loopy_opts, nstore, maxP=rate_info['plog']['max_P'],
             conp=conp, test_size=test_size))
 
     # check for cheb
     if rate_info['cheb']['num']:
         __add_knl(dRopi_cheb_dE(
             eqs, loopy_opts, nstore,
-            np.max(rate_info['cheb']['num_P']), np.max(rate_info['cheb']['num_T']),
+            maxP=np.max(rate_info['cheb']['num_P']),
+            maxT=np.max(rate_info['cheb']['num_T']),
             conp=conp, test_size=test_size))
 
     # and the third body / falloff derivativatives
