@@ -880,9 +880,9 @@ ${name} : ${type}
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
 
-        # and the header file
-        headers = ([lp_utils.get_header(x) + '\n' for x in self.kernels] +
-                   [defn_str + utils.line_end[self.lang]])
+        # and the header file (only include self now, as we're using embedded
+        # kernels)
+        headers = [defn_str + utils.line_end[self.lang]]
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + self.name +
                          utils.header_ext[self.lang]), self.lang) as file:
