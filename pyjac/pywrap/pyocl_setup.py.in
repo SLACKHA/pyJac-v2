@@ -1,4 +1,5 @@
-from distutils.core import setup, Extension
+from distutils.core import setup
+from Cython.Distutils.extension import Extension
 import distutils.ccompiler
 
 from Cython.Distutils import build_ext
@@ -13,14 +14,14 @@ includes = [x for x in includes if x.strip()]
 
 distutils.ccompiler.CCompiler.compile = pcc.parallel_compile
 
-ext_modules=[Extension("pyjac_ocl",
-     sources=sources,
-     include_dirs=includes + [numpy.get_include()],
-     language='c',
-     extra_objects=['$libname'],
-     libraries=[${libs}],
-     library_dirs=[${libdirs}]
-     )]
+ext_modules = [Extension("pyjac_ocl",
+                         sources=sources,
+                         include_dirs=includes + [numpy.get_include()],
+                         language='c',
+                         extra_objects=['$libname'],
+                         libraries=[${libs}],
+                         library_dirs=[${libdirs}],
+                         cython_compile_time_env={'TYPE': '${buildtype}'})]
 
 setup(
     name='pyjac_ocl',
