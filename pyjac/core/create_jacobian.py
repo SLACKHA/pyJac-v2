@@ -4448,8 +4448,8 @@ def create_jacobian(lang,
     eqs['conv'] = sp_interp.load_equations(not conp)[1]
 
     # now begin writing subroutines
-    kgen = rate.write_specrates_kernel(eqs, reacs, specs, loopy_opts,
-                                       conp=conp, output_full_rop=output_full_rop)
+    kgen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
+                                     conp=conp, output_full_rop=output_full_rop)
 
     # generate
     kgen.generate(build_path, data_filename=data_filename)
