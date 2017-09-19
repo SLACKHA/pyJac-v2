@@ -3118,10 +3118,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     return list(out_specs.values())
 
 
-def write_specrates_kernel(eqs, reacs, specs,
-                           loopy_opts, conp=True,
-                           test_size=None, auto_diff=False,
-                           output_full_rop=False):
+def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=None,
+                         auto_diff=False, output_full_rop=False):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
@@ -3145,7 +3143,8 @@ def write_specrates_kernel(eqs, reacs, specs,
     output_full_rop : bool
         If ``True``, output forward and reversse rates of progress
         Useful in testing, as there are serious floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to Cantera
+        net production rates near equilibrium, invalidating direct comparison to
+        Cantera
 
     Returns
     -------
@@ -3372,8 +3371,8 @@ def get_rate_eqn(eqs, index='i'):
     Returns
     -------
     rate_eqn_pre : `sympy.Expr`
-        The rate constant before taking the exponential (sympy does odd things upon doing so)
-        This is used for various simplifications
+        The rate constant before taking the exponential (sympy does odd things upon
+        doing so). This is used for various simplifications
 
     """
 
@@ -3404,9 +3403,8 @@ def get_rate_eqn(eqs, index='i'):
                     for x in kf_eqs if reaction_type.elementary in x)[1]
     rate_eqn = sp_utils.sanitize(rate_eqn,
                                  symlist=symlist,
-                                 subs={sp.Symbol('{E_{a}}[i]') / (sp.Symbol('R_u') * T_sym):
-                                       E_sym * Tinv_sym})
-
+                                 subs={sp.Symbol('{E_{a}}[i]') / (
+                                    sp.Symbol('R_u') * T_sym): E_sym * Tinv_sym})
     # finally, alter to exponential form:
     rate_eqn_pre = sp.log(A_sym) + sp.log(T_sym) * b_sym - E_sym * Tinv_sym
     rate_eqn_pre = rate_eqn_pre.subs([(sp.log(A_sym), logA_sym),
@@ -3585,21 +3583,25 @@ def write_chem_utils(eqs, reacs, specs, loopy_opts, conp=True,
 
 
 if __name__ == "__main__":
-    from . import create_jacobian
     args = utils.get_parser()
+
+    from .core.create_jacobian import create_jacobian
     create_jacobian(lang=args.lang,
                     mech_name=args.input,
                     therm_name=args.thermo,
-                    optimize_cache=args.cache_optimizer,
-                    initial_state=args.initial_conditions,
-                    num_blocks=args.num_blocks,
-                    num_threads=args.num_threads,
-                    no_shared=args.no_shared,
-                    L1_preferred=args.L1_preferred,
-                    multi_thread=args.multi_thread,
-                    force_optimize=args.force_optimize,
+                    vector_size=args.vector_size,
+                    wide=args.wide,
+                    deep=args.deep,
+                    ilp=args.ilp,
+                    unr=args.unr,
                     build_path=args.build_path,
-                    skip_jac=True,
-                    last_spec=args.last_species,
-                    auto_diff=args.auto_diff
+                    last_spec=args.last_spec,
+                    platform=args.platform,
+                    data_order=args.data_order,
+                    rate_specialization=args.rate_specialization,
+                    split_rate_kernels=args.split_rate_kernels,
+                    split_rop_net_kernels=args.split_rop_net_kernels,
+                    conp=args.conp,
+                    data_filename=args.data_filename,
+                    skip_jac=True
                     )
