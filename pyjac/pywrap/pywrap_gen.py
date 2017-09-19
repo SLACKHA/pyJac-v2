@@ -11,7 +11,7 @@ from .. import site_conf as site
 
 def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
-                   output_full_rop=False):
+                   output_full_rop=False, btype=build_type.jacobian):
     """Helper method to fill in the template .in files
 
     Parameters
@@ -61,7 +61,8 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
                  'extra_include_dirs': __arr_create(extra_include_dirs),
                  'libs': __arr_create(libraries),
                  'libdirs': __arr_create(libdirs),
-                 'wrapper': wrapper
+                 'wrapper': wrapper,
+                 'buildtype': str(btype)
                  }
     src = src.safe_substitute(file_data)
     with open(setupfile[:setupfile.rindex('.in')], 'w') as file:
@@ -161,7 +162,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
 
     generate_setup(os.path.join(home_dir, setupfile), home_dir, source_dir,
                    build_dir, lib, extra_include_dirs, libraries, libdirs,
-                   output_full_rop=output_full_rop)
+                   output_full_rop=output_full_rop, btype=btype)
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
 
