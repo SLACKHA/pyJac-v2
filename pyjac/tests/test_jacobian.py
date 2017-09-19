@@ -20,6 +20,7 @@ from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
 from .test_utils import kernel_runner, get_comparable, _generic_tester, \
     _full_kernel_test
+from ..libgen import build_type
 
 import numpy as np
 import six
@@ -2188,4 +2189,5 @@ class SubTest(TestClass):
     @attr('long')
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
-                          lambda conp: self.__get_full_jac(conp))
+                          lambda conp: self.__get_full_jac(conp),
+                          btype=build_type.jacobian)

@@ -5,14 +5,12 @@
 # Standard libraries
 import os
 import errno
-from argparse import ArgumentParser
+import argparse
 
 __all__ = ['line_start', 'comment', 'langs', 'file_ext',
            'header_ext', 'line_end', 'exp_10_fun', 'array_chars',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
-           'create_dir', 'get_array', 'get_index', 'reassign_species_lists',
-           'is_integer', 'get_parser'
-           ]
+           'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
 
 line_start = '  '
 comment = dict(c='//', cuda='//',
@@ -56,8 +54,24 @@ array_chars = dict(c="[{}]", cuda="[INDEX({})]",
                    )
 """dict: the characters to format an index into an array per language"""
 
-# if false, zero values will be assumed to have been set previously (by memset etc.)
-# and can be skipped, to increase efficiency
+
+class EnumType(object):
+    """Factory for working with argparse for creating enum object types"""
+    def __init__(self, enumclass):
+        self.enums = enumclass
+
+    def __call__(self, astring):
+        name = self.enums.__name__
+        try:
+            return self.enums[astring.upper()]
+        except KeyError:
+            msg = ', '.join([t.name.lower() for t in self.enums])
+            msg = '{0}: use one of {1}'.format(name, msg)
+            raise argparse.ArgumentTypeError(msg)
+
+    def __repr__(self):
+        astr = ', '.join([t.name.lower() for t in self.enums])
+        return '{0}({1})' % (self.enums.__name__, astr)
 
 
 def get_species_mappings(num_specs, last_species):
@@ -196,65 +210,6 @@ def create_dir(path):
             raise
 
 
-def get_array(lang, name, index, twod=None):
-    """
-    Given a language and an index, returns the proper string index formatted
-    into the appropriate array characters (e.g., [] or ()).
-
-    Parameters
-    ----------
-    lang : str
-        One of the accepted languages
-    name : str
-        The name of the array
-    index : int
-        The index to format
-    twod : int, optional
-        If not ``None`` and the lang is 'fortan' or 'matlab' this will be formatted
-        as a second index in the array.
-
-    Returns
-    -------
-    name : str
-        String with indexed array.
-
-    """
-    if index is None:
-        # a dummy call to see if it's in shared memory
-        return name
-
-    if lang in ['fortran', 'matlab']:
-        if twod is not None:
-            return name + '({}, {})'.format(index + 1, twod + 1)
-        return name + array_chars[lang].format(index + 1)
-    return name + array_chars[lang].format(index)
-
-
-def get_index(lang, index):
-    """
-    Given an integer index this function will return the proper string
-    version of the index based on the language and other considerations
-
-    Parameters
-    ----------
-    lang : str
-        One of the supported languages, {'c', 'cuda', 'fortran', 'matlab'}
-    index : int
-
-    Returns
-    -------
-    str
-        The string corresponding to the correct index to be formatted into the code
-
-    """
-
-    retval = None
-    if lang in ['fortran', 'matlab']:
-        return str(index + 1)
-    if lang in ['c', 'cuda']:
-        return str(index)
-
-
 def reassign_species_lists(reacs, specs):
     """
     Given a list of `ReacInfo`, and `SpecInfo`, this method will update the
@@ -277,9 +232,11 @@ def reassign_species_lists(reacs, specs):
     species_map = {sp.name: i for i, sp in enumerate(specs)}
     for rxn in reacs:
         rxn.reac, rxn.reac_nu = zip(*[(species_map[sp], nu) for sp, nu in
-                                      sorted(zip(rxn.reac, rxn.reac_nu), key=lambda x:species_map[x[0]])])
+                                      sorted(zip(rxn.reac, rxn.reac_nu),
+                                             key=lambda x:species_map[x[0]])])
         rxn.prod, rxn.prod_nu = zip(*[(species_map[sp], nu) for sp, nu in
-                                      sorted(zip(rxn.prod, rxn.prod_nu), key=lambda x:species_map[x[0]])])
+                                      sorted(zip(rxn.prod, rxn.prod_nu),
+                                             key=lambda x:species_map[x[0]])])
         rxn.thd_body_eff = sorted([(species_map[thd[0]], thd[1])
                                    for thd in rxn.thd_body_eff], key=lambda x: x[0])
         if rxn.pdep_sp != '':
@@ -327,7 +284,7 @@ def check_lang(lang):
     -----
     Raised NotImplementedError if incorrect lang given
     """
-    if not lang in langs:
+    if lang not in langs:
         raise NotImplementedError('Language {} not supported'.format(lang))
 
 
@@ -437,7 +394,8 @@ def get_parser():
     parser.add_argument('-b', '--build_path',
                         required=False,
                         default='./out/',
-                        help='The folder to generate the Jacobian and rate subroutines in.'
+                        help='The folder to generate the Jacobian and rate '
+                             'subroutines in.'
                         )
     parser.add_argument('-ls', '--last_species',
                         required=False,

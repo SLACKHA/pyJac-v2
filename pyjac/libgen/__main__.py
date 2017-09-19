@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 
-from .libgen import generate_library
+from .libgen import generate_library, build_type
 from .. import utils
 
 if __name__ == '__main__':
@@ -38,8 +38,12 @@ if __name__ == '__main__':
                         help='If specified, the generated library will be'
                              'a static library (required for CUDA).'
                         )
+    parser.add_argument('-bt', '--build_type',
+                        required=False,
+                        type=utils.EnumType(build_type),
+                        default='jacobian',
+                        help='The type of library to build: {type}')
 
     args = parser.parse_args()
-    generate_library(args.lang, args.source_dir, args.obj_dir,
-                     args.out_dir, not args.static
-                     )
+    generate_library(args.lang, args.source_dir, args.obj_dir, args.out_dir,
+                     not args.static, args.build_type)

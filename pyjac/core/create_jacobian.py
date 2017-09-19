@@ -11,6 +11,7 @@ import sys
 import os
 from math import log
 from string import Template
+import logging
 
 # Local imports
 from .. import utils
@@ -79,10 +80,12 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
     def __add_row(row):
         inds.extend([(row, x) for x in range(row_size)])
 
-    # The first row is all derivatives of the dT/dt term, and no entries are zero
+    # The first row is all derivatives of the dT/dt term, and no entries are
+    # zero
     __add_row(0)
 
-    # the second row is derivatives of the extra variable, and again is non-zero
+    # the second row is derivatives of the extra variable, and again is
+    # non-zero
     __add_row(1)
 
     # From here on out:
@@ -138,7 +141,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
                 thd_ind = np.where(thd_map == rxn)[0][0]
 
             # if the last species directly participates in the reaction, and we're
-            # looking for a full Jacobian, this entire row has non-zero derivatives
+            # looking for a full Jacobian, this entire row has non-zero
+            # derivatives
             if rxn in has_ns or thd_ind in thd_has_ns and \
                     jacobian_type == JacobianType.full:
                 __add_specs(range(row_size))
@@ -235,11 +239,14 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
     k_ind = 'row'
     j_ind = 'col'
     # need jac_array
-    jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, k_ind, j_ind)
+    jac_lp, jac_str = mapstore.apply_maps(
+        namestore.jac, global_ind, k_ind, j_ind)
 
     # and row / col inds
-    row_lp, row_str = mapstore.apply_maps(namestore.flat_jac_row_inds, var_name)
-    col_lp, col_str = mapstore.apply_maps(namestore.flat_jac_col_inds, var_name)
+    row_lp, row_str = mapstore.apply_maps(
+        namestore.flat_jac_row_inds, var_name)
+    col_lp, col_str = mapstore.apply_maps(
+        namestore.flat_jac_col_inds, var_name)
 
     # add arrays
     kernel_data.extend([jac_lp, row_lp, col_lp])
@@ -444,7 +451,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         # factor used for the Theta_Pr part of conp Pr derivative
         conp_theta_pr_fac = Template('- ${Pr_str} * (\
                 ${thd_type_str} != ${unity})').safe_substitute(
-                **locals()) if conp else ''
+            **locals()) if conp else ''
 
         # check for Troe / SRI
         if rxn_type == falloff_form.troe:
@@ -503,7 +510,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         # change the sign on this factor
         conp_theta_pr_fac = Template(' + ${Pr_str} * (\
                 ${thd_type_str} != ${unity})').safe_substitute(
-                **locals()) if conp else ''
+            **locals()) if conp else ''
         fall_finish = '{} * rop_net '.format(V_str) if not conp else \
             ' rop_net'
         Pfac = ' * ' + P_str if conp else ''
@@ -533,11 +540,11 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         """).safe_substitute(**locals())
 
     rop_net_rev_update = ic.get_update_instruction(
-                mapstore, namestore.rop_rev,
-                Template(
-                    'rop_net = rop_net - ${rop_rev_str} \
+        mapstore, namestore.rop_rev,
+        Template(
+            'rop_net = rop_net - ${rop_rev_str} \
                         {id=rop_net_up, dep=rop_net_init}').safe_substitute(
-                        **locals()))
+            **locals()))
 
     # need to update mod term by subtracting off either pres_mod or Pr
     # for conp-third body or falloff respectively
@@ -2206,11 +2213,11 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
         """).safe_substitute(**locals())
 
     rop_net_rev_update = ic.get_update_instruction(
-                mapstore, namestore.rop_rev,
-                Template(
-                    'rop_net = rop_net - ${rop_rev_str} \
+        mapstore, namestore.rop_rev,
+        Template(
+            'rop_net = rop_net - ${rop_rev_str} \
                         {id=rop_net_up, dep=rop_net_init}').safe_substitute(
-                        **locals()))
+            **locals()))
     mix = int(thd_body_type.mix)
     spec = int(thd_body_type.species)
     # and instructions
@@ -3662,7 +3669,8 @@ def __dci_dnj(loopy_opts, namestore,
             species=int(thd_body_type.species),
             fall_update=fall_update,
             fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''),
-            fall_dep_str=(', dep=fall' if fall_type != falloff_form.none else '')
+            fall_dep_str=(
+                ', dep=fall' if fall_type != falloff_form.none else '')
         )
     else:
         extra_inames.append((spec_j, '0 <= {} < {}'.format(
@@ -3723,7 +3731,8 @@ def __dci_dnj(loopy_opts, namestore,
             species=int(thd_body_type.species),
             fall_update=fall_update,
             fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''),
-            fall_dep_str=(', dep=fall' if fall_type != falloff_form.none else '')
+            fall_dep_str=(
+                ', dep=fall' if fall_type != falloff_form.none else '')
         )
 
     inames, ranges = zip(*extra_inames)
@@ -4320,13 +4329,16 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
         __add_knl(dci_thd_dnj(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['lind']['num']:
-            __add_knl(dci_lind_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_lind_dnj(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
-            __add_knl(dci_sri_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_sri_dnj(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
-            __add_knl(dci_troe_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_troe_dnj(eqs, loopy_opts, nstore, test_size=test_size))
 
     # total spec heats
     __add_knl(total_specific_energy(
@@ -4346,7 +4358,8 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     __insert_at(kernels[-1].name)
 
     # and the extra var deriv
-    __add_knl(dEdot_dnj(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(
+        dEdot_dnj(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
     # (depends on dTdot_dnj)
     __insert_at(kernels[-1].name)
 
@@ -4371,13 +4384,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
         __add_knl(dci_thd_dT(eqs, loopy_opts, nstore, test_size))
 
         if rate_info['fall']['lind']['num']:
-            __add_knl(dci_lind_dT(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_lind_dT(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
             __add_knl(dci_sri_dT(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
-            __add_knl(dci_troe_dT(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_troe_dT(eqs, loopy_opts, nstore, test_size=test_size))
 
     # total tempertature derivative
     __add_knl(dTdotdT(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
@@ -4412,13 +4427,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
             eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
 
         if rate_info['fall']['lind']['num']:
-            __add_knl(dci_lind_dE(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_lind_dE(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
             __add_knl(dci_sri_dE(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
-            __add_knl(dci_troe_dE(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(
+                dci_troe_dE(eqs, loopy_opts, nstore, test_size=test_size))
 
     # and the temperature derivative w.r.t. the extra var
     __add_knl(dTdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
@@ -4450,28 +4467,13 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
         barriers=barriers)
 
 
-def create_jacobian(lang,
-                    mech_name=None,
-                    therm_name=None,
-                    gas=None,
-                    vector_size=None,
-                    wide=False,
-                    deep=False,
-                    ilp=False,
-                    unr=None,
-                    build_path='./out/',
-                    last_spec=None,
-                    skip_jac=False,
-                    auto_diff=False,
-                    platform='',
-                    data_order='C',
-                    rate_specialization='full',
-                    split_rate_kernels=True,
-                    split_rop_net_kernels=False,
-                    conp=True,
-                    data_filename='data.bin',
-                    output_full_rop=False
-                    ):
+def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
+                    vector_size=None, wide=False, deep=False, ilp=None, unr=None,
+                    build_path='./out/', last_spec=None, skip_jac=False,
+                    auto_diff=False, platform='', data_order='C',
+                    rate_specialization='full', split_rate_kernels=True,
+                    split_rop_net_kernels=False, conp=True, data_filename='data.bin',
+                    output_full_rop=False):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4485,16 +4487,20 @@ def create_jacobian(lang,
         Thermodynamic database filename (e.g. 'therm.dat')
         or nothing if info in mechanism file.
     gas : cantera.Solution, optional
-        The mechanism to generate the Jacobian for.  This or ``mech_name`` must be specified
+        The mechanism to generate the Jacobian for.  This or ``mech_name`` must be
+        specified
     vector_size : int
-        The SIMD vector width to use.  If the targeted platform is a GPU, this is the GPU block size
+        The SIMD vector width to use.  If the targeted platform is a GPU,
+        this is the GPU block size
     wide : bool
-        If true, use a 'wide' vectorization strategy. Cannot be specified along with 'deep'.
+        If true, use a 'wide' vectorization strategy. Cannot be specified along with
+        'deep'.
     deep : bool
-        If true, use a 'deep' vectorization strategy.  Cannot be specified along with 'wide'.  Currently broken
+        If true, use a 'deep' vectorization strategy. Cannot be specified along with
+        'wide'.
     unr : int
-        If supplied, unroll inner loops (i.e. those that would be affected by a deep vectorization).
-        Can be used in conjunction with deep or wide parallelism
+        If supplied, unroll inner loops (i.e. those that would be affected by a
+        deep vectorization). Can be used in conjunction with deep or wide parallelism
     build_path : str, optional
         The output directory for the jacobian files
     last_spec : str, optional
@@ -4507,28 +4513,33 @@ def create_jacobian(lang,
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be used
-        *   If a vendor specific string, it will be passed to pyopencl to get the platform
+        *   If a vendor specific string, it will be passed to pyopencl to get the
+            platform
     data_order : {'C', 'F'}
-        The data ordering, 'C' (row-major) recommended for deep vectorizations, while 'F' (column-major)
-        recommended for wide vectorizations
+        The data ordering, 'C' (row-major) recommended for deep vectorizations,
+        while 'F' (column-major) recommended for wide vectorizations
     rate_specialization : {'fixed', 'hybrid', 'full'}
         The level of specialization in evaluating reaction rates.
         'Full' is the full form suggested by Lu et al. (citation)
         'Hybrid' turns off specializations in the exponential term (Ta = 0, b = 0)
         'Fixed' is a fixed expression exp(logA + b logT + Ta / T)
     split_rate_kernels : bool
-        If True, and the :param"`rate_specialization` is not 'Fixed', split different evaluation types
-        into different kernels
+        If True, and the :param"`rate_specialization` is not 'Fixed', split different
+        valuation types into different kernels
     split_rop_net_kernels : bool
-        If True, break different ROP values (fwd / back / pdep) into different kernels
+        If True, break different ROP values (fwd / back / pdep) into different
+        kernels
     conp : bool
-        If True, use the constant pressure assumption.  If False, use the constant volume assumption.
+        If True, use the constant pressure assumption.  If False, use the constant
+        volume assumption.
     data_filename : str
-        If specified, the path to the data.bin file that will be used for kernel testing
+        If specified, the path to the data.bin file that will be used for kernel
+        testing
     output_full_rop : bool
         If ``True``, output forward and reversse rates of progress
         Useful in testing, as there are serious floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to Cantera
+        net production rates near equilibrium, invalidating direct comparison to
+        Cantera
     Returns
     -------
     None
@@ -4559,12 +4570,9 @@ def create_jacobian(lang,
     elif deep:
         depth = vector_size
 
-    rspec = ['fixed', 'hybrid', 'full']
-    rate_spec_val = next(
-        (i for i, x in enumerate(rspec) if rate_specialization.lower() == x), None)
-    assert rate_spec_val is not None, 'Error: rate specialization value {} not recognized.\nNeeds to be one of: {}'.format(
-        rate_specialization, ', '.join(rspec))
-    rate_spec_val = lp_utils.RateSpecialization(rate_spec_val)
+    # convert enums
+    rate_spec_val = lp_utils.RateSpecialization(
+        utils.EnumType(rate_specialization)(rate_specialization.lower()))
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
@@ -4600,58 +4608,53 @@ def create_jacobian(lang,
         elems, specs, reacs = mech.read_mech(mech_name, therm_name)
 
     if not specs:
-        print('No species found in file: {}'.format(mech_name))
+        logging.error('No species found in file: {}'.format(mech_name))
         sys.exit(3)
 
     if not reacs:
-        print('No reactions found in file: {}'.format(mech_name))
+        logging.error('No reactions found in file: {}'.format(mech_name))
         sys.exit(3)
 
-    # #check to see if the last_spec is specified
-    # if last_spec is not None:
-    #     #find the index if possible
-    #     isp = next((i for i, sp in enumerate(specs)
-    #                if sp.name.lower() == last_spec.lower().strip()),
-    #                None
-    #                )
-    #     if isp is None:
-    #         print('Warning: User specified last species {} '
-    #               'not found in mechanism.'
-    #               '  Attempting to find a default species.'.format(last_spec)
-    #               )
-    #         last_spec = None
-    #     else:
-    #         last_spec = isp
-    # else:
-    #     print('User specified last species not found or not specified.  '
-    #           'Attempting to find a default species')
-    # if last_spec is None:
-    #     wt = chem.get_elem_wt()
-    #     #check for N2, Ar, He, etc.
-    #     candidates = [('N2', wt['n'] * 2.), ('Ar', wt['ar']),
-    #                     ('He', wt['he'])]
-    #     for sp in candidates:
-    #         match = next((isp for isp, spec in enumerate(specs)
-    #                       if sp[0].lower() == spec.name.lower() and
-    #                       sp[1] == spec.mw),
-    #                         None)
-    #         if match is not None:
-    #             last_spec = match
-    #             break
-    #     if last_spec is not None:
-    #         print('Default last species '
-    #               '{} found.'.format(specs[last_spec].name)
-    #               )
-    # if last_spec is None:
-    #     print('Warning: Neither a user specified or default last species '
-    #           'could be found. Proceeding using the last species in the '
-    #           'base mechanism: {}'.format(specs[-1].name))
-    #     last_spec = len(specs) - 1
+    # check to see if the last_spec is specified
+    if last_spec is not None:
+        # find the index if possible
+        isp = next((i for i, sp in enumerate(specs)
+                    if sp.name.lower() == last_spec.lower().strip()),
+                   None
+                   )
+        if isp is None:
+            logging.warn('User specified last species {} '
+                         'not found in mechanism.'
+                         '  Attempting to find a default species.'.format(last_spec))
+            last_spec = None
+        else:
+            last_spec = isp
+    else:
+        logging.warn('User specified last species not found or not specified.  '
+                     'Attempting to find a default species')
+    if last_spec is None:
+        wt = chem.get_elem_wt()
+        # check for N2, Ar, He, etc.
+        candidates = [('N2', wt['n'] * 2.), ('Ar', wt['ar']),
+                      ('He', wt['he'])]
+        for sp in candidates:
+            match = next((isp for isp, spec in enumerate(specs)
+                          if sp[0].lower() == spec.name.lower() and
+                          sp[1] == spec.mw), None)
+            if match is not None:
+                last_spec = match
+                break
+        if last_spec is not None:
+            logging.info('Default last species {} found.'.format(
+                specs[last_spec].name))
+    if last_spec is None:
+        logging.warn('Neither a user specified or default last species '
+                     'could be found. Proceeding using the last species in the '
+                     'base mechanism: {}'.format(specs[-1].name))
+        last_spec = len(specs) - 1
 
-    # #pick up the last_spec and drop it at the end
-    # temp = specs[:]
-    # specs[-1] = temp[last_spec]
-    # specs[last_spec] = temp[-1]
+    # pick up the last_spec and drop it at the end
+    specs.append(specs.pop(last_spec))
 
     # write headers
     aux.write_aux(build_path, loopy_opts, specs, reacs)
@@ -4669,9 +4672,6 @@ def create_jacobian(lang,
         # just specrates
         gen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop)
-
-    # generate species rate subroutines
-    gen.generate(build_path, data_filename=data_filename)
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename)
@@ -4694,5 +4694,5 @@ if __name__ == "__main__":
                     force_optimize=args.force_optimize,
                     build_path=args.build_path,
                     last_spec=args.last_species,
-                    auto_diff=args.auto_diff
+                    auto_diff=args.auto_diff,
                     )

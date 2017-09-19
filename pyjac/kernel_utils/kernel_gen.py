@@ -456,10 +456,8 @@ class kernel_generator(object):
                                'kernel.h.in'), 'r') as file:
             file_src = Template(file.read())
 
-        self.header_name = os.path.join(path,
-                                        self.file_prefix + self.name +
-                                        '_main' + utils.header_ext[
-                                            self.lang])
+        self.header_name = os.path.join(path, self.file_prefix + self.name + '_main'
+                                        + utils.header_ext[self.lang])
         with filew.get_file(os.path.join(path, self.header_name), self.lang,
                             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
