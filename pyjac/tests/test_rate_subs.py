@@ -8,7 +8,7 @@ from multiprocessing import cpu_count
 import logging
 
 # local imports
-from ..core.rate_subs import (write_specrates_kernel, get_rate_eqn,
+from ..core.rate_subs import (get_specrates_kernel, get_rate_eqn,
                               assign_rates, get_simple_arrhenius_rates,
                               get_plog_arrhenius_rates, get_lind_kernel,
                               get_cheb_arrhenius_rates, get_thd_body_concs,
@@ -999,7 +999,7 @@ class SubTest(TestClass):
             conp = state['conp']
 
             # generate kernel
-            kgen = write_specrates_kernel(eqs, self.store.reacs,
+            kgen = get_specrates_kernel(eqs, self.store.reacs,
                                           self.store.specs, opts,
                                           conp=conp)
 

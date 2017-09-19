@@ -1,5 +1,5 @@
 import os
-from ..core.rate_subs import write_specrates_kernel
+from ..core.rate_subs import get_specrates_kernel
 from . import TestClass
 from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library
@@ -33,7 +33,7 @@ class SubTest(TestClass):
     def __get_spec_lib(self, state, eqs, opts):
         build_dir = self.store.build_dir
         conp = state['conp']
-        kgen = write_specrates_kernel(eqs, self.store.reacs, self.store.specs, opts,
+        kgen = get_specrates_kernel(eqs, self.store.reacs, self.store.specs, opts,
                                       conp=conp)
         # generate
         kgen.generate(build_dir)
