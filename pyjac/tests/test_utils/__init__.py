@@ -468,6 +468,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
     build_dir = self.store.build_dir
     obj_dir = self.store.obj_dir
     lib_dir = self.store.lib_dir
+    home_dir = self.store.script_dir
 
     def __cleanup():
         # remove library
@@ -475,7 +476,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # remove build
         clean_dir(obj_dir)
         # clean dummy builder
-        dist_build = os.path.join(build_dir, 'build')
+        dist_build = os.path.join(home_dir, 'build')
         if os.path.exists(dist_build):
             shutil.rmtree(dist_build)
         # clean sources
@@ -541,9 +542,10 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         # and now the test values
         tests = []
-        test = test_arr
         if six.callable(test_arr):
-            test = test(conp)
+            test = np.array(test_arr(conp), copy=True, order=opts.order)
+        else:
+            test = np.array(test_arr, copy=True, order=opts.order)
         __saver(test, test_arr_name, tests)
 
         # find where the last species concentration is zero to mess with the
@@ -596,7 +598,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # number of devices is:
         #   number of threads for CPU
         #   1 for GPU
-        num_devices = cpu_count() / 2
+        num_devices = int(cpu_count() / 2)
         if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
             num_devices = 1
 
