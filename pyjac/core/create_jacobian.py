@@ -4237,6 +4237,219 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
     return [x for x in [__dropidnj(False), __dropidnj(True)] if x is not None]
 
 
+def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, sgen, conp=True,
+                        test_size=None, auto_diff=False):
+    """Helper function that generates kernels for
+       evaluation of reaction rates / rate constants / and species rates
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume systems
+    reacs : list of :class:`ReacInfo`
+        List of species in the mechanism.
+    specs : list of :class:`SpecInfo`
+        List of species in the mechanism.
+    loopy_opts : :class:`loopy_options` object
+        A object containing all the loopy options to execute
+    sgen: :class:`kernel_generator`
+        The species rates :class:`kernel_generator` for this mechanism, created
+        by :func:`get_specrates_kernel`
+    conp : bool
+        If true, generate equations using constant pressure assumption
+        If false, use constant volume equations
+    test_size : int
+        If not None, this kernel is being used for testing.
+    auto_diff : bool
+        If ``True``, generate files for Adept autodifferention library.
+
+    Returns
+    -------
+    kernel_gen : :class:`kernel_generator`
+        The generator responsible for creating the resulting Jacobian code
+
+    """
+
+    # figure out rates and info
+    rate_info = determine_jac_inds(reacs, specs, loopy_opts.rate_spec)
+
+    # set test size
+    if test_size is None:
+        test_size = 'problem_size'
+
+    # create the namestore
+    nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
+
+    kernels = []
+    barriers = []
+
+    def __add_knl(knls, klist=None):
+        if klist is None:
+            klist = kernels
+        try:
+            klist.extend(knls)
+        except:
+            klist.append(knls)
+
+    # barrier management
+    def __insert_at(name, before=True):
+        if loopy_opts.depth:
+            ind = next((i for i, knl in enumerate(kernels)
+                        if knl.name == name), None)
+            if ind is not None:
+                if before:
+                    barriers.append((ind - 1, ind, 'global'))
+                else:
+                    barriers.append((ind, ind + 1, 'global'))
+
+    # Note:
+    # the order in which these kernels get added is important
+    # the kernel generator uses the input order to generate the wrapping
+    # kernel calls
+    # hence, any data dependencies should be expressed in the order added here
+
+    # reset kernels
+    __add_knl(reset_arrays(eqs, loopy_opts, nstore, test_size=test_size))
+
+    # first, add the species derivatives
+
+    allint = {'net': rate_info['net']['allint']}
+
+    # rate of progress derivatives
+    __add_knl(dRopi_dnj(eqs, loopy_opts, nstore, allint, conp=conp,
+                        test_size=test_size))
+
+    # and the third body / falloff derivatives
+    if rate_info['thd']['num']:
+        __add_knl(dci_thd_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['lind']['num']:
+            __add_knl(dci_lind_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['sri']['num']:
+            __add_knl(dci_sri_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['troe']['num']:
+            __add_knl(dci_troe_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+
+    # total spec heats
+    __add_knl(total_specific_energy(
+        eqs, loopy_opts, nstore, test_size=test_size))
+
+    # and thermo derivatives
+    __add_knl(thermo_temperature_derivative(
+        nstore.dspec_heat.name, eqs, loopy_opts, nstore, test_size=None))
+
+    if rate_info['rev']['num']:
+        __add_knl(thermo_temperature_derivative(
+            nstore.db.name, eqs, loopy_opts, nstore, test_size=None))
+
+    # next, the temperature derivative w.r.t. species
+    __add_knl(dTdot_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+    # (depends on total_specific_energy)
+    __insert_at(kernels[-1].name)
+
+    # and the extra var deriv
+    __add_knl(dEdot_dnj(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    # (depends on dTdot_dnj)
+    __insert_at(kernels[-1].name)
+
+    # temperature derivatives
+    __add_knl(dRopidT(eqs, loopy_opts, nstore, test_size=test_size))
+
+    # check for plog
+    if rate_info['plog']['num']:
+        __add_knl(dRopi_plog_dT(eqs, loopy_opts, nstore, rate_info['plog']['max_P'],
+                                test_size=test_size))
+
+    # check for chebyshev
+    if rate_info['cheb']['num']:
+        __add_knl(dRopi_cheb_dT(eqs, loopy_opts, nstore,
+                                np.max(rate_info['cheb']['num_P']),
+                                np.max(rate_info['cheb']['num_T']),
+                                test_size=test_size))
+
+    # check for third body terms
+    if rate_info['thd']['num']:
+        __add_knl(dci_thd_dT(eqs, loopy_opts, nstore, test_size))
+
+        if rate_info['fall']['lind']['num']:
+            __add_knl(dci_lind_dT(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['sri']['num']:
+            __add_knl(dci_sri_dT(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['troe']['num']:
+            __add_knl(dci_troe_dT(eqs, loopy_opts, nstore, test_size=test_size))
+
+    # total tempertature derivative
+    __add_knl(dTdotdT(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    # barrier for dnj / dT
+    __insert_at(kernels[-1].name)
+
+    # total extra var derivative w.r.t T
+    __add_knl(dEdotdT(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    # barrier for dependency on dTdotdT
+    __insert_at(kernels[-1].name)
+
+    # finally, do extra var derivatives
+    __add_knl(dRopidE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+
+    # check for plog
+    if rate_info['plog']['num']:
+        __add_knl(dRopi_plog_dE(
+            eqs, loopy_opts, nstore, rate_info['plog']['max_P'],
+            conp=conp, test_size=test_size))
+
+    # check for cheb
+    if rate_info['cheb']['num']:
+        __add_knl(dRopi_cheb_dE(
+            eqs, loopy_opts, nstore,
+            np.max(rate_info['cheb']['num_P']), np.max(rate_info['cheb']['num_T']),
+            conp=conp, test_size=test_size))
+
+    # and the third body / falloff derivativatives
+    if rate_info['thd']['num']:
+        __add_knl(dci_thd_dE(
+            eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+
+        if rate_info['fall']['lind']['num']:
+            __add_knl(dci_lind_dE(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['sri']['num']:
+            __add_knl(dci_sri_dE(eqs, loopy_opts, nstore, test_size=test_size))
+
+        if rate_info['fall']['troe']['num']:
+            __add_knl(dci_troe_dE(eqs, loopy_opts, nstore, test_size=test_size))
+
+    # and the temperature derivative w.r.t. the extra var
+    __add_knl(dTdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    # inser barrier for dnj / dE from the pervious kernels
+    __insert_at(kernels[-1].name)
+
+    # total extra var derivative w.r.t the extra var
+    __add_knl(dEdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    # barrier for dependency on dEdotdE
+    __insert_at(kernels[-1].name)
+
+    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
+    output_arrays = ['jac']
+    sub_kernels = sgen.kernels + [kernel for dep in sgen.depends_on
+                                  for kernel in dep.kernels]
+    # get the specrates / thermo
+    return k_gen.make_kernel_generator(
+        loopy_opts=loopy_opts,
+        name='jacobian_kernel',
+        kernels=kernels,
+        external_kernels=sub_kernels,
+        depends_on=[sgen] + sgen.depends_on,
+        input_arrays=input_arrays,
+        output_arrays=output_arrays,
+        auto_diff=auto_diff,
+        test_size=test_size,
+        barriers=barriers)
+
+
 def create_jacobian(lang,
                     mech_name=None,
                     therm_name=None,
@@ -4448,19 +4661,19 @@ def create_jacobian(lang,
     eqs['conv'] = sp_interp.load_equations(not conp)[1]
 
     # now begin writing subroutines
-    kgen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
-                                     conp=conp, output_full_rop=output_full_rop)
+    gen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
+                                    conp=conp, output_full_rop=output_full_rop)
 
-    # generate
-    kgen.generate(build_path, data_filename=data_filename)
+    # generate species rate subroutines
+    gen.generate(build_path, data_filename=data_filename)
 
-    if skip_jac == False:
-        # write Jacobian subroutine
-        touched = write_jacobian(build_path, lang, specs,
-                                 reacs, seen_sp, smm)
+    if not skip_jac:
+        # get Jacobian subroutines
+        gen = get_jacobian_kernel(eqs, reacs, specs, loopy_opts, gen, conp=conp)
+        #  write_sparse_multiplier(build_path, lang, touched, len(specs))
 
-        write_sparse_multiplier(build_path, lang, touched, len(specs))
-
+    # write the kerenl
+    gen.generate(build_path, data_filename=data_filename)
     return 0
 
 
