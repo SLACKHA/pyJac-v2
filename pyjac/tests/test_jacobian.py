@@ -14,11 +14,12 @@ from ..core.create_jacobian import (
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
     dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE,
-    determine_jac_inds, reset_arrays)
+    determine_jac_inds, reset_arrays, get_jacobian_kernel)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
-from .test_utils import kernel_runner, get_comparable, _generic_tester
+from .test_utils import kernel_runner, get_comparable, _generic_tester, \
+    _full_kernel_test
 
 import numpy as np
 import six
@@ -27,6 +28,7 @@ import cantera as ct
 
 from nose.plugins.attrib import attr
 from unittest.case import SkipTest
+from parameterized import parameterized
 
 
 class editor(object):
@@ -987,6 +989,7 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(dci_troe_dnj, kc)
 
+    @attr('long')
     def test_total_specific_energy(self):
         # conp
         ref_cp = np.sum(self.store.concs * self.store.spec_cp, axis=1)
@@ -1160,6 +1163,7 @@ class SubTest(TestClass):
 
         return jac
 
+    @attr('long')
     def test_dTdot_dnj(self):
         # conp
 
@@ -1245,6 +1249,7 @@ class SubTest(TestClass):
 
         self._generic_jac_tester(dTdot_dnj, kc, conp=False)
 
+    @attr('long')
     def test_dEdot_dnj(self):
         # conp
 
@@ -1310,6 +1315,7 @@ class SubTest(TestClass):
 
         self._generic_jac_tester(dEdot_dnj, kc, conp=False)
 
+    @attr('long')
     def test_thermo_derivatives(self):
         def __test_name(myname):
             conp = myname in ['cp']
@@ -1354,6 +1360,7 @@ class SubTest(TestClass):
         __test_name('cv')
         __test_name('b')
 
+    @attr('long')
     def test_dRopidT(self, rxn_type=reaction_type.elementary,
                      test_variable=False, conp=True):
         # test conp (form doesn't matter)
@@ -1568,20 +1575,25 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(tester, kc, **other_args)
 
+    @attr('long')
     def test_dRopi_plog_dT(self):
         self.test_dRopidT(reaction_type.plog)
 
+    @attr('long')
     def test_dRopi_cheb_dT(self):
         self.test_dRopidT(reaction_type.cheb)
 
+    @attr('long')
     def test_dRopi_dE(self):
         self.test_dRopidT(reaction_type.elementary, True, conp=True)
         self.test_dRopidT(reaction_type.elementary, True, conp=False)
 
+    @attr('long')
     def test_dRopi_plog_dE(self):
         self.test_dRopidT(reaction_type.plog, True, conp=True)
         self.test_dRopidT(reaction_type.plog, True, conp=False)
 
+    @attr('long')
     def test_dRopi_cheb_dE(self):
         self.test_dRopidT(reaction_type.cheb, True, conp=True)
         self.test_dRopidT(reaction_type.cheb, True, conp=False)
@@ -1598,6 +1610,7 @@ class SubTest(TestClass):
 
         return namestore, rate_info, opts, eqs
 
+    @attr('long')
     def test_dTdot_dT(self):
         def __subtest(conp):
             # conp
@@ -1676,6 +1689,7 @@ class SubTest(TestClass):
         # test conv
         __subtest(False)
 
+    @attr('long')
     def test_dci_thd_dT(self, rxn_type=reaction_type.thd, test_variable=False,
                         conp=True):
         # test conp (form doesn't matter)
@@ -1910,31 +1924,39 @@ class SubTest(TestClass):
 
         return self._generic_jac_tester(tester, kc, **extra_args)
 
+    @attr('long')
     def test_dci_lind_dT(self):
         self.test_dci_thd_dT(falloff_form.lind)
 
+    @attr('long')
     def test_dci_troe_dT(self):
         self.test_dci_thd_dT(falloff_form.troe)
 
+    @attr('long')
     def test_dci_sri_dT(self):
         self.test_dci_thd_dT(falloff_form.sri)
 
+    @attr('long')
     def test_dci_thd_dE(self):
         self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=True)
         self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=False)
 
+    @attr('long')
     def test_dci_lind_dE(self):
         self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=True)
         self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=False)
 
+    @attr('long')
     def test_dci_troe_dE(self):
         self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=True)
         self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=False)
 
+    @attr('long')
     def test_dci_sri_dE(self):
         self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=True)
         self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=False)
 
+    @attr('long')
     def test_dEdot_dT(self):
         def __subtest(conp):
             # conp
@@ -1985,6 +2007,7 @@ class SubTest(TestClass):
         __subtest(True)
         __subtest(False)
 
+    @attr('long')
     def test_dTdot_dE(self):
         def __subtest(conp):
             # conp
@@ -2051,6 +2074,7 @@ class SubTest(TestClass):
         __subtest(True)
         __subtest(False)
 
+    @attr('long')
     def test_dEdot_dE(self):
         def __subtest(conp):
             # conp
@@ -2098,6 +2122,7 @@ class SubTest(TestClass):
         __subtest(True)
         __subtest(False)
 
+    @attr('long')
     def test_index_determination(self):
         try:
             from scipy.sparse import csr_matrix, csc_matrix
@@ -2131,6 +2156,7 @@ class SubTest(TestClass):
         assert np.allclose(ret['ccs']['col_ptr'], ccs.indptr) and \
             np.allclose(ret['ccs']['row_ind'], ccs.indices)
 
+    @attr('long')
     def test_reset_arrays(self):
         namestore, _, _, _ = self.__get_non_ad_params(True)
         # find our non-zero indicies
@@ -2157,3 +2183,9 @@ class SubTest(TestClass):
                          compare_axis=comp.compare_axis, **args)
 
         return self._generic_jac_tester(reset_arrays, kc)
+
+    @parameterized.expand([('opencl',), ('c',)])
+    @attr('long')
+    def test_jacobian(self, lang):
+        _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
+            lambda conp: self.__get_full_jac(conp))

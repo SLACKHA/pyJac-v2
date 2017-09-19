@@ -7,13 +7,21 @@ from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
 from ...core.exceptions import MissingPlatformError
 from ...kernel_utils import kernel_gen as k_gen
 from ...core import array_creator as arc
+from ...core.mech_auxiliary import write_aux
 from .. import get_test_platforms
-from optionloop import OptionLoop
-import numpy as np
-import six
+from ...pywrap import generate_wrapper
 
 from collections import OrderedDict
+import shutil
 import logging
+from multiprocessing import cpu_count
+import subprocess
+import sys
+
+from optionloop import OptionLoop
+import numpy as np
+import pyopencl as cl
+import six
 
 
 def __get_template(fname):
@@ -447,3 +455,176 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
         assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
             'Evaluate {} rates failed'.format(func.__name__)
+
+
+def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
+                      **oploop_kwds):
+    eqs, oploop = _get_eqs_and_oploop(
+            self, do_conp=True, do_vector=lang != 'c', langs=[lang],
+            **oploop_kwds)
+
+    package_lang = {'opencl': 'ocl',
+                    'c': 'c'}
+    build_dir = self.store.build_dir
+    obj_dir = self.store.obj_dir
+    lib_dir = self.store.lib_dir
+
+    def __cleanup():
+        # remove library
+        clean_dir(lib_dir)
+        # remove build
+        clean_dir(obj_dir)
+        # clean dummy builder
+        dist_build = os.path.join(build_dir, 'build')
+        if os.path.exists(dist_build):
+            shutil.rmtree(dist_build)
+        # clean sources
+        clean_dir(build_dir)
+
+    P = self.store.P
+    V = self.store.V
+    exceptions = ['conp']
+
+    # load the module tester template
+    mod_test = get_run_source()
+
+    # now start test
+    for i, state in enumerate(oploop):
+        if state['width'] is not None and state['depth'] is not None:
+            continue
+
+        # clean old files
+        __cleanup()
+
+        # create loopy options
+        opts = loopy_options(**{x: state[x] for x in
+                                state if x not in exceptions})
+
+        # check to see if device is CPU
+        # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
+        #        and (opts.depth is None or not opts.use_atomics):
+        #    opts.use_private_memory = True
+
+        conp = state['conp']
+
+        # generate kernel
+        kgen = kernel_gen(eqs, self.store.reacs, self.store.specs, opts, conp=conp)
+
+        # generate
+        kgen.generate(
+            build_dir, data_filename=os.path.join(os.getcwd(), 'data.bin'))
+
+        # write header
+        write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+
+        # generate wrapper
+        generate_wrapper(opts.lang, build_dir, build_dir=obj_dir,
+                         out_dir=lib_dir, platform=str(opts.platform))
+
+        # get arrays
+        phi = np.array(
+            self.store.phi_cp if conp else self.store.phi_cv,
+            order=opts.order, copy=True)
+        param = np.array(P if conp else V, copy=True)
+
+        # save args to dir
+        def __saver(arr, name, namelist):
+            myname = os.path.join(lib_dir, name + '.npy')
+            # need to split inputs / answer
+            np.save(myname, kgen.array_split.split_numpy_arrays(
+                arr)[0].flatten('K'))
+            namelist.append(myname)
+
+        args = []
+        __saver(phi, 'phi', args)
+        __saver(param, 'param', args)
+
+        # and now the test values
+        tests = []
+        test = test_arr
+        if six.callable(test_arr):
+            test = test(conp)
+        __saver(test, test_arr_name, tests)
+
+        # find where the last species concentration is zero to mess with the
+        # tolerances there
+
+        # get split arrays
+        concs, test = kgen.array_split.split_numpy_arrays([
+            self.store.concs, test])
+
+        # index into concs to ge the last species
+        if concs.ndim == 3:
+            slice_ind = parse_split_index(
+                concs, (np.array([len(self.store.specs) - 1]),), opts.order)
+        else:
+            slice_ind = [slice(None), -1]
+
+        # find where it's zero
+        last_zeros = np.where(concs[slice_ind] == 0)
+        count = 0
+
+        # create a ravel index
+        ravel_ind = list(slice_ind[:])
+        for i in range(len(slice_ind)):
+            if slice_ind[i] != slice(None):
+                ravel_ind[i] = np.arange(test.shape[i], dtype=np.int32)
+            else:
+                ravel_ind[i] = last_zeros[count]
+                count += 1
+
+        # and use multi_ravel to convert to linear for dphi
+        # for whatever reason, if we have two ravel indicies with multiple values
+        # we need to need to iterate and stitch them together
+        if len([x for x in ravel_ind if x.size > 1]) > 1:
+            looser_tols = np.empty((0,))
+            # get next multi-valued ravel ind
+            iter_ind = next(i for i, x in enumerate(ravel_ind) if x.size > 1)
+            for x in ravel_ind[iter_ind]:
+                # create copy w/ replaced index
+                copy = ravel_ind[:]
+                copy[iter_ind] = np.array([x], dtype=np.int32)
+                # amd take union of the iterated ravels
+                looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
+                    copy, test.shape, order=opts.order))
+        else:
+            looser_tols = np.ravel_multi_index(
+                ravel_ind, test.shape, order=opts.order)
+        # and force to int for indexing
+        looser_tols = np.array(looser_tols, dtype=np.int32)
+
+        # number of devices is:
+        #   number of threads for CPU
+        #   1 for GPU
+        num_devices = cpu_count() / 2
+        if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
+            num_devices = 1
+
+        # write the module tester
+        with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
+            file.write(mod_test.safe_substitute(
+                package='pyjac_{lang}'.format(
+                    lang=package_lang[opts.lang]),
+                input_args=', '.join('"{}"'.format(x) for x in args),
+                test_arrays=', '.join('"{}"'.format(x) for x in tests),
+                looser_tols='[{}]'.format(
+                    ', '.join(str(x) for x in looser_tols)),
+                rtol=1e-2,
+                atol=1e-8,
+                non_array_args='{}, {}'.format(
+                    self.store.test_size, num_devices),
+                call_name='species_rates',
+                output_files=''))
+
+        try:
+            subprocess.check_call([
+                'python{}.{}'.format(
+                    sys.version_info[0], sys.version_info[1]),
+                os.path.join(lib_dir, 'test.py')])
+            # cleanup
+            for x in args + tests:
+                os.remove(x)
+            os.remove(os.path.join(lib_dir, 'test.py'))
+        except Exception as e:
+            logging.error(e)
+            assert False, '{} error'.format(kgen.name)
