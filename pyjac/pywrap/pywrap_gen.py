@@ -5,7 +5,7 @@ import os
 import subprocess
 from string import Template
 
-from ..libgen import generate_library
+from ..libgen import generate_library, build_type
 from .. import site_conf as site
 
 
@@ -93,8 +93,9 @@ def distutils_dir_name(dname):
 home_dir = os.path.abspath(os.path.dirname(__file__))
 
 
-def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=False,
-                     obj_dir=None, platform='', output_full_rop=False):
+def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
+                     obj_dir=None, platform='', output_full_rop=False,
+                     btype=build_type.jacobian):
     """Generates a Python wrapper for the given language and source files
 
     Parameters
@@ -109,8 +110,6 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
         Directory path for the output python library
     obj_dir: Optional [str]
         Directory path to place the compiled objects
-    auto_diff : Optional [bool]
-        Optional; if ``True``, build autodifferentiation library
     platform : Optional[str]
         Optional; if specified, the platform for OpenCL execution
     output_full_rop : bool
@@ -138,7 +137,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
     if lang != 'tchem':
         # first generate the library
         lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
-                               shared=shared, auto_diff=auto_diff)
+                               shared=shared, btype=btype)
         lib = os.path.abspath(lib)
         if shared:
             lib = lib[lib.index('lib') + len('lib'):lib.index(ext)]
@@ -154,8 +153,6 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
     setupfile = None
     if lang == 'c':
         setupfile = 'pyjacob_setup.py.in'
-        if auto_diff:
-            setupfile = 'adjacob_setup.py.in'
     elif lang == 'opencl':
         setupfile = 'pyocl_setup.py.in'
     else:
@@ -164,8 +161,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None, auto_diff=F
 
     generate_setup(os.path.join(home_dir, setupfile), home_dir, source_dir,
                    build_dir, lib, extra_include_dirs, libraries, libdirs,
-                   output_full_rop=output_full_rop
-                   )
+                   output_full_rop=output_full_rop)
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
 

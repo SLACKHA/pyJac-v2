@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from pywrap_gen import generate_wrapper
 
 from .. import utils
+from ..libgen import build_type
 
 if __name__ == '__main__':
     parser = ArgumentParser(
@@ -26,6 +27,11 @@ if __name__ == '__main__':
                         required=False,
                         default=None,
                         help='The folder to place the generated library in')
+    parser.add_argument('-bt', '--build_type',
+                        required=False,
+                        type=utils.EnumType(build_type),
+                        default='jacobian',
+                        help='The type of library to build: {type}')
 
     args = parser.parse_args()
-    generate_wrapper(args.lang, args.source_dir, args.out_dir)
+    generate_wrapper(args.lang, args.source_dir, args.out_dir, btype=args.build_type)

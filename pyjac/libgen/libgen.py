@@ -11,6 +11,16 @@ import logging
 
 from .. import utils
 from .. import site_conf as site
+from enum import Enum
+
+
+class build_type(Enum):
+    chem_utils = 1,
+    species_rates = 2,
+    jacobian = 3
+
+    def __int__(self):
+        return self.value
 
 
 def lib_ext(shared):
@@ -25,8 +35,8 @@ cmd_compile = dict(c='gcc',
 
 
 def cmd_lib(lang, shared):
-    """Returns the appropriate compilation command for creation of the library based on the
-    language and shared flag"""
+    """Returns the appropriate compilation command for creation of the library based
+    on the language and shared flag"""
     if lang in ['c', 'opencl']:
         return ['ar', 'rcs'] if not shared else ['gcc', '-shared']
     # elif lang == 'cuda':
@@ -140,14 +150,15 @@ def compiler(fstruct):
         print(' '.join(args))
         subprocess.check_call(args)
     except OSError:
-        print('Error: Compiler {} not found, generation of pyjac library failed.'.format(
-            args[0]))
+        logging.error(
+            'Compiler {} not found, generation of pyjac library failed.'.format(
+                args[0]))
         sys.exit(-1)
-    except subprocess.CalledProcessError:
-        print('Error: compilation failed for ' + fstruct.filename +
-              utils.file_ext[fstruct.build_lang]
-              )
-        return -1
+    except subprocess.CalledProcessError as exc:
+        logging.error('Error: compilation failed for file {} with error:{}'.format(
+            fstruct.filename + utils.file_ext[fstruct.build_lang],
+            exc.output))
+        return exc.returncode
     return 0
 
 
@@ -211,12 +222,14 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
         print(' '.join(command))
         subprocess.check_call(command)
     except OSError:
-        print('Error: Compiler {} not found, generation of pyjac library failed.'.format(
-            command[0]))
+        logging.error(
+            'Compiler {} not found, generation of pyjac library failed.'.format(
+                command[0]))
         sys.exit(-1)
-    except subprocess.CalledProcessError:
-        print('Error: Generation of pyjac library failed.')
-        sys.exit(-1)
+    except subprocess.CalledProcessError as exc:
+        logging.error('Generation of pyjac library failed with error: {}'.format(
+            exc.output))
+        sys.exit(exc.returncode)
 
     return libname
 
@@ -261,7 +274,7 @@ class file_struct(object):
         self.auto_diff = False
 
 
-def get_file_list(source_dir, lang, FD=False, AD=False):
+def get_file_list(source_dir, lang, btype):
     """
 
     Parameters
@@ -270,10 +283,8 @@ def get_file_list(source_dir, lang, FD=False, AD=False):
         Path with source files
     lang : {'c', 'cuda'}
         Programming language
-    FD : Optional[bool]
-        Optional; if ``True``, include finite difference
-    AD : Optional[bool]
-        Optional; if ``True``, include autodifferentiation
+    btype: :class:`build_type`
+        The type of library being built
 
     Returns
     -------
@@ -284,32 +295,27 @@ def get_file_list(source_dir, lang, FD=False, AD=False):
 
     """
     i_dirs = [source_dir]
-    if AD:
-        files = ['ad_spec_rates']
-        return i_dirs, files
-
     files = ['read_initial_conditions', 'timer']
-    if lang == 'opencl':
-        files += ['species_rates_kernel_compiler',
-                  'species_rates_kernel_main', 'ocl_errorcheck']
-    elif lang == 'c':
-        files += ['species_rates_kernel_main', 'species_rates_kernel',
-                  'error_check']
 
-    # if FD:
-        #files += ['fd_jacob']
-        #flists = []
-    # else:
-        #files += ['jacob']
-        #flists = [('jacobs', 'jac_list_{}')]
+    # look for right code in the directory
+    file_base = 'jacobian_kernel'
+    if build_type == build_type.species_rates:
+        file_base = 'species_rates_kernel'
+    elif build_type == build_type.chem_utils:
+        file_base = 'chem_utils_kernel'
+
+    if lang == 'opencl':
+        files += [file_base + x for x in ['_compiler', '_main']]
+        files += ['ocl_errorcheck']
+    elif lang == 'c':
+        files += [file_base + x for x in ['_kernel', '_main']]
+        files += ['error_check']
 
     flists = []
-    #flists += [('rates', 'rate_list_{}')]
     for flist in flists:
         try:
-            with open(os.path.join(source_dir,
-                                   flist[0], flist[1].format(lang))
-                      ) as file:
+            with open(os.path.join(source_dir, flist[0], flist[1].format(lang)),
+                      'r') as file:
                 vals = file.readline().strip().split(' ')
                 vals = [os.path.join(flist[0],
                                      f[:f.index(utils.file_ext[lang])]) for f in vals
@@ -326,8 +332,7 @@ def get_file_list(source_dir, lang, FD=False, AD=False):
 
 def generate_library(lang, source_dir, obj_dir=None,
                      out_dir=None, shared=None,
-                     finite_difference=False, auto_diff=False
-                     ):
+                     btype=build_type.jacobian):
     """Generate shared/static library for pyJac files.
 
     Parameters
@@ -344,6 +349,8 @@ def generate_library(lang, source_dir, obj_dir=None,
         If ``True``, include finite differences
     auto_diff : bool
         If ``True``, include autodifferentiation
+    btype: :class:`build_type`
+        The type of library being built
 
     Returns
     -------
@@ -352,13 +359,13 @@ def generate_library(lang, source_dir, obj_dir=None,
     """
     # check lang
     if lang not in flags.keys():
-        print('Cannot generate library for unknown language {}'.format(lang))
+        logging.error('Cannot generate library for unknown language {}'.format(lang))
         sys.exit(-1)
 
     shared = shared and lang != 'cuda'
 
     if lang == 'cuda' and shared:
-        print('CUDA does not support linking of shared device libraries.')
+        logging.error('CUDA does not support linking of shared device libraries.')
         sys.exit(-1)
 
     build_lang = lang if lang != 'icc' else 'c'
@@ -381,17 +388,11 @@ def generate_library(lang, source_dir, obj_dir=None,
     out_dir = os.path.abspath(out_dir)
 
     # get file lists
-    i_dirs, files = get_file_list(source_dir, build_lang,
-                                  FD=finite_difference, AD=auto_diff
-                                  )
+    i_dirs, files = get_file_list(source_dir, build_lang, btype)
 
     # Compile generated source code
-    structs = [file_struct(lang, build_lang, f, i_dirs,
-                           (['-DFINITE_DIFF'] if finite_difference else []),
-                           source_dir, obj_dir, shared) for f in files
-               ]
-    for x in structs:
-        x.auto_diff = auto_diff
+    structs = [file_struct(lang, build_lang, f, i_dirs, [],
+                           source_dir, obj_dir, shared) for f in files]
 
     pool = multiprocessing.Pool()
     results = pool.map(compiler, structs)
@@ -400,5 +401,5 @@ def generate_library(lang, source_dir, obj_dir=None,
     if any(r == -1 for r in results):
         sys.exit(-1)
 
-    libname = libgen(lang, obj_dir, out_dir, files, shared, auto_diff)
+    libname = libgen(lang, obj_dir, out_dir, files, shared, False)
     return os.path.join(out_dir, libname)

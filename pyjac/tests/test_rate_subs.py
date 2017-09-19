@@ -17,6 +17,7 @@ from . import TestClass
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from . import test_utils as test_utils
 from .test_utils import (get_comparable, indexer, _generic_tester, _full_kernel_test)
+from ..libgen import build_type
 
 # modules
 import cantera as ct
@@ -941,4 +942,5 @@ class SubTest(TestClass):
     def test_specrates(self, lang):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp
-                          else self.store.dphi_cv)
+                          else self.store.dphi_cv,
+                          btype=build_type.jacobian)
