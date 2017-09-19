@@ -295,7 +295,8 @@ class kernel_generator(object):
         target = lp_utils.get_target(self.lang, self.loopy_opts.device,
                                      self.compiler)
         for i, info in enumerate(self.kernels):
-            if info in self.external_kernels:
+            # if external, or already built
+            if info in self.external_kernels or isinstance(info, lp.LoopKernel):
                 continue
             # create kernel from k_gen.knl_info
             self.kernels[i] = self.make_kernel(info, target, self.test_size)
@@ -714,9 +715,8 @@ ${name} : ${type}
             assert knl, (
                 'Cannot find external kernel {} in any dependencies'.format(
                          x.name))
-            my_knl_ind = next(
-                (i for i, k in enumerate(self.kernels) if x.name == k.name),
-                None)
+            my_knl_ind = next(i for i, k in enumerate(self.kernels)
+                              if x.name == k.name)
             # now replace
             self.kernels[my_knl_ind] = knl
 
