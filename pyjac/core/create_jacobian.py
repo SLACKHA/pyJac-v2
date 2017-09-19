@@ -4237,7 +4237,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
     return [x for x in [__dropidnj(False), __dropidnj(True)] if x is not None]
 
 
-def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, sgen, conp=True,
+def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
                         test_size=None, auto_diff=False):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
@@ -4252,9 +4252,6 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, sgen, conp=True,
         List of species in the mechanism.
     loopy_opts : :class:`loopy_options` object
         A object containing all the loopy options to execute
-    sgen: :class:`kernel_generator`
-        The species rates :class:`kernel_generator` for this mechanism, created
-        by :func:`get_specrates_kernel`
     conp : bool
         If true, generate equations using constant pressure assumption
         If false, use constant volume equations
@@ -4434,13 +4431,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, sgen, conp=True,
 
     input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
     output_arrays = ['jac']
-    sub_kernels = sgen.kernels + [kernel for dep in sgen.depends_on
-                                  for kernel in dep.kernels]
-    # get the specrates / thermo
+
+    # create the specrates subkernel
+    sgen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=conp)
+    sub_kernels = sgen.kernels[:]
+    # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='jacobian_kernel',
-        kernels=kernels,
+        kernels=sub_kernels + kernels,
         external_kernels=sub_kernels,
         depends_on=[sgen] + sgen.depends_on,
         input_arrays=input_arrays,
@@ -4661,16 +4660,17 @@ def create_jacobian(lang,
     eqs['conv'] = sp_interp.load_equations(not conp)[1]
 
     # now begin writing subroutines
-    gen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
-                                    conp=conp, output_full_rop=output_full_rop)
+    if not skip_jac:
+        # get Jacobian subroutines
+        gen = get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=conp)
+        #  write_sparse_multiplier(build_path, lang, touched, len(specs))
+    else:
+        # just specrates
+        gen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
+                                        conp=conp, output_full_rop=output_full_rop)
 
     # generate species rate subroutines
     gen.generate(build_path, data_filename=data_filename)
-
-    if not skip_jac:
-        # get Jacobian subroutines
-        gen = get_jacobian_kernel(eqs, reacs, specs, loopy_opts, gen, conp=conp)
-        #  write_sparse_multiplier(build_path, lang, touched, len(specs))
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename)
