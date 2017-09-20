@@ -939,26 +939,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                     'dRopi_dE = dRopi_dE + nu_rev * ${rop_rev_str} \
                 {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
 
-            # handle constant pressure qi term
-            conp_init = Template(
-                '<> ropnet = ${rop_fwd_str} {id=qi1}').safe_substitute(
-                **locals()) if conp else ''
-
-            conp_rev_update = ic.get_update_instruction(
-                mapstore, namestore.rop_rev,
-                Template(
-                    'ropnet = ropnet - ${rop_rev_str} \
-                {id=qi2, dep=qi1}').safe_substitute(**locals()))
-
-            deps = ':'.join(['qi1', 'dE_init'] +
-                            ['qi2'] if conp_rev_update else [])
-            conp_final = Template(
-                'dRopi_dE = dRopi_dE + ropnet \
-                {id=qi3, dep=${deps}}').safe_substitute(
-                **locals())
-
-            deps = ':'.join(['dE_init', 'qi*'] +
-                            ['dE_update*'] if rev_update else [])
+            deps = ':'.join(['dE_update'] if rev_update else [])
             pres_mod_update = ''
             if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
                 pres_mod_update = ic.get_update_instruction(
@@ -967,19 +948,21 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                         'dRopi_dE = dRopi_dE * ${pres_mod_str} \
                     {id=dE_final, dep=${deps}}').safe_substitute(**locals()))
 
+            # if conp, need to include the fwd / reverse ROP an extra time
+            # to account for the qi term resulting from d/dV (qi * V)
+            # the negative is to account for the difference in signs between
+            # this and the Rop * sum(nu) terms
+            start = -1 if conp else 0
             # all constant pressure cases are the same (Rop * sum of nu)
             instructions = Template("""
-                <> nu_fwd = 0
-                <> nu_rev = 0
-                ${conp_init}
+                <> nu_fwd = ${start}
+                <> nu_rev = ${start}
                 for ${net_ind}
                     nu_fwd = nu_fwd + ${net_reac_nu_str} {id=nuf_up}
                     nu_rev = nu_rev + ${net_prod_nu_str} {id=nur_up}
                 end
                 <> dRopi_dE = -nu_fwd * ${rop_fwd_str} {id=dE_init, dep=nu*}
                 ${rev_update}
-                ${conp_rev_update}
-                ${conp_final}
                 ${pres_mod_update}
                 """).safe_substitute(**locals())
         else:
