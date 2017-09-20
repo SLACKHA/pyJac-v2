@@ -2062,7 +2062,7 @@ class SubTest(TestClass):
 
             comp = get_comparable(ref_answer=[fd_jac],
                                   compare_mask=[
-                                  (to_test, np.array([1]), np.array([0]))],
+                                  (to_test, np.array([0]), np.array([1]))],
                                   compare_axis=(0, 1, 2))
             # and get mask
             kc = [kernel_call('dTdotdE', comp.ref_answer,
