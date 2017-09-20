@@ -2190,4 +2190,4 @@ class SubTest(TestClass):
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=build_type.jacobian)
+                          btype=build_type.jacobian, call_name='jacobian')

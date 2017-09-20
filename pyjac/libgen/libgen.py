@@ -299,16 +299,16 @@ def get_file_list(source_dir, lang, btype):
 
     # look for right code in the directory
     file_base = 'jacobian_kernel'
-    if build_type == build_type.species_rates:
+    if btype == build_type.species_rates:
         file_base = 'species_rates_kernel'
-    elif build_type == build_type.chem_utils:
+    elif btype == build_type.chem_utils:
         file_base = 'chem_utils_kernel'
 
     if lang == 'opencl':
         files += [file_base + x for x in ['_compiler', '_main']]
         files += ['ocl_errorcheck']
     elif lang == 'c':
-        files += [file_base + x for x in ['_kernel', '_main']]
+        files += [file_base + x for x in ['', '_main']]
         files += ['error_check']
 
     flists = []

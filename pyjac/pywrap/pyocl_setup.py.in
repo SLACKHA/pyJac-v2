@@ -20,8 +20,7 @@ ext_modules = [Extension("pyjac_ocl",
                          language='c',
                          extra_objects=['$libname'],
                          libraries=[${libs}],
-                         library_dirs=[${libdirs}],
-                         cython_compile_time_env={'TYPE': '${buildtype}'})]
+                         library_dirs=[${libdirs}])]
 
 setup(
     name='pyjac_ocl',
