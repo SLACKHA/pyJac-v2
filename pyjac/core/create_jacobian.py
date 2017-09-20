@@ -1521,11 +1521,12 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
             specsum = specsum + (${spec_energy_str} - ${spec_heat_ns_str} * \
                 ${mw_str}) * (${dnkdot_de_str} - ${wdot_str}) {id=up, dep=*}
             dTsum = dTsum + (${spec_heat_str} - ${spec_heat_ns_str}) * \
-                ${conc_str}
+                ${conc_str} {id=up2, dep=*}
         """).safe_substitute(**locals())
         post_instructions = [Template("""
             <> spec_inv = 1 / (${spec_heat_total_str} * ${V_str})
-            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum) * spec_inv {id=jac_split}
+            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum) * spec_inv \
+                {id=jac_split, dep=up2, nosync=up2}
             ${jac_str} = ${jac_str} - specsum * spec_inv {id=jac, dep=up, nosync=up}
             """).safe_substitute(**locals())]
     else:
