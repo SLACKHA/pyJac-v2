@@ -4,20 +4,23 @@ import sys
 import os
 import subprocess
 from string import Template
+import logging
 
 from ..libgen import generate_library, build_type
 from .. import site_conf as site
 
 
-def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
+def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
-                   output_full_rop=False, btype=build_type.jacobian):
+                   btype=build_type.jacobian):
     """Helper method to fill in the template .in files
 
     Parameters
     ----------
     setupfile : str
-        Filename of existing setup file
+        Filename of the setup file template
+    pyxfile : str
+        Filename of the pyx file template
     home_dir : str
         Home directory path
     build_dir : str
@@ -32,28 +35,21 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
         Optional; if supplied extra libraries to use
     libdirs : Optional[list of str]
         Optional; if supplied, library directories
-    output_full_rop : bool
-        If ``True``, output forward and reversse rates of progress
-        Useful in testing, as there are serious floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to
-        Cantera
 
     Returns
     -------
     None
 
     """
+
+    # load and create the setup file
     with open(setupfile, 'r') as file:
         src = Template(file.read())
 
     def __arr_create(arr):
         return ', '.join(["'{}'".format(x) for x in arr])
 
-    wrapper = setupfile[:setupfile.rindex('_setup')]
-    if output_full_rop:
-        wrapper = wrapper + '_ropfull'
-    wrapper += '_wrapper.pyx'
-
+    nice_pyx_name = pyxfile[:pyxfile.rindex('.in')]
     file_data = {'homepath': home_dir,
                  'buildpath': build_dir,
                  'libname': libname,
@@ -61,11 +57,23 @@ def generate_setup(setupfile, home_dir, build_dir, out_dir, libname,
                  'extra_include_dirs': __arr_create(extra_include_dirs),
                  'libs': __arr_create(libraries),
                  'libdirs': __arr_create(libdirs),
-                 'wrapper': wrapper,
-                 'buildtype': str(btype)
+                 'wrapper': nice_pyx_name
                  }
     src = src.safe_substitute(file_data)
     with open(setupfile[:setupfile.rindex('.in')], 'w') as file:
+        file.write(src)
+
+    # and the wrapper file
+    # load and create the setup file
+    with open(pyxfile, 'r') as file:
+        src = Template(file.read())
+
+    nice_name = str(btype)
+    nice_name = nice_name[nice_name.index('.') + 1:]
+    file_data = {'knl': nice_name}
+
+    src = src.safe_substitute(file_data)
+    with open(nice_pyx_name, 'w') as file:
         file.write(src)
 
 
@@ -151,18 +159,24 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
         extra_include_dirs.extend(site.CL_INC_DIR)
         libraries.extend(site.CL_LIBNAME)
 
-    setupfile = None
     if lang == 'c':
         setupfile = 'pyjacob_setup.py.in'
+        pyxfile = 'pyjacob_wrapper.pyx.in'
     elif lang == 'opencl':
         setupfile = 'pyocl_setup.py.in'
+        pyxfile = 'pyocl_wrapper.pyx.in'
     else:
-        print('Language {} not recognized'.format(lang))
+        logging.error('Language {} not recognized'.format(lang))
         sys.exit(-1)
 
-    generate_setup(os.path.join(home_dir, setupfile), home_dir, source_dir,
+    if output_full_rop:
+        # modify the wrapper
+        pyxfile = pyxfile[:pyxfile.rindex('.pyx.in')] + '_ropfull' + '.pyx.in'
+
+    generate_setup(os.path.join(home_dir, setupfile),
+                   os.path.join(home_dir, pyxfile), home_dir, source_dir,
                    build_dir, lib, extra_include_dirs, libraries, libdirs,
-                   output_full_rop=output_full_rop, btype=btype)
+                   btype=btype)
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
 

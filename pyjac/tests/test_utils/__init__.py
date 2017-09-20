@@ -458,7 +458,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
-                      btype, **oploop_kwds):
+                      btype, call_name, **oploop_kwds):
     eqs, oploop = _get_eqs_and_oploop(
             self, do_conp=True, do_vector=lang != 'c', langs=[lang],
             **oploop_kwds)
@@ -616,7 +616,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 atol=1e-8,
                 non_array_args='{}, {}'.format(
                     self.store.test_size, num_devices),
-                call_name='species_rates',
+                call_name=call_name,
                 output_files=''))
 
         try:

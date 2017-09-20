@@ -943,4 +943,4 @@ class SubTest(TestClass):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp
                           else self.store.dphi_cv,
-                          btype=build_type.jacobian)
+                          btype=build_type.species_rates, call_name='species_rates')
