@@ -565,16 +565,18 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         # find where it's zero
         last_zeros = np.where(concs[slice_ind] == 0)
-        count = 0
+        last_zeros = [x for i, x in enumerate(last_zeros)
+                      if concs[slice_ind].shape[i] > 1]
 
+        # and put into the form of the test array
         # create a ravel index
-        ravel_ind = list(slice_ind[:])
-        for i in range(len(slice_ind)):
-            if slice_ind[i] != slice(None):
-                ravel_ind[i] = np.arange(test.shape[i], dtype=np.int32)
-            else:
-                ravel_ind[i] = last_zeros[count]
-                count += 1
+        ravel_ind = [slice(None)] * test.ndim
+        same_dims = [i for i in range(test.ndim) if test.shape[i] in concs.shape]
+        for i, d in enumerate(same_dims):
+            ravel_ind[d] = last_zeros[i]
+        ravel_ind = [np.arange(test.shape[i], dtype=np.int32)
+                     if not isinstance(ravel_ind[i], np.ndarray) else ravel_ind[i]
+                     for i in range(test.ndim)]
 
         # and use multi_ravel to convert to linear for dphi
         # for whatever reason, if we have two ravel indicies with multiple values
