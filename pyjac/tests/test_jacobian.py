@@ -1526,7 +1526,7 @@ class SubTest(TestClass):
             # can cause some problems in the FD Jac
             test_conditions = np.where(self.store.concs[:, -1] != 0)[0]
 
-        rtol = 1e-4
+        rtol = 1e-3
         atol = 1e-7
 
         def _small_compare(kc, our_vals, ref_vals, mask):
