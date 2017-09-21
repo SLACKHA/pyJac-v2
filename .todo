@@ -1,6 +1,7 @@
 v2 tasks:
   ☐ Test Jacobian
   ☐ Implement sparse Jacobian
+  ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.)
 misc tasks:
   ☐ Find a way to unify kernels, such that a single library / pywrapper exposes
     all available code
