@@ -1877,11 +1877,17 @@ class SubTest(TestClass):
                 # Therefore, we must exclude the ROP for falloff/chemically
                 # activated reactions when looking at the third body
                 # derivatives
-                ct_rxn = self.store.gas.reaction(i)
-                if isinstance(ct_rxn, ct.FalloffReaction) and \
-                        rxn_type == reaction_type.thd:
+
+                def __is_fall(rxn):
+                    return (reaction_type.fall in rxn.type or
+                            reaction_type.chem in rxn.type)
+
+                # if we're looking at third bodies, and it's a falloff
+                if rxn_type == reaction_type.thd and __is_fall(rxn):
                     continue
-                elif rxn_type == reaction_type.thd and not include(ct_rxn):
+                # or if we're looking at falloffs, and it doesn't match
+                elif rxn_type != reaction_type.thd and rxn_type not in rxn.type\
+                        and __is_fall(rxn):
                     continue
 
                 # get the net rate of progress
