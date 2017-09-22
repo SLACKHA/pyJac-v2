@@ -523,7 +523,8 @@ falloff_reaction('2 OH (+ M) <=> H2O2 (+ M)',
 chemically_activated_reaction('CH3 + CH3 (+ M) <=> C2H5 + H (+ M)',
                               kLow=[4.989000e+12, 0.099, 10600.0],
                               kHigh=[3.802000e-07, 4.838, 7710.0],
-                              falloff=SRI(A=1.641, B=4334.0, C=2725.0))
+                              falloff=SRI(A=1.641, B=4334.0, C=2725.0),
+                              options='duplicate')
 # sri - mix
 
 # Reaction 14
@@ -538,7 +539,8 @@ chemically_activated_reaction('CH4 + CH2s (+ M) <=> CH3 + CH3 (+ M)',
 chemically_activated_reaction('CH3 + CH3 (+ N2) <=> C2H5 + H (+ N2)',
                               kLow=[4.989000e+12, 0.099, 10600.0],
                               kHigh=[3.802000e-07, 4.838, 7710.0],
-                              falloff=SRI(A=1.641, B=4334.0, C=2725.0))
+                              falloff=SRI(A=1.641, B=4334.0, C=2725.0),
+                              options='duplicate')
 # plog
 
 # Reaction 16
@@ -609,8 +611,7 @@ pdep_arrhenius('H + aC3H4 <=> aC3H5',
                [(0.039474, 'atm'), 1.240000e+52, -12.02, 17839.0],
                [(1.0, 'atm'), 4.670000e+51, -11.45, 21340.0],
                [(10.0, 'atm'), 3.750000e+48, -10.27, 22511.0],
-               [(100.0, 'atm'), 4.230000e+43, -8.61, 22522.0],
-               options='duplicate')
+               [(100.0, 'atm'), 4.230000e+43, -8.61, 22522.0])
 #  plog with under range
 
 # Reaction 26
