@@ -674,8 +674,10 @@ def with_check_inds(check_inds={}, custom_checks={}):
                 Set the value at check_inds in array to value
                 """
                 __fix_callables()
-                _, inds = zip(*check_inds.items())
-                array[tuple(inds)] = value
+                mask = np.array([slice(None)] * array.ndim)
+                for ax, ind in check_inds.items():
+                    mask[ax] = ind
+                array[tuple(mask)] = value
 
             self._get_compare = _get_compare
             self._set_at = _set_at
