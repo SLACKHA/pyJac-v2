@@ -607,6 +607,14 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
             num_devices = 1
 
+        # and save the data.bin file in case of testing
+        db = np.concatenate((
+            np.expand_dims(phi[:, 0], axis=1),
+            np.expand_dims(param, axis=1),
+            phi[:, 1:]), axis=1)
+        with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
+            db.flatten(order=opts.order).tofile(file,)
+
         # write the module tester
         with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
             file.write(mod_test.safe_substitute(
