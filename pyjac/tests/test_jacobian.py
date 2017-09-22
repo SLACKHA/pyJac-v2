@@ -18,8 +18,8 @@ from ..core.create_jacobian import (
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
-from .test_utils import kernel_runner, get_comparable, _generic_tester, \
-    _full_kernel_test
+from .test_utils import (kernel_runner, get_comparable, _generic_tester,
+                         _full_kernel_test, with_check_inds)
 from ..libgen import build_type
 
 import numpy as np
@@ -266,6 +266,9 @@ class SubTest(TestClass):
         return namestore, rate_info
 
     @attr('long')
+    @with_check_inds(check_inds={
+        1: lambda self: 2 + np.arange(self.store.gas.n_species - 1),
+        2: lambda self: 2 + np.arange(self.store.gas.n_species - 1)})
     def test_dropi_dnj(self):
 
         # test conp
@@ -331,17 +334,14 @@ class SubTest(TestClass):
             'jac': lambda x: np.zeros(
                 (self.store.test_size, jac_size, jac_size), order=x)
         }
+
+        comp = self._get_compare(fd_jac)
         # and test
         kc = [kernel_call('dRopidnj', [fd_jac], check=False,
                           strict_name_match=True, **args),
-              kernel_call('dRopidnj_ns', [fd_jac], compare_mask=[
-                get_comparable([(
-                  2 + np.arange(self.store.gas.n_species - 1),
-                  2 + np.arange(self.store.gas.n_species - 1))], [fd_jac],
-                  compare_axis=(1, 2))],
-            compare_axis=(1, 2), chain=_chainer, strict_name_match=True,
-            allow_skip=True,
-            **args)]
+              kernel_call('dRopidnj_ns', comp.ref_answer, compare_mask=[comp],
+                          compare_axis=comp.compare_axis, chain=_chainer,
+                          strict_name_match=True, allow_skip=True, **args)]
 
         return self._generic_jac_tester(dRopi_dnj, kc, allint=allint)
 
@@ -412,6 +412,12 @@ class SubTest(TestClass):
         return extractor, cond, x, y
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # get list of species not in falloff / chemically activated
+        # to get the check mask
+        1: lambda self: self.__get_dci_check(
+            lambda x: isinstance(x, ct.ThreeBodyReaction)),
+        2: lambda self: 2 + np.arange(self.store.gas.n_species - 1)})
     def test_dci_thd_dnj(self):
         # test conp
         namestore, rate_info = self._make_namestore(True)
@@ -470,20 +476,13 @@ class SubTest(TestClass):
                 (self.store.test_size, jac_size, jac_size), order=x)
         }
 
-        # get list of species not in falloff / chemically activated
-        # to get the check mask
-        test = self.__get_dci_check(lambda x: isinstance(
-            x, ct.ThreeBodyReaction))
-
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
         # and get mask
-        comp = get_comparable(
-                  [(test, 2 + np.arange(self.store.gas.n_species - 1))],
-                  [fd_jac], compare_axis=(1, 2))
-        kc = [kernel_call('dci_thd_dnj', [fd_jac], check=False,
+        comp = self._get_compare(fd_jac)
+        kc = [kernel_call('dci_thd_dnj', comp.ref_answer, check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_thd_dnj_ns', comp.ref_answer, compare_mask=[comp],
                           compare_axis=comp.compare_axis, chain=_chainer,
@@ -656,6 +655,12 @@ class SubTest(TestClass):
         return runner(eqs, opts, namestore, self.store.test_size)[0]
 
     @attr('long')
+    @with_check_inds(check_inds={
+        1: lambda self: self.__get_dci_check(
+            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
+            rxn.falloff.type == 'Simple'),
+        2: lambda self: 2 + np.arange(self.store.gas.n_species - 1)
+        })
     def test_dci_lind_dnj(self):
         # test conp
         namestore, rate_info = self._make_namestore(True)
@@ -729,19 +734,12 @@ class SubTest(TestClass):
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
         }
 
-        lind_test = self.__get_dci_check(
-            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
-            rxn.falloff.type == 'Simple')
-
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
         # and get mask
-        comp = get_comparable(compare_mask=[(
-            lind_test, 2 + np.arange(self.store.gas.n_species - 1))],
-            ref_answer=[fd_jac],
-            compare_axis=(1, 2))
+        comp = self._get_compare(fd_jac)
         kc = [kernel_call('dci_lind_dnj', comp.ref_answer, check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_lind_dnj_ns', comp.ref_answer, compare_mask=[comp],
@@ -764,6 +762,16 @@ class SubTest(TestClass):
         return X
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # find non-NaN SRI entries for testing
+        # NaN entries will be handled by :func:`nan_compare`
+        0: lambda self: np.where(np.all(
+            self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0, axis=1))[0],
+        1: lambda self: self.__get_dci_check(
+            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
+            rxn.falloff.type == 'SRI'),
+        2: lambda self: 2 + np.arange(self.store.gas.n_species - 1)
+        })
     def test_dci_sri_dnj(self):
         # test conp
         namestore, rate_info = self._make_namestore(True)
@@ -840,24 +848,12 @@ class SubTest(TestClass):
                 self.store.phi_cp, order=x, copy=True)
         }
 
-        sri_test = self.__get_dci_check(
-            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
-            rxn.falloff.type == 'SRI')
-
-        # find non-NaN SRI entries for testing
-        # NaN entries will be handled by :func:`nan_compare`
-        to_test = np.where(np.all(
-            self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0, axis=1))[0]
-
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
         # and get mask
-        comp = get_comparable(compare_mask=[(
-            to_test, sri_test, 2 + np.arange(self.store.gas.n_species - 1))],
-            compare_axis=(0, 1, 2),
-            ref_answer=[fd_jac])
+        comp = self._get_compare(fd_jac)
         kc = [kernel_call('dci_sri_dnj', comp.ref_answer, check=False,
                           strict_name_match=True, **args),
               kernel_call('dci_sri_dnj_ns', comp.ref_answer,
@@ -884,6 +880,16 @@ class SubTest(TestClass):
         return Fcent, Atroe, Btroe
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # find non-NaN Troe entries for testing
+        # NaN entries will be handled by :func:`nan_compare`
+        0: lambda self: np.where(np.all(
+            self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0, axis=1))[0],
+        1: lambda self: self.__get_dci_check(
+            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
+            rxn.falloff.type == 'Troe'),
+        2: lambda self: 2 + np.arange(self.store.gas.n_species - 1)
+        })
     def test_dci_troe_dnj(self):
         # test conp
         namestore, rate_info = self._make_namestore(True)
@@ -961,24 +967,11 @@ class SubTest(TestClass):
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
         }
 
-        troe_test = self.__get_dci_check(
-            lambda rxn: isinstance(rxn, ct.FalloffReaction) and
-            rxn.falloff.type == 'Troe')
-
-        # find non-NaN Troe entries for testing
-        # NaN entries will be handled by :func:`nan_compare`
-        to_test = np.where(np.all(
-            self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0, axis=1))[0]
-
         def _chainer(self, out_vals):
             self.kernel_args['jac'] = out_vals[-1][0].copy(
                 order=self.current_order)
 
-        comp = get_comparable(compare_mask=[(
-                  to_test,
-                  troe_test,
-                  2 + np.arange(self.store.gas.n_species - 1))],
-                ref_answer=[fd_jac], compare_axis=(0, 1, 2))
+        comp = self._get_compare(fd_jac)
         # and get mask
         kc = [kernel_call('dci_troe_dnj', comp.ref_answer, check=False,
                           strict_name_match=True, **args),
@@ -1165,6 +1158,10 @@ class SubTest(TestClass):
         return jac
 
     @attr('long')
+    @with_check_inds(check_inds={
+        1: np.array([0]),
+        2: lambda self: np.arange(2, self.store.jac_dim)
+        })
     def test_dTdot_dnj(self):
         # conp
 
@@ -1179,9 +1176,8 @@ class SubTest(TestClass):
         # :class:`get_comparable` object as the output from the kernel
         ref_answer = jac.copy()
 
-        # reset other values
-        jac[:, :, :2] = 0
-        jac[:, :2, :] = 0
+        # reset the values to be populated
+        self._set_at(jac, 0)
 
         # cp args
         cp_args = {'cp': lambda x: np.array(
@@ -1197,10 +1193,7 @@ class SubTest(TestClass):
             'jac': lambda x: np.array(
                 jac, order=x, copy=True)}
 
-        comp = get_comparable(compare_mask=[(np.array([0]),
-                                             np.arange(2, jac.shape[1]))],
-                              compare_axis=(1, 2),
-                              ref_answer=[ref_answer])
+        comp = self._get_compare(ref_answer)
 
         # call
         kc = [kernel_call('dTdot_dnj', comp.ref_answer,
@@ -1220,10 +1213,8 @@ class SubTest(TestClass):
         # :class:`get_comparable` object as the output from the kernel
         ref_answer = jac.copy()
 
-        # reset other values
-        jac[:, :, :2] = 0
-        jac[:, :, :2] = 0
-        jac[:, :2, :] = 0
+        # reset the values to be populated
+        self._set_at(jac, 0)
 
         # cv args
         cv_args = {'cv': lambda x: np.array(
@@ -1239,10 +1230,7 @@ class SubTest(TestClass):
             'jac': lambda x: np.array(
                 jac, order=x, copy=True)}
 
-        comp = get_comparable(compare_mask=[(np.array([0]),
-                                             np.arange(2, jac.shape[1]))],
-                              compare_axis=(1, 2),
-                              ref_answer=[ref_answer])
+        comp = self._get_compare(ref_answer)
         # call
         kc = [kernel_call('dTdot_dnj', comp.ref_answer,
                           compare_axis=comp.compare_axis, compare_mask=[comp],
@@ -1251,6 +1239,10 @@ class SubTest(TestClass):
         self._generic_jac_tester(dTdot_dnj, kc, conp=False)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        1: np.array([1]),
+        2: lambda self: np.arange(2, self.store.jac_dim)
+        })
     def test_dEdot_dnj(self):
         # conp
 
@@ -1262,8 +1254,8 @@ class SubTest(TestClass):
         # :class:`get_comparable` object as the output from the kernel
         ref_answer = jac.copy()
 
-        # reset set value for kernel
-        jac[:, 1, :] = 0
+        # reset values to be populated by kernel
+        self._set_at(jac, 0)
 
         # cp args
         cp_args = {
@@ -1274,10 +1266,8 @@ class SubTest(TestClass):
             'P_arr': lambda x: np.array(
                 self.store.P, order=x, copy=True)}
 
-        comp = get_comparable(ref_answer=[ref_answer], compare_axis=(1, 2),
-                              compare_mask=[(np.array([1]),
-                                             np.arange(2, jac.shape[1]))])
-
+        # get the compare mask
+        comp = self._get_compare(ref_answer)
         # call
         kc = [kernel_call('dVdot_dnj', comp.ref_answer,
                           compare_axis=comp.compare_axis, compare_mask=[comp],
@@ -1293,8 +1283,8 @@ class SubTest(TestClass):
         # :class:`get_comparable` object as the output from the kernel
         ref_answer = jac.copy()
 
-        # reset set value for kernel
-        jac[:, 1, :] = 0
+        # reset values to be populated by kernel
+        self._set_at(jac, 0)
 
         # cv args
         cv_args = {
@@ -1305,10 +1295,8 @@ class SubTest(TestClass):
             'V_arr': lambda x: np.array(
                 self.store.V, order=x, copy=True)}
 
-        comp = get_comparable(ref_answer=[ref_answer], compare_axis=(1, 2),
-                              compare_mask=[(np.array([1]),
-                                             np.arange(2, jac.shape[1]))])
-
+        # get the compare mask
+        comp = self._get_compare(ref_answer)
         # call
         kc = [kernel_call('dPdot_dnj', comp.ref_answer,
                           compare_axis=comp.compare_axis, compare_mask=[comp],
@@ -1361,10 +1349,9 @@ class SubTest(TestClass):
         __test_name('cv')
         __test_name('b')
 
-    @attr('long')
-    def test_dRopidT(self, rxn_type=reaction_type.elementary,
-                     test_variable=False, conp=True):
-        # test conp (form doesn't matter)
+    def __run_ropi_test(self, rxn_type=reaction_type.elementary,
+                        test_variable=False, conp=True):
+        #  setup for FD jac
         namestore, rate_info = self._make_namestore(conp)
         ad_opts = namestore.loopy_opts
 
@@ -1490,21 +1477,10 @@ class SubTest(TestClass):
                 self.kernel_args['jac'] = out_vals[-1][0].copy(
                     order=self.current_order)
 
-        def include(rxn):
-            if rxn_type == reaction_type.plog:
-                return isinstance(rxn, ct.PlogReaction)
-            elif rxn_type == reaction_type.cheb:
-                return isinstance(rxn, ct.ChebyshevReaction)
-            else:
-                return not (isinstance(rxn, ct.PlogReaction)
-                            or isinstance(rxn, ct.ChebyshevReaction))
-
         # set variable name and check index
         var_name = 'T'
-        diff_index = 0
         if test_variable:
             var_name = 'V' if conp else 'P'
-            diff_index = 1
 
         # get descriptor
         name_desc = ''
@@ -1519,12 +1495,6 @@ class SubTest(TestClass):
             tester = dRopi_cheb_dT if not test_variable else dRopi_cheb_dE
             other_args['maxP'] = np.max(rate_info['cheb']['num_P'])
             other_args['maxT'] = np.max(rate_info['cheb']['num_T'])
-
-        test_conditions = np.arange(self.store.test_size)
-        if test_variable:
-            # find states where the last species conc should be zero, as this
-            # can cause some problems in the FD Jac
-            test_conditions = np.where(self.store.concs[:, -1] != 0)[0]
 
         rtol = 1e-3
         atol = 1e-7
@@ -1552,14 +1522,8 @@ class SubTest(TestClass):
 
             return correct
 
-        test = self.__get_check(include)
-
-        comp = get_comparable(compare_mask=[(test_conditions, test,
-                                            np.array([diff_index]))],
-                              ref_answer=[fd_jac],
-                              compare_axis=(0, 1, 2))
-
-        # and get mask
+        # get compare mask
+        comp = self._get_compare(fd_jac)
         kc = [kernel_call('dRopi{}_d{}'.format(name_desc, var_name),
                           comp.ref_answer, check=False,
                           strict_name_match=True,
@@ -1568,7 +1532,7 @@ class SubTest(TestClass):
                           **args),
               kernel_call('dRopi{}_d{}_ns'.format(name_desc, var_name),
                           comp.ref_answer, compare_mask=[comp],
-                          compare_axis=comp.compare_mask, chain=_chainer,
+                          compare_axis=comp.compare_axis, chain=_chainer,
                           strict_name_match=True, allow_skip=True,
                           rtol=rtol, atol=atol, other_compare=_small_compare,
                           input_mask=['db', 'rop_rev', 'rop_fwd'],
@@ -1577,27 +1541,73 @@ class SubTest(TestClass):
         return self._generic_jac_tester(tester, kc, **other_args)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        1: lambda self: self.__get_check(
+            lambda rxn: not (isinstance(rxn, ct.PlogReaction)
+                             or isinstance(rxn, ct.ChebyshevReaction))),
+        2: np.array([0])
+        })
+    def test_dRopidT(self):
+        self.__run_ropi_test()
+
+    @attr('long')
+    @with_check_inds(check_inds={
+        1: lambda self: self.__get_check(
+            lambda rxn: isinstance(rxn, ct.PlogReaction)),
+        2: np.array([0])
+        })
     def test_dRopi_plog_dT(self):
-        self.test_dRopidT(reaction_type.plog)
+        self.__run_ropi_test(reaction_type.plog)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        1: lambda self: self.__get_check(
+            lambda rxn: isinstance(rxn, ct.ChebyshevReaction)),
+        2: np.array([0])
+        })
     def test_dRopi_cheb_dT(self):
-        self.test_dRopidT(reaction_type.cheb)
+        self.__run_ropi_test(reaction_type.cheb)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # find states where the last species conc should be zero, as this
+        # can cause some problems in the FD Jac
+        0: lambda self: np.where(self.store.concs[:, -1] != 0)[0],
+        1: lambda self: self.__get_check(
+            lambda rxn: not (isinstance(rxn, ct.PlogReaction)
+                             or isinstance(rxn, ct.ChebyshevReaction))),
+        2: np.array([1])
+        })
     def test_dRopi_dE(self):
-        self.test_dRopidT(reaction_type.elementary, True, conp=True)
-        self.test_dRopidT(reaction_type.elementary, True, conp=False)
+        self.__run_ropi_test(test_variable=True, conp=True)
+        self.__run_ropi_test(test_variable=True, conp=False)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # find states where the last species conc should be zero, as this
+        # can cause some problems in the FD Jac
+        0: lambda self: np.where(self.store.concs[:, -1] != 0)[0],
+        1: lambda self: self.__get_check(
+            lambda rxn: isinstance(rxn, ct.PlogReaction)),
+        2: np.array([1])
+        })
     def test_dRopi_plog_dE(self):
-        self.test_dRopidT(reaction_type.plog, True, conp=True)
-        self.test_dRopidT(reaction_type.plog, True, conp=False)
+        self.__run_ropi_test(reaction_type.plog, True, conp=True)
+        self.__run_ropi_test(reaction_type.plog, True, conp=False)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # find states where the last species conc should be zero, as this
+        # can cause some problems in the FD Jac
+        0: lambda self: np.where(self.store.concs[:, -1] != 0)[0],
+        1: lambda self: self.__get_check(
+            lambda rxn: not (isinstance(rxn, ct.PlogReaction)
+                             or isinstance(rxn, ct.ChebyshevReaction))),
+        2: np.array([1])
+        })
     def test_dRopi_cheb_dE(self):
-        self.test_dRopidT(reaction_type.cheb, True, conp=True)
-        self.test_dRopidT(reaction_type.cheb, True, conp=False)
+        self.__run_ropi_test(reaction_type.cheb, True, conp=True)
+        self.__run_ropi_test(reaction_type.cheb, True, conp=False)
 
     def __get_non_ad_params(self, conp):
         reacs = self.store.reacs
@@ -1611,89 +1621,94 @@ class SubTest(TestClass):
 
         return namestore, rate_info, opts, eqs
 
+    @with_check_inds(check_inds={
+        1: np.array([0]),
+        2: np.array([0]),
+        }, custom_checks={
+        #  find NaN's
+        0: lambda self, conp: np.setdiff1d(
+            np.arange(self.store.test_size), np.unique(np.where(np.isnan(
+                self.__get_full_jac(conp)))[0]), assume_unique=True)
+        }
+    )
+    def __run_dtdot_dt(self, conp):
+        # get the full jacobian
+        fd_jac = self.__get_full_jac(conp)
+
+        spec_heat = self.store.spec_cp if conp else self.store.spec_cv
+        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        phi = self.store.phi_cp if conp else self.store.phi_cv
+        dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+
+        spec_heat = np.sum(self.store.concs * spec_heat, axis=1)
+
+        jac = fd_jac.copy()
+
+        # reset values to be populated
+        self._set_at(jac, 0)
+
+        # get dcp
+        args = {'phi': lambda x: np.array(
+            phi, order=x, copy=True)}
+        dc = kernel_runner(self.__get_poly_wrapper(
+            'dcp' if conp else 'dcv', conp),
+            self.store.test_size, args)(
+            eqs, opts, namestore, self.store.test_size)[0]
+
+        args = {'conc': lambda x: np.array(
+            self.store.concs, order=x, copy=True),
+            'dphi': lambda x: np.array(
+            dphi, order=x, copy=True),
+            'phi': lambda x: np.array(
+            phi, order=x, copy=True),
+            'jac': lambda x: np.array(
+            jac, order=x, copy=True),
+            'wdot': lambda x: np.array(
+            self.store.species_rates, order=x, copy=True)
+        }
+
+        if conp:
+            args.update({
+                'h': lambda x: np.array(
+                    self.store.spec_h, order=x, copy=True),
+                'cp': lambda x: np.array(
+                    self.store.spec_cp, order=x, copy=True),
+                'dcp': lambda x: np.array(
+                    dc, order=x, copy=True),
+                'cp_tot': lambda x: np.array(
+                    spec_heat, order=x, copy=True)})
+        else:
+            args.update({
+                'u': lambda x: np.array(
+                    self.store.spec_u, order=x, copy=True),
+                'cv': lambda x: np.array(
+                    self.store.spec_cv, order=x, copy=True),
+                'dcv': lambda x: np.array(
+                    dc, order=x, copy=True),
+                'cv_tot': lambda x: np.array(
+                    spec_heat, order=x, copy=True),
+                'V_arr': lambda x: np.array(
+                    self.store.V, order=x, copy=True)})
+
+        # find NaN's
+        comp = self._get_compare(fd_jac)
+        kc = kernel_call('dTdot_dT', comp.ref_answer, check=True,
+                         compare_mask=[comp], compare_axis=comp.compare_axis,
+                         equal_nan=True, other_compare=self.our_nan_compare,
+                         **args)
+
+        return self._generic_jac_tester(dTdotdT, kc, conp=conp)
+
     @attr('long')
     def test_dTdot_dT(self):
-        def __subtest(conp):
-            # conp
-            fd_jac = self.__get_full_jac(conp)
-
-            spec_heat = self.store.spec_cp if conp else self.store.spec_cv
-            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
-            phi = self.store.phi_cp if conp else self.store.phi_cv
-            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
-
-            spec_heat = np.sum(self.store.concs * spec_heat, axis=1)
-
-            jac = fd_jac.copy()
-            jac[:, 0, 0] = 0
-
-            # get dcp
-            args = {'phi': lambda x: np.array(
-                phi, order=x, copy=True)}
-            dc = kernel_runner(self.__get_poly_wrapper(
-                'dcp' if conp else 'dcv', conp),
-                self.store.test_size, args)(
-                eqs, opts, namestore, self.store.test_size)[0]
-
-            args = {'conc': lambda x: np.array(
-                self.store.concs, order=x, copy=True),
-                'dphi': lambda x: np.array(
-                dphi, order=x, copy=True),
-                'phi': lambda x: np.array(
-                phi, order=x, copy=True),
-                'jac': lambda x: np.array(
-                jac, order=x, copy=True),
-                'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)
-            }
-
-            if conp:
-                args.update({
-                    'h': lambda x: np.array(
-                        self.store.spec_h, order=x, copy=True),
-                    'cp': lambda x: np.array(
-                        self.store.spec_cp, order=x, copy=True),
-                    'dcp': lambda x: np.array(
-                        dc, order=x, copy=True),
-                    'cp_tot': lambda x: np.array(
-                        spec_heat, order=x, copy=True)})
-            else:
-                args.update({
-                    'u': lambda x: np.array(
-                        self.store.spec_u, order=x, copy=True),
-                    'cv': lambda x: np.array(
-                        self.store.spec_cv, order=x, copy=True),
-                    'dcv': lambda x: np.array(
-                        dc, order=x, copy=True),
-                    'cv_tot': lambda x: np.array(
-                        spec_heat, order=x, copy=True),
-                    'V_arr': lambda x: np.array(
-                        self.store.V, order=x, copy=True)})
-
-            # find NaN's
-            to_test = np.setdiff1d(np.arange(self.store.test_size),
-                                   np.unique(np.where(np.isnan(jac))[0]),
-                                   assume_unique=True)
-            comp = get_comparable(compare_mask=[(
-                to_test, np.array([0]), np.array([0]))],
-                                  compare_axis=(0, 1, 2),
-                                  ref_answer=[fd_jac])
-            kc = kernel_call('dTdot_dT', comp.ref_answer, check=True,
-                             compare_mask=[comp], compare_axis=comp.compare_axis,
-                             equal_nan=True, other_compare=self.our_nan_compare,
-                             **args)
-
-            return self._generic_jac_tester(dTdotdT, kc, conp=conp)
-
         # test conp
-        __subtest(True)
+        self.__run_dtdot_dt(True)
         # test conv
-        __subtest(False)
+        self.__run_dtdot_dt(False)
 
-    @attr('long')
-    def test_dci_thd_dT(self, rxn_type=reaction_type.thd, test_variable=False,
-                        conp=True):
-        # test conp (form doesn't matter)
+    def __run_dci_thd_dvar(self, rxn_type=reaction_type.thd, test_variable=False,
+                           conp=True):
+        # setup the namestore and options
         namestore, rate_info = self._make_namestore(conp)
         ad_opts = namestore.loopy_opts
 
@@ -1799,28 +1814,7 @@ class SubTest(TestClass):
                     self.store.ref_pres_mod, order=x, copy=True)
                 })
 
-        def over_rxn(rxn):
-            if rxn_type == reaction_type.thd:
-                # for third body, only need to worry about these
-                return isinstance(rxn, ct.ThreeBodyReaction)
-            # otherwise, need to look at all 3body/fall, and exclude wrong type
-            return isinstance(rxn, ct.ThreeBodyReaction) or isinstance(
-                rxn, ct.FalloffReaction)
-
-        def include(rxn):
-            if rxn_type == reaction_type.thd:
-                return True
-            elif rxn_type == falloff_form.lind:
-                desc = 'Simple'
-            elif rxn_type == falloff_form.sri:
-                desc = 'SRI'
-            elif rxn_type == falloff_form.troe:
-                desc = 'Troe'
-            return (isinstance(rxn, ct.FalloffReaction)
-                    and rxn.falloff.type == desc)
-
         tester = dci_thd_dT if not test_variable else dci_thd_dE
-        to_test = np.arange(self.store.test_size)
         if rxn_type != reaction_type.thd:
             args.update({
                 'Pr': lambda x: np.array(
@@ -1833,21 +1827,12 @@ class SubTest(TestClass):
                     self.store.ref_pres_mod, order=x, copy=True)
             })
             if rxn_type == falloff_form.lind:
-                to_test = np.where(np.all(
-                    self.store.ref_Pr[:, self.store.lind_to_pr_map] != 0.0,
-                    axis=1))[0]
                 tester = dci_lind_dT if not test_variable else dci_lind_dE
             elif rxn_type == falloff_form.sri:
-                to_test = np.where(np.all(
-                    self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
-                    axis=1))[0]
                 tester = dci_sri_dT if not test_variable else dci_sri_dE
                 X = self.__get_sri_params(namestore)
                 args.update({'X': lambda x: np.array(X, order=x, copy=True)})
             elif rxn_type == falloff_form.troe:
-                to_test = np.where(np.all(
-                    self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0,
-                    axis=1))[0]
                 tester = dci_troe_dT if not test_variable else dci_troe_dE
                 Fcent, Atroe, Btroe = self.__get_troe_params(namestore)
                 args.update({
@@ -1856,8 +1841,8 @@ class SubTest(TestClass):
                     'Btroe': lambda x: np.array(Btroe, order=x, copy=True)
                 })
 
-        test = self.__get_check(include, over_rxn)
-
+        # get the compare mask
+        comp = self._get_compare(fd_jac)
         if test_variable and conp:
             # need to adjust the reference answer to account for the addition
             # of the net ROP resulting from the volume derivative in this
@@ -1905,17 +1890,11 @@ class SubTest(TestClass):
             args.update({'jac': lambda x: np.array(
                 starting_jac, order=x, copy=True)})
 
-        # and get mask
-        check_ind = 1 if test_variable else 0
-        comp = get_comparable(compare_mask=[(to_test, test, np.array([check_ind]))],
-                              compare_axis=(0, 1, 2),
-                              ref_answer=[fd_jac])
-
         # sri is a bit more fincky
         rtol = 1e-5
         atol = 1e-8
         if rxn_type == falloff_form.sri and conp:
-            rtol = 5e-4
+            rtol = 1e-3
             atol = 1e-5
 
         kc = [kernel_call('dci_dT',
@@ -1932,202 +1911,290 @@ class SubTest(TestClass):
         return self._generic_jac_tester(tester, kc, **extra_args)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # for third body, only need to worry about these
+        1: lambda self: self.__get_check(
+            lambda rxn: True,
+            lambda rxn: isinstance(rxn, ct.ThreeBodyReaction)),
+        2: np.array([0])})
+    def test_dci_thd_dT(self):
+        self.__run_dci_thd_dvar()
+
+    @attr('long')
+    @with_check_inds(check_inds={
+        0: lambda self: np.where(np.all(
+                    self.store.ref_Pr[:, self.store.lind_to_pr_map] != 0.0,
+                    axis=1))[0],
+        # need to look at all 3body/fall, and exclude wrong type
+        1: lambda self: self.__get_check(
+            lambda rxn: (isinstance(rxn, ct.FalloffReaction) and
+                         rxn.falloff.type == 'Simple'),
+            lambda rxn: (isinstance(rxn, ct.ThreeBodyReaction) or
+                         isinstance(rxn, ct.FalloffReaction))),
+        2: np.array([0])})
     def test_dci_lind_dT(self):
-        self.test_dci_thd_dT(falloff_form.lind)
+        self.__run_dci_thd_dvar(falloff_form.lind)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        0: lambda self: np.where(np.all(
+                    self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0,
+                    axis=1))[0],
+        # need to look at all 3body/fall, and exclude wrong type
+        1: lambda self: self.__get_check(
+            lambda rxn: (isinstance(rxn, ct.FalloffReaction) and
+                         rxn.falloff.type == 'Troe'),
+            lambda rxn: (isinstance(rxn, ct.ThreeBodyReaction) or
+                         isinstance(rxn, ct.FalloffReaction))),
+        2: np.array([0])})
     def test_dci_troe_dT(self):
-        self.test_dci_thd_dT(falloff_form.troe)
+        self.__run_dci_thd_dvar(falloff_form.troe)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        0: lambda self: np.where(np.all(
+                    self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
+                    axis=1))[0],
+        # need to look at all 3body/fall, and exclude wrong type
+        1: lambda self: self.__get_check(
+            lambda rxn: (isinstance(rxn, ct.FalloffReaction) and
+                         rxn.falloff.type == 'SRI'),
+            lambda rxn: (isinstance(rxn, ct.ThreeBodyReaction) or
+                         isinstance(rxn, ct.FalloffReaction))),
+        2: np.array([0])})
     def test_dci_sri_dT(self):
-        self.test_dci_thd_dT(falloff_form.sri)
+        self.__run_dci_thd_dvar(falloff_form.sri)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        # for third body, only need to worry about these
+        1: lambda self: self.__get_check(
+            lambda rxn: True,
+            lambda rxn: isinstance(rxn, ct.ThreeBodyReaction)),
+        2: np.array([1])})
     def test_dci_thd_dE(self):
-        self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=True)
-        self.test_dci_thd_dT(reaction_type.thd, test_variable=True, conp=False)
+        self.__run_dci_thd_dvar(reaction_type.thd, test_variable=True, conp=True)
+        self.__run_dci_thd_dvar(reaction_type.thd, test_variable=True, conp=False)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        0: lambda self: np.where(np.all(
+                    self.store.ref_Pr[:, self.store.lind_to_pr_map] != 0.0,
+                    axis=1))[0],
+        # need to look at all 3body/fall, and exclude wrong type
+        1: lambda self: self.__get_check(
+            lambda rxn: (isinstance(rxn, ct.FalloffReaction) and
+                         rxn.falloff.type == 'Simple'),
+            lambda rxn: (isinstance(rxn, ct.ThreeBodyReaction) or
+                         isinstance(rxn, ct.FalloffReaction))),
+        2: np.array([1])})
     def test_dci_lind_dE(self):
-        self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=True)
-        self.test_dci_thd_dT(falloff_form.lind, test_variable=True, conp=False)
+        self.__run_dci_thd_dvar(falloff_form.lind, test_variable=True, conp=True)
+        self.__run_dci_thd_dvar(falloff_form.lind, test_variable=True, conp=False)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        0: lambda self: np.where(np.all(
+                    self.store.ref_Pr[:, self.store.troe_to_pr_map] != 0.0,
+                    axis=1))[0],
+        # need to look at all 3body/fall, and exclude wrong type
+        1: lambda self: self.__get_check(
+            lambda rxn: (isinstance(rxn, ct.FalloffReaction) and
+                         rxn.falloff.type == 'Troe'),
+            lambda rxn: (isinstance(rxn, ct.ThreeBodyReaction) or
+                         isinstance(rxn, ct.FalloffReaction))),
+        2: np.array([1])})
     def test_dci_troe_dE(self):
-        self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=True)
-        self.test_dci_thd_dT(falloff_form.troe, test_variable=True, conp=False)
+        self.__run_dci_thd_dvar(falloff_form.troe, test_variable=True, conp=True)
+        self.__run_dci_thd_dvar(falloff_form.troe, test_variable=True, conp=False)
 
     @attr('long')
+    @with_check_inds(check_inds={
+        0: lambda self: np.where(np.all(
+                    self.store.ref_Pr[:, self.store.sri_to_pr_map] != 0.0,
+                    axis=1))[0],
+        # need to look at all 3body/fall, and exclude wrong type
+        1: lambda self: self.__get_check(
+            lambda rxn: (isinstance(rxn, ct.FalloffReaction) and
+                         rxn.falloff.type == 'SRI'),
+            lambda rxn: (isinstance(rxn, ct.ThreeBodyReaction) or
+                         isinstance(rxn, ct.FalloffReaction))),
+        2: np.array([1])})
     def test_dci_sri_dE(self):
-        self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=True)
-        self.test_dci_thd_dT(falloff_form.sri, test_variable=True, conp=False)
+        self.__run_dci_thd_dvar(falloff_form.sri, test_variable=True, conp=True)
+        self.__run_dci_thd_dvar(falloff_form.sri, test_variable=True, conp=False)
+
+    @with_check_inds(check_inds={
+            1: np.array([1]),
+            2: np.array([0])},
+        custom_checks={
+            # exclude purposefully included nan's
+            0: lambda self, conp: np.setdiff1d(
+                np.arange(self.store.test_size),
+                np.unique(np.where(np.isnan(self.__get_full_jac(conp)))[0]),
+                assume_unique=True)
+        })
+    def __run_test_dedot_dt(self, conp):
+        # conp
+        fd_jac = self.__get_full_jac(conp)
+
+        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        phi = self.store.phi_cp if conp else self.store.phi_cv
+        dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+
+        jac = fd_jac.copy()
+        self._set_at(jac, 0)
+
+        args = {'dphi': lambda x: np.array(
+            dphi, order=x, copy=True),
+            'phi': lambda x: np.array(
+            phi, order=x, copy=True),
+            'jac': lambda x: np.array(
+            jac, order=x, copy=True),
+            'wdot': lambda x: np.array(
+            self.store.species_rates, order=x, copy=True)
+        }
+
+        if conp:
+            args['P_arr'] = lambda x: np.array(
+                self.store.P, order=x, copy=True)
+        else:
+            args['V_arr'] = lambda x: np.array(
+                self.store.V, order=x, copy=True)
+
+        # and get mask
+        comp = self._get_compare(fd_jac)
+        kc = [kernel_call('dEdotdT', comp.ref_answer, compare_mask=[comp],
+                          compare_axis=comp.compare_axis,
+                          other_compare=self.our_nan_compare,
+                          **args)]
+
+        return self._generic_jac_tester(dEdotdT, kc, conp=conp)
 
     @attr('long')
     def test_dEdot_dT(self):
-        def __subtest(conp):
-            # conp
-            fd_jac = self.__get_full_jac(conp)
+        self.__run_test_dedot_dt(True)
+        self.__run_test_dedot_dt(False)
 
-            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
-            phi = self.store.phi_cp if conp else self.store.phi_cv
-            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
-
-            jac = fd_jac.copy()
-            jac[:, 1, 0] = 0
-
-            args = {'dphi': lambda x: np.array(
-                dphi, order=x, copy=True),
-                'phi': lambda x: np.array(
-                phi, order=x, copy=True),
-                'jac': lambda x: np.array(
-                jac, order=x, copy=True),
-                'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)
-            }
-
-            if conp:
-                args['P_arr'] = lambda x: np.array(
-                    self.store.P, order=x, copy=True)
-            else:
-                args['V_arr'] = lambda x: np.array(
-                    self.store.V, order=x, copy=True)
-
+    @with_check_inds(check_inds={
+            1: np.array([0]),
+            2: np.array([1])
+        },
+        custom_checks={
             # exclude purposefully included nan's
-            to_test = np.setdiff1d(np.arange(self.store.test_size),
-                                   np.unique(np.where(np.isnan(jac))[0]),
-                                   assume_unique=True)
-            comp = get_comparable(compare_mask=[
-                (to_test, np.array([1]), np.array([0]))],
-                                  compare_axis=(0, 1, 2),
-                                  ref_answer=[fd_jac]
-                                  )
+            0: lambda self, conp: np.setdiff1d(
+                np.arange(self.store.test_size), np.unique(
+                    np.where(np.isnan(self.__get_full_jac(conp)))[0]),
+                assume_unique=True)
+        })
+    def __run_test_dtdot_de(self, conp):
+        # get the full jacobian
+        fd_jac = self.__get_full_jac(conp)
 
-            # and get mask
-            kc = [kernel_call('dEdotdT', comp.ref_answer, compare_mask=[comp],
-                              compare_axis=comp.compare_axis,
-                              other_compare=self.our_nan_compare,
-                              **args)]
+        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        phi = self.store.phi_cp if conp else self.store.phi_cv
+        dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+        spec_heat = self.store.spec_cp if conp else self.store.spec_cv
+        spec_heat_tot = np.sum(self.store.concs * spec_heat, axis=1)
+        spec_energy = self.store.spec_h if conp else self.store.spec_u
 
-            return self._generic_jac_tester(dEdotdT, kc, conp=conp)
+        jac = fd_jac.copy()
+        self._set_at(jac, 0)
 
-        __subtest(True)
-        __subtest(False)
+        args = {'dphi': lambda x: np.array(
+            dphi, order=x, copy=True),
+            'phi': lambda x: np.array(
+            phi, order=x, copy=True),
+            'jac': lambda x: np.array(
+            jac, order=x, copy=True),
+            'wdot': lambda x: np.array(
+            self.store.species_rates, order=x, copy=True)
+        }
+
+        if conp:
+            args.update({
+                'cp': lambda x: np.array(
+                    spec_heat, order=x, copy=True),
+                'cp_tot': lambda x: np.array(
+                    spec_heat_tot, order=x, copy=True),
+                'h': lambda x: np.array(
+                    spec_energy, order=x, copy=True),
+                'conc': lambda x: np.array(
+                    self.store.concs, order=x, copy=True)},
+                )
+        else:
+            args.update({'V_arr': lambda x: np.array(
+                self.store.V, order=x, copy=True),
+                'cv': lambda x: np.array(
+                    spec_heat, order=x, copy=True),
+                'cv_tot': lambda x: np.array(
+                    spec_heat_tot, order=x, copy=True),
+                'u': lambda x: np.array(
+                    spec_energy, order=x, copy=True)})
+
+        # and get mask
+        comp = self._get_compare(fd_jac)
+        kc = [kernel_call('dTdotdE', comp.ref_answer,
+                          compare_mask=[comp], compare_axis=comp.compare_axis,
+                          other_compare=self.our_nan_compare,
+                          **args)]
+
+        return self._generic_jac_tester(dTdotdE, kc, conp=conp)
 
     @attr('long')
     def test_dTdot_dE(self):
-        def __subtest(conp):
-            # conp
-            fd_jac = self.__get_full_jac(conp)
+        self.__run_test_dtdot_de(True)
+        self.__run_test_dtdot_de(False)
 
-            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
-            phi = self.store.phi_cp if conp else self.store.phi_cv
-            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
-            spec_heat = self.store.spec_cp if conp else self.store.spec_cv
-            spec_heat_tot = np.sum(self.store.concs * spec_heat, axis=1)
-            spec_energy = self.store.spec_h if conp else self.store.spec_u
-
-            jac = fd_jac.copy()
-            jac[:, 0, 1] = 0
-
-            args = {'dphi': lambda x: np.array(
-                dphi, order=x, copy=True),
-                'phi': lambda x: np.array(
-                phi, order=x, copy=True),
-                'jac': lambda x: np.array(
-                jac, order=x, copy=True),
-                'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)
-            }
-
-            if conp:
-                args.update({
-                    'cp': lambda x: np.array(
-                        spec_heat, order=x, copy=True),
-                    'cp_tot': lambda x: np.array(
-                        spec_heat_tot, order=x, copy=True),
-                    'h': lambda x: np.array(
-                        spec_energy, order=x, copy=True),
-                    'conc': lambda x: np.array(
-                        self.store.concs, order=x, copy=True)},
-                    )
-            else:
-                args.update({'V_arr': lambda x: np.array(
-                    self.store.V, order=x, copy=True),
-                    'cv': lambda x: np.array(
-                        spec_heat, order=x, copy=True),
-                    'cv_tot': lambda x: np.array(
-                        spec_heat_tot, order=x, copy=True),
-                    'u': lambda x: np.array(
-                        spec_energy, order=x, copy=True)})
-
+    @with_check_inds(check_inds={
+            1: np.array([1]),
+            2: np.array([2])
+        },
+        custom_checks={
             # exclude purposefully included nan's
-            to_test = np.setdiff1d(np.arange(self.store.test_size),
-                                   np.unique(np.where(np.isnan(jac))[0]),
-                                   assume_unique=True)
+            0: lambda self, conp: np.setdiff1d(
+                np.arange(self.store.test_size), np.unique(np.where(np.isnan(
+                    self.__get_full_jac(conp)))[0]), assume_unique=True)
+        })
+    def __run_test_dedot_de(self, conp):
+        # get the full jacobian
+        fd_jac = self.__get_full_jac(conp)
 
-            comp = get_comparable(ref_answer=[fd_jac],
-                                  compare_mask=[
-                                  (to_test, np.array([0]), np.array([1]))],
-                                  compare_axis=(0, 1, 2))
-            # and get mask
-            kc = [kernel_call('dTdotdE', comp.ref_answer,
-                              compare_mask=[comp], compare_axis=comp.compare_axis,
-                              other_compare=self.our_nan_compare,
-                              **args)]
+        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        phi = self.store.phi_cp if conp else self.store.phi_cv
+        dphi = self.store.dphi_cp if conp else self.store.dphi_cv
+        jac = fd_jac.copy()
+        # reset populated values
+        self._set_at(jac, 0)
 
-            return self._generic_jac_tester(dTdotdE, kc, conp=conp)
+        args = {'dphi': lambda x: np.array(
+            dphi, order=x, copy=True),
+            'phi': lambda x: np.array(
+            phi, order=x, copy=True),
+            'jac': lambda x: np.array(
+            jac, order=x, copy=True),
+        }
 
-        __subtest(True)
-        __subtest(False)
+        if conp:
+            args.update({'P_arr': lambda x: np.array(
+                self.store.P, order=x, copy=True)})
+        else:
+            args.update({'V_arr': lambda x: np.array(
+                self.store.V, order=x, copy=True)})
+
+        # and get mask
+        comp = self._get_compare(fd_jac)
+        kc = [kernel_call('dEdotdE', comp.ref_answer,
+                          compare_mask=[comp], compare_axis=comp.compare_axis,
+                          other_compare=self.our_nan_compare,
+                          **args)]
+
+        return self._generic_jac_tester(dEdotdE, kc, conp=conp)
 
     @attr('long')
     def test_dEdot_dE(self):
-        def __subtest(conp):
-            # conp
-            fd_jac = self.__get_full_jac(conp)
-
-            namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
-            phi = self.store.phi_cp if conp else self.store.phi_cv
-            dphi = self.store.dphi_cp if conp else self.store.dphi_cv
-            jac = fd_jac.copy()
-            jac[:, 1, 1] = 0
-
-            args = {'dphi': lambda x: np.array(
-                dphi, order=x, copy=True),
-                'phi': lambda x: np.array(
-                phi, order=x, copy=True),
-                'jac': lambda x: np.array(
-                jac, order=x, copy=True),
-            }
-
-            if conp:
-                args.update({'P_arr': lambda x: np.array(
-                    self.store.P, order=x, copy=True)})
-            else:
-                args.update({'V_arr': lambda x: np.array(
-                    self.store.V, order=x, copy=True)})
-
-            # exclude purposefully included nan's
-            to_test = np.setdiff1d(np.arange(self.store.test_size),
-                                   np.unique(np.where(np.isnan(jac))[0]),
-                                   assume_unique=True)
-
-            comp = get_comparable(ref_answer=[fd_jac],
-                                  compare_mask=[
-                                    (to_test, np.array([1]), np.array([1]))],
-                                  compare_axis=(0, 1, 2))
-
-            # and get mask
-            kc = [kernel_call('dEdotdE', comp.ref_answer,
-                              compare_mask=[comp], compare_axis=comp.compare_axis,
-                              other_compare=self.our_nan_compare,
-                              **args)]
-
-            return self._generic_jac_tester(dEdotdE, kc, conp=conp)
-
-        __subtest(True)
-        __subtest(False)
+        self.__run_test_dedot_de(True)
+        self.__run_test_dedot_de(False)
 
     @attr('long')
     def test_index_determination(self):
