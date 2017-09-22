@@ -2,6 +2,14 @@ from __future__ import division
 
 import os
 from string import Template
+from collections import OrderedDict
+import shutil
+import logging
+from multiprocessing import cpu_count
+import subprocess
+import sys
+from functools import wraps
+
 from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
                                         auto_run, RateSpecialization, loopy_options)
 from ...core.exceptions import MissingPlatformError
@@ -11,12 +19,6 @@ from ...core.mech_auxiliary import write_aux
 from .. import get_test_platforms
 from ...pywrap import generate_wrapper
 
-from collections import OrderedDict
-import shutil
-import logging
-from multiprocessing import cpu_count
-import subprocess
-import sys
 
 from optionloop import OptionLoop
 import numpy as np
@@ -633,3 +635,50 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         except Exception as e:
             logging.error(e)
             assert False, '{} error'.format(kgen.name)
+
+
+def with_check_inds(check_inds={}, custom_checks={}):
+    # This wrapper is to be used to ensure that we're comparing the same indicies
+    # throughout a testing method (e.g. to those we set to zero on the input side)
+
+    def check_inds_decorator(func):
+        @wraps(func)
+        def wrapped(self, *args, **kwargs):
+            self.__fixed = False
+
+            def __fix_callables():
+                if not self.__fixed:
+                    for k, v in six.iteritems(check_inds):
+                        if six.callable(v):
+                            check_inds[k] = v(self)
+                    for k, v in six.iteritems(custom_checks):
+                        assert six.callable(v)
+                        if six.callable(v):
+                            check_inds[k] = v(self, *args)
+                self.__fixed = True
+
+            def _get_compare(answer):
+                """
+                Return an appropriate comparable for the specified check_inds
+                """
+                __fix_callables()
+                axes = []
+                inds = []
+                for ax, ind in six.iteritems(check_inds):
+                    axes.append(ax)
+                    inds.append(ind)
+                return get_comparable([inds], [answer], tuple(axes))
+
+            def _set_at(array, value, order='C'):
+                """
+                Set the value at check_inds in array to value
+                """
+                __fix_callables()
+                _, inds = zip(*check_inds.items())
+                array[tuple(inds)] = value
+
+            self._get_compare = _get_compare
+            self._set_at = _set_at
+            return func(self, *args, **kwargs)
+        return wrapped
+    return check_inds_decorator
