@@ -2148,7 +2148,7 @@ class SubTest(TestClass):
 
     @with_check_inds(check_inds={
             1: np.array([1]),
-            2: np.array([2])
+            2: np.array([1])
         },
         custom_checks={
             # exclude purposefully included nan's
