@@ -449,8 +449,10 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
                             kf_fall_lp])
 
         # factor used for the Theta_Pr part of conp Pr derivative
-        conp_theta_pr_fac = Template('- ${Pr_str} * (\
-                ${thd_type_str} != ${unity})').safe_substitute(
+        fall_instructions = Template(
+            '<int32> not_unity = ${thd_type_str} != ${unity}').safe_substitute(
+            **locals())
+        conp_theta_pr_fac = Template('- ${Pr_str} * not_unity').safe_substitute(
             **locals()) if conp else ''
 
         # check for Troe / SRI
@@ -506,15 +508,16 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
         # term.  We simplify it to this to put in the falloff (non-chemically
         # activated) if statement
         conp_theta_pr_outer_fac = Template(
-            '- ${pres_mod_str}').safe_substitute(**locals()) if conp else ''
+            '- not_unity * ${pres_mod_str}').safe_substitute(
+            **locals()) if conp else ''
         # change the sign on this factor
-        conp_theta_pr_fac = Template(' + ${Pr_str} * (\
-                ${thd_type_str} != ${unity})').safe_substitute(
+        conp_theta_pr_fac = Template(' + ${Pr_str} * not_unity').safe_substitute(
             **locals()) if conp else ''
         fall_finish = '{} * rop_net '.format(V_str) if not conp else \
             ' rop_net'
         Pfac = ' * ' + P_str if conp else ''
         fall_instructions = Template("""
+        ${fall_instructions}
         if ${fall_type_str}
             # chemically activated
             <>kf_0 = ${kf_str} {id=kf_chem}
