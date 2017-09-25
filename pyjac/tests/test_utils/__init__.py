@@ -621,6 +621,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             db.flatten(order=opts.order).tofile(file,)
 
         # write the module tester
+        from ...libgen import build_type
         with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
             file.write(mod_test.safe_substitute(
                 package='pyjac_{lang}'.format(
@@ -629,7 +630,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 test_arrays=', '.join('"{}"'.format(x) for x in tests),
                 looser_tols='[{}]'.format(
                     ', '.join(str(x) for x in looser_tols)),
-                rtol=1e-2,
+                rtol=1e-2 if btype != build_type.jacobian else 5e-1,
                 atol=1e-8,
                 non_array_args='{}, {}'.format(
                     self.store.test_size, num_devices),
