@@ -4328,7 +4328,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     # total spec heats
     __add_knl(total_specific_energy(
-        eqs, loopy_opts, nstore, test_size=test_size))
+        eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
 
     # and thermo derivatives
     __add_knl(thermo_temperature_derivative(
@@ -4339,7 +4339,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
             nstore.db.name, eqs, loopy_opts, nstore, test_size=test_size))
 
     # next, the temperature derivative w.r.t. species
-    __add_knl(dTdot_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+    __add_knl(dTdot_dnj(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
     # (depends on total_specific_energy)
     __insert_at(kernels[-1].name)
 
@@ -4367,7 +4367,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     # check for third body terms
     if rate_info['thd']['num']:
-        __add_knl(dci_thd_dT(eqs, loopy_opts, nstore, test_size))
+        __add_knl(dci_thd_dT(eqs, loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['lind']['num']:
             __add_knl(
@@ -4414,14 +4414,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
         if rate_info['fall']['lind']['num']:
             __add_knl(
-                dci_lind_dE(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_lind_dE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
-            __add_knl(dci_sri_dE(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(dci_sri_dE(eqs, loopy_opts, nstore, conp=conp,
+                                 test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
             __add_knl(
-                dci_troe_dE(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_troe_dE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
 
     # and the temperature derivative w.r.t. the extra var
     __add_knl(dTdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
