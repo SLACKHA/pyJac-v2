@@ -10,7 +10,8 @@ ideal_gas(name='gas',
                      C2H6        c2h3oh      hocho       ch3cho
                      ch2cho      ho2ch2co    C8H6        C2H
                      C6H5        C4H2        CH2s        aC3H4
-                     aC3H5       C5H5        C5H4CH3     N2""",
+                     aC3H5       C5H5        C5H4CH3     ch2co
+                     N2""",
           reactions='all',
           initial_state=state(temperature=300.0, pressure=OneAtm))
 
@@ -437,6 +438,18 @@ species(name=u'C5H4CH3',
                       -4.47534535E+01])),
         note=u'A03/05')
 
+species(name='ch2co',
+        atoms='H:2 C:2 O:1',
+        thermo=(NASA([300.00, 1000.00],
+                     [ 2.97497100E+00,  1.21187100E-02, -2.34504600E-06,
+                      -6.46668500E-09,  3.90564900E-12, -7.63263700E+03,
+                       8.67355300E+00]),
+                NASA([1000.00, 5000.00],
+                     [ 6.03881700E+00,  5.80484000E-03, -1.92095400E-06,
+                       2.79448500E-10, -1.45886800E-14, -8.58340200E+03,
+                      -7.65758100E+00])),
+        note='121686')
+
 species(name=u'N2',
         atoms='N:2',
         thermo=(NASA([300.00, 1000.00],
@@ -448,6 +461,7 @@ species(name=u'N2',
                        1.00970380E-10, -6.75335100E-15, -9.22797700E+02,
                        5.98052800E+00])),
         note=u'121286')
+
 
 #-------------------------------------------------------------------------------
 # Reaction data
@@ -509,6 +523,13 @@ falloff_reaction('H + H (+ M) <=> H2 (+ M)',
                  kf=[2.800000e+18, -0.86, 0.0],
                  kf0=[2.300000e+18, -0.9, -1700.0],
                  falloff=Troe(A=0.7346, T3=94.0, T1=1756.0, T2=5182.0))
+
+# Troe unity -- added to test dE derivative (ch2cho not shared by any other falloff
+# rxn), so it'll be included in the test
+falloff_reaction('ch2cho (+ M) <=> ch2co + H (+ M)',
+                 kf=[1.430000e+15, -0.15, 45600.0],
+                 kf0=[6.000000e+29, -3.8, 43423.898],
+                 falloff=Troe(A=0.985, T3=393.0, T1=9800000000.0, T2=5000000000.0))
 # troe
 
 # Reaction 12
