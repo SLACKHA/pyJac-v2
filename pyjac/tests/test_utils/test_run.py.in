@@ -75,8 +75,12 @@ if __name__ == '__main__':
                     if not np.all(np.in1d(misses, lt)):
                         sys.exit(1)
 
+                    # check for nan's
+                    check = np.where(np.isfinite(test_arrays[i][misses]))
+
                     # next check for match at looser tols
-                    if np.allclose(output_args[i][misses], test_arrays[i][misses],
+                    if np.allclose(output_args[i][misses][check],
+                                   test_arrays[i][misses][check],
                                    rtol=${rtol}, atol=${atol}):
                         continue
 
