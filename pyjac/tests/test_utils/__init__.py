@@ -551,52 +551,57 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             test = np.array(test_arr, copy=True, order=opts.order)
         __saver(test, test_arr_name, tests)
 
-        # find where the last species concentration is zero to mess with the
-        # tolerances there
+        # find where the reduced pressure term for non-Lindemann falloff / chemically
+        # activated reactions is zero
 
         # get split arrays
-        concs, test = kgen.array_split.split_numpy_arrays([
-            self.store.concs, test])
-
-        # index into concs to ge the last species
-        if concs.ndim == 3:
-            slice_ind = parse_split_index(
-                concs, (np.array([len(self.store.specs) - 1]),), opts.order)
-        else:
-            slice_ind = [slice(None), -1]
+        Pr, test = kgen.array_split.split_numpy_arrays([
+            self.store.ref_Pr, test])
 
         # find where it's zero
-        last_zeros = np.where(concs[slice_ind] == 0)
-        last_zeros = [x for i, x in enumerate(last_zeros)
-                      if concs[slice_ind].shape[i] > 1]
+        last_zeros = np.where(Pr == 0)
 
-        # and put into the form of the test array
-        # create a ravel index
-        ravel_ind = [slice(None)] * test.ndim
-        same_dims = [i for i in range(test.ndim) if test.shape[i] in concs.shape]
-        for i, d in enumerate(same_dims):
-            ravel_ind[d] = last_zeros[i]
-        ravel_ind = [np.arange(test.shape[i], dtype=np.int32)
-                     if not isinstance(ravel_ind[i], np.ndarray) else ravel_ind[i]
-                     for i in range(test.ndim)]
+        # just choose the initial condition indicies
+        if kgen.array_split._have_split():
+            if opts.order == 'C':
+                # wide split, take first and last index
+                copy_inds = np.array([0, -1], dtype=np.int32)
+            elif opts.order == 'F':
+                # deep split, take just the IC index at 1
+                copy_inds = np.array([1], dtype=np.int32)
+        else:
+            # no split
+            copy_inds = np.array([0], dtype=np.int32)
+        # and begin constructing ravel indicies
+        ravel_ind = np.array([slice(None)] * test.ndim)
+        for ci in copy_inds:
+            ravel_ind[ci] = last_zeros[ci]
+
+        # fill other ravel locations with tiled test size
+        stride = 1
+        size = np.prod([test.shape[i] for i in range(test.ndim)
+                       if i not in copy_inds])
+        for i in [x for x in range(test.ndim) if x not in copy_inds]:
+            repeats = int(np.ceil(size / (test.shape[i] * stride)))
+            ravel_ind[i] = np.tile(
+                np.arange(test.shape[i], dtype=np.int32),
+                (repeats, stride)).flatten(order='F')[:size]
+            stride *= test.shape[i]
 
         # and use multi_ravel to convert to linear for dphi
         # for whatever reason, if we have two ravel indicies with multiple values
         # we need to need to iterate and stitch them together
-        if len([x for x in ravel_ind if x.size > 1]) > 1:
-            looser_tols = np.empty((0,))
-            # get next multi-valued ravel ind
-            iter_ind = next(i for i, x in enumerate(ravel_ind) if x.size > 1)
-            for x in ravel_ind[iter_ind]:
-                # create copy w/ replaced index
-                copy = ravel_ind[:]
-                copy[iter_ind] = np.array([x], dtype=np.int32)
-                # amd take union of the iterated ravels
-                looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
-                    copy, test.shape, order=opts.order))
-        else:
-            looser_tols = np.ravel_multi_index(
-                ravel_ind, test.shape, order=opts.order)
+        looser_tols = np.empty((0,))
+        for index in np.ndindex(tuple(x.shape[0] for x in ravel_ind[copy_inds])):
+            # create copy w/ replaced index
+            copy = ravel_ind.copy()
+            copy[copy_inds] = [np.array(
+                ravel_ind[copy_inds][i][x], dtype=np.int32)
+                for i, x in enumerate(index)]
+            # amd take union of the iterated ravels
+            looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
+                copy, test.shape, order=opts.order))
+
         # and force to int for indexing
         looser_tols = np.array(looser_tols, dtype=np.int32)
 
