@@ -555,11 +555,16 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # activated reactions is zero
 
         # get split arrays
-        Pr, test = kgen.array_split.split_numpy_arrays([
-            self.store.ref_Pr, test])
+        test, = kgen.array_split.split_numpy_arrays(test)
 
-        # find where it's zero
-        last_zeros = np.where(Pr == 0)
+        # find where Pr is zero
+        last_zeros = np.where(self.store.ref_Pr == 0)
+
+        # turn into updated form
+        ravel_ind = parse_split_index(test, last_zeros, opts.order,
+                                      ref_ndim=3, axis=(0,))
+        # and list
+        ravel_ind = np.array(ravel_ind)
 
         # just choose the initial condition indicies
         if kgen.array_split._have_split():
@@ -572,10 +577,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         else:
             # no split
             copy_inds = np.array([0], dtype=np.int32)
-        # and begin constructing ravel indicies
-        ravel_ind = np.array([slice(None)] * test.ndim)
-        for ci in copy_inds:
-            ravel_ind[ci] = last_zeros[ci]
 
         # fill other ravel locations with tiled test size
         stride = 1
@@ -583,9 +584,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                        if i not in copy_inds])
         for i in [x for x in range(test.ndim) if x not in copy_inds]:
             repeats = int(np.ceil(size / (test.shape[i] * stride)))
-            ravel_ind[i] = np.tile(
-                np.arange(test.shape[i], dtype=np.int32),
-                (repeats, stride)).flatten(order='F')[:size]
+            ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
+                                   (repeats, stride)).flatten(order='F')[:size]
             stride *= test.shape[i]
 
         # and use multi_ravel to convert to linear for dphi
