@@ -182,21 +182,13 @@ class kernel_generator(object):
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = extra_kernel_data[:]
 
-    def apply_barriers(self, barriers, instructions):
+    def apply_barriers(self, instructions):
         """
         A method stud that can be overriden to apply synchonization barriers
         to vectorized code
 
         Parameters
         ----------
-        barriers: list of (i0, i1, type)
-            i0: int
-                the index of the instruction to insert the barrier after
-            i1: int
-                the index of the instruction to insert the barrier before,
-                i0 + 1 should be equal to i1
-            type: ['global', 'local']
-                 The type of memory to synchronize, typically global
 
         instructions: list of str
             The instructions for this kernel
@@ -296,7 +288,7 @@ class kernel_generator(object):
                                      self.compiler)
         for i, info in enumerate(self.kernels):
             # if external, or already built
-            if info in self.external_kernels or isinstance(info, lp.LoopKernel):
+            if isinstance(info, lp.LoopKernel):
                 continue
             # create kernel from k_gen.knl_info
             self.kernels[i] = self.make_kernel(info, target, self.test_size)
@@ -660,7 +652,7 @@ ${name} : ${type}
 
         pass
 
-    def _generate_wrapping_kernel(self, path):
+    def _generate_wrapping_kernel(self, path, instruction_store=None):
         """
         Generates a wrapper around the various subkernels in this
         :class:`kernel_generator` (rather than working through loopy's fusion)
@@ -669,6 +661,9 @@ ${name} : ${type}
         ----------
         path : str
             The output path to write files to
+        instruction_store: dict [None]
+            If supplied, store the generated instructions for this kernel
+            in this store to avoid duplicate work
 
         Returns
         -------
@@ -678,15 +673,14 @@ ${name} : ${type}
         from loopy.types import AtomicNumpyType, to_loopy_type
 
         assert all(
-            isinstance(x, lp.LoopKernel) or
-            next((y for y in self.external_kernels if x.name == y.name), None)
-            for x in self.kernels), ('Cannot generate wrapper '
-                                     'before calling _make_kernels')
+            isinstance(x, lp.LoopKernel) for x in self.kernels), (
+            'Cannot generate wrapper before calling _make_kernels')
 
+        sub_instructions = {}
         if self.depends_on:
             # generate wrappers for dependencies
             for x in self.depends_on:
-                x._generate_wrapping_kernel(path)
+                x._generate_wrapping_kernel(path, instruction_store=sub_instructions)
 
         self.file_prefix = ''
         if self.auto_diff:
@@ -701,25 +695,9 @@ ${name} : ${type}
             file_str = file.read()
             file_src = Template(file_str)
 
-        # Find the list of all arguements needed for this kernel
-        # this may change in the future
-
+        # Find the list of all arguements needed for this kernel:
+        # Scan through all our kernels and compile the args
         kernel_data = []
-        # need to find mapping of externel kernels to depends
-        for x in self.external_kernels:
-            knl = next(
-                (y for dep in self.depends_on
-                 for y in dep.kernels if y.name == x.name), None)
-            assert knl, (
-                'Cannot find external kernel {} in any dependencies'.format(
-                         x.name))
-            my_knl_ind = next(i for i, k in enumerate(self.kernels)
-                              if x.name == k.name)
-            # now replace
-            self.kernels[my_knl_ind] = knl
-
-        # now scan through all our (and externel) kernels
-        # and compile the args
         defines = [arg for dummy in self.kernels for arg in dummy.args if
                    not isinstance(arg, lp.TemporaryVariable)]
 
@@ -824,37 +802,57 @@ ${name} : ${type}
         inits = []
         instructions = []
         # split into bodies, preambles, etc.
-        for k in self.kernels:
+        for i, k in enumerate(self.kernels):
+            if k in sub_instructions:
+                # avoid regeneration if possible
+                inst, pre, init = sub_instructions[k]
+                instructions.append(inst)
+                if pre and pre not in preambles:
+                    preambles.extend(pre)
+                if init and init not in inits:
+                    inits.extend(init)
+                continue
+
             cgr = lp.generate_code_v2(k)
             # grab preambles
+            preamble_list = []
             for _, preamble in cgr.device_preambles:
                 if preamble not in preambles:
-                    preambles.append(preamble)
+                    preamble_list.append(preamble)
+            # and add to global list
+            preambles.extend(preamble_list)
 
             # now scan device program
             assert len(cgr.device_programs) == 1
             cgr = cgr.device_programs[0]
+            init_list = []
             if isinstance(cgr.ast, cgen.Collection):
                 # look for preambles
                 for item in cgr.ast.contents:
                     # initializers go in the preamble
                     if isinstance(item, cgen.Initializer):
                         if str(item) not in inits:
-                            inits.append(str(item))
+                            init_list.append(str(item))
 
                     # blanklines and bodies can be ignored (as they will be added
                     # below)
                     elif not (isinstance(item, cgen.Line)
                               or isinstance(item, cgen.FunctionBody)):
                         raise NotImplementedError(type(item))
+            # and add to inits
+            inits.extend(init_list)
 
             # leave a comment to distinguish the name
             # and put the body in
             instructions.append('// {name}\n{body}\n'.format(
                 name=k.name, body=str(cgr.body_ast)))
 
+            if instruction_store is not None:
+                instruction_store[k] = (instructions[-1][:],
+                                        preamble_list, init_list)
+
         # insert barriers if any
-        instructions = self.apply_barriers(self.barriers, instructions)
+        instructions = self.apply_barriers(instructions)
 
         # join to str
         instructions = '\n'.join(instructions)
@@ -1443,21 +1441,13 @@ class opencl_kernel_generator(kernel_generator):
                     num_source=1
                 ))
 
-    def apply_barriers(self, barriers, instructions):
+    def apply_barriers(self, instructions):
         """
         An override of :method:`kernel_generator.apply_barriers` that
         applies synchronization barriers to OpenCL kernels
 
         Parameters
         ----------
-        barriers: list of (i0, i1, type)
-            i0: int
-                the index of the instruction to insert the barrier after
-            i1: int
-                the index of the instruction to insert the barrier before,
-                i0 + 1 should be equal to i1
-            type: ['global', 'local']
-                 The type of memory to synchronize, typically global
 
         instructions: list of str
             The instructions for this kernel
@@ -1469,8 +1459,12 @@ class opencl_kernel_generator(kernel_generator):
             The instruction list with the barriers inserted
         """
 
+        barriers = self.barriers[:]
+        # include barriers from the sub-kernels
+        for dep in self.depends_on:
+            barriers = dep.barriers + barriers
         instructions = list(enumerate(instructions))
-        for barrier in self.barriers:
+        for barrier in barriers:
             # find insert index (the second barrier ind)
             index = next(ind for ind, inst in enumerate(instructions)
                          if inst[0] == barrier[1])
