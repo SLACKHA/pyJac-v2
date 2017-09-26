@@ -3340,6 +3340,8 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
         __insert_at('spec_rates', True)
         # barrier at molar rates for wdot
         __insert_at('get_molar_rates', True)
+        # barrier at temperature rates for thermo parameters
+        __insert_at('temperature_rate', True)
         # and at the extra variable rates for Tdot
         __insert_at('get_extra_var_rates', True)
 
