@@ -3316,11 +3316,18 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
         # barrier for reduced pressure based on thd body concs and kf_fall
         __insert_at('red_pres', True)
         # barrier before fall_troe for Pr
-        __insert_at('fall_troe', True)
-        # barrier before the falloff ci's for the Fi's
-        __insert_at('ci_fall', True)
-        # barrier before Kc for b evals
-        __insert_at('rateconst_Kc', True)
+        if rate_info['fall']['num']:
+            if not rate_info['fall']['troe']['num']:
+                # try the fall_sri
+                __insert_at('fall_sri', True)
+            else:
+                # put before troe
+                __insert_at('fall_troe', True)
+            # barrier before the falloff ci's for the Fi's
+            __insert_at('ci_fall', True)
+        if rate_info['rev']['num']:
+            # barrier before Kc for b evals
+            __insert_at('rateconst_Kc', True)
         if loopy_opts.rop_net_kernels:
             # need sync after each rop_net
             for x in ['rop_net_rev', 'rop_net_pres_mod']:
