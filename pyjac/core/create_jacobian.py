@@ -4309,6 +4309,9 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     # rate of progress derivatives
     __add_knl(dRopi_dnj(eqs, loopy_opts, nstore, allint, test_size=test_size))
+    # insert a barrier at the front to a) wait for the end of the species rates
+    # and b) wait for the end of the jacobian reset
+    __insert_at(kernels[-1].name)
 
     # and the third body / falloff derivatives
     if rate_info['thd']['num']:
