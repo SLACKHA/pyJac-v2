@@ -4443,13 +4443,15 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     # create the specrates subkernel
     sgen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=conp)
     sub_kernels = sgen.kernels[:]
+    # and finally fix the barriers to account for the sub kernels
+    barriers = [(i1 + len(sub_kernels), i2 + len(sub_kernels), bartype)
+                for i1, i2, bartype in barriers]
     # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='jacobian_kernel',
         kernels=sub_kernels + kernels,
-        external_kernels=sub_kernels,
-        depends_on=[sgen] + sgen.depends_on,
+        depends_on=[sgen],
         input_arrays=input_arrays,
         output_arrays=output_arrays,
         auto_diff=auto_diff,
