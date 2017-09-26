@@ -324,10 +324,25 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
             loopy_opts.depth, atomic_ids=atomic_ids,
             split_ids=split_ids, init_ids=init_ids)
     else:
-        return False, dummy_deep_specialization()
+        return False, dummy_deep_specialization(
+            write_races=atomic_ids + split_ids + init_ids)
 
 
-class within_inames_specializer(object):
+class write_race_silencer(object):
+    """
+    Turns off warnings for loopy's detection of writing across a vectorized-iname
+    as we handle his with either the :class:`dummy_deep_specialization` or
+    the :class:`atomic_deep_specialization`
+    """
+
+    def __init__(self, write_races=[]):
+        self.write_races = ['write_race({name})'.format(name=x) for x in write_races]
+
+    def __call__(self, knl):
+        return knl.copy(silenced_warnings=knl.silenced_warnings + self.write_races)
+
+
+class within_inames_specializer(write_race_silencer):
     """
     A simple class designed to ensure all kernels are vectorizable
     by putting instructions that do not use the local hardware axis inside the
@@ -335,8 +350,9 @@ class within_inames_specializer(object):
 
     This should _not_ be used for anything but deep-vectorizations
     """
-    def __init__(self, var_name=var_name):
+    def __init__(self, var_name=var_name, **kwargs):
         self.var_name = var_name
+        super(within_inames_specializer, self).__init__(**kwargs)
 
     def __call__(self, knl):
         # get resulting tags
@@ -346,7 +362,8 @@ class within_inames_specializer(object):
                 # add a fake dependency on the vectorized iname
                 insn.within_inames |= frozenset([in_tag])
 
-        return knl.copy(instructions=knl.instructions[:])
+        return super(within_inames_specializer, self).__call__(
+            knl.copy(instructions=knl.instructions[:]))
 
 
 class atomic_deep_specialization(within_inames_specializer):
@@ -380,7 +397,8 @@ class atomic_deep_specialization(within_inames_specializer):
         self.init_ids = _listify(init_ids)[:]
 
         # and parent constructor
-        super(atomic_deep_specialization, self).__init__()
+        super(atomic_deep_specialization, self).__init__(
+            write_races=atomic_ids + split_ids + init_ids)
 
     def __call__(self, knl):
         insns = knl.instructions[:]
