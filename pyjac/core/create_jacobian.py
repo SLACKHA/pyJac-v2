@@ -4307,11 +4307,11 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     allint = {'net': rate_info['net']['allint']}
 
+    # insert a barrier to a) wait for the end of the species rates
+    # and b) wait for the end of the jacobian reset
+    __insert_at(kernels[-1].name, before=False)
     # rate of progress derivatives
     __add_knl(dRopi_dnj(eqs, loopy_opts, nstore, allint, test_size=test_size))
-    # insert a barrier at the front to a) wait for the end of the species rates
-    # and b) wait for the end of the jacobian reset
-    __insert_at(kernels[-1].name)
 
     # and the third body / falloff derivatives
     if rate_info['thd']['num']:
@@ -4444,7 +4444,8 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     sgen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=conp)
     sub_kernels = sgen.kernels[:]
     # and finally fix the barriers to account for the sub kernels
-    barriers = [(i1 + len(sub_kernels), i2 + len(sub_kernels), bartype)
+    offset = len(sub_kernels)
+    barriers = [(i1 + offset, i2 + offset, bartype)
                 for i1, i2, bartype in barriers]
     # and return the full generator
     return k_gen.make_kernel_generator(
