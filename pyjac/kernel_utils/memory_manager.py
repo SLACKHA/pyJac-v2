@@ -28,44 +28,42 @@ class memory_manager(object):
         self.in_arrays = []
         self.out_arrays = []
         self.lang = lang
-        self.has_init = {}
         self.memory_types = {'c': 'double*',
                              'opencl': 'cl_mem'}
         self.host_langs = {'opencl': 'c',
                            'c': 'c'}
-        self.alloc_templates = {'opencl':
-                                Template('${name} = clCreateBuffer(context, ${memflag},'
-                                         ' ${buff_size} * sizeof(double),'
-                                         ' NULL, &return_code)'),
-                                'c': Template('${name} = (double*)malloc(${buff_size} * sizeof(double))')}
-        self.copy_in_templates = {'opencl':
-                                  Template('clEnqueueWriteBuffer(queue, ${name}, CL_TRUE,'
-                                           ' 0, ${buff_size} * sizeof(double),'
-                                           ' ${host_buff}, 0, NULL, NULL)'),
-                                  'c':
-                                  Template('memcpy(${name}, ${host_buff},'
-                                           ' ${buff_size} * sizeof(double))')}
-        self.copy_out_templates = {'opencl':
-                                   Template('clEnqueueReadBuffer(queue, ${name}, CL_TRUE,'
-                                            ' 0, ${buff_size} * sizeof(double),'
-                                            ' ${host_buff}, 0, NULL, NULL)'),
-                                   'c':
-                                   Template('memcpy(${host_buff}, ${name},'
-                                            ' ${buff_size} * sizeof(double))')}
-        self.free_template = {'opencl':
-                              Template('clReleaseMemObject(${name})'),
+        self.alloc_templates = {'opencl': Template(
+            '${name} = clCreateBuffer(context, ${memflag}, '
+            '${buff_size}, NULL, &return_code)'),
+                                'c': Template(
+            '${name} = (double*)malloc(${buff_size})')}
+        self.copy_in_templates = {'opencl': Template(
+            'clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, '
+            '${buff_size}, ${host_buff}, 0, NULL, NULL)'),
+                                  'c': Template(
+            'memcpy(${name}, ${host_buff}, ${buff_size})')}
+        self.copy_out_templates = {'opencl': Template(
+            'clEnqueueReadBuffer(queue, ${name}, CL_TRUE, 0, '
+            '${buff_size}, ${host_buff}, 0, NULL, NULL)'),
+                                   'c': Template(
+            'memcpy(${host_buff}, ${name}, ${buff_size})')}
+        self.memset_templates = {'opencl': Template(
+            'clEnqueueFillBuffer(queue, ${name}, ${fill_value}, ${fill_size}, 0,'
+            ' ${size}, 0, NULL, NULL)'),
+            'c': Template('memset(${name}, 0, ${size})')
+        }
+        self.free_template = {'opencl': Template('clReleaseMemObject(${name})'),
                               'c': Template('free(${name})')}
 
-        self.host_inits = []
-
-    def get_check_err_call(self, call):
-        if self.lang == 'opencl':
+    def get_check_err_call(self, call, lang=None):
+        if lang is None:
+            lang = self.lang
+        if lang == 'opencl':
             return Template('check_err(${call})').safe_substitute(call=call)
         else:
             return call
 
-    def add_arrays(self, arrays=[], has_init={}, in_arrays=[],
-                   out_arrays=[]):
+    def add_arrays(self, arrays=[], in_arrays=[], out_arrays=[]):
         """
         Adds arrays to the manager
 
@@ -73,9 +71,6 @@ class memory_manager(object):
         ----------
         arrays : list of :class:`lp.GlobalArg`
             The arrays to declare
-        has_init : dict
-            A mapping of array name -> constant initializer value
-            Indiciating that these arrays must be set before execution
         in_arrays : list of str
             The array names that form the input to this kernel
         out_arrays : list of str
@@ -89,13 +84,12 @@ class memory_manager(object):
             [x for x in arrays if not isinstance(x, lp.ValueArg)])
         self.in_arrays.extend(in_arrays)
         self.out_arrays.extend(out_arrays)
-        self.has_init.update(has_init)
 
     @property
     def host_arrays(self):
         def _set_sort(arr):
             return sorted(set(arr), key=lambda x: arr.index(x))
-        return _set_sort(self.in_arrays + self.out_arrays + self.host_inits)
+        return _set_sort(self.in_arrays + self.out_arrays)
 
     @property
     def host_lang(self):
@@ -124,14 +118,6 @@ class memory_manager(object):
         # get all 'device' defns
         __add([x.name for x in self.arrays], self.lang, 'd_', defns)
 
-        # process any host array that needs init but isn't an input array
-        for arr in sorted(self.has_init):
-            if arr not in self.host_arrays:
-                self.host_inits.append(arr)
-
-        # get host defns
-        __add(self.host_inits, self.host_lang, 'h_', defns)
-
         # return defn string
         return '\n'.join(sorted(set(defns)))
 
@@ -149,22 +135,21 @@ class memory_manager(object):
             The string of memory allocations
         """
 
-        def __get_alloc(name, lang, prefix):
+        def __get_alloc_and_memset(dev_arr, lang, prefix):
             # if we're allocating inputs, call them something different
             # than the input args from python
             post_fix = '_local' if alloc_locals else ''
 
+            # get name
+            name = prefix + dev_arr.name + post_fix
             # if it's opencl, we need to declare the buffer type
             memflag = None
             if lang == 'opencl':
                 memflag = 'CL_MEM_READ_WRITE'
 
-            # find the corresponding loopy array, to get sizes
-            dev_arr = next(x for x in self.arrays if x.name == name)
-
             # generate allocs
             alloc = self.alloc_templates[lang].safe_substitute(
-                name=prefix + name + post_fix,
+                name=name,
                 memflag=memflag,
                 buff_size=self._get_size(dev_arr))
 
@@ -179,43 +164,28 @@ class memory_manager(object):
             if lang == 'opencl':
                 return_list.append(self.get_check_err_call('return_code'))
 
-            # return
-            return '\n'.join([r + utils.line_end[lang] for r in return_list])
+            # add the memset
+            return_list.append(
+                self.get_check_err_call(
+                    self.memset_templates[lang].safe_substitute(
+                        name=name,
+                        buff_size=self._get_size(dev_arr),
+                        fill_value='&zero',  # fill for OpenCL kernels
+                        fill_size='sizeof(double)',  # fill type
+                        size=self._get_size(dev_arr),
+                        ), lang=lang))
 
-        to_alloc = [next(x for x in self.arrays if x.name == y) for y in self.host_arrays] \
-            if alloc_locals else self.arrays
+            # return
+            return '\n'.join([r + utils.line_end[lang] for r in return_list] +
+                             ['\n'])
+
+        to_alloc = [
+            next(x for x in self.arrays if x.name == y) for y in self.host_arrays
+            ] if alloc_locals else self.arrays
         prefix = 'h_' if alloc_locals else 'd_'
         lang = self.lang if not alloc_locals else self.host_lang
-        alloc_list = [__get_alloc(arr.name, lang, prefix) for arr in to_alloc]
-
-        # do memsets where applicable
-        if not alloc_locals:
-            for arr in sorted(self.has_init):
-                assert arr in self.host_arrays, 'Cannot initialize device memory to a constant'
-                prefix = 'h_'
-                if arr not in self.in_arrays:
-                    # needs to be alloced, since it isn't passed in
-                    alloc_list.append(__get_alloc(arr, self.host_lang, prefix))
-                # find initial value
-                init_v = self.has_init[arr]
-                # find corresponding device array
-                dev_arr = next(x for x in self.arrays if x.name == arr)
-                if init_v == 0:
-                    alloc_list.append(Template('memset(${prefix}${name}, 0, '
-                                               '${buff_size} * sizeof(double))${end}').safe_substitute(
-                        prefix=prefix,
-                        name=arr,
-                        buff_size=self._get_size(dev_arr),
-                        end=utils.line_end[self.lang] + '\n'
-                    ))
-                else:
-                    alloc_list.append(Template('for(int i_setter = 0; i_setter < ${buff_size}; ++i_setter)\n'
-                                               '    ${prefix}${name}[i_setter] = ${value}${end}').safe_substitute(
-                        prefix=prefix,
-                        name=arr,
-                        buff_size=self._get_size(dev_arr),
-                        value=init_v,
-                        end=utils.line_end[self.lang] + '\n'))
+        alloc_list = [__get_alloc_and_memset(
+            arr, lang, prefix) for arr in to_alloc]
 
         return '\n'.join(alloc_list)
 
@@ -247,10 +217,13 @@ class memory_manager(object):
                 # skip this entry
                 skip.append(i)
 
+        # find all numerical sizes
         nsize = [size[i] for i in range(len(size)) if i not in skip]
         if nsize:
             nsize = str(np.cumprod(nsize, dtype=np.int32)[-1])
             str_size.append(nsize)
+        # multiply by the item size
+        str_size.append(str(arr.dtype.itemsize))
         return ' * '.join(str_size)
 
     def _mem_transfers(self, to_device=True):
@@ -283,7 +256,8 @@ class memory_manager(object):
 
     def get_mem_transfers_out(self):
         """
-        Generates the memory transfers into the back to the host after kernel execution
+        Generates the memory transfers into the back to the host after kernel
+        execution
 
         Parameters
         ----------
@@ -292,7 +266,8 @@ class memory_manager(object):
         Returns
         -------
         mem_transfer_out : str
-            The string to perform the memory transfers back to the host after execution
+            The string to perform the memory transfers back to the host after
+            execution
         """
 
         return self._mem_transfers(to_device=False)
@@ -314,13 +289,9 @@ class memory_manager(object):
 
         if not free_locals:
             # device memory
-            frees = [self.get_check_err_call(self.free_template[self.lang].safe_substitute(
-                name='d_' + arr.name)) for arr in self.arrays]
-
-            # host memory
-            frees.extend(
-                [self.free_template[self.host_lang].safe_substitute(
-                    name='h_' + arr) for arr in self.host_inits])
+            frees = [self.get_check_err_call(
+                self.free_template[self.lang].safe_substitute(name='d_' + arr.name))
+                     for arr in self.arrays]
         else:
             frees = [self.free_template[self.host_lang].safe_substitute(
                 name='h_' + arr + '_local') for arr in self.host_arrays]

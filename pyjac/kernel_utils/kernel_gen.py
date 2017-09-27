@@ -89,7 +89,6 @@ class kernel_generator(object):
                  external_kernels=[],
                  input_arrays=[],
                  output_arrays=[],
-                 init_arrays={},
                  test_size=None,
                  auto_diff=False,
                  depends_on=[],
@@ -112,9 +111,6 @@ class kernel_generator(object):
             The names of the input arrays of this kernel
         output_arrays : list of str
             The names of the output arrays of this kernel
-        init_arrays : dict
-            A mapping of name -> initializer value for arrays in
-            this kernel that require constant value initalization
         test_size : int
             If specified, the # of conditions to test
         auto_diff : bool
@@ -144,8 +140,7 @@ class kernel_generator(object):
         self.auto_diff = auto_diff
 
         # update the memory manager
-        self.mem.add_arrays(in_arrays=input_arrays,
-                            out_arrays=output_arrays, has_init=init_arrays)
+        self.mem.add_arrays(in_arrays=input_arrays, out_arrays=output_arrays)
 
         self.type_map = {}
         from loopy.types import to_loopy_type
@@ -606,9 +601,6 @@ ${name} : ${type}
                 knl_name=self.name,
                 input_args=input_args,
                 local_input_args=local_input_args,
-                input_initialized_args=input_initialized_args,
-                input_initialized_args_defn=input_initialized_args_defn,
-                input_initialized_args_local=input_initialized_args_local,
                 mem_transfers_in=mem_in,
                 mem_transfers_out=mem_out,
                 mem_allocs=mem_allocs,

@@ -42,7 +42,7 @@ Parameters
 problem_size : int
     The number of conditions to execute for
 */
-void mem_init(int problem_size${input_initialized_args_defn})
+void mem_init(int problem_size)
 {
     /* Alloc buffers */
     ${mem_allocs}
@@ -72,10 +72,10 @@ problem_size : int
 num_threads : int
     The number of OpenMP threads to use
 */
-void init(int problem_size, int num_threads${input_initialized_args_defn})
+void init(int problem_size, int num_threads)
 {
     threadset(num_threads);
-    mem_init(problem_size${input_initialized_args});
+    mem_init(problem_size);
 }
 
 /*
@@ -103,11 +103,11 @@ void ${knl_name}_call(int problem_size, int num_threads,
     {
         //check to see if the problem size changed, if so we need to realloc memory
         finalize();
-        mem_init(problem_size${input_initialized_args});
+        mem_init(problem_size);
     }
     if(!${knl_name}_init)
     {
-        init(problem_size, num_threads${input_initialized_args});
+        init(problem_size, num_threads);
         ${knl_name}_init = true;
     }
     execute_kernel(problem_size, ${input_args});
@@ -135,7 +135,7 @@ int main(int argc, char* argv[])
 
     //init memory & program
     StartTimer();
-    init(problem_size, num_threads${input_initialized_args_local});
+    init(problem_size, num_threads);
     double setup_time = GetTimer();
     //read input data
     read_initial_conditions("${data_filename}", problem_size,
