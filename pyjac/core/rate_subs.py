@@ -1455,17 +1455,14 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': False}, test_size=None):
     end
     """).safe_substitute(nu_str=nu_str,
                          concs_str=concs_str)
-        fractional_eval = k_gen.subs_at_indent(fractional_eval, 'allint',
-                                               allint_eval)
+        fractional_eval = k_gen.subs_at_indent(fractional_eval, allint=allint_eval)
 
         if not allint['net']:
             rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                                                    'rop_temp_eval',
-                                                    fractional_eval)
+                                                    rop_temp_eval=fractional_eval)
         else:
             rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                                                    'rop_temp_eval',
-                                                    allint_eval)
+                rop_temp_eval=allint_eval)
 
         # and finally extra inames
         extra_inames = [
