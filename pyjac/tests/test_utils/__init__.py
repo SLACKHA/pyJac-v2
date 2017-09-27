@@ -575,21 +575,21 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 elif opts.order == 'F':
                     # deep split, take just the IC index at 1
                     copy_inds = np.array([1], dtype=np.int32)
-
-            # fill other ravel locations with tiled test size
-            stride = 1
-            size = np.prod([test.shape[i] for i in range(test.ndim)
-                           if i not in copy_inds])
-            for i in [x for x in range(test.ndim) if x not in copy_inds]:
-                repeats = int(np.ceil(size / (test.shape[i] * stride)))
-                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
-                                       (repeats, stride)).flatten(order='F')[:size]
-                stride *= test.shape[i]
         else:
             ravel_ind = np.array(
                 [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
                                 for i in range(1, test.ndim)])
             copy_inds = np.array([0])
+
+        # fill other ravel locations with tiled test size
+        stride = 1
+        size = np.prod([test.shape[i] for i in range(test.ndim)
+                       if i not in copy_inds])
+        for i in [x for x in range(test.ndim) if x not in copy_inds]:
+            repeats = int(np.ceil(size / (test.shape[i] * stride)))
+            ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
+                                   (repeats, stride)).flatten(order='F')[:size]
+            stride *= test.shape[i]
         # and use multi_ravel to convert to linear for dphi
         # for whatever reason, if we have two ravel indicies with multiple values
         # we need to need to iterate and stitch them together
