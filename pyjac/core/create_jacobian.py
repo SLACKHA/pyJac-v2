@@ -239,14 +239,11 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
     k_ind = 'row'
     j_ind = 'col'
     # need jac_array
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, k_ind, j_ind)
+    jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, k_ind, j_ind)
 
     # and row / col inds
-    row_lp, row_str = mapstore.apply_maps(
-        namestore.flat_jac_row_inds, var_name)
-    col_lp, col_str = mapstore.apply_maps(
-        namestore.flat_jac_col_inds, var_name)
+    row_lp, row_str = mapstore.apply_maps(namestore.flat_jac_row_inds, var_name)
+    col_lp, col_str = mapstore.apply_maps(namestore.flat_jac_col_inds, var_name)
 
     # add arrays
     kernel_data.extend([jac_lp, row_lp, col_lp])
@@ -255,14 +252,19 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
         """
             <> ${k_ind} = ${row_str}
             <> ${j_ind} = ${col_str}
-            ${jac_str} = 0d
+            ${jac_str} = 0d {id=reset}
         """).substitute(**locals())
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_inits=['reset'])
 
     return k_gen.knl_info(name='reset_arrays',
                           instructions=instructions,
                           mapstore=mapstore,
                           var_name=var_name,
-                          kernel_data=kernel_data)
+                          kernel_data=kernel_data,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec)
 
 
 def __dcidE(eqs, loopy_opts, namestore, test_size=None,
@@ -4429,7 +4431,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
 
     # and the temperature derivative w.r.t. the extra var
     __add_knl(dTdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
-    # inser barrier for dnj / dE from the pervious kernels
+    # inser barrier for dnj / dE from the previous kernels
     __insert_at(kernels[-1].name)
 
     # total extra var derivative w.r.t the extra var
