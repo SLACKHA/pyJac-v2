@@ -11,6 +11,7 @@ This function is designed to be called as subprocess
 import numpy as np
 import importlib
 import sys
+import logging
 
 if __name__ == '__main__':
     # load package
@@ -73,6 +74,10 @@ if __name__ == '__main__':
                         output_args[i], test_arrays[i])))[0]
 
                     if not np.all(np.in1d(misses, lt)):
+                        # log the missed values for debugging purposes
+                        logging.debug('Missed indicies: {}'.format(
+                            ', '.join(misses[np.where(np.logical_not(np.in1d(
+                                misses, lt)))])))
                         sys.exit(1)
 
                     # check for nan's
@@ -84,6 +89,19 @@ if __name__ == '__main__':
                                    rtol=${rtol}, atol=${atol}):
                         continue
 
+                    # log the missed values for debugging purposes
+                    missed_checks = np.where(np.logical_not(np.isclose(
+                        output_args[i][misses][check],
+                        test_arrays[i][misses][check],
+                        rtol=${rtol}, atol=${atol})))
+                    misses = misses[check][missed_checks]
+                    logging.debug(
+                        'Out of tolerance for indicies:\n({})\n'
+                        'error:\n({})'.format(
+                            ', '.join(misses),
+                            ', '.join(np.abs((
+                                output_args[i][misses] - test_arrays[i][misses]
+                                ) / test_arrays[i][misses]))))
                 # if not a match, exit
                 sys.exit(2)
 
