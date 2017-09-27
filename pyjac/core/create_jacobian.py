@@ -256,7 +256,7 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
         """).substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_inits=['reset'])
+        loopy_opts, init_ids=['reset'])
 
     return k_gen.knl_info(name='reset_arrays',
                           instructions=instructions,
