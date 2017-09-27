@@ -469,9 +469,10 @@ class kernel_generator(object):
         file_src : Template
             The kernel source template to substitute into
 
-        Returns:
-        new_file_src : Template
-            An updated kernel source template to substitute general template
+        Returns
+        -------
+        new_file_src : str
+            An updated kernel source string to substitute general template
             parameters into
         """
         return file_src
@@ -560,35 +561,17 @@ ${name} : ${type}
                                                   'the state vector, in '
                                                   '{}-order').format(
                         self.loopy_opts.order)))
+            elif x == 'jac':
+                knl_args_doc.append(knl_args_doc_template.safe_substitute(
+                    name=x, type='double*', desc=(
+                        'The Jacobian of the time-rate of change of the state vector'
+                        ' in {}-order').format(
+                        self.loopy_opts.order)))
             else:
                 logging.warn(
                     'Argument documentation not found for arg {}'.format(x))
 
         knl_args_doc = '\n'.join(knl_args_doc)
-        # these are args passed in (from main, or python)
-        # that require initialization, and hence must be passed to mem_init
-        input_initialized_args = ', '.join([
-            self._get_pass(
-                next(x for x in self.mem.arrays if x.name == a),
-                include_type=False)
-            for a in self.mem.in_arrays if a in self.mem.has_init])
-        if input_initialized_args:
-            input_initialized_args = ', ' + input_initialized_args
-
-        # and the type included form thereof (for defn's)
-        input_initialized_args_defn = ', '.join([
-            self._get_pass(next(x for x in self.mem.arrays if x.name == a))
-            for a in self.mem.in_arrays if a in self.mem.has_init])
-        if input_initialized_args_defn:
-            input_initialized_args_defn = ', ' + input_initialized_args_defn
-        # and finally the local versions
-        input_initialized_args_local = ', '.join([
-            self._get_pass(next(x for x in self.mem.arrays if x.name == a),
-                           include_type=False,
-                           postfix='_local')
-            for a in self.mem.in_arrays if a in self.mem.has_init])
-        if input_initialized_args_local:
-            input_initialized_args_local = ', ' + input_initialized_args_local
         # memory transfers in
         mem_in = self.mem.get_mem_transfers_in()
         # memory transfers out
@@ -608,13 +591,15 @@ ${name} : ${type}
         # get template
         with open(os.path.join(script_dir, self.lang,
                                'kernel.c.in'), 'r') as file:
-            file_src = Template(file.read())
+            file_src = file.read()
 
+        # specialize for language
         file_src = self._special_kernel_subs(file_src)
 
         with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[
                 self.lang]), self.lang, use_filter=False) as file:
-            file.add_lines(file_src.safe_substitute(
+            file.add_lines(subs_at_indent(
+                file_src,
                 mem_declares=mem_declares,
                 knl_args=knl_args,
                 knl_args_doc=knl_args_doc,
@@ -1222,9 +1207,10 @@ class c_kernel_generator(kernel_generator):
         file_src : Template
             The kernel source template to substitute into
 
-        Returns:
-        new_file_src : Template
-            An updated kernel source template to substitute general template
+        Returns
+        -------
+        new_file_src : str
+            An updated kernel source string to substitute general template
             parameters into
         """
 
@@ -1235,8 +1221,8 @@ class c_kernel_generator(kernel_generator):
             [self._get_pass(a, include_type=False, is_host=False)
              for a in self.mem.arrays]))
 
-        return Template(file_src.safe_substitute(
-            full_kernel_args=full_kernel_args))
+        return Template(file_src).safe_substitute(
+            full_kernel_args=full_kernel_args)
 
 
 class autodiff_kernel_generator(c_kernel_generator):
@@ -1316,9 +1302,10 @@ class opencl_kernel_generator(kernel_generator):
         file_src : Template
             The kernel source template to substitute into
 
-        Returns:
-        new_file_src : Template
-            An updated kernel source template to substitute general template
+        Returns
+        -------
+        new_file_src : str
+            An updated kernel source string to substitute general template
             parameters into
         """
 
@@ -1340,7 +1327,7 @@ class opencl_kernel_generator(kernel_generator):
         kernel_paths = ', '.join('"{}"'.format(x)
                                  for x in kernel_paths if x.strip())
 
-        return Template(file_src.safe_substitute(
+        return Template(file_src).safe_substitute(
             vec_width=vec_width,
             platform_str=platform_str,
             build_options=build_options,
@@ -1348,7 +1335,7 @@ class opencl_kernel_generator(kernel_generator):
             kernel_paths=kernel_paths,
             device_type=str(self.loopy_opts.device_type),
             num_source=1  # only 1 program / binary is built
-        ))
+        )
 
     def get_kernel_arg_setting(self):
         """
@@ -1604,9 +1591,9 @@ def _find_indent(template_str, key, value):
     return '\n'.join(result)
 
 
-def subs_at_indent(template_str, key, value):
+def subs_at_indent(template_str, **kw_args):
     """
-    Substitutes :param:`key` for :param:`value` in :param:`template_str`
+    Substitutes keys of :params:`kwargs` for values in :param:`template_str`
     ensuring that the indentation of the value is the same as that of the key
     for all lines present in the value
 
@@ -1614,16 +1601,14 @@ def subs_at_indent(template_str, key, value):
     ----------
     template_str : str
         The string to sub into
-    key : str
-        The key in the template string
-    value : str
-        The string to format
-
+    kwargs: dict
+        The dictionary of keys -> values to substituted into the template
     Returns
     -------
     formatted_value : str
         The formatted string
     """
 
-    return Template(template_str).safe_substitute(**{key: _find_indent(
-        template_str, '${{{key}}}'.format(key=key), value)})
+    return Template(template_str).safe_substitute(
+        **{key: _find_indent(template_str, '${{{key}}}'.format(key=key), value)
+           for key, value in six.iteritems(kw_args)})
