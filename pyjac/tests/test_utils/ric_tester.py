@@ -19,9 +19,6 @@ read_ics.read_ics(num, phi_in, param_in, order == 'C')
 # check extra variable
 allclear = np.allclose(param_in, param_test)
 
-# reshape phi_in / phi_test
-phi_in = phi_in.reshape((num, -1), order=order)
-phi_test = phi_test.reshape((num, -1), order=order)
 # and check
 allclear = allclear and np.allclose(phi_in, phi_test)
 
