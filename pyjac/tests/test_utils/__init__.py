@@ -568,13 +568,12 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             ravel_ind = np.array(ravel_ind)
 
             # just choose the initial condition indicies
-            if kgen.array_split._have_split():
-                if opts.order == 'C':
-                    # wide split, take first and last index
-                    copy_inds = np.array([0, -1], dtype=np.int32)
-                elif opts.order == 'F':
-                    # deep split, take just the IC index at 1
-                    copy_inds = np.array([1], dtype=np.int32)
+            if opts.order == 'C':
+                # wide split, take first and last index
+                copy_inds = np.array([0, test.ndim - 1], dtype=np.int32)
+            elif opts.order == 'F':
+                # deep split, take just the IC index at 1
+                copy_inds = np.array([1], dtype=np.int32)
         else:
             ravel_ind = np.array(
                 [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
