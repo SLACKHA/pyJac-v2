@@ -3077,6 +3077,8 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
         ${extra_var_str} * ${dTdot_dnj_str} / ${T_str} {id=jac, dep=sum, nosync=sum}
     """).safe_substitute(**locals())
 
+    can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, atomic_ids=['jac'])
+
     return k_gen.knl_info(name='d{}dot_dnj'.format('V' if conp else 'P'),
                           extra_inames=extra_inames,
                           instructions=instructions,
@@ -3084,6 +3086,8 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
                           parameters={'Ru': chem.RU},
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec
                           )
 
 
@@ -3167,15 +3171,19 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     end
 
     ${jac_str} = -(sum + ${T_dot_str} * (${spec_heat_k_str} - ${spec_heat_ns_str})) \
-        / (${V_str} * ${spec_heat_total_str}) {dep=sum, nosync=sum}
+        / (${V_str} * ${spec_heat_total_str}) {id=jac, dep=sum, nosync=sum}
     """).safe_substitute(**locals())
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, init_ids=['jac'])
 
     return k_gen.knl_info(name='dTdot_dnj',
                           extra_inames=extra_inames,
                           instructions=instructions,
                           var_name=var_name,
                           kernel_data=kernel_data,
-                          mapstore=mapstore
+                          mapstore=mapstore,
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec
                           )
 
 
