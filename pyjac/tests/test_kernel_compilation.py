@@ -3,7 +3,8 @@ from ..core.rate_subs import get_specrates_kernel
 from . import TestClass
 from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library
-from ..core.mech_auxiliary import write_aux, write_mechanism_header
+from ..core.mech_auxiliary import write_aux
+from ..core.instruction_creator import array_splitter
 from ..pywrap.pywrap_gen import generate_wrapper
 from . import test_utils as test_utils
 from optionloop import OptionLoop
@@ -18,23 +19,23 @@ from parameterized import parameterized
 
 
 class SubTest(TestClass):
-    def __cleanup(self):
+    def __cleanup(self, remove_dirs=True):
         # remove library
-        test_utils.clean_dir(self.store.lib_dir)
+        test_utils.clean_dir(self.store.lib_dir, remove_dirs)
         # remove build
-        test_utils.clean_dir(self.store.obj_dir)
+        test_utils.clean_dir(self.store.obj_dir, remove_dirs)
         # clean dummy builder
         dist_build = os.path.join(self.store.build_dir, 'build')
         if os.path.exists(dist_build):
             shutil.rmtree(dist_build)
         # clean sources
-        test_utils.clean_dir(self.store.build_dir)
+        test_utils.clean_dir(self.store.build_dir, remove_dirs)
 
     def __get_spec_lib(self, state, eqs, opts):
         build_dir = self.store.build_dir
         conp = state['conp']
         kgen = get_specrates_kernel(eqs, self.store.reacs, self.store.specs, opts,
-                                      conp=conp)
+                                    conp=conp)
         # generate
         kgen.generate(build_dir)
         # write header
@@ -102,13 +103,22 @@ class SubTest(TestClass):
         utils.create_dir(obj_dir)
         utils.create_dir(lib_dir)
         home = os.getcwd()
-        for order in ['C', 'F']:
+        oploop = OptionLoop(OrderedDict([
+            # no need to test conv
+            ('conp', [True]),
+            ('order', ['C', 'F']),
+            ('depth', [4, None]),
+            ('width', [4, None]),
+            ('lang', ['c'])]))
+        for state in oploop:
+            if state['depth'] and state['width']:
+                continue
             os.chdir(home)
-            test_utils.clean_dir(build_dir, False)
-            test_utils.clean_dir(obj_dir, False)
-            test_utils.clean_dir(lib_dir, False)
-            if os.path.exists(os.path.join(os.getcwd(), 'build')):
-                shutil.rmtree(os.path.join(os.getcwd(), 'build'))
+            self.__cleanup(False)
+            # create dummy loopy opts
+            opts = type('', (object,), state)()
+            asplit = array_splitter(opts)
+
             # get source
             path = os.path.realpath(
                 os.path.join(self.store.script_dir, os.pardir,
@@ -118,14 +128,14 @@ class SubTest(TestClass):
             with open(path, 'r') as file:
                 ric = Template(file.read())
             # subs
-            ric = ric.safe_substitute(mechanism='mechanism.h')
+            ric = ric.safe_substitute(mechanism='mechanism.h',
+                                      vectorization='vectorization.h')
             # write
             with open(os.path.join(
                     build_dir, 'read_initial_conditions.c'), 'w') as file:
                 file.write(ric)
             # write header
-            write_mechanism_header(
-                build_dir, 'c', self.store.specs, self.store.reacs)
+            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
             # write setup
             with open(os.path.join(build_dir, 'setup.py'), 'w') as file:
                 file.write(setup.safe_substitute(
@@ -155,17 +165,19 @@ class SubTest(TestClass):
             # hence, the extra variable is the volume, while the fixed parameter
             # is the pressure
 
-            # save phi, V in correct order
-            save_phi = (self.store.phi_cp.copy() if order == 'C'
-                        else self.store.phi_cp.T.copy()).flatten('K')
+            # save phi, param in correct order
+            phi = (self.store.phi_cp if opts.conp else self.store.phi_cv)
+            save_phi, = asplit.split_numpy_arrays(phi)
+            save_phi = save_phi.flatten(opts.order)
+            param = self.store.P if opts.conp else self.store.V
             save_phi.tofile(os.path.join(lib_dir, 'phi_test.npy'))
-            self.store.P.tofile(os.path.join(lib_dir, 'param_test.npy'))
+            param.tofile(os.path.join(lib_dir, 'param_test.npy'))
 
             # save bin file
             out_file = np.concatenate((
-                np.reshape(self.store.phi_cp[:, 0], (-1, 1)),
-                np.reshape(self.store.P, (-1, 1)),  # param
-                self.store.phi_cp[:, 1:]), axis=1  # species & extra var
+                np.reshape(phi[:, 0], (-1, 1)),  # temperature
+                np.reshape(param, (-1, 1)),  # param
+                phi[:, 1:]), axis=1  # species
             )
             out_file = out_file.flatten('K')
             with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
@@ -175,6 +187,7 @@ class SubTest(TestClass):
             os.chdir(lib_dir)
             try:
                 subprocess.check_call(
-                    [python_str, 'ric_tester.py', order, str(self.store.test_size)])
+                    [python_str, 'ric_tester.py', opts.order,
+                     str(self.store.test_size)])
             finally:
                 os.chdir(home)
