@@ -2,7 +2,7 @@ import os
 from ..core.rate_subs import get_specrates_kernel
 from . import TestClass
 from ..loopy_utils.loopy_utils import loopy_options
-from ..libgen import generate_library
+from ..libgen import generate_library, build_type
 from ..core.mech_auxiliary import write_aux
 from ..core.instruction_creator import array_splitter
 from ..pywrap.pywrap_gen import generate_wrapper
@@ -66,7 +66,7 @@ class SubTest(TestClass):
             # compile
             generate_library(opts.lang, build_dir, obj_dir=obj_dir,
                              out_dir=lib_dir, shared=state['shared'],
-                             auto_diff=False)
+                             btype=build_type.species_rates)
 
     @parameterized.expand([('opencl',), ('c',)])
     def test_specrates_pywrap(self, lang):
@@ -81,7 +81,8 @@ class SubTest(TestClass):
             # create / write files
             self.__get_spec_lib(state, eqs, opts)
             # test wrapper generation
-            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir)
+            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
+                             btype=build_type.species_rates)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()
