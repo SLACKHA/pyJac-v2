@@ -5,7 +5,8 @@ class MissingPlatformError(Exception):
 
     def __init__(self, platform):
         self.platform = platform
-        self.message = 'PyOpenCL platform {} requested for testing not found'
+        self.message = 'PyOpenCL platform {} requested for testing not found'.format(
+            self.platform)
         super(MissingPlatformError, self).__init__(self.message)
 
 
