@@ -80,15 +80,14 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
     finally:
         if not oploop:
             # file not found, or no appropriate targets for specified languages
-            import pyopencl as cl
             for lang in langs:
                 inner_loop = []
                 vectypes = [4, None] if do_vector else [None]
-                inner_loop = [
-                    ('width', vectypes[:]),
-                    ('depth', vectypes[:]),
-                    ('lang', langs[:])]
+                inner_loop = [('lang', langs[:])]
                 if lang == 'opencl':
+                    import pyopencl as cl
+                    inner_loop += [('width', vectypes[:]),
+                                   ('depth', vectypes[:])]
                     # add all devices
                     device_types = [cl.device_type.CPU, cl.device_type.GPU,
                                     cl.device_type.ACCELERATOR]
@@ -169,7 +168,8 @@ class storage(object):
             default = gas.reaction(i).default_efficiency
             # fill all missing with default
             thd_eff_map = [default if j not in gas.reaction(i).efficiencies
-                           else gas.reaction(i).efficiencies[j] for j in gas.species_names]
+                           else gas.reaction(i).efficiencies[j]
+                           for j in gas.species_names]
             thd_eff_maps.append(np.array(thd_eff_map))
         thd_eff_maps = np.array(thd_eff_maps)
 
@@ -184,11 +184,14 @@ class storage(object):
         self.fall_inds = np.array([i for i, x in enumerate(gas.reactions())
                                    if isinstance(x, ct.FalloffReaction)])
         self.sri_inds = np.array([i for i, x in enumerate(gas.reactions())
-                                  if i in self.fall_inds and isinstance(x.falloff, ct.SriFalloff)])
+                                  if i in self.fall_inds and isinstance(
+                                    x.falloff, ct.SriFalloff)])
         self.troe_inds = np.array([i for i, x in enumerate(gas.reactions())
-                                   if i in self.fall_inds and isinstance(x.falloff, ct.TroeFalloff)])
+                                   if i in self.fall_inds and isinstance(
+                                    x.falloff, ct.TroeFalloff)])
         self.lind_inds = np.array([i for i, x in enumerate(gas.reactions())
-                                   if i in self.fall_inds and not (i in self.troe_inds or i in self.sri_inds)])
+                                   if i in self.fall_inds and not
+                                   (i in self.troe_inds or i in self.sri_inds)])
         self.troe_to_pr_map = np.array(
             [np.where(self.fall_inds == j)[0][0] for j in self.troe_inds])
         self.sri_to_pr_map = np.array(
@@ -251,10 +254,12 @@ class storage(object):
                 self.spec_u[i, j] = h - self.T[i] * ct.gas_constant
                 self.spec_h[i, j] = h
 
-            self.conp_temperature_rates[i] = (-np.dot(self.spec_h[i, :], self.species_rates[i, :])
-                                              / np.dot(self.spec_cp[i, :], self.concs[i, :]))
-            self.conv_temperature_rates[i] = (-np.dot(self.spec_u[i, :], self.species_rates[i, :])
-                                              / np.dot(self.spec_cv[i, :], self.concs[i, :]))
+            self.conp_temperature_rates[i] = (
+                -np.dot(self.spec_h[i, :], self.species_rates[i, :]) / np.dot(
+                    self.spec_cp[i, :], self.concs[i, :]))
+            self.conv_temperature_rates[i] = (
+                -np.dot(self.spec_u[i, :], self.species_rates[i, :]) / np.dot(
+                    self.spec_cv[i, :], self.concs[i, :]))
             for j in range(self.fall_inds.size):
                 arrhen_temp[j] = pr_eval(i, j)
             self.ref_Pr[i, :] = self.ref_thd[i, thd_to_fall_map] * arrhen_temp
@@ -269,9 +274,10 @@ class storage(object):
             if self.troe_inds.size:
                 self.ref_Fall[i, self.troe_to_pr_map] = self.ref_Troe[i, :]
             for j in range(gas.n_species):
-                self.ref_B_rev[i, j] = gas.species(j).thermo.s(self.T[i]) / ct.gas_constant -\
-                    gas.species(j).thermo.h(
-                        self.T[i]) / (ct.gas_constant * self.T[i]) - np.log(self.T[i])
+                self.ref_B_rev[i, j] = gas.species(j).thermo.s(
+                    self.T[i]) / ct.gas_constant - gas.species(j).thermo.h(
+                        self.T[i]) / (ct.gas_constant * self.T[i]) - np.log(
+                        self.T[i])
 
         # set phi
         self.phi_cp = np.concatenate((self.T.reshape(-1, 1),
