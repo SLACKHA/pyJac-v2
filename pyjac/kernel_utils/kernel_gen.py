@@ -349,7 +349,7 @@ class kernel_generator(object):
         ----------
         path : str
             The output path
-        data_order : {'C', 'F'}
+        data_order : {'C', 'F'}f
             If specified, the ordering of the binary input data
             which may differ from the loopy order
         data_filename : Optional[str]
@@ -398,7 +398,8 @@ class kernel_generator(object):
                             self.lang,
                             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
-                mechanism='mechanism' + utils.header_ext[self.lang]))
+                mechanism='mechanism' + utils.header_ext[self.lang],
+                vectorization='vectorization' + utils.header_ext[self.lang]))
 
         # and any other deps
         self.__copy_deps(common_dir, path)
