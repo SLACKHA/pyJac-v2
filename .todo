@@ -2,6 +2,10 @@ v2 tasks:
   ☐ Test Jacobian
   ☐ Implement sparse Jacobian
   ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.)
+Improvements:
+  ☐ Make libgen use codepy, since we depend on it already
+  ☐ Remove sympy dependency
+  ☐ Remove pyopencl dependency (only needed for testing)
 misc tasks:
   ☐ Find a way to unify kernels, such that a single library / pywrapper exposes
     all available code
