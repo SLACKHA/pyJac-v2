@@ -8,6 +8,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization)
 from ..kernel_utils import kernel_gen as k_gen
 from . import TestClass, get_test_platforms
+from .test_utils impot _generic_tester
 from ..core.array_creator import NameStore
 
 # modules
@@ -46,50 +47,18 @@ class SubTest(TestClass):
         return eqs, out
 
     def __subtest(self, ref_ans, nicename, eqs):
-        platforms = get_test_platforms(do_vector=True, langs=['opencl'])
-        start = [('order', ['C', 'F']),
-                 ('auto_diff', False),
-                 ('knl_type', 'map')]
-        oploop = None
-        for p in platforms:
-            val = OptionLoop(OrderedDict(p + start))
-            if oploop is None:
-                oploop = val
-            else:
-                oploop = oploop + val
+        def __wrapper(eqs, opt, namestore, test_size=None, **kw_args):
+            return polyfit_kernel_gen(nicename, eqs, opt, namestore, test_size)
 
-        test_size = self.store.test_size
-        for i, state in enumerate(oploop):
-            if state['width'] and state['depth']:
-                continue
+        # create args
+        args = {'phi': np.array(self.store.phi_cp, order=opt.order, copy=True),
+                nicename: np.zeros_like(ref_ans, order=opt.order)}
+        # create the kernel call
+        kc = kernel_call('eval_' + nicename,
+                         [ref_ans],
+                         **args)
 
-            opt = loopy_options(
-                **{x: state[x] for x in state if x != 'device'})
-            rate_info = assign_rates(self.store.reacs, self.store.specs,
-                                     RateSpecialization.fixed)
-            namestore = NameStore(opt, rate_info, True, test_size)
-            knl = polyfit_kernel_gen(nicename, eqs, opt, namestore,
-                                     test_size=test_size)
-
-            args = {'phi': np.array(self.store.phi_cp, order=opt.order, copy=True),
-                    nicename: np.zeros_like(ref_ans, order=opt.order)}
-            # create the kernel call
-            kc = kernel_call('eval_' + nicename,
-                             [ref_ans],
-                             **args)
-
-            # create a dummy kernel generator
-            knl = k_gen.make_kernel_generator(
-                name='chem_utils',
-                loopy_opts=opt,
-                kernels=[knl],
-                test_size=test_size
-            )
-            knl._make_kernels()
-
-            # now run
-            kc.set_state(knl.array_split, state['order'])
-            assert auto_run(knl.kernels, kc, device=opt.device)
+        return _generic_tester(self, __wrapper, [kc], assign_rates)
 
     @attr('long')
     def test_cp(self):
