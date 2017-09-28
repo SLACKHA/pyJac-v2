@@ -3,7 +3,8 @@ from distutils.core import setup, Extension
 from Cython.Distutils import build_ext
 import numpy
 
-sources = ['read_initial_conditions.c', 'read_ic_wrapper.pyx']
+sources = ['${buildpath}/read_initial_conditions.c',
+           '${buildpath}/read_ic_wrapper.pyx']
 includes = ['${buildpath}']
 includes = [x for x in includes if x.strip()]
 

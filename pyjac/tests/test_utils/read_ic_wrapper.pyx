@@ -8,13 +8,13 @@ cdef extern from "read_initial_conditions.h":
                          double *phi_host, double *param_host,
                          const char order);
 
-cdef const char* filename = 'data.bin'
 cdef char C_ord = 'C'
 cdef char F_ord = 'F'
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def read_ics(np.uint_t NUM,
+def read_ics(const char* filename,
+            np.uint_t NUM,
             np.ndarray[np.float64_t] phi,
             np.ndarray[np.float64_t] param,
             bool C_order):

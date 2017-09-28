@@ -102,7 +102,6 @@ class SubTest(TestClass):
         utils.create_dir(build_dir)
         utils.create_dir(obj_dir)
         utils.create_dir(lib_dir)
-        home = os.getcwd()
         oploop = OptionLoop(OrderedDict([
             # no need to test conv
             ('conp', [True]),
@@ -113,7 +112,6 @@ class SubTest(TestClass):
         for state in oploop:
             if state['depth'] and state['width']:
                 continue
-            os.chdir(home)
             self.__cleanup(False)
             # create dummy loopy opts
             opts = type('', (object,), state)()
@@ -138,8 +136,7 @@ class SubTest(TestClass):
             write_aux(build_dir, opts, self.store.specs, self.store.reacs)
             # write setup
             with open(os.path.join(build_dir, 'setup.py'), 'w') as file:
-                file.write(setup.safe_substitute(
-                    buildpath=build_dir))
+                file.write(setup.safe_substitute(buildpath=build_dir))
             # copy read ics header to final dest
             shutil.copyfile(os.path.join(self.store.script_dir, os.pardir,
                                          'kernel_utils', 'common',
@@ -150,7 +147,6 @@ class SubTest(TestClass):
                                          'read_ic_wrapper.pyx'),
                             os.path.join(build_dir, 'read_ic_wrapper.pyx'))
             # setup
-            os.chdir(build_dir)
             python_str = 'python{}.{}'.format(
                 sys.version_info[0], sys.version_info[1])
             call = [python_str, os.path.join(build_dir, 'setup.py'),
@@ -184,10 +180,6 @@ class SubTest(TestClass):
                 out_file.tofile(file)
 
             # and run
-            os.chdir(lib_dir)
-            try:
-                subprocess.check_call(
-                    [python_str, 'ric_tester.py', opts.order,
-                     str(self.store.test_size)])
-            finally:
-                os.chdir(home)
+            subprocess.check_call(
+                [python_str, os.path.join(lib_dir, 'ric_tester.py'), opts.order,
+                 str(self.store.test_size)])
