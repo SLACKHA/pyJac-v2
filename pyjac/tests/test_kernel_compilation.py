@@ -81,8 +81,7 @@ class SubTest(TestClass):
             # create / write files
             self.__get_spec_lib(state, eqs, opts)
             # test wrapper generation
-            generate_wrapper(opts.lang, build_dir,
-                             obj_dir=obj_dir, out_dir=lib_dir, auto_diff=False)
+            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()

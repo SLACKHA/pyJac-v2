@@ -506,8 +506,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         try:
             # create loopy options
-            opt = loopy_options(**{x: state[x] for x in state
-                                if x not in exceptions})
+            opts = loopy_options(**{x: state[x] for x in state
+                                 if x not in exceptions})
         except MissingPlatformError:
             # warn and skip future tests
             logging.warn('Platform {} not found'.format(state['platform']))
