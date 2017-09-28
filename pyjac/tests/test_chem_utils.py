@@ -8,7 +8,7 @@ from ..loopy_utils.loopy_utils import (auto_run, loopy_options,
                                        RateSpecialization)
 from ..kernel_utils import kernel_gen as k_gen
 from . import TestClass, get_test_platforms
-from .test_utils impot _generic_tester
+from .test_utils import _generic_tester
 from ..core.array_creator import NameStore
 
 # modules
@@ -46,13 +46,15 @@ class SubTest(TestClass):
 
         return eqs, out
 
-    def __subtest(self, ref_ans, nicename, eqs):
+    def __subtest(self, ref_ans, nicename):
         def __wrapper(eqs, opt, namestore, test_size=None, **kw_args):
-            return polyfit_kernel_gen(nicename, eqs, opt, namestore, test_size)
+            eq = eqs['conp'] if nicename in ['cp', 'h', 'b'] else eqs['conv']
+            return polyfit_kernel_gen(nicename, eq, opt, namestore,
+                                      test_size=test_size)
 
         # create args
-        args = {'phi': np.array(self.store.phi_cp, order=opt.order, copy=True),
-                nicename: np.zeros_like(ref_ans, order=opt.order)}
+        args = {'phi': lambda x: np.array(self.store.phi_cp, order=x, copy=True),
+                nicename: lambda x: np.zeros_like(ref_ans, order=x)}
         # create the kernel call
         kc = kernel_call('eval_' + nicename,
                          [ref_ans],
@@ -62,25 +64,20 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_cp(self):
-        self.__subtest(self.store.spec_cp,
-                       'cp', self.store.conp_eqs)
+        self.__subtest(self.store.spec_cp, 'cp')
 
     @attr('long')
     def test_cv(self):
-        self.__subtest(self.store.spec_cv,
-                       'cv', self.store.conp_eqs)
+        self.__subtest(self.store.spec_cv, 'cv')
 
     @attr('long')
     def test_h(self):
-        self.__subtest(self.store.spec_h,
-                       'h', self.store.conp_eqs)
+        self.__subtest(self.store.spec_h, 'h')
 
     @attr('long')
     def test_u(self):
-        self.__subtest(self.store.spec_u,
-                       'u', self.store.conv_eqs)
+        self.__subtest(self.store.spec_u, 'u')
 
     @attr('long')
     def test_b(self):
-        self.__subtest(self.store.spec_b,
-                       'b', self.store.conp_eqs)
+        self.__subtest(self.store.spec_b, 'b')
