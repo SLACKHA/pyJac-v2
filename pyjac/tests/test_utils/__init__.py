@@ -409,8 +409,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                                 if x not in exceptions})
         except MissingPlatformError:
             # warn and skip future tests
-            logging.warn('Platform {} not found'.format(
-                state['platform']))
+            logging.warn('Platform {} not found'.format(state['platform']))
             bad_platforms.update([state['platform']])
             continue
 
@@ -491,6 +490,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
     # load the module tester template
     mod_test = get_run_source()
 
+    bad_platforms = set()
+
     # now start test
     for i, state in enumerate(oploop):
         if state['width'] is not None and state['depth'] is not None:
@@ -499,9 +500,19 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # clean old files
         __cleanup()
 
-        # create loopy options
-        opts = loopy_options(**{x: state[x] for x in
-                                state if x not in exceptions})
+        # skip bad platforms
+        if 'platform' in state and state['platform'] in bad_platforms:
+            continue
+
+        try:
+            # create loopy options
+            opt = loopy_options(**{x: state[x] for x in state
+                                if x not in exceptions})
+        except MissingPlatformError:
+            # warn and skip future tests
+            logging.warn('Platform {} not found'.format(state['platform']))
+            bad_platforms.update([state['platform']])
+            continue
 
         # check to see if device is CPU
         # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
