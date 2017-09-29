@@ -62,17 +62,22 @@ problem_size : cl_uint
 */
 void mem_init(cl_uint problem_size)
 {
-    #if CL_LEVEL >= CL_VERSION_1_2
+    #if CL_LEVEL >= 120
         // with CL 1.2, we have access to clEnqueueFillBuffer
         double zero = 0;
     #else
         // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
-        double zero[${max_size}] = {0};
+        double* zero = (double*)malloc(${max_size});
+        memset(zero, 0, ${max_size});
     #endif
 
     cl_int return_code;
     /* Alloc buffers */
     ${mem_allocs}
+
+    #if CL_LEVEL < 120
+        free(zero);
+    #endif
 
     /* Create OpenCL Kernel */
     kernel = clCreateKernel(program, "${knl_name}", &return_code);
