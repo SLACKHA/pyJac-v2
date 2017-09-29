@@ -49,7 +49,7 @@ class memory_manager(object):
             'memcpy(${host_buff}, ${name}, ${buff_size})')}
         self.memset_templates = {'opencl': Template(
             """
-            #if CL_LEVEL >= CL_VERSION_1_2
+            #if CL_LEVEL >= 120
                 clEnqueueFillBuffer(queue, ${name}, ${fill_value}, ${fill_size}, 0,
                     ${size}, 0, NULL, NULL)
             #else
