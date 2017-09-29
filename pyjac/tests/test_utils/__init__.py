@@ -642,7 +642,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 test_arrays=', '.join('"{}"'.format(x) for x in tests),
                 looser_tols='[{}]'.format(
                     ', '.join(str(x) for x in looser_tols)),
-                rtol=1e-2 if btype != build_type.jacobian else 1e0,
+                rtol=1e-1 if btype != build_type.jacobian else 1e0,
                 atol=1e-8,
                 non_array_args='{}, {}'.format(
                     self.store.test_size, num_devices),
