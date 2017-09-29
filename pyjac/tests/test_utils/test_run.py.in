@@ -76,8 +76,8 @@ if __name__ == '__main__':
                     if not np.all(np.in1d(misses, lt)):
                         # log the missed values for debugging purposes
                         logging.debug('Missed indicies: {}'.format(
-                            ', '.join(misses[np.where(np.logical_not(np.in1d(
-                                misses, lt)))])))
+                            ', '.join(str(x) for x in misses[np.where(
+                                np.logical_not(np.in1d(misses, lt)))])))
                         sys.exit(1)
 
                     # check for nan's
