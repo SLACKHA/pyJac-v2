@@ -18,6 +18,7 @@ from ...core import array_creator as arc
 from ...core.mech_auxiliary import write_aux
 from .. import get_test_platforms
 from ...pywrap import generate_wrapper
+from ... import utils
 
 
 from optionloop import OptionLoop
@@ -397,7 +398,9 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     bad_platforms = set()
 
     for i, state in enumerate(oploop):
-        if state['width'] is not None and state['depth'] is not None:
+        if utils.can_vectorize_lang[state['lang']] and (
+                state['width'] is not None and state['depth'] is not None):
+            # can't vectorize deep and wide concurrently
             continue
 
         # skip bad platforms
@@ -494,7 +497,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
     # now start test
     for i, state in enumerate(oploop):
-        if state['width'] is not None and state['depth'] is not None:
+        if utils.can_vectorize_lang[state['lang']] and (
+                state['width'] is not None and state['depth'] is not None):
+            # can't vectorize both directions at the same time
             continue
 
         # clean old files
