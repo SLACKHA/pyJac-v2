@@ -296,7 +296,8 @@ class kernel_generator(object):
                 can_vectorize=info.can_vectorize)
 
             # update the kernel args
-            self.kernels[i] = self.array_split.split_loopy_arrays(self.kernels[i])
+            self.kernels[i] = self.array_split.split_loopy_arrays(
+                self.kernels[i])
 
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
@@ -523,7 +524,7 @@ class kernel_generator(object):
         # these are the args in the kernel defn
         knl_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a))
-                              for a in self.mem.host_arrays])
+            for a in self.mem.host_arrays])
         # these are the args passed to the kernel (exclude type)
         input_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a),
@@ -658,7 +659,8 @@ ${name} : ${type}
         if self.depends_on:
             # generate wrappers for dependencies
             for x in self.depends_on:
-                x._generate_wrapping_kernel(path, instruction_store=sub_instructions)
+                x._generate_wrapping_kernel(
+                    path, instruction_store=sub_instructions)
 
         self.file_prefix = ''
         if self.auto_diff:
@@ -669,7 +671,7 @@ ${name} : ${type}
                 script_dir,
                 self.lang,
                 'wrapping_kernel{}.in'.format(utils.file_ext[self.lang])),
-                  'r') as file:
+                'r') as file:
             file_str = file.read()
             file_src = Template(file_str)
 
@@ -895,13 +897,13 @@ ${name} : ${type}
         for ary in chain(knl.args, six.itervalues(knl.temporary_variables)):
             if isinstance(ary, ArrayBase):
                 refd_vars.update(
-                        tolerant_get_deps(ary.shape)
-                        | tolerant_get_deps(ary.offset))
+                    tolerant_get_deps(ary.shape)
+                    | tolerant_get_deps(ary.offset))
 
                 for dim_tag in ary.dim_tags:
                     if isinstance(dim_tag, FixedStrideArrayDimTag):
                         refd_vars.update(
-                                tolerant_get_deps(dim_tag.stride))
+                            tolerant_get_deps(dim_tag.stride))
 
         for arg in knl.temporary_variables:
             if arg in refd_vars:
@@ -1083,7 +1085,7 @@ ${name} : ${type}
             assert vecspec is not None, ('Cannot vectorize a non-vectorizable '
                                          'kernel {} without a specialized '
                                          'vectorization function'.format(
-                                            knl.name))
+                                             knl.name))
 
         # if we're splitting
         # apply specified optimizations
@@ -1114,9 +1116,11 @@ ${name} : ${type}
 
 
 class c_kernel_generator(kernel_generator):
+
     """
     A C-kernel generator that handles OpenMP parallelization
     """
+
     def __init__(self, *args, **kw_args):
 
         super(c_kernel_generator, self).__init__(*args, **kw_args)
@@ -1219,10 +1223,12 @@ class c_kernel_generator(kernel_generator):
 
 
 class autodiff_kernel_generator(c_kernel_generator):
+
     """
     A C-Kernel generator specifically designed to work with the
     autodifferentiation scheme.  Handles adding jacobian, etc.
     """
+
     def __init__(self, *args, **kw_args):
 
         super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
@@ -1250,6 +1256,7 @@ class autodiff_kernel_generator(c_kernel_generator):
 
 
 class ispc_kernel_generator(kernel_generator):
+
     def __init__(self, *args, **kw_args):
         super(ispc_kernel_generator, self).__init__(*args, **kw_args)
 
@@ -1320,15 +1327,23 @@ class opencl_kernel_generator(kernel_generator):
         kernel_paths = ', '.join('"{}"'.format(x)
                                  for x in kernel_paths if x.strip())
 
-        return Template(file_src).safe_substitute(
-            vec_width=vec_width,
-            platform_str=platform_str,
-            build_options=build_options,
-            kernel_arg_set=kernel_arg_set,
-            kernel_paths=kernel_paths,
-            device_type=str(self.loopy_opts.device_type),
-            num_source=1  # only 1 program / binary is built
-        )
+        # find maximum size of device arrays
+        max_size = str(max(np.prod(np.fromstring(
+            self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
+            for a in self.mem.arrays))
+        max_size = str(max_size) + ' * problem_size'
+
+        return subs_at_indent(file_src,
+                              vec_width=vec_width,
+                              platform_str=platform_str,
+                              build_options=build_options,
+                              kernel_arg_set=kernel_arg_set,
+                              kernel_paths=kernel_paths,
+                              device_type=str(self.loopy_opts.device_type),
+                              num_source=1,  # only 1 program / binary is built
+                              CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
+                              max_size=max_size  # max size for CL1.1 mem init
+                              )
 
     def get_kernel_arg_setting(self):
         """
@@ -1362,6 +1377,35 @@ class opencl_kernel_generator(kernel_generator):
 
         return '\n'.join([
             x + utils.line_end[self.lang] for x in kernel_arg_sets])
+
+    def _get_cl_level(self):
+        """
+        Searches the supplied platform for a OpenCL level.  If not found,
+        uses the level from the site config
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        cl_level: str
+            The stringified OpenCL standard level
+        """
+
+        # try get the platform's CL level
+        try:
+            device_level = self.loopy_opts.device.opencl_c_version.split()
+            for d in device_level:
+                try:
+                    float(d)
+                    return d
+                    break
+                except:
+                    pass
+        except:
+            # default to the site level
+            return site.CL_VERSION
 
     def _generate_compiling_program(self, path):
         """
@@ -1397,10 +1441,12 @@ class opencl_kernel_generator(kernel_generator):
             platform_str = self.loopy_opts.platform.get_info(
                 cl.platform_info.VENDOR)
 
+            cl_std = self._get_cl_level()
+
             # for the build options, we turn to the siteconf
             self.build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
             self.build_options.extend(site.CL_FLAGS)
-            self.build_options.append('-cl-std=CL{}'.format(site.CL_VERSION))
+            self.build_options.append('-cl-std=CL{}'.format(cl_std))
             self.build_options = ' '.join(self.build_options)
 
             file_list = [self.filename]
@@ -1603,5 +1649,6 @@ def subs_at_indent(template_str, **kw_args):
     """
 
     return Template(template_str).safe_substitute(
-        **{key: _find_indent(template_str, '${{{key}}}'.format(key=key), value)
-           for key, value in six.iteritems(kw_args)})
+        **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
+                             value if isinstance(value, str) else str(value))
+            for key, value in six.iteritems(kw_args)})
