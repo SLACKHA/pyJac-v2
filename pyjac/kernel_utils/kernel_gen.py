@@ -1341,7 +1341,8 @@ class opencl_kernel_generator(kernel_generator):
                               kernel_paths=kernel_paths,
                               device_type=str(self.loopy_opts.device_type),
                               num_source=1,  # only 1 program / binary is built
-                              CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
+                              CL_LEVEL='CL_VERSION_{}_{}'.format(
+                                *self._get_cl_level().split('.')), # noqa -- CL standard level
                               max_size=max_size  # max size for CL1.1 mem init
                               )
 
