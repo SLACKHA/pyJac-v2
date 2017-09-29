@@ -12,6 +12,8 @@ Nicholas Curtis - 2017
 #include "${knl_name}_main.oclh"
 #include "read_initial_conditions.oclh"
 
+#define CL_LEVEL ${CL_LEVEL}
+
 //global kernel vars
 cl_kernel kernel = NULL;
 cl_program program = NULL;
@@ -60,7 +62,14 @@ problem_size : cl_uint
 */
 void mem_init(cl_uint problem_size)
 {
-    double zero = 0;
+    #if CL_LEVEL >= CL_VERSION_1_2
+        // with CL 1.2, we have access to clEnqueueFillBuffer
+        double zero = 0;
+    #else
+        // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
+        double zero[${max_size}] = {0};
+    #endif
+
     cl_int return_code;
     /* Alloc buffers */
     ${mem_allocs}

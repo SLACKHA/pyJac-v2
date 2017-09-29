@@ -48,8 +48,16 @@ class memory_manager(object):
                                    'c': Template(
             'memcpy(${host_buff}, ${name}, ${buff_size})')}
         self.memset_templates = {'opencl': Template(
-            'clEnqueueFillBuffer(queue, ${name}, ${fill_value}, ${fill_size}, 0,'
-            ' ${size}, 0, NULL, NULL)'),
+            """
+            #if CL_LEVEL >= CL_VERSION_1_2
+                clEnqueueFillBuffer(queue, ${name}, ${fill_value}, ${fill_size}, 0,
+                    ${size}, 0, NULL, NULL)
+            #else
+                clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${fill_size},
+                    zero, 0, NULL, NULL)
+            #endif
+            """
+            ),
             'c': Template('memset(${name}, 0, ${size})')
         }
         self.free_template = {'opencl': Template('clReleaseMemObject(${name})'),
@@ -200,7 +208,7 @@ class memory_manager(object):
             s = str(x)
             # check for non-integer sizes
             if 'problem_size' in s:
-                str_size.append('problem_size')
+                str_size.append(subs_n)
                 if s != 'problem_size':
                     # it's a floor division thing, need to do some cleanup here
                     vsize = re.search(
