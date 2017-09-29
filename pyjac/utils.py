@@ -63,7 +63,7 @@ class EnumType(object):
     def __call__(self, astring):
         name = self.enums.__name__
         try:
-            return self.enums[astring.upper()]
+            return self.enums[astring.lower()]
         except KeyError:
             msg = ', '.join([t.name.lower() for t in self.enums])
             msg = '{0}: use one of {1}'.format(name, msg)

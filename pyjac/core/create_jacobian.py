@@ -4574,8 +4574,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         depth = vector_size
 
     # convert enums
-    rate_spec_val = lp_utils.RateSpecialization(
-        utils.EnumType(rate_specialization)(rate_specialization.lower()))
+    rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(
+        rate_specialization.lower())
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
