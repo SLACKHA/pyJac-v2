@@ -43,6 +43,11 @@ from ..pywrap.pywrap_gen import generate_wrapper
 from ..tests.test_utils import data_bin_writer as dbw
 from ..tests.test_utils import get_test_matrix as tm
 from ..tests import test_utils
+from ..libgen import build_type
+
+# turn off cache
+import loopy as lp
+lp.set_caching_enabled(False)
 
 
 def check_file(filename, Ns, Nr):
@@ -89,26 +94,28 @@ def getf(x):
     return os.path.basename(x)
 
 
-def functional_tester(work_dir):
-    """Runs performance testing for pyJac, TChem, and finite differences.
+def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
+    """Runs validation testing for pyJac
 
     Parameters
     ----------
     work_dir : str
         Working directory with mechanisms and for data
+    eval_class: :class:`eval`
+        Evaluate the answer and error for the current state, called on every
+        iteration
+    rtype: :class:`build_type` [build_type.jacobian]
+        The type of test to run
 
     Returns
     -------
     None
 
     """
+
     obj_dir = 'obj'
     build_dir = 'out'
     test_dir = 'test'
-
-    # turn off cache
-    import loopy as lp
-    lp.set_caching_enabled(False)
 
     work_dir = os.path.abspath(work_dir)
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir)
@@ -119,8 +126,6 @@ def functional_tester(work_dir):
               )
         sys.exit(-1)
 
-    conp = True
-
     package_lang = {'opencl': 'ocl',
                     'c': 'c'}
 
@@ -128,8 +133,7 @@ def functional_tester(work_dir):
     mod_test = test_utils.get_run_source()
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
-                                       key=lambda x: x[1]['ns']
-                                       ):
+                                       key=lambda x: x[1]['ns']):
         # ensure directory structure is valid
         this_dir = os.path.join(work_dir, mech_name)
         this_dir = os.path.abspath(this_dir)
@@ -137,9 +141,9 @@ def functional_tester(work_dir):
         my_obj = os.path.join(this_dir, obj_dir)
         my_build = os.path.join(this_dir, build_dir)
         my_test = os.path.join(this_dir, test_dir)
-        subprocess.check_call(['mkdir', '-p', obj_dir])
-        subprocess.check_call(['mkdir', '-p', my_build])
-        subprocess.check_call(['mkdir', '-p', my_test])
+        utils.create_dir(my_obj)
+        utils.create_dir(my_build)
+        utils.create_dir(my_test)
 
         def __cleanup():
             # remove library
@@ -163,101 +167,38 @@ def functional_tester(work_dir):
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
-        # find the number of conditions per run (needed to avoid memory issues
-        # with i-pentanol model)
-        max_per_run = 100000
-        cond_per_run = int(
-            np.floor(max_per_run / max_vec_width) * max_vec_width)
+        # create the eval
+        helper = eval_class(gas, num_conditions)
+        if rtype != build_type.jacobian:
+            # find the number of conditions per run (needed to avoid memory issues
+            # with i-pentanol model)
+            max_per_run = 100000
+            cond_per_run = int(
+                np.floor(max_per_run / max_vec_width) * max_vec_width)
+        else:
+            cond_per_run = num_conditions
 
-        # set T, P arrays
+        # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
         P = data[:num_conditions, 1].flatten()
+        # calculate V = nRT / P
+        V = np.sum(data[:num_conditions, 2:], axis=1) * ct.gas_constant * T / P
 
         # resize data
         data = data[:num_conditions, 2:]
 
-        # get phi
-        phi = np.concatenate((np.reshape(T, (-1, 1)),
-                              data), axis=1)
+        # set phi / params
+        phi_cp = np.concatenate((np.reshape(T, (-1, 1)),
+                                 np.reshape(V, (-1, 1)), data), axis=1)
+        phi_cv = np.concatenate((np.reshape(T, (-1, 1)),
+                                 np.reshape(P, (-1, 1)), data), axis=1)
+        param_cp = P
+        param_cv = V
 
-        spec_rates = np.zeros((num_conditions, gas.n_species))
-        conp_temperature_rates = np.zeros((num_conditions, 1))
-        conv_temperature_rates = np.zeros((num_conditions, 1))
-        h = np.zeros((gas.n_species))
-        u = np.zeros((gas.n_species))
-        cp = np.zeros((gas.n_species))
-        cv = np.zeros((gas.n_species))
-
-        # get mappings
-        fwd_map = np.array(range(gas.n_reactions))
-        rev_map = np.array(
-            [x for x in range(gas.n_reactions) if gas.is_reversible(x)])
-        thd_map = []
-        for x in range(gas.n_reactions):
-            try:
-                eff = gas.reaction(x).efficiencies
-                thd_map.append(x)
-            except:
-                pass
-        thd_map = np.array(thd_map)
-        rop_fwd_test = np.zeros((num_conditions, fwd_map.size))
-        rop_rev_test = np.zeros((num_conditions, rev_map.size))
-        rop_net_test = np.zeros((num_conditions, fwd_map.size))
-        # need special maps for rev/thd
-        rev_to_thd_map = np.where(np.in1d(rev_map, thd_map))[0]
-        thd_to_rev_map = np.where(np.in1d(thd_map, rev_map))[0]
-        # it's a pain to actually calcuate this
-        # and we don't need it directly, since cantera computes
-        # pdep terms in the forward / reverse ROP automatically
-        # hence we create it as a placeholder for the testing script
-        pres_mod_test = np.zeros((num_conditions, thd_map.size))
-
-        # predefines
-        specs = gas.species()[:]
-
-        def __eval_cp(j, T):
-            return specs[j].thermo.cp(T)
-        eval_cp = np.vectorize(__eval_cp, cache=True)
-
-        def __eval_h(j, T):
-            return specs[j].thermo.h(T)
-        eval_h = np.vectorize(__eval_h, cache=True)
-        ns_range = np.arange(gas.n_species)
-
-        evaled = False
-
-        def eval_state():
-            with np.errstate(divide='ignore', invalid='ignore'):
-                for i in range(num_conditions):
-                    if not i % 10000:
-                        print(i)
-                    # it's actually more accurate to set the density (total concentration)
-                    # due to the cantera internals
-                    gas.TDX = T[i], P[i] / (ct.gas_constant * T[i]), data[i, :]
-                    # now, since cantera normalizes these concentrations
-                    # let's read them back
-                    data[i, :] = gas.concentrations[:]
-                    # get species rates
-                    spec_rates[i, :] = gas.net_production_rates[:]
-                    rop_fwd_test[i, :] = gas.forward_rates_of_progress[:]
-                    rop_rev_test[i, :] = gas.reverse_rates_of_progress[
-                        :][rev_map]
-                    rop_net_test[i, :] = gas.net_rates_of_progress[:]
-                    cp[:] = eval_cp(ns_range, T[i])
-                    h[:] = eval_h(ns_range, T[i])
-                    cv[:] = cp - ct.gas_constant
-                    u[:] = h - T[i] * ct.gas_constant
-
-                    np.divide(-np.dot(h[:], spec_rates[i, :]),
-                              np.dot(cp[:], data[i, :]), out=conp_temperature_rates[i, :])
-                    np.divide(-np.dot(u[:], spec_rates[i, :]),
-                              np.dot(cv[:], data[i, :]), out=conv_temperature_rates[i, :])
-
+        # begin iterations
         current_data_order = None
-
         the_path = os.getcwd()
         op = oploop.copy()
-
         for i, state in enumerate(op):
             # remove any old builds
             __cleanup()
@@ -270,11 +211,11 @@ def functional_tester(work_dir):
             rate_spec = state['rate_spec']
             split_kernels = state['split_kernels']
             num_cores = state['num_cores']
+            conp = state['conp']
             if not deep and not wide and vecsize != max_vec_width:
                 # this is simple parallelization, don't need vector size
+                # simply choose one and go
                 continue
-                # simpy choose one and go
-
             if rate_spec == 'fixed' and split_kernels:
                 continue  # not a thing!
 
@@ -282,25 +223,20 @@ def functional_tester(work_dir):
                 # can't do both simultaneously
                 continue
 
-            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
-                                                            'w' if wide else 'd' if deep else 'par',
-                                                            platform, rate_spec, 'split' if split_kernels else 'single',
-                                                            num_cores
-                                                            ) +
-                           '_err.npz'
-                           )
+            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                lang, vecsize, order, 'w' if wide else 'd' if deep else 'par',
+                platform, rate_spec, 'split' if split_kernels else 'single',
+                num_cores) + '_err.npz')
 
             # if already run, continue
             data_output = os.path.join(the_path, data_output)
             if check_file(data_output, gas.n_species, gas.n_reactions):
                 continue
 
-            # eval if not done already
-            if not evaled:
-                eval_state()
-                evaled = True
-            # force garbage collection
-            gc.collect()
+            # get the answer
+            phi = phi_cp if conp else phi_cv
+            param = param_cp if conp else param_cv
+            helper.eval_answer(this_dir, phi, P, V, state)
 
             if order != current_data_order:
                 # rewrite data to file in 'C' order
@@ -315,7 +251,7 @@ def functional_tester(work_dir):
 
             try:
                 create_jacobian(lang,
-                                mech_name=mech_info['mech'],
+                                gas=gas,
                                 vector_size=vecsize,
                                 wide=wide,
                                 deep=deep,
@@ -324,13 +260,12 @@ def functional_tester(work_dir):
                                 skip_jac=True,
                                 auto_diff=False,
                                 platform=platform,
-                                data_filename=os.path.join(
-                                    this_dir, 'data.bin'),
+                                data_filename=os.path.join(this_dir, 'data.bin'),
                                 split_rate_kernels=split_kernels,
                                 rate_specialization=rate_spec,
                                 split_rop_net_kernels=split_kernels,
-                                output_full_rop=True
-                                )
+                                output_full_rop=rtype == build_type.species_rates,
+                                conp=conp)
             except Exception as e:
                 logging.exception(e)
                 logging.warn('generation failed...')
@@ -340,146 +275,64 @@ def functional_tester(work_dir):
             # generate wrapper
             generate_wrapper(lang, my_build, build_dir=obj_dir,
                              out_dir=my_test, platform=str(platform),
-                             output_full_rop=True)
+                             output_full_rop=rtype == build_type.species_rates)
 
             # now generate the per run data
             offset = 0
             # store the error dict
             err_dict = {}
             while offset < num_conditions:
-                this_run = int(np.floor(np.minimum(
-                    cond_per_run, num_conditions - offset) / max_vec_width) * max_vec_width)
+                this_run = int(
+                    np.floor(np.minimum(cond_per_run, num_conditions - offset)
+                             / max_vec_width) * max_vec_width)
                 # get arrays
                 myphi = np.array(phi[offset:offset + this_run, :],
                                  order=order, copy=True).flatten('K')
 
                 args = []
                 __saver(myphi, 'phi', args)
-                __saver(P[offset:offset + this_run], 'P', args)
+                __saver(param[offset:offset + this_run], 'param', args)
                 del myphi
 
-                # put save outputs
-                output_names = [
-                    'wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
-                dphi = np.concatenate((conp_temperature_rates[offset:offset + this_run, :] if conp
-                                                else conv_temperature_rates[offset:offset + this_run, :],
-                                                spec_rates[offset:offset + this_run, :]), axis=1)
-                out_arrays = [dphi,
-                              rop_fwd_test[offset:offset + this_run, :],
-                              rop_rev_test[offset:offset + this_run, :],
-                              pres_mod_test[offset:offset + this_run, :],
-                              rop_net_test[offset:offset + this_run, :]]
-                for i in range(len(out_arrays)):
-                    out = out_arrays[i]
+                # get reference outputs
+                out_names, ref_ans = helper.get_outputs(state, offset, this_run)
+
+                # save for comparison
+                testfiles = []
+                for i in range(len(ref_ans)):
+                    out = ref_ans[i]
                     # and flatten in correct order
                     out = out.flatten(order=order)
-                    __saver(out, output_names[i])
+                    __saver(out, out_names[i], testfiles)
                     del out
-
                 outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
-                        for name in output_names]
-                test_f = [os.path.join(my_test, '{}.npy'.format(name))
-                          for name in output_names]
+                        for name in out_names]
 
                 # write the module tester
                 with open(os.path.join(my_test, 'test.py'), 'w') as file:
                     file.write(mod_test.safe_substitute(
                         package='pyjac_{}'.format(package_lang[lang]),
                         input_args=', '.join('"{}"'.format(x) for x in args),
-                        test_arrays=', '.join('"{}"'.format(x)
-                                              for x in test_f),
-                        non_array_args='{}, 12'.format(this_run),
-                        call_name='species_rates',
+                        test_arrays=', '.join('\'{}\''.format(x) for x in testfiles),
+                        non_array_args='{}, {}'.format(this_run, num_cores),
+                        call_name=str(rtype)[str(rtype).index('.') + 1:],
                         output_files=', '.join('\'{}\''.format(x) for x in outf)))
 
                 # call
-                subprocess.check_call([
-                    'python{}.{}'.format(
-                        sys.version_info[0], sys.version_info[1]),
+                subprocess.check_call(['python{}.{}'.format(
+                    sys.version_info[0], sys.version_info[1]),
                     os.path.join(my_test, 'test.py'),
                     '1' if offset != 0 else '0'])
 
-                def __get_test(name):
-                    return out_arrays[output_names.index(name)]
-
-                out_check = outf[:]
-                # load output arrays
-                for i in range(len(outf)):
-                    out_check[i] = np.load(outf[i])
-                    if np.any(
-                        np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i]))):
-                    assert not np.any(
-                        np.logical_or(np.isnan(out_check[i]), np.isinf(out_check[i])))
-                    # and reshape
-                    out_check[i] = np.reshape(out_check[i], (this_run, -1),
-                                              order=order)
-
-                # multiply pressure rates
-                pmod_ind = next(
-                    i for i, x in enumerate(output_names) if x == 'pres_mod')
-                # fwd
-                out_check[1][:, thd_map] *= out_check[pmod_ind]
-                # rev
-                out_check[2][
-                    :, rev_to_thd_map] *= out_check[pmod_ind][:, thd_to_rev_map]
-
-                fwd_ind = output_names.index('rop_fwd')
-                rev_ind = output_names.index('rop_rev')
-                atol = 1e-10
-                rtol = 1e-6
-
-                # load output
-                for name, out in zip(*(output_names, out_check)):
-                    if name == 'pres_mod':
-                        continue
-                    check_arr = __get_test(name)
-                    # get err
-                    err = np.abs(out - check_arr)
-                    err_compare = err / (atol + rtol * np.abs(check_arr))
-                    # get maximum relative error locations
-                    err_locs = np.argmax(err_compare, axis=0)
-                    # take err norm
-                    err_comp_store = err_compare[
-                        err_locs, np.arange(err_locs.size)]
-                    err_inf = err[err_locs, np.arange(err_locs.size)]
-                    if name == 'rop_net':
-                        # need to find the fwd / rop error at the max locations
-                        # here
-                        rop_fwd_err = np.abs(out_check[fwd_ind][err_locs, np.arange(
-                            err_locs.size)] - out_arrays[fwd_ind][err_locs, np.arange(err_locs.size)])
-                        rop_rev_err = np.zeros(err_locs.size)
-                        rev_errs = err_locs[rev_map]
-                        rop_rev_err[rev_map] = np.abs(out_check[rev_ind][rev_errs, np.arange(
-                            rev_errs.size)] - out_arrays[rev_ind][rev_errs, np.arange(rev_errs.size)])
-                        rop_component_error = np.maximum(
-                            rop_fwd_err, rop_rev_err)
-
-                    if name not in err_dict:
-                        err_dict[name] = np.zeros_like(err_inf)
-                        err_dict[name + '_value'] = np.zeros_like(err_inf)
-                        err_dict[name + '_store'] = np.zeros_like(err_inf)
-                        if name == 'rop_net':
-                            err_dict['rop_component'] = np.zeros_like(err_inf)
-                    # get locations to update
-                    update_locs = np.where(
-                        err_comp_store >= err_dict[name + '_store'])
-                    # and update
-                    err_dict[name][update_locs] = err_inf[update_locs]
-                    err_dict[
-                        name + '_store'][update_locs] = err_comp_store[update_locs]
-                    # need to take max and update precision as necessary
-                    if name == 'rop_net':
-                        err_dict['rop_component'][
-                            update_locs] = rop_component_error[update_locs]
-                    # update the values for normalization
-                    err_dict[name + '_value'][update_locs] = check_arr[err_locs,
-                                                                       np.arange(err_inf.size)][update_locs]
+                # get error
+                err_dict = helper.eval_error(
+                    this_run, state['order'], outf, out_names, ref_ans, err_dict)
 
                 # cleanup
                 for x in args + outf:
                     os.remove(x)
-                for x in out_check:
-                    del x
+                for x in testfiles:
+                    os.remove(x)
                 os.remove(os.path.join(my_test, 'test.py'))
 
                 # finally update the offset
@@ -487,3 +340,242 @@ def functional_tester(work_dir):
 
             # and write to file
             np.savez(data_output, **err_dict)
+
+
+class eval(object):
+    def eval_answer(self, phi, param, state):
+        raise NotImplementedError
+
+    def eval_error(self, my_test, offset, this_run):
+        raise NotImplementedError
+
+    def get_outputs(self, state, offset, this_run):
+        raise NotImplementedError
+
+
+class spec_rate_eval(eval):
+    """
+    Helper class for the species rates tester
+    """
+    def __init__(self, gas, num_conditions):
+        self.evaled = False
+        self.spec_rates = np.zeros((num_conditions, gas.n_species - 1))
+        self.conp_temperature_rates = np.zeros((num_conditions, 1))
+        self.conv_temperature_rates = np.zeros((num_conditions, 1))
+        self.conp_extra_rates = np.zeros((num_conditions, 1))
+        self.conv_extra_rates = np.zeros((num_conditions, 1))
+        self.h = np.zeros((gas.n_species))
+        self.u = np.zeros((gas.n_species))
+        self.cp = np.zeros((gas.n_species))
+        self.cv = np.zeros((gas.n_species))
+
+        self.num_conditions = num_cores
+
+        # get mappings
+        self.fwd_map = np.array(range(gas.n_reactions))
+        self.rev_map = np.array(
+            [x for x in range(gas.n_reactions) if gas.is_reversible(x)])
+        self.thd_map = []
+        for x in range(gas.n_reactions):
+            try:
+                eff = gas.reaction(x).efficiencies
+                thd_map.append(x)
+            except:
+                pass
+        thd_map = np.array(thd_map)
+        self.rop_fwd_test = np.zeros((num_conditions, fwd_map.size))
+        self.rop_rev_test = np.zeros((num_conditions, rev_map.size))
+        self.rop_net_test = np.zeros((num_conditions, fwd_map.size))
+        # need special maps for rev/thd
+        self.rev_to_thd_map = np.where(np.in1d(rev_map, thd_map))[0]
+        self.thd_to_rev_map = np.where(np.in1d(thd_map, rev_map))[0]
+        # it's a pain to actually calcuate this
+        # and we don't need it directly, since cantera computes
+        # pdep terms in the forward / reverse ROP automatically
+        # hence we create it as a placeholder for the testing script
+        self.pres_mod_test = np.zeros((num_conditions, thd_map.size))
+
+        # molecular weight fraction
+        self.mw_frac = 1 - gas.molecular_weights[:-1] / gas.molecular_weights[-1]
+
+        # predefines
+        self.specs = gas.species()[:]
+        self.gas = gas
+        self.evaled = False
+
+    def eval_answer(self, phi, P, V, state):
+        def __eval_cp(j, T):
+            return self.specs[j].thermo.cp(T)
+        eval_cp = np.vectorize(__eval_cp, cache=True)
+
+        def __eval_h(j, T):
+            return self.specs[j].thermo.h(T)
+        eval_h = np.vectorize(__eval_h, cache=True)
+
+        if not self.evaled:
+            ns_range = np.arange(gas.n_species)
+
+            T = phi[:, 0]
+            # it's actually more accurate to set the density
+            # (total concentration) due to the cantera internals
+            D = P / (ct.gas_constant * T)
+
+            self.gas.basis = 'molar'
+            with np.errstate(divide='ignore', invalid='ignore'):
+                for i in range(num_conditions):
+                    if not i % 10000:
+                        print(i)
+                    gas.TDX = T[i], D[i], phi[i, :]
+                    # now, since cantera normalizes these concentrations
+                    # let's read them back
+                    concs = gas.concentrations[:]
+                    # get molar species rates
+                    self.spec_rates[i, :] = self.gas.net_production_rates[:-1] * V[i]
+                    # info vars
+                    self.rop_fwd_test[i, :] = self.gas.forward_rates_of_progress[:]
+                    self.rop_rev_test[i, :] = self.gas.reverse_rates_of_progress[:][
+                        rev_map]
+                    self.rop_net_test[i, :] = self.gas.net_rates_of_progress[:]
+
+                    # find temperature rates
+                    cp = eval_cp(ns_range, T[i])
+                    h = eval_h(ns_range, T[i])
+                    cv = cp - ct.gas_constant
+                    u = h - T[i] * ct.gas_constant
+                    np.divide(-np.dot(h, self.spec_rates[i, :]),
+                              np.dot(cp, concs[:]),
+                              out=self.conp_temperature_rates[i, :])
+                    np.divide(-np.dot(u, self.spec_rates[i, :]),
+                              np.dot(cv, concs[:]),
+                              out=self.conv_temperature_rates[i, :])
+
+                    # finally find extra variable rates
+                    self.conp_extra_rates[i] = V[i] * (
+                        T[i] * ct.gas_constant * np.sum(
+                            mw_frac * self.spec_rates[i, :]) / P[i] +
+                        self.conp_temperature_rates[i, :] / T[i])
+                    self.conv_extra_rates[i] = (
+                        P[i] / T[i]) * self.conv_temperature_rates[i, :] + \
+                        T[i] * ct.gas_constant * np.sum(
+                            mw_frac * self.spec_rates[i, :])
+
+            self.evaled = True
+
+    def get_outputs(self, state, offset, this_run):
+        conp = state['conp']
+        output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+        temperature_rates = self.conp_temperature_rates if conp \
+            else self.conv_temperature_rates
+        extra_rates = self.conp_extra_rates if conp else self.conv_extra_rates
+        dphi = np.concatenate((temperature_rates[offset:offset + this_run, :],
+                               extra_rates[offset:offset + this_run, :],
+                               self.spec_rates[offset:offset + this_run, :]), axis=1)
+        out_arrays = [dphi,
+                      self.rop_fwd_test[offset:offset + this_run, :],
+                      self.rop_rev_test[offset:offset + this_run, :],
+                      self.pres_mod_test[offset:offset + this_run, :],
+                      self.rop_net_test[offset:offset + this_run, :]]
+
+        return output_names, out_arrays
+
+    def eval_error(self, this_run, order, out_files, out_names, reference_answers,
+                   err_dict):
+        def __get_test(name):
+            return reference_answers[out_files.index(name)]
+
+        out_check = out_files[:]
+        # load output arrays
+        for i in range(len(out_files)):
+            out_check[i] = np.load(out_files[i])
+            # check finite
+            assert not np.all(np.isfinite(out_check[i]))
+            # and reshape
+            out_check[i] = np.reshape(out_check[i], (this_run, -1),
+                                      order=order)
+
+        # multiply pressure rates
+        pmod_ind = next(
+            i for i, x in enumerate(out_files) if 'pres_mod' in x)
+        # fwd
+        out_check[1][:, self.thd_map] *= out_check[pmod_ind]
+        # rev
+        out_check[2][
+            :, self.rev_to_thd_map] *= out_check[pmod_ind][:, self.thd_to_rev_map]
+
+        fwd_ind = next(
+            i for i, x in enumerate(out_files) if 'rop_fwd' in x)
+        rev_ind = next(
+            i for i, x in enumerate(out_files) if 'rop_rev' in x)
+        atol = 1e-10
+        rtol = 1e-6
+
+        # load output
+        for name, out in zip(*(out_names, out_check)):
+            if name == 'pres_mod':
+                continue
+            check_arr = __get_test(name)
+            # get err
+            err = np.abs(out - check_arr)
+            err_compare = err / (atol + rtol * np.abs(check_arr))
+            # get maximum relative error locations
+            err_locs = np.argmax(err_compare, axis=0)
+            # take err norm
+            err_comp_store = err_compare[
+                err_locs, np.arange(err_locs.size)]
+            err_inf = err[err_locs, np.arange(err_locs.size)]
+            if name == 'rop_net':
+                # need to find the fwd / rop error at the max locations
+                # here
+                rop_fwd_err = np.abs(out_check[fwd_ind][err_locs, np.arange(
+                    err_locs.size)] - reference_answers[fwd_ind][err_locs, np.arange(
+                        err_locs.size)])
+                rop_rev_err = np.zeros(err_locs.size)
+                rev_errs = err_locs[self.rev_map]
+                rop_rev_err[self.rev_map] = np.abs(out_check[rev_ind][
+                    rev_errs, np.arange(rev_errs.size)] - reference_answers[
+                    rev_ind][rev_errs, np.arange(rev_errs.size)])
+                # now find maximum of error in fwd / rev ROP
+                rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
+
+            if name not in err_dict:
+                err_dict[name] = np.zeros_like(err_inf)
+                err_dict[name + '_value'] = np.zeros_like(err_inf)
+                err_dict[name + '_store'] = np.zeros_like(err_inf)
+                if name == 'rop_net':
+                    err_dict['rop_component'] = np.zeros_like(err_inf)
+            # get locations to update
+            update_locs = np.where(
+                err_comp_store >= err_dict[name + '_store'])
+            # and update
+            err_dict[name][update_locs] = err_inf[update_locs]
+            err_dict[
+                name + '_store'][update_locs] = err_comp_store[update_locs]
+            # need to take max and update precision as necessary
+            if name == 'rop_net':
+                err_dict['rop_component'][
+                    update_locs] = rop_component_error[update_locs]
+            # update the values for normalization
+            err_dict[name + '_value'][update_locs] = check_arr[
+                err_locs, np.arange(err_inf.size)][update_locs]
+
+        for i in range(len(out_check)):
+            del out_check[i]
+
+        return err_dict
+
+
+def species_rate_tester(work_dir='error_checking'):
+    """Runs performance testing for pyJac
+
+    Parameters
+    ----------
+    work_dir : str
+        Working directory with mechanisms and for data
+
+    Returns
+    -------
+    None
+
+    """
+
+    __run_test(work_dir, spec_rate_eval, build_type.species_rates)

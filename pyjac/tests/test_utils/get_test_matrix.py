@@ -4,6 +4,8 @@ import sys
 import cantera as ct
 from collections import OrderedDict
 from optionloop import OptionLoop
+from .. import get_test_platforms
+
 
 def get_test_matrix(work_dir):
     """Runs a set of mechanisms and an ordered dictionary for
@@ -30,17 +32,17 @@ def get_test_matrix(work_dir):
     """
     work_dir = os.path.abspath(work_dir)
 
-    #find the mechanisms to test
+    # find the mechanisms to test
     mechanism_list = {}
     if not os.path.exists(work_dir):
-        print ('Error: work directory {} for '.format(work_dir) +
-               'testing not found, exiting...')
+        print('Error: work directory {} for '.format(work_dir) +
+              'testing not found, exiting...')
         sys.exit(-1)
     for name in os.listdir(work_dir):
         if os.path.isdir(os.path.join(work_dir, name)):
-            #check for cti
+            # check for cti
             files = [f for f in os.listdir(os.path.join(work_dir, name)) if
-                        os.path.isfile(os.path.join(work_dir, name, f))]
+                     os.path.isfile(os.path.join(work_dir, name, f))]
             for f in files:
                 if f.endswith('.cti'):
                     mechanism_list[name] = {}
@@ -53,29 +55,73 @@ def get_test_matrix(work_dir):
                     if thermo is not None:
                         mechanism_list[name]['thermo'] = thermo
 
+    rate_spec = ['fixed', 'hybrid']  # , 'full']
     vec_widths = [4, 8, 16]
+    split_kernels = [False]
     num_cores = []
     nc = 1
     while nc < multiprocessing.cpu_count() / 2:
         num_cores.append(nc)
         nc *= 2
-    platforms = ['intel']
-    rate_spec = ['fixed', 'hybrid']#, 'full']
 
-    ocl_params = [('lang', 'opencl'),
-                  ('vecsize', vec_widths),
-                  ('order', ['F', 'C']),
-                  ('wide', [True, False]),
-                  ('deep', [True, False]),
-                  ('platform', platforms),
-                  ('rate_spec', rate_spec),
-                  ('split_kernels', [True, False]),
-                  ('num_cores', num_cores)
-                  ]
-    c_params = [('lang', 'c'),
-                ('order', ['F', 'C']),
-                ('num_cores', num_cores)
-                ]
+    def _get_key(params, key):
+        for i, val in enumerate(params):
+            if val[0] == key:
+                return params[i][1][:]
+        return [False]
+
+    def _any_key(params, key):
+        return any(x for x in _get_key(params, key))
+
+    def _del_key(params, key):
+        for i in range(len(params)):
+            if params[i][0] == key:
+                return params.pop(i)
+
+    def _fix_params(params):
+        for i in range(len(params)):
+            platform = params[i][:]
+            if _any_key(platform, 'width') or _any_key(platform, 'depth'):
+                # set vec widths
+                platform.append(('vecsize', vec_widths))
+                # set wide flags
+                if _any_key(platform, 'width'):
+                    platform.append(('wide', [True, False]))
+                else:
+                    platform.append(('wide', [False]))
+                _del_key('width')
+                # set deep flags
+                if _any_key(platform, 'depth'):
+                    platform.append(('deep', [True, False]))
+                else:
+                    platform.append(('deep', [False]))
+                _del_key('depth')
+
+            cores = num_cores
+            if _get_key('lang') == 'opencl':
+                # test platform type
+                import pyopencl as cl
+                platform, = _get_key('platform')
+                for p in cl.get_platforms():
+                    if platform.lower() in p.name.lower():
+                        # match, get device type
+                        dtype = set(d.type for d in p.get_devices())
+                        assert len(dtype) == 1, (
+                            "Mixed device types on platform {}".format(p.name))
+                        # fix cores for GPU
+                        if cl.device_type.GPU in dtype:
+                            cores = [1]
+
+            platform += [('order', ['C', 'F']),
+                         ('rate_spec', rate_spec),
+                         ('split_kernels', split_kernels),
+                         ('num_cores', cores),
+                         ('conp', [True, False])]
+            params[i] = platform[:]
+        return params
+
+    ocl_params = _fix_params(get_test_platforms())
+    c_params = _fix_params(get_test_platforms(langs=['c']))
 
     oclloop = OptionLoop(OrderedDict(ocl_params), lambda: False)
     cloop = OptionLoop(OrderedDict(c_params), lambda: False)
