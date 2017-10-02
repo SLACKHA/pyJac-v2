@@ -9,30 +9,17 @@ from __future__ import print_function
 import os
 import sys
 import subprocess
-import re
-from argparse import ArgumentParser
-import multiprocessing
 import shutil
-import gc
-from collections import defaultdict, OrderedDict
 import logging
 
-from string import Template
 
 # Related modules
 import numpy as np
 
 try:
     import cantera as ct
-    from cantera import ck2cti
 except ImportError:
     print('Error: Cantera must be installed.')
-    raise
-
-try:
-    from optionloop import OptionLoop
-except ImportError:
-    print('Error: optionloop must be installed.')
     raise
 
 # Local imports
@@ -164,6 +151,7 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         # first load data to get species rates, jacobian etc.
         num_conditions, data = dbw.load(
             [], directory=os.path.join(work_dir, mech_name))
+        num_conditions = 1000
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
@@ -236,7 +224,7 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
             # get the answer
             phi = phi_cp if conp else phi_cv
             param = param_cp if conp else param_cv
-            helper.eval_answer(this_dir, phi, P, V, state)
+            helper.eval_answer(phi, P, V, state)
 
             if order != current_data_order:
                 # rewrite data to file in 'C' order
@@ -249,33 +237,35 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                 if namelist is not None:
                     namelist.append(myname)
 
-            try:
-                create_jacobian(lang,
-                                gas=gas,
-                                vector_size=vecsize,
-                                wide=wide,
-                                deep=deep,
-                                data_order=order,
-                                build_path=my_build,
-                                skip_jac=True,
-                                auto_diff=False,
-                                platform=platform,
-                                data_filename=os.path.join(this_dir, 'data.bin'),
-                                split_rate_kernels=split_kernels,
-                                rate_specialization=rate_spec,
-                                split_rop_net_kernels=split_kernels,
-                                output_full_rop=rtype == build_type.species_rates,
-                                conp=conp)
-            except Exception as e:
-                logging.exception(e)
-                logging.warn('generation failed...')
-                logging.warn(i, state)
-                continue
+            #try:
+            create_jacobian(lang,
+                            gas=gas,
+                            vector_size=vecsize,
+                            wide=wide,
+                            deep=deep,
+                            data_order=order,
+                            build_path=my_build,
+                            skip_jac=True,
+                            auto_diff=False,
+                            platform=platform,
+                            data_filename=os.path.join(this_dir, 'data.bin'),
+                            split_rate_kernels=split_kernels,
+                            rate_specialization=rate_spec,
+                            split_rop_net_kernels=split_kernels,
+                            output_full_rop=rtype == build_type.species_rates,
+                            conp=conp,
+                            use_atomics=state['use_atomics'])
+            #except Exception as e:
+            #    logging.exception(e)
+            #    logging.warn('generation failed...')
+            #    logging.warn(i, state)
+            #    continue
 
             # generate wrapper
             generate_wrapper(lang, my_build, build_dir=obj_dir,
                              out_dir=my_test, platform=str(platform),
-                             output_full_rop=rtype == build_type.species_rates)
+                             output_full_rop=rtype == build_type.species_rates,
+                             btype=rtype)
 
             # now generate the per run data
             offset = 0
@@ -316,7 +306,11 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                         test_arrays=', '.join('\'{}\''.format(x) for x in testfiles),
                         non_array_args='{}, {}'.format(this_run, num_cores),
                         call_name=str(rtype)[str(rtype).index('.') + 1:],
-                        output_files=', '.join('\'{}\''.format(x) for x in outf)))
+                        output_files=', '.join('\'{}\''.format(x) for x in outf),
+                        looser_tols=','.join('[]' for x in testfiles),
+                        rtol=1e-5,
+                        atol=1e-8)
+                    )
 
                 # call
                 subprocess.check_call(['python{}.{}'.format(
@@ -359,7 +353,7 @@ class spec_rate_eval(eval):
     """
     def __init__(self, gas, num_conditions):
         self.evaled = False
-        self.spec_rates = np.zeros((num_conditions, gas.n_species - 1))
+        self.spec_rates = np.zeros((num_conditions, gas.n_species))
         self.conp_temperature_rates = np.zeros((num_conditions, 1))
         self.conv_temperature_rates = np.zeros((num_conditions, 1))
         self.conp_extra_rates = np.zeros((num_conditions, 1))
@@ -368,8 +362,7 @@ class spec_rate_eval(eval):
         self.u = np.zeros((gas.n_species))
         self.cp = np.zeros((gas.n_species))
         self.cv = np.zeros((gas.n_species))
-
-        self.num_conditions = num_cores
+        self.num_conditions = num_conditions
 
         # get mappings
         self.fwd_map = np.array(range(gas.n_reactions))
@@ -378,17 +371,17 @@ class spec_rate_eval(eval):
         self.thd_map = []
         for x in range(gas.n_reactions):
             try:
-                eff = gas.reaction(x).efficiencies
-                thd_map.append(x)
+                gas.reaction(x).efficiencies
+                self.thd_map.append(x)
             except:
                 pass
-        thd_map = np.array(thd_map)
-        self.rop_fwd_test = np.zeros((num_conditions, fwd_map.size))
-        self.rop_rev_test = np.zeros((num_conditions, rev_map.size))
-        self.rop_net_test = np.zeros((num_conditions, fwd_map.size))
+        thd_map = np.array(self.thd_map)
+        self.rop_fwd_test = np.zeros((num_conditions, self.fwd_map.size))
+        self.rop_rev_test = np.zeros((num_conditions, self.rev_map.size))
+        self.rop_net_test = np.zeros((num_conditions, self.fwd_map.size))
         # need special maps for rev/thd
-        self.rev_to_thd_map = np.where(np.in1d(rev_map, thd_map))[0]
-        self.thd_to_rev_map = np.where(np.in1d(thd_map, rev_map))[0]
+        self.rev_to_thd_map = np.where(np.in1d(self.rev_map, self.thd_map))[0]
+        self.thd_to_rev_map = np.where(np.in1d(self.thd_map, self.rev_map))[0]
         # it's a pain to actually calcuate this
         # and we don't need it directly, since cantera computes
         # pdep terms in the forward / reverse ROP automatically
@@ -413,7 +406,7 @@ class spec_rate_eval(eval):
         eval_h = np.vectorize(__eval_h, cache=True)
 
         if not self.evaled:
-            ns_range = np.arange(gas.n_species)
+            ns_range = np.arange(self.gas.n_species)
 
             T = phi[:, 0]
             # it's actually more accurate to set the density
@@ -422,19 +415,19 @@ class spec_rate_eval(eval):
 
             self.gas.basis = 'molar'
             with np.errstate(divide='ignore', invalid='ignore'):
-                for i in range(num_conditions):
+                for i in range(self.num_conditions):
                     if not i % 10000:
                         print(i)
-                    gas.TDX = T[i], D[i], phi[i, :]
+                    self.gas.TDX = T[i], D[i], phi[i, 2:]
                     # now, since cantera normalizes these concentrations
                     # let's read them back
-                    concs = gas.concentrations[:]
+                    concs = self.gas.concentrations[:]
                     # get molar species rates
-                    self.spec_rates[i, :] = self.gas.net_production_rates[:-1] * V[i]
+                    self.spec_rates[i, :] = self.gas.net_production_rates[:] * V[i]
                     # info vars
                     self.rop_fwd_test[i, :] = self.gas.forward_rates_of_progress[:]
                     self.rop_rev_test[i, :] = self.gas.reverse_rates_of_progress[:][
-                        rev_map]
+                        self.rev_map]
                     self.rop_net_test[i, :] = self.gas.net_rates_of_progress[:]
 
                     # find temperature rates
@@ -442,22 +435,20 @@ class spec_rate_eval(eval):
                     h = eval_h(ns_range, T[i])
                     cv = cp - ct.gas_constant
                     u = h - T[i] * ct.gas_constant
-                    np.divide(-np.dot(h, self.spec_rates[i, :]),
-                              np.dot(cp, concs[:]),
+                    np.divide(-np.dot(h, self.spec_rates[i, :]), np.dot(cp, concs),
                               out=self.conp_temperature_rates[i, :])
-                    np.divide(-np.dot(u, self.spec_rates[i, :]),
-                              np.dot(cv, concs[:]),
+                    np.divide(-np.dot(u, self.spec_rates[i, :]), np.dot(cv, concs),
                               out=self.conv_temperature_rates[i, :])
 
                     # finally find extra variable rates
                     self.conp_extra_rates[i] = V[i] * (
                         T[i] * ct.gas_constant * np.sum(
-                            mw_frac * self.spec_rates[i, :]) / P[i] +
+                            self.mw_frac * self.spec_rates[i, :-1]) / P[i] +
                         self.conp_temperature_rates[i, :] / T[i])
                     self.conv_extra_rates[i] = (
                         P[i] / T[i]) * self.conv_temperature_rates[i, :] + \
                         T[i] * ct.gas_constant * np.sum(
-                            mw_frac * self.spec_rates[i, :])
+                            self.mw_frac * self.spec_rates[i, :-1])
 
             self.evaled = True
 
@@ -469,7 +460,8 @@ class spec_rate_eval(eval):
         extra_rates = self.conp_extra_rates if conp else self.conv_extra_rates
         dphi = np.concatenate((temperature_rates[offset:offset + this_run, :],
                                extra_rates[offset:offset + this_run, :],
-                               self.spec_rates[offset:offset + this_run, :]), axis=1)
+                               self.spec_rates[offset:offset + this_run, :-1]),
+                              axis=1)
         out_arrays = [dphi,
                       self.rop_fwd_test[offset:offset + this_run, :],
                       self.rop_rev_test[offset:offset + this_run, :],
@@ -481,7 +473,7 @@ class spec_rate_eval(eval):
     def eval_error(self, this_run, order, out_files, out_names, reference_answers,
                    err_dict):
         def __get_test(name):
-            return reference_answers[out_files.index(name)]
+            return reference_answers[out_names.index(name)]
 
         out_check = out_files[:]
         # load output arrays
@@ -558,9 +550,7 @@ class spec_rate_eval(eval):
             err_dict[name + '_value'][update_locs] = check_arr[
                 err_locs, np.arange(err_inf.size)][update_locs]
 
-        for i in range(len(out_check)):
-            del out_check[i]
-
+        del out_check
         return err_dict
 
 

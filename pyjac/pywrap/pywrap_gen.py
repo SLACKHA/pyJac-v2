@@ -171,7 +171,8 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
 
     if output_full_rop:
         # modify the wrapper
-        pyxfile = pyxfile[:pyxfile.rindex('.pyx.in')] + '_ropfull' + '.pyx.in'
+        pyxfile = pyxfile[:pyxfile.rindex('_wrapper')] + '_ropfull' + pyxfile[
+            pyxfile.rindex('_wrapper'):]
 
     generate_setup(os.path.join(home_dir, setupfile),
                    os.path.join(home_dir, pyxfile), home_dir, source_dir,
