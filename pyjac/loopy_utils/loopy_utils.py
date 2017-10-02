@@ -6,6 +6,7 @@ import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
 import pyopencl as cl
+from pyopencl.tools import clear_first_arg_caches
 from .. import utils
 import os
 import stat
@@ -203,8 +204,6 @@ def get_context(device='0'):
     -------
     ctx : :class:`pyopencl.Context`
         The running context
-    queue : :class:`pyopencl.Queue`
-        The command queue
     """
 
     os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
@@ -215,8 +214,7 @@ def get_context(device='0'):
         ctx = cl.Context(devices=[device])
 
     lp.set_caching_enabled(False)
-    queue = cl.CommandQueue(ctx)
-    return ctx, queue
+    return ctx
 
 
 def get_header(knl):
@@ -847,77 +845,90 @@ def populate(knl, kernel_calls, device='0',
     assert len(knl), 'No kernels supplied!'
 
     # create context
-    queue = None
+    ctx = None
     if any(isinstance(k.target, lp.PyOpenCLTarget) for k in knl):
-        _, queue = get_context(device)
+        ctx = get_context(device)
 
     if editor is None:
         editor = set_editor
 
-    output = []
-    kc_ind = 0
-    oob = False
-    while not oob:
-        # handle weirdness between list / non-list input
-        try:
-            kc = kernel_calls[kc_ind]
-            kc_ind += 1
-        except IndexError:
-            oob = True
-            break  # reached end of list
-        except TypeError:
-            # not a list
-            oob = True  # break on next run
-            kc = kernel_calls
+    def __inner(queue=None):
+        output = []
+        kc_ind = 0
+        oob = False
+        while not oob:
+            # handle weirdness between list / non-list input
+            try:
+                kc = kernel_calls[kc_ind]
+                kc_ind += 1
+            except IndexError:
+                oob = True
+                break  # reached end of list
+            except TypeError:
+                # not a list
+                oob = True  # break on next run
+                kc = kernel_calls
 
-        # create the outputs
-        if kc.out_mask is not None:
-            out_ref = [None for i in kc.out_mask]
-        else:
-            out_ref = [None]
+            # create the outputs
+            if kc.out_mask is not None:
+                out_ref = [None for i in kc.out_mask]
+            else:
+                out_ref = [None]
 
-        found = False
-        # run kernels
-        for k in knl:
-            # test that we want to run this one
-            if kc.is_my_kernel(k):
-                found = True
-                # set the editor to avoid intel bugs
-                test_knl = editor(k)
-                if isinstance(test_knl.target, lp.PyOpenCLTarget):
-                    # recreate with device
-                    test_knl = test_knl.copy(
-                        target=lp.PyOpenCLTarget(device=device))
+            found = False
+            # run kernels
+            for k in knl:
+                # test that we want to run this one
+                if kc.is_my_kernel(k):
+                    found = True
+                    # set the editor to avoid intel bugs
+                    test_knl = editor(k)
+                    if isinstance(test_knl.target, lp.PyOpenCLTarget):
+                        # recreate with device
+                        test_knl = test_knl.copy(
+                            target=lp.PyOpenCLTarget(device=device))
 
-                # check for chaining
-                if kc.chain:
-                    kc.chain(kc, output)
+                    # check for chaining
+                    if kc.chain:
+                        kc.chain(kc, output)
 
-                # run!
-                out = kc(test_knl, queue)
+                    # run!
+                    out = kc(test_knl, queue)
 
-                if kc.post_process:
-                    kc.post_process(kc, out)
+                    if kc.post_process:
+                        kc.post_process(kc, out)
 
-                # output mapping
-                if all(x is None for x in out_ref):
-                    # if the outputs are none, we init to zeros
-                    # and avoid copying zeros over later data!
-                    out_ref = [np.zeros_like(x) for x in out]
+                    # output mapping
+                    if all(x is None for x in out_ref):
+                        # if the outputs are none, we init to zeros
+                        # and avoid copying zeros over later data!
+                        out_ref = [np.zeros_like(x) for x in out]
 
-                for ind in range(len(out)):
-                    # get indicies that are non-zero (already in there)
-                    # or non infinity/nan
-                    copy_inds = np.where(np.logical_not(
-                        np.logical_or(np.isinf(out[ind]),
-                                      out[ind] == 0, np.isnan(out[ind]))),
-                    )
-                    out_ref[ind][copy_inds] = out[ind][copy_inds]
+                    for ind in range(len(out)):
+                        # get indicies that are non-zero (already in there)
+                        # or non infinity/nan
+                        copy_inds = np.where(np.logical_not(
+                            np.logical_or(np.isinf(out[ind]),
+                                          out[ind] == 0, np.isnan(out[ind]))),
+                        )
+                        out_ref[ind][copy_inds] = out[ind][copy_inds]
 
-        output.append(out_ref)
-        assert found or kc.allow_skip, (
-            'No kernels could be found to match kernel call {}'.format(
-                kc.name))
+            output.append(out_ref)
+            assert found or kc.allow_skip, (
+                'No kernels could be found to match kernel call {}'.format(
+                    kc.name))
+        return output
+
+    if ctx is not None:
+        with cl.CommandQueue(ctx) as queue:
+            output = __inner(queue)
+            queue.flush()
+        # release context
+        clear_first_arg_caches()
+        del ctx
+    else:
+        output = __inner()
+
     return output
 
 
