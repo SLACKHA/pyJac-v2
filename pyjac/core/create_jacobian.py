@@ -4476,7 +4476,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     auto_diff=False, platform='', data_order='C',
                     rate_specialization='full', split_rate_kernels=True,
                     split_rop_net_kernels=False, conp=True, data_filename='data.bin',
-                    output_full_rop=False):
+                    output_full_rop=False, use_atomics=True):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4587,7 +4587,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         rate_spec=rate_spec_val,
                                         rate_spec_kernels=split_rate_kernels,
                                         rop_net_kernels=split_rop_net_kernels,
-                                        platform=platform)
+                                        platform=platform,
+                                        use_atomics=use_atomics)
 
     # create output directory if none exists
     utils.create_dir(build_path)

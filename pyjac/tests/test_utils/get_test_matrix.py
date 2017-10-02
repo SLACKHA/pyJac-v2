@@ -57,6 +57,7 @@ def get_test_matrix(work_dir):
 
     rate_spec = ['fixed', 'hybrid']  # , 'full']
     vec_widths = [4, 8, 16]
+    gpu_width = [64, 128]
     split_kernels = [False]
     num_cores = []
     nc = 1
@@ -67,7 +68,11 @@ def get_test_matrix(work_dir):
     def _get_key(params, key):
         for i, val in enumerate(params):
             if val[0] == key:
-                return params[i][1][:]
+                try:
+                    iter(params[i][1])
+                    return params[i][1][:]
+                except:
+                    return (params[i][1],)
         return [False]
 
     def _any_key(params, key):
@@ -81,27 +86,12 @@ def get_test_matrix(work_dir):
     def _fix_params(params):
         for i in range(len(params)):
             platform = params[i][:]
-            if _any_key(platform, 'width') or _any_key(platform, 'depth'):
-                # set vec widths
-                platform.append(('vecsize', vec_widths))
-                # set wide flags
-                if _any_key(platform, 'width'):
-                    platform.append(('wide', [True, False]))
-                else:
-                    platform.append(('wide', [False]))
-                _del_key('width')
-                # set deep flags
-                if _any_key(platform, 'depth'):
-                    platform.append(('deep', [True, False]))
-                else:
-                    platform.append(('deep', [False]))
-                _del_key('depth')
-
             cores = num_cores
-            if _get_key('lang') == 'opencl':
+            widths = vec_widths
+            if _get_key(platform, 'lang') == ('opencl',):
                 # test platform type
                 import pyopencl as cl
-                platform, = _get_key('platform')
+                platform, = _get_key(platform, 'platform')
                 for p in cl.get_platforms():
                     if platform.lower() in p.name.lower():
                         # match, get device type
@@ -111,6 +101,23 @@ def get_test_matrix(work_dir):
                         # fix cores for GPU
                         if cl.device_type.GPU in dtype:
                             cores = [1]
+                            widths = gpu_width
+
+            if _any_key(platform, 'width') or _any_key(platform, 'depth'):
+                # set vec widths
+                platform.append(('vecsize', widths))
+                # set wide flags
+                if _any_key(platform, 'width'):
+                    platform.append(('wide', [True, False]))
+                else:
+                    platform.append(('wide', [False]))
+                _del_key(platform, 'width')
+                # set deep flags
+                if _any_key(platform, 'depth'):
+                    platform.append(('deep', [True, False]))
+                else:
+                    platform.append(('deep', [False]))
+                _del_key(platform, 'depth')
 
             platform += [('order', ['C', 'F']),
                          ('rate_spec', rate_spec),
@@ -123,6 +130,16 @@ def get_test_matrix(work_dir):
     ocl_params = _fix_params(get_test_platforms())
     c_params = _fix_params(get_test_platforms(langs=['c']))
 
-    oclloop = OptionLoop(OrderedDict(ocl_params), lambda: False)
-    cloop = OptionLoop(OrderedDict(c_params), lambda: False)
+    def reduce(params):
+        out = None
+        for p in params:
+            val = OptionLoop(OrderedDict(p), lambda: False)
+            if out is None:
+                out = val
+            else:
+                out = out + val
+        return out
+
+    oclloop = reduce(ocl_params)
+    cloop = reduce(c_params)
     return mechanism_list, oclloop + cloop, vec_widths[-1]
