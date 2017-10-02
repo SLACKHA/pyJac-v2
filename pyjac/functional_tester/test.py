@@ -25,11 +25,13 @@ except ImportError:
 # Local imports
 from .. import utils
 from ..core.create_jacobian import create_jacobian, find_last_species
+from ..core.array_creator import array_splitter
 from ..core.mech_interpret import read_mech_ct
 from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.test_utils import data_bin_writer as dbw
 from ..tests.test_utils import get_test_matrix as tm
+from ..tests.test_utils import parse_split_index
 from ..tests import test_utils
 from ..libgen import build_type
 
@@ -236,6 +238,13 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
             if check_file(data_output, gas.n_species, gas.n_reactions):
                 continue
 
+            # get an array splitter
+            width = state['vecsize'] if state['wide'] else None
+            depth = state['vecsize'] if state['deep'] else None
+            order = state['order']
+            asplit = array_splitter(type('', (object,), {
+                'width': width, 'depth': depth, 'order': order}))
+
             # get the answer
             phi = phi_cp if conp else phi_cv
             param = param_cp if conp else param_cv
@@ -294,7 +303,9 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                 # make sure to remove the last species in order to conform
                 # to expected data
                 myphi = np.array(phi[offset:offset + this_run, :-1],
-                                 order=order, copy=True).flatten('K')
+                                 order=order, copy=True)
+
+                asplit.split_numpy_arrays(myphi).flatten(order=order)
 
                 args = []
                 __saver(myphi, 'phi', args)
@@ -302,7 +313,8 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                 del myphi
 
                 # get reference outputs
-                out_names, ref_ans = helper.get_outputs(state, offset, this_run)
+                out_names, ref_ans = helper.get_outputs(state, offset, this_run,
+                                                        asplit)
 
                 # save for comparison
                 testfiles = []
@@ -360,7 +372,7 @@ class eval(object):
     def eval_error(self, my_test, offset, this_run):
         raise NotImplementedError
 
-    def get_outputs(self, state, offset, this_run):
+    def get_outputs(self, state, offset, this_run, asplit):
         raise NotImplementedError
 
 
@@ -368,7 +380,9 @@ class spec_rate_eval(eval):
     """
     Helper class for the species rates tester
     """
-    def __init__(self, gas, num_conditions):
+    def __init__(self, gas, num_conditions, atol=1e-10, rtol=1e-6):
+        self.atol = atol
+        self.rtol = rtol
         self.evaled = False
         self.spec_rates = np.zeros((num_conditions, gas.n_species))
         self.conp_temperature_rates = np.zeros((num_conditions, 1))
@@ -392,7 +406,7 @@ class spec_rate_eval(eval):
                 self.thd_map.append(x)
             except:
                 pass
-        thd_map = np.array(self.thd_map)
+        self.thd_map = np.array(self.thd_map, dtype=np.int32)
         self.rop_fwd_test = np.zeros((num_conditions, self.fwd_map.size))
         self.rop_rev_test = np.zeros((num_conditions, self.rev_map.size))
         self.rop_net_test = np.zeros((num_conditions, self.fwd_map.size))
@@ -403,7 +417,7 @@ class spec_rate_eval(eval):
         # and we don't need it directly, since cantera computes
         # pdep terms in the forward / reverse ROP automatically
         # hence we create it as a placeholder for the testing script
-        self.pres_mod_test = np.zeros((num_conditions, thd_map.size))
+        self.pres_mod_test = np.zeros((num_conditions, self.thd_map.size))
 
         # molecular weight fraction
         self.mw_frac = 1 - gas.molecular_weights[:-1] / gas.molecular_weights[-1]
@@ -469,7 +483,7 @@ class spec_rate_eval(eval):
 
             self.evaled = True
 
-    def get_outputs(self, state, offset, this_run):
+    def get_outputs(self, state, offset, this_run, asplit):
         conp = state['conp']
         output_names = ['dphi', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
         temperature_rates = self.conp_temperature_rates if conp \
@@ -485,7 +499,7 @@ class spec_rate_eval(eval):
                       self.pres_mod_test[offset:offset + this_run, :],
                       self.rop_net_test[offset:offset + this_run, :]]
 
-        return output_names, out_arrays
+        return output_names, asplit.split_numpy_arrays(out_arrays)
 
     def eval_error(self, this_run, order, out_files, out_names, reference_answers,
                    err_dict):
@@ -498,25 +512,25 @@ class spec_rate_eval(eval):
             out_check[i] = np.load(out_files[i])
             # check finite
             assert np.all(np.isfinite(out_check[i]))
-            # and reshape
-            out_check[i] = np.reshape(out_check[i], (this_run, -1),
+            # and reshape to match test array
+            out_check[i] = np.reshape(out_check[i], __get_test(out_names[i]).shape,
                                       order=order)
 
-        # multiply pressure rates
+        # multiply fwd/rev ROP by pressure rates to compare w/ Cantera
         pmod_ind = next(
             i for i, x in enumerate(out_files) if 'pres_mod' in x)
-        # fwd
-        out_check[1][:, self.thd_map] *= out_check[pmod_ind]
-        # rev
-        out_check[2][
-            :, self.rev_to_thd_map] *= out_check[pmod_ind][:, self.thd_to_rev_map]
-
         fwd_ind = next(
             i for i, x in enumerate(out_files) if 'rop_fwd' in x)
         rev_ind = next(
             i for i, x in enumerate(out_files) if 'rop_rev' in x)
-        atol = 1e-10
-        rtol = 1e-6
+        # fwd
+        fwd_masked = parse_split_index(out_check[fwd_ind], self.thd_map, order)
+        out_check[fwd_ind][fwd_masked] *= out_check[pmod_ind]
+        # rev
+        rev_masked = parse_split_index(out_check[rev_ind], self.rev_to_thd_map,
+                                       order)
+        out_check[rev_ind][rev_masked] *= out_check[pmod_ind][parse_split_index(
+            out_check[pmod_ind], self.thd_to_rev_map, order)]
 
         # load output
         for name, out in zip(*(out_names, out_check)):
@@ -525,9 +539,14 @@ class spec_rate_eval(eval):
             check_arr = __get_test(name)
             # get err
             err = np.abs(out - check_arr)
-            err_compare = err / (atol + rtol * np.abs(check_arr))
+            err_compare = err / (self.atol + self.rtol * np.abs(check_arr))
+            # find the split, if any
+            err_mask = parse_split_index(
+                err_compare,
+                np.arange(self.gas.n_species + 1, dtype=np.int32), order,
+                axis=(1,))
             # get maximum relative error locations
-            err_locs = np.argmax(err_compare, axis=0)
+            err_locs = np.argmax(err_compare[err_mask], axis=0)
             # take err norm
             err_comp_store = err_compare[
                 err_locs, np.arange(err_locs.size)]
