@@ -222,6 +222,15 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,)):
     else:
         # single dim, use simple mask
         size = mask.size
+        mask = [mask]
+        assert len(axis) == 1, "Supplied mask doesn't match given axis"
+
+    if arr.ndim == ref_ndim:
+        # no split
+        masking = np.array([slice(None)] * arr.ndim)
+        for i, x in enumerate(axis):
+            masking[x] = mask[i]
+        return tuple(masking)
 
     # get the index arrays
     inds = np.array(_get_index(mask, axis))
