@@ -21,7 +21,7 @@ from .. import site_conf as site
 from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
 from ..core.array_creator import problem_size as p_size
-from ..core import instruction_creator as ic
+from ..core import array_creator as arc
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -130,7 +130,7 @@ class kernel_generator(object):
 
         self.compiler = None
         self.loopy_opts = loopy_opts
-        self.array_split = ic.array_splitter(loopy_opts)
+        self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
         self.mem = memory_manager(self.lang)
         self.name = name
