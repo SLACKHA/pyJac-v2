@@ -24,7 +24,8 @@ except ImportError:
 
 # Local imports
 from .. import utils
-from ..core.create_jacobian import create_jacobian
+from ..core.create_jacobian import create_jacobian, find_last_species
+from ..core.mech_interpret import read_mech_ct
 from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.test_utils import data_bin_writer as dbw
@@ -148,10 +149,22 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
         gas.basis = 'molar'
 
+        # read our species for MW's
+        _, specs, _ = read_mech_ct(gas=gas)
+
+        # find the last species
+        gas_map = find_last_species(specs, return_map=True)
+        del specs
+        # update the gas
+        specs = gas.species()[:]
+        gas = ct.Solution(thermo='IdealGas', kinetics='GasKinetics',
+                          species=[specs[x] for x in gas_map],
+                          reactions=gas.reactions())
+        del specs
+
         # first load data to get species rates, jacobian etc.
         num_conditions, data = dbw.load(
             [], directory=os.path.join(work_dir, mech_name))
-        num_conditions = 1000
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
@@ -169,17 +182,19 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
         P = data[:num_conditions, 1].flatten()
-        # calculate V = nRT / P
-        V = np.sum(data[:num_conditions, 2:], axis=1) * ct.gas_constant * T / P
+        # set V = 1 such that concentrations == moles
+        V = np.ones_like(P)
 
         # resize data
-        data = data[:num_conditions, 2:]
+        moles = data[:num_conditions, 2:]
+        # and reorder
+        moles = moles[:num_conditions, gas_map].copy()
 
         # set phi / params
         phi_cp = np.concatenate((np.reshape(T, (-1, 1)),
-                                 np.reshape(V, (-1, 1)), data), axis=1)
+                                 np.reshape(V, (-1, 1)), moles), axis=1)
         phi_cv = np.concatenate((np.reshape(T, (-1, 1)),
-                                 np.reshape(P, (-1, 1)), data), axis=1)
+                                 np.reshape(P, (-1, 1)), moles), axis=1)
         param_cp = P
         param_cv = V
 
@@ -276,7 +291,9 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                     np.floor(np.minimum(cond_per_run, num_conditions - offset)
                              / max_vec_width) * max_vec_width)
                 # get arrays
-                myphi = np.array(phi[offset:offset + this_run, :],
+                # make sure to remove the last species in order to conform
+                # to expected data
+                myphi = np.array(phi[offset:offset + this_run, :-1],
                                  order=order, copy=True).flatten('K')
 
                 args = []
@@ -454,7 +471,7 @@ class spec_rate_eval(eval):
 
     def get_outputs(self, state, offset, this_run):
         conp = state['conp']
-        output_names = ['wdot', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+        output_names = ['dphi', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
         temperature_rates = self.conp_temperature_rates if conp \
             else self.conv_temperature_rates
         extra_rates = self.conp_extra_rates if conp else self.conv_extra_rates
@@ -480,7 +497,7 @@ class spec_rate_eval(eval):
         for i in range(len(out_files)):
             out_check[i] = np.load(out_files[i])
             # check finite
-            assert not np.all(np.isfinite(out_check[i]))
+            assert np.all(np.isfinite(out_check[i]))
             # and reshape
             out_check[i] = np.reshape(out_check[i], (this_run, -1),
                                       order=order)
