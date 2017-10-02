@@ -1,6 +1,6 @@
 from __future__ import division
 
-from ..core.instruction_creator import array_splitter
+from ..core.array_creator import array_splitter
 import numpy as np
 import loopy as lp
 

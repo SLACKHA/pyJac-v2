@@ -4,7 +4,7 @@ from . import TestClass
 from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library, build_type
 from ..core.mech_auxiliary import write_aux
-from ..core.instruction_creator import array_splitter
+from ..core.array_creator import array_splitter
 from ..pywrap.pywrap_gen import generate_wrapper
 from . import test_utils as test_utils
 from optionloop import OptionLoop
