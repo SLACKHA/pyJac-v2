@@ -672,8 +672,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             for x in args + tests:
                 os.remove(x)
             os.remove(os.path.join(lib_dir, 'test.py'))
-        except Exception as e:
-            logging.error(e)
+        except subprocess.CalledProcessError as e:
+            logging.debug(state)
             assert False, '{} error'.format(kgen.name)
 
 

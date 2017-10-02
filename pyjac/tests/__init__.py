@@ -14,7 +14,8 @@ from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
 
-logging.getLogger('root').setLevel(logging.WARNING)
+# setup root logger
+logging.basicConfig(level=logging.DEBUG)
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
