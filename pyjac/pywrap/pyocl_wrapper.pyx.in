@@ -15,9 +15,10 @@ def ${knl}(np.uint_t problem_size,
             np.uint_t num_devices,
             np.ndarray[np.float64_t] phi,
             np.ndarray[np.float64_t] param,
-            np.ndarray[np.float64_t] out):
+            np.ndarray[np.float64_t] out,
+            np.uint_t force_no_compile = 0):
     global compiled
-    if not compiled:
+    if not compiled and not force_no_compile:
         compiler()
         compiled = True
     ${knl}_kernel_call(problem_size, num_devices, &phi[0], &param[0], &out[0])
