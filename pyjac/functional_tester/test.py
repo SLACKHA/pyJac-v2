@@ -627,17 +627,12 @@ class jacobian_eval(eval):
         self.atol = atol
         self.rtol = rtol
         self.evaled = False
-        self.fd_jac_cp = np.zeros((
-            num_conditions, gas.n_species + 1, gas.n_species + 1))
-        self.fd_jac_cv = np.zeros((
-            num_conditions, gas.n_species + 1, gas.n_species + 1))
 
         self.num_conditions = num_conditions
         # read mech
-        _, self.reacs, self.specs = read_mech_ct(gas=gas)
+        _, self.specs, self.reacs = read_mech_ct(gas=gas)
 
         # predefines
-        self.specs = gas.species()[:]
         self.gas = gas
         self.evaled = False
         self.name = 'jac'
@@ -673,7 +668,7 @@ class jacobian_eval(eval):
             })
 
         from ..tests.test_jacobian import _get_fd_jacobian
-        jac = _get_fd_jacobian(self.num_conditions, state['conp'])
+        jac = _get_fd_jacobian(self, self.num_conditions, state['conp'])
         if state['conp']:
             self.fd_jac_cp = jac
         else:
