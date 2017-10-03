@@ -167,14 +167,15 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         # first load data to get species rates, jacobian etc.
         num_conditions, data = dbw.load(
             [], directory=os.path.join(work_dir, mech_name))
+
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
         # create the eval
         helper = eval_class(gas, num_conditions)
         if rtype != build_type.jacobian:
-            # find the number of conditions per run (needed to avoid memory issues
-            # with i-pentanol model)
+            # find the number of conditions per run (needed to avoid memory
+            # issues with i-pentanol model)
             max_per_run = 100000
             cond_per_run = int(
                 np.floor(max_per_run / max_vec_width) * max_vec_width)
@@ -190,7 +191,7 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         # resize data
         moles = data[:num_conditions, 2:]
         # and reorder
-        moles = moles[:num_conditions, gas_map].copy()
+        moles = moles[:, gas_map].copy()
 
         # set phi / params
         phi_cp = np.concatenate((np.reshape(T, (-1, 1)),
@@ -202,6 +203,7 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
 
         # begin iterations
         current_data_order = None
+        done_parallel = False
         the_path = os.getcwd()
         op = oploop.copy()
         for i, state in enumerate(op):
@@ -217,10 +219,14 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
             split_kernels = state['split_kernels']
             num_cores = state['num_cores']
             conp = state['conp']
-            if not deep and not wide and vecsize != max_vec_width:
-                # this is simple parallelization, don't need vector size
-                # simply choose one and go
+            if not (deep or wide) and done_parallel:
+                # this is simple parallelization, don't need to repeat for
+                # different vector sizes, simply choose one and go
                 continue
+            elif not (deep or wide):
+                # mark done
+                done_parallel = True
+
             if rate_spec == 'fixed' and split_kernels:
                 continue  # not a thing!
 

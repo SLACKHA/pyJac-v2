@@ -141,6 +141,8 @@ def get_test_matrix(work_dir):
                 out = out + val
         return out
 
+    max_vec_width = max(max(dict(p)['vecsize']) for p in ocl_params
+                        if 'vecsize' in dict(p))
     oclloop = reduce(ocl_params)
     cloop = reduce(c_params)
-    return mechanism_list, oclloop + cloop, vec_widths[-1]
+    return mechanism_list, oclloop + cloop, max_vec_width
