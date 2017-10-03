@@ -67,7 +67,348 @@ class editor(object):
                                 self.do_not_set)
 
 
+# various convenience wrappers
+def _get_fall_call_wrapper():
+    def fall_wrapper(eqs, loopy_opts, namestore, test_size):
+        return get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
+                                          test_size, falloff=True)
+    return fall_wrapper
+
+
+def _get_plog_call_wrapper(rate_info):
+    def plog_wrapper(eqs, loopy_opts, namestore, test_size):
+        return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
+                                        rate_info['plog']['max_P'],
+                                        test_size)
+    return plog_wrapper
+
+
+def _get_cheb_call_wrapper(rate_info):
+    def cheb_wrapper(eqs, loopy_opts, namestore, test_size):
+        return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
+                                        np.max(rate_info['cheb']['num_P']),
+                                        np.max(rate_info['cheb']['num_T']),
+                                        test_size)
+    return cheb_wrapper
+
+
+def _get_poly_wrapper(name, conp):
+    def poly_wrapper(eqs, loopy_opts, namestore, test_size):
+        desc = 'conp' if conp else 'conv'
+        return polyfit_kernel_gen(name, eqs[desc],
+                                  loopy_opts, namestore, test_size)
+    return poly_wrapper
+
+
+def _get_fd_jacobian(self, test_size, conp=True):
+    """
+    Convenience method to evaluate the finite difference Jacobian from a given
+    Phi / parameter set
+    """
+
+    class create_arr(object):
+        def __init__(self, inds):
+            if isinstance(inds, np.ndarray):
+                self.dim = inds.size
+            elif isinstance(inds, list):
+                self.dim = len(inds)
+            elif isinstance(inds, arc.creator):
+                self.dim = inds.initializer.size
+            elif isinstance(inds, int):
+                self.dim = inds
+            else:
+                raise NotImplementedError
+
+        def __call__(self, order):
+            return np.zeros((test_size, self.dim), order=order)
+
+    # get rate info
+    rate_info = determine_jac_inds(
+        self.store.reacs, self.store.specs, RateSpecialization.fixed)
+
+    # create loopy options
+    ad_opts = loopy_options(order='C', knl_type='map', lang='c', auto_diff=True)
+
+    # create namestore
+    store = arc.NameStore(ad_opts, rate_info, conp, test_size)
+
+    # and the editor
+    edit = editor(store.n_arr, store.n_dot, test_size,
+                  order=ad_opts.order)
+    # setup args
+    phi = self.store.phi_cp if conp else self.store.phi_cv
+    allint = {'net': rate_info['net']['allint']}
+    args = {
+        'phi': lambda x: np.array(phi, order=x, copy=True),
+        'jac': lambda x: np.zeros(store.jac.shape, order=x),
+        'wdot': create_arr(store.num_specs),
+        'Atroe': create_arr(store.num_troe),
+        'Btroe': create_arr(store.num_troe),
+        'Fcent': create_arr(store.num_troe),
+        'Fi': create_arr(store.num_fall),
+        'Pr': create_arr(store.num_fall),
+        'X': create_arr(store.num_sri),
+        'conc': create_arr(store.num_specs),
+        'dphi': lambda x: np.zeros_like(phi, order=x),
+        'kf': create_arr(store.num_reacs),
+        'kf_fall': create_arr(store.num_fall),
+        'kr': create_arr(store.num_rev_reacs),
+        'pres_mod': create_arr(store.num_thd),
+        'rop_fwd': create_arr(store.num_reacs),
+        'rop_rev': create_arr(store.num_rev_reacs),
+        'rop_net': create_arr(store.num_reacs),
+        'thd_conc': create_arr(store.num_thd),
+        'b': create_arr(store.num_specs),
+        'Kc': create_arr(store.num_rev_reacs)
+    }
+    if conp:
+        args['P_arr'] = lambda x: np.array(self.store.P, order=x, copy=True)
+        args['h'] = create_arr(store.num_specs)
+        args['cp'] = create_arr(store.num_specs)
+    else:
+        args['V_arr'] = lambda x: np.array(self.store.V, order=x, copy=True)
+        args['u'] = create_arr(store.num_specs)
+        args['cv'] = create_arr(store.num_specs)
+
+    # obtain the finite difference jacobian
+    kc = kernel_call('dnkdnj', [None], **args)
+
+    __b_call_wrapper = _get_poly_wrapper('b', conp)
+
+    __cp_call_wrapper = _get_poly_wrapper('cp', conp)
+
+    __cv_call_wrapper = _get_poly_wrapper('cv', conp)
+
+    __h_call_wrapper = _get_poly_wrapper('h', conp)
+
+    __u_call_wrapper = _get_poly_wrapper('u', conp)
+
+    def __extra_call_wrapper(eqs, loopy_opts, namestore, test_size):
+        return get_extra_var_rates(eqs, loopy_opts, namestore,
+                                   conp=conp, test_size=test_size)
+
+    def __temperature_wrapper(eqs, loopy_opts, namestore, test_size):
+        return get_temperature_rate(eqs, loopy_opts, namestore,
+                                    conp=conp, test_size=test_size)
+
+    return _get_jacobian(
+        self, __extra_call_wrapper, kc, edit, ad_opts, conp,
+        extra_funcs=[get_concentrations, get_simple_arrhenius_rates,
+                     _get_plog_call_wrapper(rate_info),
+                     _get_cheb_call_wrapper(rate_info),
+                     get_thd_body_concs, _get_fall_call_wrapper(),
+                     get_reduced_pressure_kernel, get_lind_kernel,
+                     get_sri_kernel, get_troe_kernel,
+                     __b_call_wrapper, get_rev_rates,
+                     get_rxn_pres_mod, get_rop, get_rop_net,
+                     get_spec_rates] + (
+            [__h_call_wrapper, __cp_call_wrapper] if conp else
+            [__u_call_wrapper, __cv_call_wrapper]) + [
+            get_molar_rates, __temperature_wrapper],
+        allint=allint)
+
+
+def _make_array(self, array):
+    """
+    Creates an array for comparison to an autorun kernel from the result
+    of __get_jacobian
+
+    Parameters
+    ----------
+    array : :class:`numpy.ndarray`
+        The input Jacobian array
+
+    Returns
+    -------
+    reshaped : :class:`numpy.ndarray`
+        The reshaped  / reordered array for comparison to the autorun
+        kernel
+    """
+
+    for i in range(array.shape[0]):
+        # reshape inner array
+        array[i, :, :] = np.reshape(array[i, :, :].flatten(order='K'),
+                                    array.shape[1:],
+                                    order='F')
+
+    return array
+
+
+def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[],
+                  **kw_args):
+    """
+    Computes an autodifferentiated kernel, exposed to external classes in order
+    to share with the :mod:`functional_tester`
+
+    Parameters
+    ----------
+    func: Callable
+        The function to autodifferentiate
+    kernel_call: :class:`kernel_call`
+        The kernel call with arguements, etc. to use
+    editor: :class:`editor`
+        The jacobian editor responsible for creating the AD kernel
+    ad_opts: :class:`loopy_options`
+        The AD enabled loopy options object
+    extra_funcs: list of Callable
+        Additional functions that must be called before :param:`func`.
+        These can be used to chain together functions to find derivatives of
+        complicated values (e.g. ROP)
+    kwargs: dict
+        Additional args for :param:`func
+
+    Returns
+    -------
+    ad_jac : :class:`numpy.ndarray`
+        The resulting autodifferentiated jacobian.  The shape of which depends on
+        the values specified in the editor
+    """
+    eqs = {'conp': self.store.conp_eqs,
+           'conv': self.store.conv_eqs}
+    # find rate info
+    rate_info = determine_jac_inds(
+        self.store.reacs,
+        self.store.specs,
+        ad_opts.rate_spec)
+    # create namestore
+    namestore = arc.NameStore(ad_opts, rate_info, conp,
+                              self.store.test_size)
+
+    # get kw args this function expects
+    def __get_arg_dict(check, **in_args):
+        try:
+            arg_count = check.func_code.co_argcount
+            args = check.func_code.co_varnames[:arg_count]
+        except:
+            arg_count = check.__code__.co_argcount
+            args = check.__code__.co_varnames[:arg_count]
+
+        args_dict = {}
+        for k, v in six.iteritems(in_args):
+            if k in args:
+                args_dict[k] = v
+        return args_dict
+
+    # create the kernel info
+    infos = []
+    info = func(eqs, ad_opts, namestore,
+                test_size=self.store.test_size,
+                **__get_arg_dict(func, **kw_args))
+    try:
+        infos.extend(info)
+    except:
+        infos.append(info)
+
+    # create a dummy kernel generator
+    knl = k_gen.make_kernel_generator(
+        name='jacobian',
+        loopy_opts=ad_opts,
+        kernels=infos,
+        test_size=self.store.test_size,
+        extra_kernel_data=[editor.output]
+    )
+    knl._make_kernels()
+
+    # get list of current args
+    have_match = kernel_call.strict_name_match
+    new_args = []
+    new_kernels = []
+    for k in knl.kernels:
+        if have_match and kernel_call.name != k.name:
+            continue
+
+        new_kernels.append(k)
+        for arg in k.args:
+            if arg not in new_args and not isinstance(
+                    arg, lp.TemporaryVariable):
+                new_args.append(arg)
+
+    knl = new_kernels[:]
+
+    # generate dependencies with full test size to get extra args
+    infos = []
+    for f in extra_funcs:
+        info = f(eqs, ad_opts, namestore,
+                 test_size=self.store.test_size,
+                 **__get_arg_dict(f, **kw_args))
+        try:
+            infos.extend(info)
+        except:
+            infos.append(info)
+
+    for i in infos:
+        for arg in i.kernel_data:
+            if arg not in new_args and not isinstance(
+                    arg, lp.TemporaryVariable):
+                new_args.append(arg)
+
+    for i in range(len(knl)):
+        knl[i] = knl[i].copy(args=new_args[:])
+
+    # and a generator for the single kernel
+    single_name = arc.NameStore(ad_opts, rate_info, conp, 1)
+    single_info = []
+    for f in extra_funcs + [func]:
+        info = f(eqs, ad_opts, single_name,
+                 test_size=1,
+                 **__get_arg_dict(f, **kw_args))
+        try:
+            for i in info:
+                if f == func and have_match and kernel_call.name != i.name:
+                    continue
+                single_info.append(i)
+        except:
+            if f == func and have_match and kernel_call.name != info.name:
+                continue
+            single_info.append(info)
+
+    single_knl = k_gen.make_kernel_generator(
+        name='spec_rates',
+        loopy_opts=ad_opts,
+        kernels=single_info,
+        test_size=1,
+        extra_kernel_data=[editor.output]
+    )
+
+    single_knl._make_kernels()
+
+    # set in editor
+    editor.set_single_kernel(single_knl.kernels)
+
+    kernel_call.set_state(single_knl.array_split, ad_opts.order)
+
+    # add dummy 'j' arguement
+    kernel_call.kernel_args['j'] = -1
+    # and place output
+    kernel_call.kernel_args[editor.output.name] = np.zeros(
+        editor.output.shape,
+        order=editor.output.order)
+
+    # run kernel
+    populate(
+        [knl[0]], kernel_call,
+        editor=editor)
+
+    return _make_array(self, kernel_call.kernel_args[editor.output.name])
+
+
 class SubTest(TestClass):
+    """
+    The base Jacobian tester class
+    """
+
+    def setUp(self):
+        # steal the global function decls
+
+        self._get_jacobian = lambda *args, **kw_args: _get_jacobian(
+            self, *args, **kw_args)
+        self._make_array = lambda *args, **kw_args: _make_array(
+            self, *args, **kw_args)
+        self._get_fd_jacobian = lambda *args, **kw_args: _get_fd_jacobian(
+            self, *args, **kw_args)
+
+        super(SubTest, self).setUp()
+
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None,
                             do_conp=False,
@@ -94,162 +435,6 @@ class SubTest(TestClass):
         _generic_tester(self, func, kernel_calls, determine_jac_inds,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
                         do_conp=do_conp, **kw_args)
-
-    def _make_array(self, array):
-        """
-        Creates an array for comparison to an autorun kernel from the result
-        of __get_jacobian
-
-        Parameters
-        ----------
-        array : :class:`numpy.ndarray`
-            The input Jacobian array
-
-        Returns
-        -------
-        reshaped : :class:`numpy.ndarray`
-            The reshaped  / reordered array for comparison to the autorun
-            kernel
-        """
-
-        for i in range(array.shape[0]):
-            # reshape inner array
-            array[i, :, :] = np.reshape(array[i, :, :].flatten(order='K'),
-                                        array.shape[1:],
-                                        order='F')
-
-        return array
-
-    def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp,
-                      extra_funcs=[],
-                      **kw_args):
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        # find rate info
-        rate_info = determine_jac_inds(
-            self.store.reacs,
-            self.store.specs,
-            ad_opts.rate_spec)
-        # create namestore
-        namestore = arc.NameStore(ad_opts, rate_info, conp,
-                                  self.store.test_size)
-
-        # get kw args this function expects
-        def __get_arg_dict(check, **in_args):
-            try:
-                arg_count = check.func_code.co_argcount
-                args = check.func_code.co_varnames[:arg_count]
-            except:
-                arg_count = check.__code__.co_argcount
-                args = check.__code__.co_varnames[:arg_count]
-
-            args_dict = {}
-            for k, v in six.iteritems(in_args):
-                if k in args:
-                    args_dict[k] = v
-            return args_dict
-
-        # create the kernel info
-        infos = []
-        info = func(eqs, ad_opts, namestore,
-                    test_size=self.store.test_size,
-                    **__get_arg_dict(func, **kw_args))
-        try:
-            infos.extend(info)
-        except:
-            infos.append(info)
-
-        # create a dummy kernel generator
-        knl = k_gen.make_kernel_generator(
-            name='jacobian',
-            loopy_opts=ad_opts,
-            kernels=infos,
-            test_size=self.store.test_size,
-            extra_kernel_data=[editor.output]
-        )
-        knl._make_kernels()
-
-        # get list of current args
-        have_match = kernel_call.strict_name_match
-        new_args = []
-        new_kernels = []
-        for k in knl.kernels:
-            if have_match and kernel_call.name != k.name:
-                continue
-
-            new_kernels.append(k)
-            for arg in k.args:
-                if arg not in new_args and not isinstance(
-                        arg, lp.TemporaryVariable):
-                    new_args.append(arg)
-
-        knl = new_kernels[:]
-
-        # generate dependencies with full test size to get extra args
-        infos = []
-        for f in extra_funcs:
-            info = f(eqs, ad_opts, namestore,
-                     test_size=self.store.test_size,
-                     **__get_arg_dict(f, **kw_args))
-            try:
-                infos.extend(info)
-            except:
-                infos.append(info)
-
-        for i in infos:
-            for arg in i.kernel_data:
-                if arg not in new_args and not isinstance(
-                        arg, lp.TemporaryVariable):
-                    new_args.append(arg)
-
-        for i in range(len(knl)):
-            knl[i] = knl[i].copy(args=new_args[:])
-
-        # and a generator for the single kernel
-        single_name = arc.NameStore(ad_opts, rate_info, conp, 1)
-        single_info = []
-        for f in extra_funcs + [func]:
-            info = f(eqs, ad_opts, single_name,
-                     test_size=1,
-                     **__get_arg_dict(f, **kw_args))
-            try:
-                for i in info:
-                    if f == func and have_match and kernel_call.name != i.name:
-                        continue
-                    single_info.append(i)
-            except:
-                if f == func and have_match and kernel_call.name != info.name:
-                    continue
-                single_info.append(info)
-
-        single_knl = k_gen.make_kernel_generator(
-            name='spec_rates',
-            loopy_opts=ad_opts,
-            kernels=single_info,
-            test_size=1,
-            extra_kernel_data=[editor.output]
-        )
-
-        single_knl._make_kernels()
-
-        # set in editor
-        editor.set_single_kernel(single_knl.kernels)
-
-        kernel_call.set_state(single_knl.array_split, ad_opts.order)
-
-        # add dummy 'j' arguement
-        kernel_call.kernel_args['j'] = -1
-        # and place output
-        kernel_call.kernel_args[editor.output.name] = np.zeros(
-            editor.output.shape,
-            order=editor.output.order)
-
-        # run kernel
-        populate(
-            [knl[0]], kernel_call,
-            editor=editor)
-
-        return self._make_array(kernel_call.kernel_args[editor.output.name])
 
     def _make_namestore(self, conp):
         # get number of sri reactions
@@ -591,7 +776,7 @@ class SubTest(TestClass):
                 args['P_arr'] = lambda x: np.array(
                     self.store.P, order=x, copy=True)
             # get plog
-            runner = kernel_runner(self.__get_plog_call_wrapper(rate_info),
+            runner = kernel_runner(_get_plog_call_wrapper(rate_info),
                                    self.store.test_size, args)
             kf = runner(eqs, opts, namestore, self.store.test_size)[0]
 
@@ -602,7 +787,7 @@ class SubTest(TestClass):
                 args['P_arr'] = lambda x: np.array(
                     self.store.P, order=x, copy=True)
             # get plog
-            runner = kernel_runner(self.__get_cheb_call_wrapper(rate_info),
+            runner = kernel_runner(_get_cheb_call_wrapper(rate_info),
                                    self.store.test_size, args)
             kf = runner(eqs, opts, namestore, self.store.test_size)[0]
 
@@ -1017,140 +1202,14 @@ class SubTest(TestClass):
 
         self._generic_jac_tester(total_specific_energy, kc, conp=False)
 
-    def __get_fall_call_wrapper(self):
-        def fall_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
-                                              test_size, falloff=True)
-        return fall_wrapper
-
-    def __get_plog_call_wrapper(self, rate_info):
-        def plog_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
-                                            rate_info['plog']['max_P'],
-                                            test_size)
-        return plog_wrapper
-
-    def __get_cheb_call_wrapper(self, rate_info):
-        def cheb_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
-                                            np.max(rate_info['cheb']['num_P']),
-                                            np.max(rate_info['cheb']['num_T']),
-                                            test_size)
-        return cheb_wrapper
-
-    def __get_poly_wrapper(self, name, conp):
-        def poly_wrapper(eqs, loopy_opts, namestore, test_size):
-            desc = 'conp' if conp else 'conv'
-            return polyfit_kernel_gen(name, eqs[desc],
-                                      loopy_opts, namestore, test_size)
-        return poly_wrapper
-
     def __get_full_jac(self, conp=True):
         # see if we've already computed this, no need to redo if we have it
         attr = 'fd_jac' + ('_cp' if conp else '_cv')
         if hasattr(self.store, attr):
             return getattr(self.store, attr).copy()
 
-        # creates a FD version of the full species Jacobian
-        namestore, rate_info = self._make_namestore(conp)
-        ad_opts = namestore.loopy_opts
-        edit = editor(
-            namestore.n_arr, namestore.n_dot, self.store.test_size,
-            order=ad_opts.order)
-
-        def __create_arr(order, inds):
-            return np.zeros((self.store.test_size, inds.size), order=order)
-
-        # setup args
-        allint = {'net': rate_info['net']['allint']}
-        args = {
-            'phi': lambda x: np.array(self.store.phi_cp if conp
-                                      else self.store.phi_cv, order=x,
-                                      copy=True),
-            'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'wdot': lambda x: np.zeros_like(self.store.species_rates,
-                                            order=x),
-            'Atroe': lambda x: __create_arr(x, self.store.troe_inds),
-            'Btroe': lambda x: __create_arr(x, self.store.troe_inds),
-            'Fcent': lambda x: __create_arr(x, self.store.troe_inds),
-            'Fi': lambda x: __create_arr(x, self.store.fall_inds),
-            'Pr': lambda x: __create_arr(x, self.store.fall_inds),
-            'X': lambda x: __create_arr(x, self.store.sri_inds),
-            'conc': lambda x: np.zeros_like(self.store.concs,
-                                            order=x),
-            'dphi': lambda x: np.zeros_like(self.store.dphi_cp,
-                                            order=x),
-            'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
-                                          order=x),
-            'kf_fall': lambda x: __create_arr(x, self.store.fall_inds),
-            'kr': lambda x: np.zeros_like(self.store.rev_rate_constants,
-                                          order=x),
-            'pres_mod': lambda x: np.zeros_like(self.store.ref_pres_mod,
-                                                order=x),
-            'rop_fwd': lambda x: np.zeros_like(self.store.fwd_rxn_rate,
-                                               order=x),
-            'rop_rev': lambda x: np.zeros_like(self.store.rev_rxn_rate,
-                                               order=x),
-            'rop_net': lambda x: np.zeros_like(self.store.rxn_rates,
-                                               order=x),
-            'thd_conc': lambda x: np.zeros_like(self.store.ref_thd,
-                                                order=x),
-            'b': lambda x: np.zeros_like(self.store.ref_B_rev,
-                                         order=x),
-            'Kc': lambda x: np.zeros_like(self.store.equilibrium_constants,
-                                          order=x)
-        }
-        if conp:
-            args['P_arr'] = lambda x: np.array(
-                self.store.P, order=x, copy=True)
-            args['h'] = lambda x: np.zeros_like(
-                self.store.spec_h, order=x)
-            args['cp'] = lambda x: np.zeros_like(
-                self.store.spec_cp, order=x)
-        else:
-            args['V_arr'] = lambda x: np.array(
-                self.store.V, order=x, copy=True)
-            args['u'] = lambda x: np.zeros_like(
-                self.store.spec_u, order=x)
-            args['cv'] = lambda x: np.zeros_like(
-                self.store.spec_cv, order=x)
-
-        # obtain the finite difference jacobian
-        kc = kernel_call('dnkdnj', [None], **args)
-
-        __b_call_wrapper = self.__get_poly_wrapper('b', conp)
-
-        __cp_call_wrapper = self.__get_poly_wrapper('cp', conp)
-
-        __cv_call_wrapper = self.__get_poly_wrapper('cv', conp)
-
-        __h_call_wrapper = self.__get_poly_wrapper('h', conp)
-
-        __u_call_wrapper = self.__get_poly_wrapper('u', conp)
-
-        def __extra_call_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_extra_var_rates(eqs, loopy_opts, namestore,
-                                       conp=conp, test_size=test_size)
-
-        def __temperature_wrapper(eqs, loopy_opts, namestore, test_size):
-            return get_temperature_rate(eqs, loopy_opts, namestore,
-                                        conp=conp, test_size=test_size)
-
-        jac = self._get_jacobian(
-            __extra_call_wrapper, kc, edit, ad_opts, conp,
-            extra_funcs=[get_concentrations, get_simple_arrhenius_rates,
-                         self.__get_plog_call_wrapper(rate_info),
-                         self.__get_cheb_call_wrapper(rate_info),
-                         get_thd_body_concs, self.__get_fall_call_wrapper(),
-                         get_reduced_pressure_kernel, get_lind_kernel,
-                         get_sri_kernel, get_troe_kernel,
-                         __b_call_wrapper, get_rev_rates,
-                         get_rxn_pres_mod, get_rop, get_rop_net,
-                         get_spec_rates] + (
-                [__h_call_wrapper, __cp_call_wrapper] if conp else
-                [__u_call_wrapper, __cv_call_wrapper]) + [
-                get_molar_rates, __temperature_wrapper],
-            allint=allint)
+        # get the jacobian
+        jac = self._get_fd_jacobian(self.store.test_size, conp=conp)
 
         # store the jacobian for later
         setattr(self.store, attr, jac)
@@ -1417,14 +1476,14 @@ class SubTest(TestClass):
         allint = {'net': rate_info['net']['allint']}
         rate_sub = get_simple_arrhenius_rates
         if rxn_type == reaction_type.plog:
-            rate_sub = self.__get_plog_call_wrapper(rate_info)
+            rate_sub = _get_plog_call_wrapper(rate_info)
         elif rxn_type == reaction_type.cheb:
-            rate_sub = self.__get_cheb_call_wrapper(rate_info)
+            rate_sub = _get_cheb_call_wrapper(rate_info)
 
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, conp,
             extra_funcs=[get_concentrations, rate_sub,
-                         self.__get_poly_wrapper('b', conp),
+                         _get_poly_wrapper('b', conp),
                          get_rev_rates, get_rop, get_rop_net, get_spec_rates],
             allint=allint)
 
@@ -1650,7 +1709,7 @@ class SubTest(TestClass):
         # get dcp
         args = {'phi': lambda x: np.array(
             phi, order=x, copy=True)}
-        dc = kernel_runner(self.__get_poly_wrapper(
+        dc = kernel_runner(_get_poly_wrapper(
             'dcp' if conp else 'dcv', conp),
             self.store.test_size, args)(
             eqs, opts, namestore, self.store.test_size)[0]
@@ -1780,7 +1839,7 @@ class SubTest(TestClass):
             get_molar_rates, kc, edit, ad_opts, conp,
             extra_funcs=[x for x in [get_concentrations, get_thd_body_concs,
                                      get_simple_arrhenius_rates,
-                                     self.__get_fall_call_wrapper(),
+                                     _get_fall_call_wrapper(),
                                      get_reduced_pressure_kernel, rate_sub,
                                      get_rxn_pres_mod, get_rop_net,
                                      get_spec_rates] if x is not None])
