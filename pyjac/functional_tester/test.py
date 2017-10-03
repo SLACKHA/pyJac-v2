@@ -234,8 +234,9 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                 # can't do both simultaneously
                 continue
 
-            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                lang, vecsize, order, 'w' if wide else 'd' if deep else 'par',
+            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                helper.name, lang, vecsize, order,
+                'w' if wide else 'd' if deep else 'par',
                 platform, rate_spec, 'split' if split_kernels else 'single',
                 num_cores) + '_err.npz')
 
@@ -275,8 +276,7 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
                             deep=deep,
                             data_order=order,
                             build_path=my_build,
-                            skip_jac=True,
-                            auto_diff=False,
+                            skip_jac=rtype == build_type.species_rates,
                             platform=platform,
                             data_filename=os.path.join(this_dir, 'data.bin'),
                             split_rate_kernels=split_kernels,
@@ -433,6 +433,7 @@ class spec_rate_eval(eval):
         self.specs = gas.species()[:]
         self.gas = gas
         self.evaled = False
+        self.name = 'spec'
 
     def eval_answer(self, phi, P, V, state):
         def __eval_cp(j, T):
@@ -618,8 +619,108 @@ class spec_rate_eval(eval):
         return err_dict
 
 
+class jacobian_eval(eval):
+    """
+    Helper class for the Jacobian tester
+    """
+    def __init__(self, gas, num_conditions, atol=1e-10, rtol=1e-6):
+        self.atol = atol
+        self.rtol = rtol
+        self.evaled = False
+        self.fd_jac_cp = np.zeros((
+            num_conditions, gas.n_species + 1, gas.n_species + 1))
+        self.fd_jac_cv = np.zeros((
+            num_conditions, gas.n_species + 1, gas.n_species + 1))
+
+        self.num_conditions = num_conditions
+        # read mech
+        _, self.reacs, self.specs = read_mech_ct(gas=gas)
+
+        # predefines
+        self.specs = gas.species()[:]
+        self.gas = gas
+        self.evaled = False
+        self.name = 'jac'
+
+    def __fast_jac(self, conp):
+        if conp and hasattr(self, 'fd_jac_cp'):
+            return self.fd_jac_cp
+        elif not conp and hasattr(self, 'fd_jac_cv'):
+            return self.fd_jac_cv
+        return None
+
+    def eval_answer(self, phi, P, V, state):
+        jac = self.__fast_jac(state['conp'])
+        if jac is not None:
+            return jac
+
+        # need the sympy equations
+        from ..sympy_utils.sympy_interpreter import load_equations
+        conp_eqs = load_equations(True)
+        conv_eqs = load_equations(False)
+
+        # create the "store" for the AD-jacobian eval
+        self.store = type('', (object,), {
+            'reacs': self.reacs,
+            'specs': self.specs,
+            'conp': conp_eqs,
+            'conv': conv_eqs,
+            'phi_cp': phi if state['conp'] else None,
+            'phi_cv': phi if not state['conp'] else None,
+            'P': P,
+            'V': V,
+            'test_size': self.num_conditions
+            })
+
+        from ..tests.test_jacobian import _get_fd_jacobian
+        jac = _get_fd_jacobian(self.num_conditions, state['conp'])
+        if state['conp']:
+            self.fd_jac_cp = jac
+        else:
+            self.fd_jac_cv = jac
+
+        return jac
+
+    def get_outputs(self, state, offset, this_run, asplit):
+        output_names = ['jac']
+        out_arrays = [self.__fast_jac(state['conp'])]
+        return output_names, asplit.split_numpy_arrays(out_arrays)
+
+    def eval_error(self, this_run, order, out_files, out_names, reference_answers,
+                   err_dict):
+        def __get_test(name):
+            return reference_answers[out_names.index(name)]
+
+        out_check = out_files[:]
+        # load output arrays
+        for i in range(len(out_files)):
+            out_check[i] = np.load(out_files[i])
+            # check finite
+            assert np.all(np.isfinite(out_check[i]))
+            # and reshape to match test array
+            out_check[i] = np.reshape(out_check[i], __get_test(out_names[i]).shape,
+                                      order=order)
+
+        err_dict = {}
+        # load output
+        for name, out in zip(*(out_names, out_check)):
+            if name == 'pres_mod':
+                continue
+            check_arr = __get_test(name)
+            # get err
+            err = np.abs(out - check_arr)
+            err_compare = err / (self.atol + self.rtol * np.abs(check_arr))
+            err_dict['jac'] = np.max(err_compare)
+
+        del out_check
+        return err_dict
+
+
 def species_rate_tester(work_dir='error_checking'):
-    """Runs performance testing for pyJac
+    """Runs validation testing on pyJac's species_rate kernel, reading a series
+    of mechanisms and datafiles from the :param:`work_dir`, and outputting
+    a numpy zip file (.npz) with the error of various outputs (rhs vector, ROP, etc.)
+    as compared to Cantera, for each configuration tested.
 
     Parameters
     ----------
@@ -633,3 +734,23 @@ def species_rate_tester(work_dir='error_checking'):
     """
 
     __run_test(work_dir, spec_rate_eval, build_type.species_rates)
+
+
+def jacobian_tester(work_dir='error_checking'):
+    """Runs validation testing on pyJac's jacobian kernel, reading a series
+    of mechanisms and datafiles from the :param:`work_dir`, and outputting
+    a numpy zip file (.npz) with the error of Jacobian as compared to a
+    autodifferentiated reference answer, for each configuration tested.
+
+    Parameters
+    ----------
+    work_dir : str
+        Working directory with mechanisms and for data
+
+    Returns
+    -------
+    None
+
+    """
+
+    __run_test(work_dir, jacobian_eval, build_type.jacobian)

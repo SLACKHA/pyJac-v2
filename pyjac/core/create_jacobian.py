@@ -4552,11 +4552,11 @@ def find_last_species(specs, last_spec=None, return_map=False):
 
 def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     vector_size=None, wide=False, deep=False, ilp=None, unr=None,
-                    build_path='./out/', last_spec=None, skip_jac=False,
-                    auto_diff=False, platform='', data_order='C',
-                    rate_specialization='full', split_rate_kernels=True,
-                    split_rop_net_kernels=False, conp=True, data_filename='data.bin',
-                    output_full_rop=False, use_atomics=True):
+                    build_path='./out/', last_spec=None, skip_jac=False, platform='',
+                    data_order='C', rate_specialization='full',
+                    split_rate_kernels=True, split_rop_net_kernels=False,
+                    conp=True, data_filename='data.bin', output_full_rop=False,
+                    use_atomics=True):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4628,15 +4628,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     None
 
     """
-    if auto_diff or not skip_jac:
-        raise NotImplementedError()
-
-    if lang != 'c' and auto_diff:
-        print('Error: autodifferention only supported for C')
-        sys.exit(2)
-
-    if auto_diff:
-        skip_jac = True
 
     lang = lang.lower()
     if lang not in utils.langs:
@@ -4672,15 +4663,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
     # create output directory if none exists
     utils.create_dir(build_path)
-
-    if auto_diff:
-        with open(os.path.join(build_path, 'ad_jacob.h'), 'w') as file:
-            file.write('#ifndef AD_JAC_H\n'
-                       '#define AD_JAC_H\n'
-                       'void eval_jacob (const double t, const double pres, '
-                       'const double* y, double* jac);\n'
-                       '#endif\n'
-                       )
 
     assert mech_name is not None or gas is not None, 'No mechanism specified!'
 
