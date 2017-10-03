@@ -3985,6 +3985,8 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             kernel_data.append(namestore.problem_size)
 
         rxn_range = namestore.num_reacs if not do_ns else namestore.rxn_has_ns
+        if do_ns and rxn_range.initializer is None or not rxn_range.initializer.size:
+            return None
 
         mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
         # get net offsets
