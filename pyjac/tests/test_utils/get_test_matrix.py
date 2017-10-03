@@ -88,12 +88,12 @@ def get_test_matrix(work_dir):
             platform = params[i][:]
             cores = num_cores
             widths = vec_widths
-            if _get_key(platform, 'lang') == ('opencl',):
+            if _get_key(platform, 'lang') == 'opencl':
                 # test platform type
                 import pyopencl as cl
-                platform, = _get_key(platform, 'platform')
+                pname = _get_key(platform, 'platform')
                 for p in cl.get_platforms():
-                    if platform.lower() in p.name.lower():
+                    if pname.lower() in p.name.lower():
                         # match, get device type
                         dtype = set(d.type for d in p.get_devices())
                         assert len(dtype) == 1, (
@@ -102,6 +102,7 @@ def get_test_matrix(work_dir):
                         if cl.device_type.GPU in dtype:
                             cores = [1]
                             widths = gpu_width
+                            break
 
             if _any_key(platform, 'width') or _any_key(platform, 'depth'):
                 # set vec widths
