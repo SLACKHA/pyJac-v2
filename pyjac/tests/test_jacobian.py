@@ -1230,7 +1230,7 @@ class SubTest(TestClass):
         jac = self._get_fd_jacobian(self.store.test_size, conp=conp)
 
         # store the jacobian for later
-        setattr(self.store, attr, jac)
+        setattr(self.store, attr, jac.copy())
 
         return jac
 
