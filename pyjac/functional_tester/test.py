@@ -168,6 +168,9 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         num_conditions, data = dbw.load(
             [], directory=os.path.join(work_dir, mech_name))
 
+        # rewrite data to file in 'C' order
+        dbw.write(os.path.join(this_dir))
+
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
@@ -202,7 +205,6 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
         param_cv = V
 
         # begin iterations
-        current_data_order = None
         done_parallel = False
         the_path = os.getcwd()
         op = oploop.copy()
@@ -256,10 +258,6 @@ def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
             phi = phi_cp if conp else phi_cv
             param = param_cp if conp else param_cv
             helper.eval_answer(phi, P, V, state)
-
-            if order != current_data_order:
-                # rewrite data to file in 'C' order
-                dbw.write(os.path.join(this_dir))
 
             # save args to dir
             def __saver(arr, name, namelist=None):
