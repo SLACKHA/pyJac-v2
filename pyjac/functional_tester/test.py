@@ -623,7 +623,7 @@ class jacobian_eval(eval):
     """
     Helper class for the Jacobian tester
     """
-    def __init__(self, gas, num_conditions, atol=1e-10, rtol=1e-6):
+    def __init__(self, gas, num_conditions, atol=1e0, rtol=1e-8):
         self.atol = atol
         self.rtol = rtol
         self.evaled = False
@@ -651,17 +651,17 @@ class jacobian_eval(eval):
 
         # need the sympy equations
         from ..sympy_utils.sympy_interpreter import load_equations
-        conp_eqs = load_equations(True)
-        conv_eqs = load_equations(False)
+        _, conp_eqs = load_equations(True)
+        _, conv_eqs = load_equations(False)
 
         # create the "store" for the AD-jacobian eval
         self.store = type('', (object,), {
             'reacs': self.reacs,
             'specs': self.specs,
-            'conp': conp_eqs,
-            'conv': conv_eqs,
-            'phi_cp': phi if state['conp'] else None,
-            'phi_cv': phi if not state['conp'] else None,
+            'conp_eqs': conp_eqs,
+            'conv_eqs': conv_eqs,
+            'phi_cp': phi[:, :-1] if state['conp'] else None,
+            'phi_cv': phi[:, :-1] if not state['conp'] else None,
             'P': P,
             'V': V,
             'test_size': self.num_conditions
@@ -699,13 +699,31 @@ class jacobian_eval(eval):
         err_dict = {}
         # load output
         for name, out in zip(*(out_names, out_check)):
-            if name == 'pres_mod':
-                continue
             check_arr = __get_test(name)
             # get err
             err = np.abs(out - check_arr)
-            err_compare = err / (self.atol + self.rtol * np.abs(check_arr))
-            err_dict['jac'] = np.max(err_compare)
+            denom = np.abs(check_arr)
+            non_zero = np.where(np.abs(check_arr) > 0)
+            zero = np.where(np.abs(check_arr) == 0)
+            # regular frobenieus norm, have to filter out zero entries for our
+            # norm here
+            err_dict['jac'] = np.linalg.norm(
+                err[non_zero] / denom[non_zero])
+            err_dict['jac_zero'] = np.linalg.norm(
+                err[zero])
+            assert np.isclose(err_dict['jac_zero'], 0)
+            # norm suggested by lapack
+            err_dict['jac_lapack'] = np.linalg.norm(err) / np.linalg.norm(
+                denom)
+
+            # thresholded error
+            threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e15)
+            err_dict['jac_thresholded'] = np.linalg.norm(
+                err[threshold] / denom[threshold])
+
+            # try weighted
+            err_dict['jac_weighted'] = np.linalg.norm(err / (
+                self.atol + self.rtol * denom))
 
         del out_check
         return err_dict
