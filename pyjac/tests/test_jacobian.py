@@ -77,18 +77,20 @@ def _get_fall_call_wrapper():
 
 def _get_plog_call_wrapper(rate_info):
     def plog_wrapper(eqs, loopy_opts, namestore, test_size):
-        return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
-                                        rate_info['plog']['max_P'],
-                                        test_size)
+        if rate_info['plog']['num']:
+            return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
+                                            rate_info['plog']['max_P'],
+                                            test_size)
     return plog_wrapper
 
 
 def _get_cheb_call_wrapper(rate_info):
     def cheb_wrapper(eqs, loopy_opts, namestore, test_size):
-        return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
-                                        np.max(rate_info['cheb']['num_P']),
-                                        np.max(rate_info['cheb']['num_T']),
-                                        test_size)
+        if rate_info['cheb']['num']:
+            return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
+                                            np.max(rate_info['cheb']['num_P']),
+                                            np.max(rate_info['cheb']['num_T']),
+                                            test_size)
     return cheb_wrapper
 
 
@@ -107,17 +109,22 @@ def _get_fd_jacobian(self, test_size, conp=True):
     """
 
     class create_arr(object):
-        def __init__(self, inds):
+        def __init__(self, dim):
+            self.dim = dim
+
+        @classmethod
+        def new(cls, inds):
             if isinstance(inds, np.ndarray):
-                self.dim = inds.size
+                dim = inds.size
             elif isinstance(inds, list):
-                self.dim = len(inds)
+                dim = len(inds)
             elif isinstance(inds, arc.creator):
-                self.dim = inds.initializer.size
+                dim = inds.initializer.size
             elif isinstance(inds, int):
-                self.dim = inds
+                dim = inds
             else:
-                raise NotImplementedError
+                return None
+            return cls(dim)
 
         def __call__(self, order):
             return np.zeros((test_size, self.dim), order=order)
@@ -141,34 +148,37 @@ def _get_fd_jacobian(self, test_size, conp=True):
     args = {
         'phi': lambda x: np.array(phi, order=x, copy=True),
         'jac': lambda x: np.zeros(store.jac.shape, order=x),
-        'wdot': create_arr(store.num_specs),
-        'Atroe': create_arr(store.num_troe),
-        'Btroe': create_arr(store.num_troe),
-        'Fcent': create_arr(store.num_troe),
-        'Fi': create_arr(store.num_fall),
-        'Pr': create_arr(store.num_fall),
-        'X': create_arr(store.num_sri),
-        'conc': create_arr(store.num_specs),
+        'wdot': create_arr.new(store.num_specs),
+        'Atroe': create_arr.new(store.num_troe),
+        'Btroe': create_arr.new(store.num_troe),
+        'Fcent': create_arr.new(store.num_troe),
+        'Fi': create_arr.new(store.num_fall),
+        'Pr': create_arr.new(store.num_fall),
+        'X': create_arr.new(store.num_sri),
+        'conc': create_arr.new(store.num_specs),
         'dphi': lambda x: np.zeros_like(phi, order=x),
-        'kf': create_arr(store.num_reacs),
-        'kf_fall': create_arr(store.num_fall),
-        'kr': create_arr(store.num_rev_reacs),
-        'pres_mod': create_arr(store.num_thd),
-        'rop_fwd': create_arr(store.num_reacs),
-        'rop_rev': create_arr(store.num_rev_reacs),
-        'rop_net': create_arr(store.num_reacs),
-        'thd_conc': create_arr(store.num_thd),
-        'b': create_arr(store.num_specs),
-        'Kc': create_arr(store.num_rev_reacs)
+        'kf': create_arr.new(store.num_reacs),
+        'kf_fall': create_arr.new(store.num_fall),
+        'kr': create_arr.new(store.num_rev_reacs),
+        'pres_mod': create_arr.new(store.num_thd),
+        'rop_fwd': create_arr.new(store.num_reacs),
+        'rop_rev': create_arr.new(store.num_rev_reacs),
+        'rop_net': create_arr.new(store.num_reacs),
+        'thd_conc': create_arr.new(store.num_thd),
+        'b': create_arr.new(store.num_specs),
+        'Kc': create_arr.new(store.num_rev_reacs)
     }
     if conp:
         args['P_arr'] = lambda x: np.array(self.store.P, order=x, copy=True)
-        args['h'] = create_arr(store.num_specs)
-        args['cp'] = create_arr(store.num_specs)
+        args['h'] = create_arr.new(store.num_specs)
+        args['cp'] = create_arr.new(store.num_specs)
     else:
         args['V_arr'] = lambda x: np.array(self.store.V, order=x, copy=True)
-        args['u'] = create_arr(store.num_specs)
-        args['cv'] = create_arr(store.num_specs)
+        args['u'] = create_arr.new(store.num_specs)
+        args['cv'] = create_arr.new(store.num_specs)
+
+    # trim unused args
+    args = {k: v for k, v in six.iteritems(args) if v is not None}
 
     # obtain the finite difference jacobian
     kc = kernel_call('dnkdnj', [None], **args)
@@ -332,8 +342,11 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
                  test_size=self.store.test_size,
                  **__get_arg_dict(f, **kw_args))
         try:
-            infos.extend(info)
+            infos.extend([x for x in info if x is not None])
         except:
+            if info is None:
+                # empty map (e.g. no PLOG)
+                continue
             infos.append(info)
 
     for i in infos:
@@ -356,9 +369,14 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
             for i in info:
                 if f == func and have_match and kernel_call.name != i.name:
                     continue
+                if i is None:
+                    continue
                 single_info.append(i)
         except:
             if f == func and have_match and kernel_call.name != info.name:
+                continue
+            if info is None:
+                # empty map (e.g. no PLOG)
                 continue
             single_info.append(info)
 

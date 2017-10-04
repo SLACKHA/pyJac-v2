@@ -1462,7 +1462,7 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': False}, test_size=None):
                                                     rop_temp_eval=fractional_eval)
         else:
             rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                rop_temp_eval=allint_eval)
+                                                    rop_temp_eval=allint_eval)
 
         # and finally extra inames
         extra_inames = [
@@ -1508,91 +1508,99 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    # start developing the ci kernel
-    # rate info and reac ind
+    # check for empty
+    if namestore.thd_only_map is None:
+        info_list = [None]
+    else:
+        # start developing the ci kernel
+        # rate info and reac ind
 
-    kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+        kernel_data = []
+        if test_size == 'problem_size':
+            kernel_data.append(namestore.problem_size)
 
-    # create the third body conc pres-mod kernel
+        # create the third body conc pres-mod kernel
 
-    thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map,
-                           namestore.thd_only_mask)
+        thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map,
+                               namestore.thd_only_mask)
 
-    # get the third body concs
-    thd_lp, thd_str = thd_map.apply_maps(namestore.thd_conc,
-                                         *default_inds)
+        # get the third body concs
+        thd_lp, thd_str = thd_map.apply_maps(namestore.thd_conc,
+                                             *default_inds)
 
-    # and the pressure mod term
-    pres_mod_lp, pres_mod_str = thd_map.apply_maps(namestore.pres_mod,
-                                                   *default_inds)
+        # and the pressure mod term
+        pres_mod_lp, pres_mod_str = thd_map.apply_maps(namestore.pres_mod,
+                                                       *default_inds)
 
-    thd_instructions = Template("""
-    ${pres_mod} = ${thd_conc}
-""").safe_substitute(pres_mod=pres_mod_str,
-                     thd_conc=thd_str)
+        thd_instructions = Template("""
+        ${pres_mod} = ${thd_conc}
+        """).safe_substitute(pres_mod=pres_mod_str,
+                             thd_conc=thd_str)
 
-    # and the args
-    kernel_data.extend([thd_lp, pres_mod_lp])
+        # and the args
+        kernel_data.extend([thd_lp, pres_mod_lp])
 
-    # add to the info list
-    info_list = [
-        k_gen.knl_info(name='ci_thd',
-                       instructions=thd_instructions,
-                       var_name=var_name,
-                       kernel_data=kernel_data,
-                       mapstore=thd_map)]
+        # add to the info list
+        info_list = [
+            k_gen.knl_info(name='ci_thd',
+                           instructions=thd_instructions,
+                           var_name=var_name,
+                           kernel_data=kernel_data,
+                           mapstore=thd_map)]
 
-    # and now the falloff kernel
-    kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # check for empty
+    if namestore.num_fall is None:
+        info_list.append(None)
+    else:
+        # and now the falloff kernel
+        kernel_data = []
+        if test_size == 'problem_size':
+            kernel_data.append(namestore.problem_size)
 
-    fall_map = arc.MapStore(loopy_opts, namestore.num_fall,
-                            namestore.num_fall)
+        fall_map = arc.MapStore(loopy_opts, namestore.num_fall,
+                                namestore.num_fall)
 
-    # the pressure mod term uses fall_to_thd_map/mask
-    fall_map.check_and_add_transform(namestore.pres_mod,
-                                     namestore.fall_to_thd_map)
+        # the pressure mod term uses fall_to_thd_map/mask
+        fall_map.check_and_add_transform(namestore.pres_mod,
+                                         namestore.fall_to_thd_map)
 
-    # the falloff vs chemically activated indicator
-    fall_type_lp, fall_type_str = \
-        fall_map.apply_maps(namestore.fall_type, var_name)
+        # the falloff vs chemically activated indicator
+        fall_type_lp, fall_type_str = \
+            fall_map.apply_maps(namestore.fall_type, var_name)
 
-    # the blending term
-    Fi_lp, Fi_str = \
-        fall_map.apply_maps(namestore.Fi, *default_inds)
+        # the blending term
+        Fi_lp, Fi_str = \
+            fall_map.apply_maps(namestore.Fi, *default_inds)
 
-    # the Pr array
-    Pr_lp, Pr_str = \
-        fall_map.apply_maps(namestore.Pr, *default_inds)
+        # the Pr array
+        Pr_lp, Pr_str = \
+            fall_map.apply_maps(namestore.Pr, *default_inds)
 
-    pres_mod_lp, pres_mod_str = \
-        fall_map.apply_maps(namestore.pres_mod, *default_inds)
+        pres_mod_lp, pres_mod_str = \
+            fall_map.apply_maps(namestore.pres_mod, *default_inds)
 
-    # update the args
-    kernel_data.extend([Fi_lp, Pr_lp, fall_type_lp, pres_mod_lp])
+        # update the args
+        kernel_data.extend([Fi_lp, Pr_lp, fall_type_lp, pres_mod_lp])
 
-    fall_instructions = Template("""
-    <>ci_temp = ${Fi_str} / (1 + ${Pr_str}) {id=ci_decl}
-    if not ${fall_type}
-        ci_temp = ci_temp * ${Pr_str} {id=ci_update, dep=ci_decl}
-    end
-    ${pres_mod} = ci_temp {dep=ci_update}
-""").safe_substitute(Fi_str=Fi_str,
-                     Pr_str=Pr_str,
-                     pres_mod=pres_mod_str,
-                     fall_type=fall_type_str
-                     )
+        fall_instructions = Template("""
+        <>ci_temp = ${Fi_str} / (1 + ${Pr_str}) {id=ci_decl}
+        if not ${fall_type}
+            ci_temp = ci_temp * ${Pr_str} {id=ci_update, dep=ci_decl}
+        end
+        ${pres_mod} = ci_temp {dep=ci_update}
+    """).safe_substitute(Fi_str=Fi_str,
+                         Pr_str=Pr_str,
+                         pres_mod=pres_mod_str,
+                         fall_type=fall_type_str
+                         )
 
-    # add to the info list
-    info_list.append(
-        k_gen.knl_info(name='ci_fall',
-                       instructions=fall_instructions,
-                       var_name=var_name,
-                       kernel_data=kernel_data,
-                       mapstore=fall_map))
+        # add to the info list
+        info_list.append(
+            k_gen.knl_info(name='ci_fall',
+                           instructions=fall_instructions,
+                           var_name=var_name,
+                           kernel_data=kernel_data,
+                           mapstore=fall_map))
     return info_list
 
 
@@ -1623,6 +1631,11 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
+
+    # check for empty
+    if namestore.num_rev_reacs is None:
+        return None
+
     # start developing the Kc kernel
     kernel_data = []
     spec_ind = 'spec_ind'
@@ -1832,6 +1845,10 @@ def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
+    # check for empty
+    if namestore.thd_inds is None:
+        return None
+
     spec_ind = 'spec_ind'
     spec_loop = 'ispec'
     spec_offset = 'offset'
@@ -1951,6 +1968,10 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
         The generated infos for feeding into the kernel generator
 
     """
+
+    # check for empty map
+    if namestore.cheb_map is None:
+        return None
 
     # create mapper
     mapstore = arc.MapStore(loopy_opts, namestore.cheb_map,
@@ -2170,6 +2191,10 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
 
     """
 
+    # check for empty plog (if so, return empty)
+    if namestore.plog_map is None:
+        return None
+
     rate_eqn = get_rate_eqn(eqs)
 
     # find the plog equation
@@ -2358,6 +2383,10 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     """
 
+    # check for empty
+    if namestore.fall_map is None:
+        return None
+
     conp_eqs = eqs['conp']  # conp / conv irrelevant for rates
 
     # create the mapper
@@ -2470,6 +2499,10 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
 
     """
+
+    # check for empty
+    if namestore.troe_map is None:
+        return None
 
     # set of equations is irrelevant for non-derivatives
     conp_eqs = eqs['conp']
@@ -2643,6 +2676,10 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     """
 
+    # check for empty
+    if namestore.sri_map is None:
+        return None
+
     # set of equations is irrelevant for non-derivatives
     conp_eqs = eqs['conp']
     kernel_data = []
@@ -2772,6 +2809,10 @@ def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     """
 
+    # check for empty
+    if namestore.lind_map is None:
+        return None
+
     # set of equations is irrelevant for non-derivatives
 
     kernel_data = []
@@ -2831,6 +2872,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     # find options, sizes, etc.
     if falloff:
         tag = 'fall'
+
+        # check for empty falloff (if so, return empty)
+        if namestore.fall_map is None:
+            return None
+
         mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
                                 namestore.fall_mask)
         # define the rtype iteration domain
@@ -3166,9 +3212,10 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
         if klist is None:
             klist = kernels
         try:
-            klist.extend(knls)
+            klist.extend([x for x in knls if x is not None])
         except:
-            klist.append(knls)
+            if knls is not None:
+                klist.append(knls)
 
     # Note:
     # the order in which these kernels get added is important
@@ -3442,6 +3489,10 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
         The generated loopy kernel for code generation / testing
 
     """
+
+    # check for empty
+    if nicename in ['b', 'db'] and namestore.rev_map is None:
+        return None
 
     param_ind = 'dummy'
     loop_index = 'k'
