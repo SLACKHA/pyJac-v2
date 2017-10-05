@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as np
 
 cdef extern from "${knl}_kernel_main.h":
-    void ${knl}_kernel_call(np.int problem_size, np.int num_threads,
+    void ${knl}_kernel_call(np.uint_t problem_size, np.uint_t num_threads,
                         double* phi,
                         double* P,
                         double* dphi,
