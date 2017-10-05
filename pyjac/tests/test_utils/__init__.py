@@ -945,7 +945,7 @@ def _run_mechanism_tests(work_dir, run):
 
             run.run(state.copy(), asplit, dirs, data_output)
 
-        del run
+    del run
 
 
 def platform_is_gpu(platform_name):
