@@ -23,7 +23,11 @@ def ${knl}(np.uint_t problem_size,
             np.ndarray[np.float64_t] rop_fwd,
             np.ndarray[np.float64_t] rop_rev,
             np.ndarray[np.float64_t] pres_mod,
-            np.ndarray[np.float64_t] rop_net):
+            np.ndarray[np.float64_t] rop_net,
+            np.uint_t dummy = 0):
+    # note, the dummy parameter here is inserted simply to match the signature
+    # of the opencl wrapper, which accepts a flag determining whether to compile
+    # the opencl code or not.
     ${knl}_kernel_call(problem_size, num_threads, &phi[0], &P[0], &dphi[0],
         &rop_fwd[0], &rop_rev[0], &pres_mod[0], &rop_net[0])
     return None

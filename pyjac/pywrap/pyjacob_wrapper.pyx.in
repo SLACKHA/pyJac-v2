@@ -12,7 +12,11 @@ def ${knl}(np.int_t problem_size,
             np.int_t num_threads,
             np.ndarray[np.float64_t] phi,
             np.ndarray[np.float64_t] param,
-            np.ndarray[np.float64_t] out):
+            np.ndarray[np.float64_t] out,
+            np.uint_t dummy = 0):
+    # note, the dummy parameter here is inserted simply to match the signature
+    # of the opencl wrapper, which accepts a flag determining whether to compile
+    # the opencl code or not.
     ${knl}_kernel_call(problem_size, num_threads, &phi[0], &param[0], &out[0])
     return None
 
