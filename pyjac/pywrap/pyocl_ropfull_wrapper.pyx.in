@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as np
 
 cdef extern from "${knl}_kernel_main.oclh":
-    void species_rates_kernel_call(np.uint_t problem_size, np.uint_t num_devices,
+    void ${knl}_kernel_call(np.uint_t problem_size, np.uint_t num_devices,
                         double* phi,
                         double* P,
                         double* dphi,
@@ -17,7 +17,7 @@ cdef extern from "${knl}_kernel_main.oclh":
 cdef int compiled = 0
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def species_rates(np.uint_t problem_size,
+def ${knl}(np.uint_t problem_size,
             np.uint_t num_devices,
             np.ndarray[np.float64_t] phi,
             np.ndarray[np.float64_t] P,
