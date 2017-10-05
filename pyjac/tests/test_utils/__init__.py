@@ -873,7 +873,8 @@ def _run_mechanism_tests(work_dir, run):
         del V
 
         # begin iterations
-        done_parallel = False
+        from collections import defaultdict
+        done_parallel = defaultdict(lambda: False)
         the_path = os.getcwd()
         op = oploop.copy()
         for i, state in enumerate(op):
@@ -888,13 +889,14 @@ def _run_mechanism_tests(work_dir, run):
             rate_spec = state['rate_spec']
             split_kernels = state['split_kernels']
             conp = state['conp']
-            if not (deep or wide) and done_parallel:
+            par_check = tuple(state[x] for x in state if x != 'vecsize')
+            if not (deep or wide) and done_parallel[par_check]:
                 # this is simple parallelization, don't need to repeat for
                 # different vector sizes, simply choose one and go
                 continue
             elif not (deep or wide):
                 # mark done
-                done_parallel = True
+                done_parallel[par_check] = True
 
             if rate_spec == 'fixed' and split_kernels:
                 continue  # not a thing!
