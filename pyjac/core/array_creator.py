@@ -9,6 +9,7 @@ import loopy as lp
 import numpy as np
 import copy
 from loopy.kernel.data import temp_var_scope as scopes
+from ..loopy_utils.loopy_utils import JacobianFormat
 import six
 
 
@@ -1090,6 +1091,12 @@ class creator(object):
         else:
             self.creator = self.__glob_arg_creator
 
+    @property
+    def size(self):
+        if self.initializer is None or self.initializer.ndim > 1:
+            raise NotImplementedError
+        return self.initializer.size
+
     def __get_indicies(self, *indicies):
         if self.fixed_indicies:
             inds = [None for i in self.shape]
@@ -1204,6 +1211,7 @@ class NameStore(object):
         self.order = loopy_opts.order
         self.test_size = test_size
         self.conp = conp
+        self.jac_format = loopy_opts.jac_format
         self._add_arrays(rate_info, test_size)
 
     def __getattr__(self, name):
@@ -1330,6 +1338,19 @@ class NameStore(object):
                                            order=self.order,
                                            initializer=ccs_col_ptr)
 
+            if self.jac_format == JacobianFormat.sparse:
+                if self.order == 'C':
+                    # use CRS
+                    self.jac_row_inds = self.crs_jac_row_ptr
+                    self.jac_col_inds = self.crs_jac_col_ind
+                elif self.order == 'F':
+                    # use CCS
+                    self.jac_row_inds = self.ccs_jac_row_ind
+                    self.jac_col_inds = self.ccs_jac_col_ptr
+            else:
+                self.jac_row_inds = self.flat_jac_row_inds
+                self.jac_col_inds = self.flat_jac_col_inds
+
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
@@ -1372,12 +1393,20 @@ class NameStore(object):
                              fixed_indicies=[(1, 1)],
                              is_input_or_output=True)
 
-        self.jac = creator('jac',
-                           shape=(
-                               test_size, rate_info['Ns'] + 1, rate_info['Ns'] + 1),
-                           order=self.order,
-                           dtype=np.float64,
-                           is_input_or_output=True)
+        if self.jac_format == JacobianFormat.sparse:
+            self.jac = creator('jac',
+                               shape=(test_size,
+                                      self.num_nonzero_jac_inds.size),
+                               order=self.order,
+                               dtype=np.float64,
+                               is_input_or_output=True)
+        else:
+            self.jac = creator('jac',
+                               shape=(test_size, rate_info['Ns'] + 1,
+                                      rate_info['Ns'] + 1),
+                               order=self.order,
+                               dtype=np.float64,
+                               is_input_or_output=True)
 
         self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
                                   dtype=np.float64, order=self.order)

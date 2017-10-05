@@ -8,7 +8,6 @@ from __future__ import print_function
 
 # Standard libraries
 import sys
-import os
 from math import log
 from string import Template
 import logging
@@ -21,7 +20,7 @@ from . import mech_auxiliary as aux
 from ..sympy_utils import sympy_interpreter as sp_interp
 from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..loopy_utils.loopy_utils import JacobianType
+from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from . import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .reaction_types import reaction_type, falloff_form, thd_body_type
@@ -190,9 +189,11 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
     val['jac_inds'] = {
         'flat': np.asarray(inds, dtype=np.int32),
         'crs': {'col_ind': np.array(col_ind, dtype=np.int32),
-                'row_ptr': __offset(row_ptr)},
+                'row_ptr': __offset(row_ptr),
+                'size': inds.shape[0]},
         'ccs': {'row_ind': np.array(row_ind, dtype=np.int32),
-                'col_ptr': __offset(col_ptr)},
+                'col_ptr': __offset(col_ptr),
+                'size': inds.shape[0]},
     }
     return val
 
@@ -238,23 +239,31 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
 
     k_ind = 'row'
     j_ind = 'col'
-    # need jac_array
-    jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, k_ind, j_ind)
 
-    # and row / col inds
-    row_lp, row_str = mapstore.apply_maps(namestore.flat_jac_row_inds, var_name)
-    col_lp, col_str = mapstore.apply_maps(namestore.flat_jac_col_inds, var_name)
+    if loopy_opts.jac_format == JacobianFormat.sparse:
+        jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, var_name)
+        instructions = Template(
+            """
+                ${jac_str} = 0d {id=reset}
+            """).substitute(**locals())
+    else:
+        # need jac_array
+        jac_lp, jac_str = mapstore.apply_maps(
+            namestore.jac, global_ind, k_ind, j_ind)
+        # and row / col inds
+        row_lp, row_str = mapstore.apply_maps(namestore.flat_jac_row_inds, var_name)
+        col_lp, col_str = mapstore.apply_maps(namestore.flat_jac_col_inds, var_name)
+
+        instructions = Template(
+            """
+                <> ${k_ind} = ${row_str}
+                <> ${j_ind} = ${col_str}
+                ${jac_str} = 0d {id=reset}
+            """).substitute(**locals())
+
+        kernel_data.extend([jac_lp, row_lp, col_lp])
 
     # add arrays
-    kernel_data.extend([jac_lp, row_lp, col_lp])
-
-    instructions = Template(
-        """
-            <> ${k_ind} = ${row_str}
-            <> ${j_ind} = ${col_str}
-            ${jac_str} = 0d {id=reset}
-        """).substitute(**locals())
-
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, init_ids=['reset'])
 
@@ -4275,7 +4284,8 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     """
 
     # figure out rates and info
-    rate_info = determine_jac_inds(reacs, specs, loopy_opts.rate_spec)
+    rate_info = determine_jac_inds(reacs, specs, loopy_opts.rate_spec,
+                                   loopy_opts.jac_type)
 
     # set test size
     if test_size is None:
@@ -4558,7 +4568,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     data_order='C', rate_specialization='full',
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
-                    use_atomics=True):
+                    use_atomics=True, jac_type='full', jac_format='full'):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4625,6 +4635,19 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         Useful in testing, as there are serious floating point errors for
         net production rates near equilibrium, invalidating direct comparison to
         Cantera
+    jac_type: ['full', 'approximate']
+        The type of Jacobian kernel to generate.  An approximate Jacobian ignores
+        derivatives of the last species with respect to other species in the
+        mechanism -- i.e. :math:`\frac{\partial n_{N_s}}{\partial n_{j}}` -- in the
+        reaction rate derivatives.
+
+        This can significantly increase sparsity for mechanisms containing reactions
+        that include the last species directly, or as a third-body species with a
+        non-unity efficiency, but gives results in an approxmiate Jacobian, and thus
+        is more suitable to use with implicit integration techniques.
+    jac_format: ['full', 'sparse']
+        If 'sparse', the Jacobian will be encoded using a compressed row or column
+        storage format (for a data order of 'C' and 'F' respectively).
     Returns
     -------
     None
@@ -4649,6 +4672,10 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # convert enums
     rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(
         rate_specialization.lower())
+    jac_format = utils.EnumType(JacobianFormat)(
+        jac_format.lower())
+    jac_type = utils.EnumType(JacobianType)(
+        jac_type.lower())
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
@@ -4661,7 +4688,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         rate_spec_kernels=split_rate_kernels,
                                         rop_net_kernels=split_rop_net_kernels,
                                         platform=platform,
-                                        use_atomics=use_atomics)
+                                        use_atomics=use_atomics,
+                                        jac_format=jac_format,
+                                        jac_type=jac_type)
 
     # create output directory if none exists
     utils.create_dir(build_path)

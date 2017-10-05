@@ -21,6 +21,7 @@ from ..kernel_utils import kernel_gen as k_gen
 from .test_utils import (kernel_runner, get_comparable, _generic_tester,
                          _full_kernel_test, with_check_inds)
 from ..libgen import build_type
+import ..utils
 
 import numpy as np
 import six
@@ -2313,27 +2314,36 @@ class SubTest(TestClass):
         # find our non-zero indicies
         ret = determine_jac_inds(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)['jac_inds']
-        non_zero_inds = ret['flat']
 
-        jac_shape = namestore.jac.shape
+        for jtype in ['flat', 'sparse']:
+            non_zero_inds = ret['flat']
+            jac_format = utils.EnumType(JacobianFormat)(jtype)
+            jac_shape = namestore.jac.shape if jac_format != JacobianFormat.sparse \
+                else namestore.num_nonzero_jac_inds.size
 
-        def __set(order):
-            x = np.zeros(jac_shape, order=order)
-            x[:, non_zero_inds[:, 0], non_zero_inds[:, 1]] = 1
-            return x
-        args = {'jac': __set}
+            def __flat_set(order):
+                x = np.zeros(jac_shape, order=order)
+                x[:, non_zero_inds[:, 0], non_zero_inds[:, 1]] = 1
+                return x
 
-        comp = get_comparable(ref_answer=[np.zeros(jac_shape)],
-                              compare_mask=[
-                                (slice(None), non_zero_inds[:, 0],
-                                    non_zero_inds[:, 1])],
-                              compare_axis=-1)
+            def __sparse_set(order):
+                return np.ones(jac_shape, order=order)
 
-        # and get mask
-        kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
-                         compare_axis=comp.compare_axis, **args)
+            args = {'jac': __set if jac_format != JacobianFormat.sparse
+                    else __sparse_set}
 
-        return self._generic_jac_tester(reset_arrays, kc)
+            comp = get_comparable(ref_answer=[np.zeros(jac_shape)],
+                                  compare_mask=[
+                                    (slice(None), non_zero_inds[:, 0],
+                                        non_zero_inds[:, 1])],
+                                  compare_axis=-1)
+
+            # and get mask
+            kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
+                             compare_axis=comp.compare_axis, **args)
+
+            return self._generic_jac_tester(reset_arrays, kc, sparse=(
+                jac_format == JacobianFormat.sparse))
 
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')

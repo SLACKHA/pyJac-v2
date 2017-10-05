@@ -155,77 +155,12 @@ class fastpowf_PreambleGen(PreambleGen):
         return 'cust_funcs_fastpowf'
 
 
-class OpenCL_AtomicPreambleGen(PreambleGen):
-    """
-    A class to enable atomic adds / sums for OpenCL doubles
-    """
-
-    def __init__(self):
-        # operators
-        self.code = Template("""
-   inline void atomic${op_name}_${mem_name}(volatile ${mem_type} double *addr, double val)
-   {
-       union{
-           unsigned long u64;
-           double        f64;
-       } next, expected, current;
-    current.f64    = *addr;
-       do{
-       expected.f64 = current.f64;
-           next.f64     = expected.f64 ${operator} val;
-        current.u64  = atom_cmpxchg( (volatile ${mem_type} unsigned long *)addr,
-                               expected.u64, next.u64);
-       } while( current.u64 != expected.u64 );
-   }
-            """)
-
-        self.operators = {'ADD': ' + ',
-                          'MUL': ' * ',
-                          'DIV': ' / '}
-
-        super(OpenCL_AtomicPreambleGen, self).__init__(
-            'ocl_atomics',
-            (np.float64, np.float64),
-            (np.float64))
-
-    def __params_from_name(self, name):
-        match = re.search(r'^atomic(?P<op>\w+)_(?P<mem>\w+)$', name)
-        op, mem = match.group('op', 'mem')
-        return op, mem
-
-    def match(self, func_match):
-        # check function name
-        operator, mem_short = self.__params_from_name(func_match.name)
-        if operator and mem_short:
-            operator = operator.upper()
-            # check that operator is known
-            assert operator in self.operators, (
-                "Don't know how to generate "
-                "OpenCL atomic for operator: {}".format(operator))
-            return True
-        return False
-
-    def get_descriptor(self, func_match):
-        # get parameters
-        operator, mem_short = self.__params_from_name(func_match.name)
-
-        return 'ocl_atomic_{op}_{ms}'.format(op=operator.lower(),
-                                             ms=mem_short)
-
-    def generate_code(self, func_match):
-        # get parameters
-        operator, mem_short = self.__params_from_name(func_match.name)
-        mem_type = '__global' if mem_short == 'g' else '__local'
-
-        return self.code.substitute(
-            op_name=operator,
-            operator=self.operators[operator.upper()],
-            mem_type=mem_type,
-            mem_name=mem_short
-            )
-
-
 class fmax(MangleGen):
     def __init__(self, name='fmax', arg_dtypes=(np.float64, np.float64),
                  result_dtypes=np.float64):
         super(fmax, self).__init__(name, arg_dtypes, result_dtypes)
+
+
+class jacptr_PreambleGen(PreambleGen):
+    def __init__(self, name):
+        pass
