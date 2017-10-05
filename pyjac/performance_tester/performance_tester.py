@@ -7,176 +7,195 @@ from __future__ import print_function
 
 # Standard libraries
 import os
-import sys
 import subprocess
-import multiprocessing
-
-# Related modules
-import numpy as np
-
-try:
-    import cantera as ct
-except ImportError:
-    print('Error: Cantera must be installed.')
-    raise
-
-try:
-    from optionloop import OptionLoop
-except ImportError:
-    print('Error: optionloop must be installed.')
-    raise
 
 # Local imports
-from ..core.create_jacobian import create_jacobian
-from ..libgen import (libs, compiler, file_struct, flags, get_file_list,
-                      run_dirs)
+from ..libgen import build_type, generate_library
 
-from ..tests.test_utils import data_bin_writer as dbw
-from ..tests.test_utils import get_test_matrix as tm
+from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
 
 import loopy as lp
 lp.set_caching_enabled(False)
 
-STATIC = False
-"""bool: CUDA only works for static libraries"""
+
+class performance_runner(runner):
+    def __init__(self, rtype=build_type.jacobian, repeats=10, steplist=[]):
+        """
+        Initialize the performance runner class
+
+        Parameters
+        ----------
+        rtype: :class:`build_type`
+            The type of run to test (jacobian or species_rates)
+        repeats: int [10]
+            The number of runs per state
+
+        Returns
+        -------
+        None
+        """
+        super(performance_runner, self).__init__(rtype)
+        self.repeats = repeats
+        self.steplist = steplist
+
+    def pre(self, gas, data, num_conditions, max_vec_width):
+        """
+        Initializes the performance runner for mechanism
+
+        Parameters
+        ----------
+        gas: :class:`cantera.Solution`
+            unused
+        data: dict
+            unused
+        num_conditions: int
+            The number of conditions to test
+        max_vec_width: int
+            unused
+        """
+        self.num_conditions = num_conditions
+
+    def check_file(self, filename, state):
+        """
+        Checks file for existing data and determines the number of runs left
+        for this file / state
+
+        Parameters
+        ----------
+        filename : str
+            Name of file with data
+        state: dict
+            The current state of the :class:`OptionLoop`, used in this context
+            to provide the OpenCL platform (and determine which filetype to use)
+        Returns
+        -------
+        valid: bool
+            If true, the test case is complete and can be skipped
+        """
+
+        # first, get platform
+        if platform_is_gpu(state['platform']):
+            self.todo = self.check_step_file(filename)
+        else:
+            num_completed = self.self.check_full_file(filename)
+            self.todo = {self.num_conditions: self.repeats - num_completed}
+        return not any(self.todo[x] > 0 for x in self.todo)
+
+    def check_step_file(self, filename):
+        """checks file for existing data and returns number of runs left to do
+        for each step in :attr:`steplist`
+        Parameters
+        ----------
+        filename : str
+            Name of file with data
+        steplist : list of int
+            List of different numbers of steps
+        Returns
+        -------
+        runs : dict
+            Dictionary with number of runs left for each step
+        """
+
+        runs = {}
+        for step in self.steplist:
+            runs[step] = 0
+
+        try:
+            with open(filename, 'r') as file:
+                lines = [line.strip() for line in file.readlines()]
+            for line in lines:
+                try:
+                    vals = line.split(',')
+                    if len(vals) == 2:
+                        vals = [float(v) for v in vals]
+                        runs[vals[0]] += 1
+                except:
+                    pass
+            return runs
+        except:
+            return runs
+
+    def check_full_file(self, filename):
+        """Checks a file for existing data, returns number of completed runs
+
+        Parameters
+        ----------
+        filename : str
+            Name of file with data
+
+        Returns
+        -------
+        num_completed : int
+            Number of completed runs
+
+        """
+        try:
+            with open(filename, 'r') as file:
+                lines = [line.strip() for line in file.readlines()]
+            num_completed = 0
+            to_find = 4
+            for line in lines:
+                try:
+                    vals = line.split(',')
+                    if len(vals) == to_find:
+                        nc = int(vals[0])
+                        if nc != self.num_conditions:
+                            # TODO: remove file and return 0?
+                            raise Exception(
+                                'Wrong number of conditions in performance test')
+
+                        float(vals[1])
+                        float(vals[2])
+                        float(vals[3])
+                        num_completed += 1
+                except:
+                    pass
+            return num_completed
+        except:
+            return 0
+
+    def run(self, state, asplit, dirs, data_output):
+        """
+        Run the validation test for the given state
+
+        Parameters
+        ----------
+        state: dict
+            A dictionary containing the state of the current optimization / language
+            / vectorization patterns, etc.
+        asplit: :class:`array_splitter`
+            Not used
+        dirs: dict
+            A dictionary of directories to use for building / testing, etc.
+            Has the keys "build", "test" and "obj"
+        data_output: str
+            The file to output the results to
+
+        Returns
+        -------
+        None
+        """
+
+        # first create the executable (via libgen)
+        tester = generate_library(state['lang'], dirs['build'],
+                                  build_dir=dirs['obj'], out_dir=dirs['test'],
+                                  shared=True, btype=self.rtype, as_executable=True)
+
+        # and do runs
+        with open(data_output, 'a+') as file:
+            for stepsize in self.todo:
+                for i in range(self.todo[stepsize]):
+                    print(i, "/", self.todo[stepsize])
+                    subprocess.check_call([os.path.join(dirs['test'], tester),
+                                           str(stepsize), str(state['num_cores'])],
+                                          stdout=file)
 
 
-def check_step_file(filename, steplist):
-    """Checks file for existing data, returns number of runs left
+def species_performance_tester(work_dir='performance'):
+    """Runs performance testing of the species rates kernel for pyJac
 
     Parameters
     ----------
-    filename : str
-        Name of file with data
-    steplist : list of int
-        List of different numbers of steps
-
-    Returns
-    -------
-    runs : dict
-        Dictionary with number of runs left for each step
-
-    """
-    # checks file for existing data
-    # and returns number of runs left to do
-    # for each # of does in steplist
-    runs = {}
-    for step in steplist:
-        runs[step] = 0
-    try:
-        with open(filename, 'r') as file:
-            lines = [line.strip() for line in file.readlines()]
-        for line in lines:
-            try:
-                vals = line.split(',')
-                if len(vals) == 2:
-                    vals = [float(v) for v in vals]
-                    runs[vals[0]] += 1
-            except:
-                pass
-        return runs
-    except:
-        return runs
-
-
-def check_file(filename):
-    """Checks file for existing data, returns number of completed runs
-
-    Parameters
-    ----------
-    filename : str
-        Name of file with data
-
-    Returns
-    -------
-    num_completed : int
-        Number of completed runs
-
-    """
-    try:
-        with open(filename, 'r') as file:
-            lines = [line.strip() for line in file.readlines()]
-        num_completed = 0
-        to_find = 4
-        for line in lines:
-            try:
-                vals = line.split(',')
-                if len(vals) == to_find:
-                    int(vals[0])
-                    float(vals[1])
-                    float(vals[2])
-                    float(vals[3])
-                    num_completed += 1
-            except:
-                pass
-        return num_completed
-    except:
-        return 0
-
-
-def getf(x):
-    return os.path.basename(x)
-
-
-def cmd_link(lang, shared):
-    """Return linker command.
-
-    Parameters
-    ----------
-    lang : {'icc', 'c', 'cuda'}
-        Programming language
-    shared : bool
-        ``True`` if shared
-
-    Returns
-    -------
-    cmd : list of `str`
-        List with linker command
-
-    """
-    cmd = None
-    if lang == 'opencl':
-        cmd = ['gcc']
-    elif lang == 'c':
-        cmd = ['gcc']
-    elif lang == 'cuda':
-        cmd = ['nvcc'] if not shared else ['g++']
-    else:
-        print('Lang must be one of {opecl, c}')
-        raise
-    return cmd
-
-
-exceptions = ['-xc']
-
-
-def linker(lang, test_dir, filelist, platform=''):
-    args = cmd_link(lang, not STATIC)
-    args.extend([x for x in flags[lang] if x not in exceptions])
-    args.extend([os.path.join(test_dir, getf(f) + '.o') for f in filelist])
-    args.extend(['-o', os.path.join(test_dir, 'speedtest')])
-    args.extend(libs[lang])
-    args.append('-lm')
-
-    if run_dirs[lang]:
-        for rd in run_dirs[lang]:
-            args.extend(['-Wl,-rpath', rd])
-
-    try:
-        print(' '.join(args))
-        subprocess.check_call(args)
-    except subprocess.CalledProcessError:
-        print('Error: linking of test program failed.')
-        sys.exit(1)
-
-
-def performance_tester(home, work_dir):
-    """Runs performance testing for pyJac
-
-    Parameters
-    ----------
-    home : str
-        Directory of source code files
     work_dir : str
         Working directory with mechanisms and for data
 
@@ -185,124 +204,22 @@ def performance_tester(home, work_dir):
     None
 
     """
-    build_dir = 'out'
-    test_dir = 'test'
-    work_dir = os.path.abspath(work_dir)
 
-    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir)
+    _run_mechanism_tests(work_dir, performance_runner(build_type.species_rates))
 
-    if len(mechanism_list) == 0:
-        print('No mechanisms found for performance testing in '
-              '{}, exiting...'.format(work_dir)
-              )
-        sys.exit(-1)
 
-    repeats = 10
+def jacobian_performance_tester(work_dir='performance'):
+    """Runs performance testing of the jacobian kernel for pyJac
 
-    for mech_name, mech_info in sorted(mechanism_list.items(),
-                                       key=lambda x: x[1]['ns']
-                                       ):
+    Parameters
+    ----------
+    work_dir : str
+        Working directory with mechanisms and for data
 
-        # ensure directory structure is valid
-        this_dir = os.path.join(work_dir, mech_name)
-        this_dir = os.path.abspath(this_dir)
-        os.chdir(this_dir)
-        my_build = os.path.join(this_dir, build_dir)
-        my_test = os.path.join(this_dir, test_dir)
-        subprocess.check_call(['mkdir', '-p', my_build])
-        subprocess.check_call(['mkdir', '-p', my_test])
+    Returns
+    -------
+    None
 
-        # rewrite data to file in 'C' order
-        num_conditions = dbw.write(os.path.join(work_dir, mech_name))
-        # find max testable # of conditions
-        num_conditions = int(
-            np.floor(num_conditions / max_vec_width) * max_vec_width)
+    """
 
-        the_path = os.getcwd()
-        op = oploop.reset()
-
-        # rewrite data to file in 'C' order
-        num_conditions = dbw.write(os.path.join(work_dir, mech_name))
-        # find max testable # of conditions
-        num_conditions = int(
-            np.floor(num_conditions / max_vec_width) * max_vec_width)
-
-        for i, state in enumerate(op):
-            lang = state['lang']
-            vecsize = state['vecsize']
-            order = state['order']
-            wide = state['wide']
-            deep = state['deep']
-            platform = state['platform']
-            rate_spec = state['rate_spec']
-            split_kernels = state['split_kernels']
-            num_cores = state['num_cores']
-            if not deep and not wide and vecsize != max_vec_width:
-                # this is simple parallelization, don't need vector size
-                continue
-
-            if rate_spec == 'fixed' and split_kernels:
-                continue  # not a thing!
-
-            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}'.format(lang, vecsize, order,
-                                                            'w' if wide else 'd' if deep else 'par',
-                                                            platform, rate_spec, 'split' if split_kernels else 'single',
-                                                            num_cores
-                                                            ) +
-                           '_output.txt'
-                           )
-
-            data_output = os.path.join(the_path, data_output)
-            num_completed = check_file(data_output)
-            todo = {num_conditions: repeats - num_completed}
-            if not any(todo[x] > 0 for x in todo):
-                continue
-
-            try:
-                create_jacobian(lang,
-                                mech_name=mech_info['mech'],
-                                vector_size=vecsize,
-                                wide=wide,
-                                deep=deep,
-                                data_order=order,
-                                build_path=my_build,
-                                skip_jac=True,
-                                auto_diff=False,
-                                platform=platform,
-                                data_filename=os.path.join(
-                                    work_dir, mech_name, 'data.bin'),
-                                split_rate_kernels=split_kernels,
-                                rate_specialization=rate_spec,
-                                split_rop_net_kernels=split_kernels
-                                )
-            except:
-                print('generation failed...')
-                print(i, state)
-                print()
-                print()
-                continue
-
-            # get file lists
-            i_dirs, files = get_file_list(build_dir, lang)
-
-            structs = [file_struct(lang, lang, f, i_dirs,
-                                   [], my_build, my_test, not STATIC) for f in files]
-
-            pool = multiprocessing.Pool()
-            results = pool.map(compiler, structs)
-            pool.close()
-            pool.join()
-            if any(r == -1 for r in results):
-                sys.exit(-1)
-
-            linker(lang, my_test, files, platform)
-
-            with open(data_output, 'a+') as file:
-                for stepsize in todo:
-                    for i in range(todo[stepsize]):
-                        print(i, "/", todo[stepsize])
-                        subprocess.check_call(
-                            [os.path.join(the_path,
-                                          my_test, 'speedtest'),
-                             str(stepsize), str(num_cores)], stdout=file
-                        )
+    _run_mechanism_tests(work_dir, performance_runner(build_type.jacobian))
