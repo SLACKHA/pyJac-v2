@@ -19,6 +19,7 @@ from ...core.mech_auxiliary import write_aux
 from .. import get_test_platforms
 from ...pywrap import generate_wrapper
 from ... import utils
+from ...libgen import build_type
 
 
 from optionloop import OptionLoop
@@ -647,7 +648,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             db.flatten(order=opts.order).tofile(file,)
 
         # write the module tester
-        from ...libgen import build_type
         with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
             file.write(mod_test.safe_substitute(
                 package='pyjac_{lang}'.format(
@@ -672,7 +672,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             for x in args + tests:
                 os.remove(x)
             os.remove(os.path.join(lib_dir, 'test.py'))
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             logging.debug(state)
             assert False, '{} error'.format(kgen.name)
 
@@ -724,3 +724,218 @@ def with_check_inds(check_inds={}, custom_checks={}):
             return func(self, *args, **kwargs)
         return wrapped
     return check_inds_decorator
+
+
+class runner(object):
+    """
+    A base class for running the :func:`_run_mechanism_tests`
+    """
+
+    def pre(self, gas, data, num_conditions, max_vec_width):
+        raise NotImplementedError
+
+    def run(self, state, asplit, dirs, data_output):
+        raise NotImplementedError
+
+    def get_filename(self, state):
+        raise NotImplementedError
+
+    def check_file(self, file):
+        raise NotImplementedError
+
+    @property
+    def max_per_run(self):
+        return None
+
+    def get_phi(self, T, extra, moles):
+        return np.concatenate((np.reshape(T, (-1, 1)),
+                               np.reshape(extra, (-1, 1)), moles[:, :-1]), axis=1)
+
+
+def _run_mechanism_tests(work_dir, run, rtype=build_type.jacobian):
+    """
+    This method is used to consolidate looping for the :mod:`peformance_tester`
+    and :mod:`functional tester, as they have very similar execution patterns
+
+    Parameters
+    ----------
+    work_dir: str
+        The directory to run / check in
+    run: :class:`runner`
+        The code / function to be run for each state of the :class:`OptionLoop`
+    rtype: :class:`build_type` [build_type.jacobian]
+        The type of test (species rates / jacobian) to run
+    Returns
+    -------
+    None
+    """
+
+    obj_dir = 'obj'
+    build_dir = 'out'
+    test_dir = 'test'
+
+    # imports needed only for this tester
+    from . import get_test_matrix as tm
+    from . import data_bin_writer as dbw
+    from ...core.mech_interpret import read_mech_ct
+    from ...core.array_creator import array_splitter
+    from ...core.create_jacobian import find_last_species, create_jacobian
+    import cantera as ct
+
+    work_dir = os.path.abspath(work_dir)
+    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir)
+
+    if len(mechanism_list) == 0:
+        logging.error('No mechanisms found for testing in directory:{}, '
+                      'exiting...'.format(work_dir))
+        sys.exit(-1)
+
+    for mech_name, mech_info in sorted(mechanism_list.items(),
+                                       key=lambda x: x[1]['ns']):
+        # ensure directory structure is valid
+        this_dir = os.path.join(work_dir, mech_name)
+        this_dir = os.path.abspath(this_dir)
+        os.chdir(this_dir)
+        my_obj = os.path.join(this_dir, obj_dir)
+        my_build = os.path.join(this_dir, build_dir)
+        my_test = os.path.join(this_dir, test_dir)
+        utils.create_dir(my_obj)
+        utils.create_dir(my_build)
+        utils.create_dir(my_test)
+
+        dirs = {'test': my_test,
+                'build': my_build,
+                'obj': my_obj}
+
+        def __cleanup():
+            # remove library
+            clean_dir(my_obj, False)
+            # remove build
+            clean_dir(my_build, False)
+            # clean sources
+            clean_dir(my_test, False)
+            # clean dummy builder
+            dist_build = os.path.join(os.getcwd(), 'build')
+            if os.path.exists(dist_build):
+                shutil.rmtree(dist_build)
+
+        # get the cantera object
+        gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
+        gas.basis = 'molar'
+
+        # read our species for MW's
+        _, specs, _ = read_mech_ct(gas=gas)
+
+        # find the last species
+        gas_map = find_last_species(specs, return_map=True)
+        del specs
+        # update the gas
+        specs = gas.species()[:]
+        gas = ct.Solution(thermo='IdealGas', kinetics='GasKinetics',
+                          species=[specs[x] for x in gas_map],
+                          reactions=gas.reactions())
+        del specs
+
+        # first load data to get species rates, jacobian etc.
+        num_conditions, data = dbw.load(
+            [], directory=os.path.join(work_dir, mech_name))
+
+        # rewrite data to file in 'C' order
+        dbw.write(os.path.join(this_dir))
+
+        # figure out the number of conditions to test
+        num_conditions = int(
+            np.floor(num_conditions / max_vec_width) * max_vec_width)
+
+        # set T / P arrays from data
+        T = data[:num_conditions, 0].flatten()
+        P = data[:num_conditions, 1].flatten()
+        # set V = 1 such that concentrations == moles
+        V = np.ones_like(P)
+
+        # resize data
+        moles = data[:num_conditions, 2:]
+        # and reorder
+        moles = moles[:, gas_map].copy()
+
+        run.pre(gas, {'T': T, 'P': P, 'V': V, 'moles': moles},
+                num_conditions, max_vec_width)
+
+        # clear old data
+        del data
+        del T
+        del P
+        del V
+
+        # begin iterations
+        done_parallel = False
+        the_path = os.getcwd()
+        op = oploop.copy()
+        for i, state in enumerate(op):
+            # remove any old builds
+            __cleanup()
+            lang = state['lang']
+            vecsize = state['vecsize']
+            order = state['order']
+            wide = state['wide']
+            deep = state['deep']
+            platform = state['platform']
+            rate_spec = state['rate_spec']
+            split_kernels = state['split_kernels']
+            conp = state['conp']
+            if not (deep or wide) and done_parallel:
+                # this is simple parallelization, don't need to repeat for
+                # different vector sizes, simply choose one and go
+                continue
+            elif not (deep or wide):
+                # mark done
+                done_parallel = True
+
+            if rate_spec == 'fixed' and split_kernels:
+                continue  # not a thing!
+
+            if deep and wide:
+                # can't do both simultaneously
+                continue
+
+            # get the filename
+            data_output = run.get_filename(state.copy())
+
+            # if already run, continue
+            data_output = os.path.join(the_path, data_output)
+            if run.check_file(data_output):
+                continue
+
+            try:
+                create_jacobian(lang,
+                                gas=gas,
+                                vector_size=vecsize,
+                                wide=wide,
+                                deep=deep,
+                                data_order=order,
+                                build_path=my_build,
+                                skip_jac=rtype == build_type.species_rates,
+                                platform=platform,
+                                data_filename=os.path.join(this_dir, 'data.bin'),
+                                split_rate_kernels=split_kernels,
+                                rate_specialization=rate_spec,
+                                split_rop_net_kernels=split_kernels,
+                                output_full_rop=rtype == build_type.species_rates,
+                                conp=conp,
+                                use_atomics=state['use_atomics'])
+            except Exception as e:
+                logging.exception(e)
+                logging.warn('generation failed...')
+                logging.warn(i, state)
+                continue
+
+            # get an array splitter
+            width = state['vecsize'] if state['wide'] else None
+            depth = state['vecsize'] if state['deep'] else None
+            order = state['order']
+            asplit = array_splitter(type('', (object,), {
+                'width': width, 'depth': depth, 'order': order}))
+
+            run.run(state.copy(), asplit, dirs, data_output)
+
+        del run

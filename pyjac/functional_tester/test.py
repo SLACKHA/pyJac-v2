@@ -9,8 +9,6 @@ from __future__ import print_function
 import os
 import sys
 import subprocess
-import shutil
-import logging
 
 
 # Related modules
@@ -23,15 +21,10 @@ except ImportError:
     raise
 
 # Local imports
-from .. import utils
-from ..core.create_jacobian import create_jacobian, find_last_species
-from ..core.array_creator import array_splitter
 from ..core.mech_interpret import read_mech_ct
 from ..pywrap.pywrap_gen import generate_wrapper
 
-from ..tests.test_utils import data_bin_writer as dbw
-from ..tests.test_utils import get_test_matrix as tm
-from ..tests.test_utils import parse_split_index
+from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner
 from ..tests import test_utils
 from ..libgen import build_type
 
@@ -40,334 +33,215 @@ import loopy as lp
 lp.set_caching_enabled(False)
 
 
-def check_file(filename, Ns, Nr):
-    """Checks file for existing data, returns number of completed runs
-
-    Parameters
-    ----------
-    filename : str
-        Name of file with data
-    Ns : int
-        The number of species in the mech
-    Nr : int
-        The number of reactions in the mech
-
-    Returns
-    -------
-    completed : bool
-        True if the file is complete
-
-    """
-    # new version
-    try:
-        np.load(filename)
-        return True
-    except:
-        return False
-    try:
-        with open(filename, 'r') as file:
-            lines = [line.strip() for line in file.readlines()]
-        complete = True
-        for i, line in enumerate(lines):
-            test = line[line.index(':') + 1:]
-            filtered = [y.strip() for y in test.split(',') if y.strip()]
-            complete = complete and len(filtered) == ((Ns + 1) if i < 2
-                                                      else Nr)
-            for x in filtered:
-                float(x)
-        return complete
-    except:
-        return False
-
-
 def getf(x):
     return os.path.basename(x)
 
 
-def __run_test(work_dir, eval_class, rtype=build_type.jacobian):
-    """Runs validation testing for pyJac
+class validation_runner(runner):
+    def __init__(self, eval_class, rtype=build_type.jacobian):
+        """Runs validation testing for pyJac for a mechanism
 
-    Parameters
-    ----------
-    work_dir : str
-        Working directory with mechanisms and for data
-    eval_class: :class:`eval`
-        Evaluate the answer and error for the current state, called on every
-        iteration
-    rtype: :class:`build_type` [build_type.jacobian]
-        The type of test to run
+        Properties
+        ----------
+        eval_class: :class:`eval`
+            Evaluate the answer and error for the current state, called on every
+            iteration
+        rtype: :class:`build_type` [build_type.jacobian]
+            The type of test to run
+        """
+        self.eval_class = eval_class
+        self.rtype = rtype
+        self.descriptor = 'jac' if rtype == build_type.jacobian else 'spec'
+        self.package_lang = {'opencl': 'ocl',
+                             'c': 'c'}
+        self.mod_test = test_utils.get_run_source()
 
-    Returns
-    -------
-    None
+    def check_file(self, filename):
+        """Checks file for existing data, returns number of completed runs
 
-    """
+        Parameters
+        ----------
+        filename : str
+            Name of file with data
 
-    obj_dir = 'obj'
-    build_dir = 'out'
-    test_dir = 'test'
+        Returns
+        -------
+        completed : bool
+            True if the file is complete
 
-    work_dir = os.path.abspath(work_dir)
-    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir)
+        """
 
-    if len(mechanism_list) == 0:
-        print('No mechanisms found for performance testing in '
-              '{}, exiting...'.format(work_dir)
-              )
-        sys.exit(-1)
+        Ns = self.gas.n_species
+        Nr = self.gas.n_reactions
+        return self.helper.check_file(filename, Ns, Nr)
 
-    package_lang = {'opencl': 'ocl',
-                    'c': 'c'}
+    def get_filename(self, state):
+        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                self.descriptor, state['lang'], state['vecsize'], state['order'],
+                'w' if state['wide'] else 'd' if state['deep'] else 'par',
+                state['platform'], state['rate_spec'],
+                'split' if state['split_kernels'] else 'single',
+                state['num_cores'], 'conp' if state['conp'] else 'conv') + '_err.npz'
 
-    # load the module tester template
-    mod_test = test_utils.get_run_source()
+    def pre(self, gas, data, num_conditions, max_vec_width):
+        """
+        Initializes the validation runner
 
-    for mech_name, mech_info in sorted(mechanism_list.items(),
-                                       key=lambda x: x[1]['ns']):
-        # ensure directory structure is valid
-        this_dir = os.path.join(work_dir, mech_name)
-        this_dir = os.path.abspath(this_dir)
-        os.chdir(this_dir)
-        my_obj = os.path.join(this_dir, obj_dir)
-        my_build = os.path.join(this_dir, build_dir)
-        my_test = os.path.join(this_dir, test_dir)
-        utils.create_dir(my_obj)
-        utils.create_dir(my_build)
-        utils.create_dir(my_test)
+        Parameters
+        ----------
+        gas: :class:`cantera.Solution`
+            The cantera object representing this mechanism
+        data: dict
+            A dictionary with keys T, P, V and moles, representing the test data
+            for this mechanism
+        num_conditions: int
+            The number of conditions to test
+        max_vec_width: int
+            The maximum vector width considered for this test. The number of
+            conditions per run must be a multiple of this for proper functioning
+        """
 
-        def __cleanup():
-            # remove library
-            test_utils.clean_dir(my_obj, False)
-            # remove build
-            test_utils.clean_dir(my_build, False)
-            # clean sources
-            test_utils.clean_dir(my_test, False)
-            # clean dummy builder
-            dist_build = os.path.join(os.getcwd(), 'build')
-            if os.path.exists(dist_build):
-                shutil.rmtree(dist_build)
+        self.gas = gas
+        self.T = data['T']
+        self.P = data['P']
+        self.V = data['V']
+        self.moles = data['moles']
+        self.phi_cp = self.get_phi(self.T, self.V, self.moles)
+        self.phi_cv = self.get_phi(self.T, self.P, self.moles)
+        self.num_conditions = num_conditions
+        self.max_vec_width = max_vec_width
 
-        # get the cantera object
-        gas = ct.Solution(os.path.join(work_dir, mech_name, mech_info['mech']))
-        gas.basis = 'molar'
-
-        # read our species for MW's
-        _, specs, _ = read_mech_ct(gas=gas)
-
-        # find the last species
-        gas_map = find_last_species(specs, return_map=True)
-        del specs
-        # update the gas
-        specs = gas.species()[:]
-        gas = ct.Solution(thermo='IdealGas', kinetics='GasKinetics',
-                          species=[specs[x] for x in gas_map],
-                          reactions=gas.reactions())
-        del specs
-
-        # first load data to get species rates, jacobian etc.
-        num_conditions, data = dbw.load(
-            [], directory=os.path.join(work_dir, mech_name))
-
-        # rewrite data to file in 'C' order
-        dbw.write(os.path.join(this_dir))
-
-        # figure out the number of conditions to test
-        num_conditions = int(
-            np.floor(num_conditions / max_vec_width) * max_vec_width)
-        # create the eval
-        helper = eval_class(gas, num_conditions)
-        if rtype != build_type.jacobian:
+        self.helper = self.eval_class(gas, num_conditions)
+        if self.rtype != build_type.jacobian:
             # find the number of conditions per run (needed to avoid memory
             # issues with i-pentanol model)
             max_per_run = 100000
-            cond_per_run = int(
+            self.cond_per_run = int(
                 np.floor(max_per_run / max_vec_width) * max_vec_width)
         else:
-            cond_per_run = num_conditions
+            self.cond_per_run = num_conditions
 
-        # set T / P arrays from data
-        T = data[:num_conditions, 0].flatten()
-        P = data[:num_conditions, 1].flatten()
-        # set V = 1 such that concentrations == moles
-        V = np.ones_like(P)
+    @property
+    def max_per_run(self):
+        return 100000 if self.rtype == build_type.species_rates else None
 
-        # resize data
-        moles = data[:num_conditions, 2:]
-        # and reorder
-        moles = moles[:, gas_map].copy()
+    def run(self, state, asplit, dirs, data_output):
+        """
+        Run the validation test for the given state
 
-        # set phi / params
-        phi_cp = np.concatenate((np.reshape(T, (-1, 1)),
-                                 np.reshape(V, (-1, 1)), moles), axis=1)
-        phi_cv = np.concatenate((np.reshape(T, (-1, 1)),
-                                 np.reshape(P, (-1, 1)), moles), axis=1)
-        param_cp = P
-        param_cv = V
+        Parameters
+        ----------
+        state: dict
+            A dictionary containing the state of the current optimization / language
+            / vectorization patterns, etc.
+        asplit: :class:`array_splitter`
+            The array splitter to use in modifying state arrays
+        dirs: dict
+            A dictionary of directories to use for building / testing, etc.
+            Has the keys "build", "test" and "obj"
+        data_output: str
+            The file to output the results to
 
-        # begin iterations
-        done_parallel = False
-        the_path = os.getcwd()
-        op = oploop.copy()
-        for i, state in enumerate(op):
-            # remove any old builds
-            __cleanup()
-            lang = state['lang']
-            vecsize = state['vecsize']
-            order = state['order']
-            wide = state['wide']
-            deep = state['deep']
-            platform = state['platform']
-            rate_spec = state['rate_spec']
-            split_kernels = state['split_kernels']
-            num_cores = state['num_cores']
-            conp = state['conp']
-            if not (deep or wide) and done_parallel:
-                # this is simple parallelization, don't need to repeat for
-                # different vector sizes, simply choose one and go
-                continue
-            elif not (deep or wide):
-                # mark done
-                done_parallel = True
+        Returns
+        -------
+        None
+        """
 
-            if rate_spec == 'fixed' and split_kernels:
-                continue  # not a thing!
+        # get the answer
+        phi = self.phi_cp if state['conp'] else self.phi_cv
+        param = self.P if state['conp'] else self.V
+        self.helper.eval_answer(phi, self.P, self.V, state)
 
-            if deep and wide:
-                # can't do both simultaneously
-                continue
+        my_test = dirs['test']
+        my_build = dirs['build']
+        my_obj = dirs['obj']
 
-            data_output = ('{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                helper.name, lang, vecsize, order,
-                'w' if wide else 'd' if deep else 'par',
-                platform, rate_spec, 'split' if split_kernels else 'single',
-                num_cores) + '_err.npz')
+        # save args to dir
+        def __saver(arr, name, namelist=None):
+            myname = os.path.join(my_test, name + '.npy')
+            np.save(myname, arr)
+            if namelist is not None:
+                namelist.append(myname)
 
-            # if already run, continue
-            data_output = os.path.join(the_path, data_output)
-            if check_file(data_output, gas.n_species, gas.n_reactions):
-                continue
+        # generate wrapper
+        generate_wrapper(state['lang'], my_build, build_dir=my_obj,
+                         out_dir=my_test, platform=str(state['platform']),
+                         output_full_rop=self.rtype == build_type.species_rates,
+                         btype=self.rtype)
 
-            # get an array splitter
-            width = state['vecsize'] if state['wide'] else None
-            depth = state['vecsize'] if state['deep'] else None
-            order = state['order']
-            asplit = array_splitter(type('', (object,), {
-                'width': width, 'depth': depth, 'order': order}))
+        # now generate the per run data
+        offset = 0
+        # store the error dict
+        err_dict = {}
+        while offset < self.num_conditions:
+            this_run = int(
+                np.floor(np.minimum(self.cond_per_run, self.num_conditions - offset)
+                         / self.max_vec_width) * self.max_vec_width)
+            # get arrays
+            # make sure to remove the last species in order to conform
+            # to expected data
+            myphi = np.array(phi[offset:offset + this_run, :],
+                             order=state['order'], copy=True)
 
-            # get the answer
-            phi = phi_cp if conp else phi_cv
-            param = param_cp if conp else param_cv
-            helper.eval_answer(phi, P, V, state)
+            myphi, = asplit.split_numpy_arrays(myphi)
+            myphi = myphi.flatten(order=state['order'])
 
-            # save args to dir
-            def __saver(arr, name, namelist=None):
-                myname = os.path.join(my_test, name + '.npy')
-                np.save(myname, arr)
-                if namelist is not None:
-                    namelist.append(myname)
+            args = []
+            __saver(myphi, 'phi', args)
+            __saver(param[offset:offset + this_run], 'param', args)
+            del myphi
 
-            # try:
-            create_jacobian(lang,
-                            gas=gas,
-                            vector_size=vecsize,
-                            wide=wide,
-                            deep=deep,
-                            data_order=order,
-                            build_path=my_build,
-                            skip_jac=rtype == build_type.species_rates,
-                            platform=platform,
-                            data_filename=os.path.join(this_dir, 'data.bin'),
-                            split_rate_kernels=split_kernels,
-                            rate_specialization=rate_spec,
-                            split_rop_net_kernels=split_kernels,
-                            output_full_rop=rtype == build_type.species_rates,
-                            conp=conp,
-                            use_atomics=state['use_atomics'])
-            #except Exception as e:
-            #    logging.exception(e)
-            #    logging.warn('generation failed...')
-            #    logging.warn(i, state)
-            #    continue
+            # get reference outputs
+            out_names, ref_ans = self.helper.get_outputs(
+                state, offset, this_run, asplit)
 
-            # generate wrapper
-            generate_wrapper(lang, my_build, build_dir=obj_dir,
-                             out_dir=my_test, platform=str(platform),
-                             output_full_rop=rtype == build_type.species_rates,
-                             btype=rtype)
+            # save for comparison
+            testfiles = []
+            for i in range(len(ref_ans)):
+                out = ref_ans[i]
+                # and flatten in correct order
+                out = out.flatten(order=state['order'])
+                __saver(out, out_names[i], testfiles)
+                del out
+            outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
+                    for name in out_names]
 
-            # now generate the per run data
-            offset = 0
-            # store the error dict
-            err_dict = {}
-            while offset < num_conditions:
-                this_run = int(
-                    np.floor(np.minimum(cond_per_run, num_conditions - offset)
-                             / max_vec_width) * max_vec_width)
-                # get arrays
-                # make sure to remove the last species in order to conform
-                # to expected data
-                myphi = np.array(phi[offset:offset + this_run, :-1],
-                                 order=order, copy=True)
+            # write the module tester
+            with open(os.path.join(my_test, 'test.py'), 'w') as file:
+                file.write(self.mod_test.safe_substitute(
+                    package='pyjac_{}'.format(self.package_lang[state['lang']]),
+                    input_args=', '.join('"{}"'.format(x) for x in args),
+                    test_arrays=', '.join('\'{}\''.format(x) for x in testfiles),
+                    non_array_args='{}, {}'.format(this_run, state['num_cores']),
+                    call_name=str(self.rtype)[str(self.rtype).index('.') + 1:],
+                    output_files=', '.join('\'{}\''.format(x) for x in outf),
+                    looser_tols=','.join('[]' for x in testfiles),
+                    rtol=1e-5,
+                    atol=1e-8)
+                )
 
-                myphi, = asplit.split_numpy_arrays(myphi)
-                myphi = myphi.flatten(order=order)
+            # call
+            subprocess.check_call(['python{}.{}'.format(
+                sys.version_info[0], sys.version_info[1]),
+                os.path.join(my_test, 'test.py'),
+                '1' if offset != 0 else '0'])
 
-                args = []
-                __saver(myphi, 'phi', args)
-                __saver(param[offset:offset + this_run], 'param', args)
-                del myphi
+            # get error
+            err_dict = self.helper.eval_error(
+                this_run, state['order'], outf, out_names, ref_ans, err_dict)
 
-                # get reference outputs
-                out_names, ref_ans = helper.get_outputs(state, offset, this_run,
-                                                        asplit)
+            # cleanup
+            for x in args + outf:
+                os.remove(x)
+            for x in testfiles:
+                os.remove(x)
+            os.remove(os.path.join(my_test, 'test.py'))
 
-                # save for comparison
-                testfiles = []
-                for i in range(len(ref_ans)):
-                    out = ref_ans[i]
-                    # and flatten in correct order
-                    out = out.flatten(order=order)
-                    __saver(out, out_names[i], testfiles)
-                    del out
-                outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
-                        for name in out_names]
+            # finally update the offset
+            offset += self.cond_per_run
 
-                # write the module tester
-                with open(os.path.join(my_test, 'test.py'), 'w') as file:
-                    file.write(mod_test.safe_substitute(
-                        package='pyjac_{}'.format(package_lang[lang]),
-                        input_args=', '.join('"{}"'.format(x) for x in args),
-                        test_arrays=', '.join('\'{}\''.format(x) for x in testfiles),
-                        non_array_args='{}, {}'.format(this_run, num_cores),
-                        call_name=str(rtype)[str(rtype).index('.') + 1:],
-                        output_files=', '.join('\'{}\''.format(x) for x in outf),
-                        looser_tols=','.join('[]' for x in testfiles),
-                        rtol=1e-5,
-                        atol=1e-8)
-                    )
-
-                # call
-                subprocess.check_call(['python{}.{}'.format(
-                    sys.version_info[0], sys.version_info[1]),
-                    os.path.join(my_test, 'test.py'),
-                    '1' if offset != 0 else '0'])
-
-                # get error
-                err_dict = helper.eval_error(
-                    this_run, state['order'], outf, out_names, ref_ans, err_dict)
-
-                # cleanup
-                for x in args + outf:
-                    os.remove(x)
-                for x in testfiles:
-                    os.remove(x)
-                os.remove(os.path.join(my_test, 'test.py'))
-
-                # finally update the offset
-                offset += cond_per_run
-
-            # and write to file
-            np.savez(data_output, **err_dict)
+        # and write to file
+        np.savez(data_output, **err_dict)
 
 
 class eval(object):
@@ -379,6 +253,13 @@ class eval(object):
 
     def get_outputs(self, state, offset, this_run, asplit):
         raise NotImplementedError
+
+    def _check_file(self, err, names, mods):
+        try:
+            return all(n + mod in err and np.all(np.isfinite(err[n + mod]))
+                       for n in names for mod in mods)
+        except:
+            return False
 
 
 class spec_rate_eval(eval):
@@ -450,12 +331,16 @@ class spec_rate_eval(eval):
             # (total concentration) due to the cantera internals
             D = P / (ct.gas_constant * T)
 
+            # get the last species's concentrations as D - sum(other species)
+            last_spec = np.expand_dims(D - np.sum(phi[:, 2:], axis=1), 1)
+            moles = np.concatenate((phi[:, 2:], last_spec), axis=1)
+
             self.gas.basis = 'molar'
             with np.errstate(divide='ignore', invalid='ignore'):
                 for i in range(self.num_conditions):
                     if not i % 10000:
                         print(i)
-                    self.gas.TDX = T[i], D[i], phi[i, 2:]
+                    self.gas.TDX = T[i], D[i], moles[i]
                     # now, since cantera normalizes these concentrations
                     # let's read them back
                     concs = self.gas.concentrations[:]
@@ -488,6 +373,7 @@ class spec_rate_eval(eval):
                             self.mw_frac * self.spec_rates[i, :-1])
 
             self.evaled = True
+            del moles
 
     def get_outputs(self, state, offset, this_run, asplit):
         conp = state['conp']
@@ -616,6 +502,42 @@ class spec_rate_eval(eval):
         del out_check
         return err_dict
 
+    def check_file(self, filename, Ns, Nr):
+        """
+        Checks a species validation file for completion
+
+        Parameters
+        ----------
+        filename: str
+            The file to check
+        Ns: int
+            The number of species in the mechanism
+        Nr: int
+            The number of reactions in the mechanism
+
+        Returns
+        -------
+        valid: bool
+            If true, the test case is complete and can be skipped
+        """
+
+        try:
+            err = np.load(filename)
+            names = ['rop_fwd', 'rop_rev', 'pres_mod', 'rop_net', 'dphi']
+            mods = ['', '_value', '_store']
+            # check that we have all expected keys, and there is no nan's, etc.
+            allclear = self._check_file(err, names, mods)
+            # check Nr size
+            allclear = allclear and np.all(
+                err[n + mod].size == Nr for n in [x for x in names if 'rop' in x]
+                for mod in mods)
+            # check Ns size
+            allclear = allclear and np.all(
+                err[n + mod].size == Ns + 1 for n in [x for x in names if 'phi' in x]
+                for mod in mods)
+        except:
+            return False
+
 
 class jacobian_eval(eval):
     """
@@ -658,8 +580,8 @@ class jacobian_eval(eval):
             'specs': self.specs,
             'conp_eqs': conp_eqs,
             'conv_eqs': conv_eqs,
-            'phi_cp': phi[:, :-1] if state['conp'] else None,
-            'phi_cv': phi[:, :-1] if not state['conp'] else None,
+            'phi_cp': phi.copy() if state['conp'] else None,
+            'phi_cv': phi.copy() if not state['conp'] else None,
             'P': P,
             'V': V,
             'test_size': self.num_conditions
@@ -726,6 +648,34 @@ class jacobian_eval(eval):
         del out_check
         return err_dict
 
+    def check_file(self, filename, Ns, Nr):
+        """
+        Checks a species validation file for completion
+
+        Parameters
+        ----------
+        filename: str
+            The file to check
+        Ns: int
+            Unused
+        Nr: int
+            Unused
+
+        Returns
+        -------
+        valid: bool
+            If true, the test case is complete and can be skipped
+        """
+
+        try:
+            err = np.load(filename)
+            names = ['jac']
+            mods = ['', '_zero', '_lapack', '_thresholded', '_weighted']
+            # check that we have all expected keys, and there is no nan's, etc.
+            self._check_file(err, names, mods)
+        except:
+            return False
+
 
 def species_rate_tester(work_dir='error_checking'):
     """Runs validation testing on pyJac's species_rate kernel, reading a series
@@ -744,7 +694,8 @@ def species_rate_tester(work_dir='error_checking'):
 
     """
 
-    __run_test(work_dir, spec_rate_eval, build_type.species_rates)
+    valid = validation_runner(spec_rate_eval, build_type.species_rates)
+    _run_mechanism_tests(work_dir, valid, build_type.species_rates)
 
 
 def jacobian_tester(work_dir='error_checking'):
@@ -764,4 +715,5 @@ def jacobian_tester(work_dir='error_checking'):
 
     """
 
-    __run_test(work_dir, jacobian_eval, build_type.jacobian)
+    valid = validation_runner(jacobian_eval, build_type.jacobian)
+    _run_mechanism_tests(work_dir, valid, build_type.jacobian)
