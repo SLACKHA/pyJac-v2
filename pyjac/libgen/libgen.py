@@ -51,6 +51,9 @@ shared_flags = dict(c=['-fPIC'],
                     opencl=['-fPIC'],
                     cuda=['-Xcompiler', '"-fPIC"']
                     )
+shared_exec_flags = dict(c=['-fPIE'],
+                         opencl=['-fPIE'])
+
 opt_flags = ['-O3']
 
 flags = dict(c=site.CC_FLAGS + opt_flags + ['-fopenmp', '-std=c99'],
@@ -132,7 +135,12 @@ def compiler(fstruct):
 
     # always use fPIC in case we're building wrapper
     args.extend(shared_flags[fstruct.build_lang])
+    # check for executable
+    if fstruct.as_executable:
+        args.extend(shared_exec_flags[fstruct.build_lang])
+    # and any other flags
     args.extend(fstruct.args)
+    # includes
     include = ['-I{}'.format(d) for d in fstruct.i_dirs +
                includes[fstruct.build_lang]
                ]
@@ -162,7 +170,7 @@ def compiler(fstruct):
     return 0
 
 
-def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
+def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
     """Create a library from a list of compiled files
 
     Parameters
@@ -211,6 +219,9 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff):
     if shared:
         command.extend(shared_flags[lang])
 
+    if as_executable:
+        command.extend(shared_exec_flags[lang])
+
     if shared or lang == 'cuda':
         command += ['-o']
         command += [os.path.join(out_dir, libname)]
@@ -240,8 +251,7 @@ class file_struct(object):
     """
 
     def __init__(self, lang, build_lang, filename, i_dirs, args,
-                 source_dir, obj_dir, shared
-                 ):
+                 source_dir, obj_dir, shared, as_executable):
         """
         Parameters
         ----------
@@ -261,6 +271,8 @@ class file_struct(object):
             The directory to place the compiled object file in
         shared : bool
             If true, this is creating a shared library
+        as_executable: bool
+            If true, this is a shared library that is also executable
         """
 
         self.lang = lang
@@ -272,6 +284,7 @@ class file_struct(object):
         self.obj_dir = obj_dir
         self.shared = shared
         self.auto_diff = False
+        self.as_executable = as_executable
 
 
 def get_file_list(source_dir, lang, btype):
@@ -330,9 +343,8 @@ def get_file_list(source_dir, lang, btype):
     return i_dirs, files
 
 
-def generate_library(lang, source_dir, obj_dir=None,
-                     out_dir=None, shared=None,
-                     btype=build_type.jacobian):
+def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
+                     btype=build_type.jacobian, as_executable=False):
     """Generate shared/static library for pyJac files.
 
     Parameters
@@ -349,8 +361,11 @@ def generate_library(lang, source_dir, obj_dir=None,
         If ``True``, include finite differences
     auto_diff : bool
         If ``True``, include autodifferentiation
-    btype: :class:`build_type`
+    btype: :class:`build_type` [build_type.jacobian]
         The type of library being built
+    as_executable: bool [False]
+        If true, the generated library should use the '-fPIE' flag (or equivalent)
+        to be executable
 
     Returns
     -------
@@ -366,6 +381,10 @@ def generate_library(lang, source_dir, obj_dir=None,
 
     if lang == 'cuda' and shared:
         logging.error('CUDA does not support linking of shared device libraries.')
+        sys.exit(-1)
+
+    if not shared and as_executable:
+        logging.error('Can only make an executable out of a shared library')
         sys.exit(-1)
 
     build_lang = lang if lang != 'icc' else 'c'
@@ -392,7 +411,8 @@ def generate_library(lang, source_dir, obj_dir=None,
 
     # Compile generated source code
     structs = [file_struct(lang, build_lang, f, i_dirs, [],
-                           source_dir, obj_dir, shared) for f in files]
+                           source_dir, obj_dir, shared, as_executable)
+               for f in files]
 
     pool = multiprocessing.Pool()
     results = pool.map(compiler, structs)
@@ -401,5 +421,5 @@ def generate_library(lang, source_dir, obj_dir=None,
     if any(r == -1 for r in results):
         sys.exit(-1)
 
-    libname = libgen(lang, obj_dir, out_dir, files, shared, False)
+    libname = libgen(lang, obj_dir, out_dir, files, shared, False, as_executable)
     return os.path.join(out_dir, libname)
