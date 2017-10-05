@@ -731,6 +731,10 @@ class runner(object):
     A base class for running the :func:`_run_mechanism_tests`
     """
 
+    def __init__(self, rtype=build_type.jacobian):
+        self.rtype = rtype
+        self.descriptor = 'jac' if rtype == build_type.jacobian else 'spec'
+
     def pre(self, gas, data, num_conditions, max_vec_width):
         raise NotImplementedError
 
@@ -752,7 +756,7 @@ class runner(object):
                                np.reshape(extra, (-1, 1)), moles[:, :-1]), axis=1)
 
 
-def _run_mechanism_tests(work_dir, run, rtype=build_type.jacobian):
+def _run_mechanism_tests(work_dir, run):
     """
     This method is used to consolidate looping for the :mod:`peformance_tester`
     and :mod:`functional tester, as they have very similar execution patterns
@@ -763,12 +767,13 @@ def _run_mechanism_tests(work_dir, run, rtype=build_type.jacobian):
         The directory to run / check in
     run: :class:`runner`
         The code / function to be run for each state of the :class:`OptionLoop`
-    rtype: :class:`build_type` [build_type.jacobian]
-        The type of test (species rates / jacobian) to run
     Returns
     -------
     None
     """
+
+    # pull the run type
+    rtype = run.rtype
 
     obj_dir = 'obj'
     build_dir = 'out'

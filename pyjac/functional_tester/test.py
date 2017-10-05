@@ -49,9 +49,8 @@ class validation_runner(runner):
         rtype: :class:`build_type` [build_type.jacobian]
             The type of test to run
         """
+        super(validation_runner, self).__init__(rtype)
         self.eval_class = eval_class
-        self.rtype = rtype
-        self.descriptor = 'jac' if rtype == build_type.jacobian else 'spec'
         self.package_lang = {'opencl': 'ocl',
                              'c': 'c'}
         self.mod_test = test_utils.get_run_source()
@@ -269,8 +268,7 @@ class spec_rate_eval(eval):
     def __init__(self, gas, num_conditions, atol=1e-10, rtol=1e-6):
         self.atol = atol
         self.rtol = rtol
-        self.evaled = False
-        self.spec_rates = np.zeros((num_conditions, gas.n_species))
+        self.molar_rates = np.zeros((num_conditions, gas.n_species - 1))
         self.conp_temperature_rates = np.zeros((num_conditions, 1))
         self.conv_temperature_rates = np.zeros((num_conditions, 1))
         self.conp_extra_rates = np.zeros((num_conditions, 1))
@@ -345,7 +343,8 @@ class spec_rate_eval(eval):
                     # let's read them back
                     concs = self.gas.concentrations[:]
                     # get molar species rates
-                    self.spec_rates[i, :] = self.gas.net_production_rates[:] * V[i]
+                    spec_rates = self.gas.net_production_rates[:]
+                    self.molar_rates[i, :] = spec_rates[:-1] * V[i]
                     # info vars
                     self.rop_fwd_test[i, :] = self.gas.forward_rates_of_progress[:]
                     self.rop_rev_test[i, :] = self.gas.reverse_rates_of_progress[:][
@@ -357,20 +356,20 @@ class spec_rate_eval(eval):
                     h = eval_h(ns_range, T[i])
                     cv = cp - ct.gas_constant
                     u = h - T[i] * ct.gas_constant
-                    np.divide(-np.dot(h, self.spec_rates[i, :]), np.dot(cp, concs),
+                    np.divide(-np.dot(h, spec_rates), np.dot(cp, concs),
                               out=self.conp_temperature_rates[i, :])
-                    np.divide(-np.dot(u, self.spec_rates[i, :]), np.dot(cv, concs),
+                    np.divide(-np.dot(u, spec_rates), np.dot(cv, concs),
                               out=self.conv_temperature_rates[i, :])
 
                     # finally find extra variable rates
                     self.conp_extra_rates[i] = V[i] * (
                         T[i] * ct.gas_constant * np.sum(
-                            self.mw_frac * self.spec_rates[i, :-1]) / P[i] +
+                            self.mw_frac * spec_rates[:-1]) / P[i] +
                         self.conp_temperature_rates[i, :] / T[i])
                     self.conv_extra_rates[i] = (
                         P[i] / T[i]) * self.conv_temperature_rates[i, :] + \
                         T[i] * ct.gas_constant * np.sum(
-                            self.mw_frac * self.spec_rates[i, :-1])
+                            self.mw_frac * spec_rates[:-1])
 
             self.evaled = True
             del moles
@@ -383,7 +382,7 @@ class spec_rate_eval(eval):
         extra_rates = self.conp_extra_rates if conp else self.conv_extra_rates
         dphi = np.concatenate((temperature_rates[offset:offset + this_run, :],
                                extra_rates[offset:offset + this_run, :],
-                               self.spec_rates[offset:offset + this_run, :-1]),
+                               self.molar_rates[offset:offset + this_run, :]),
                               axis=1)
         out_arrays = [dphi,
                       self.rop_fwd_test[offset:offset + this_run, :],
@@ -650,7 +649,7 @@ class jacobian_eval(eval):
 
     def check_file(self, filename, Ns, Nr):
         """
-        Checks a species validation file for completion
+        Checks a jacobian validation file for completion
 
         Parameters
         ----------
@@ -695,7 +694,7 @@ def species_rate_tester(work_dir='error_checking'):
     """
 
     valid = validation_runner(spec_rate_eval, build_type.species_rates)
-    _run_mechanism_tests(work_dir, valid, build_type.species_rates)
+    _run_mechanism_tests(work_dir, valid)
 
 
 def jacobian_tester(work_dir='error_checking'):
@@ -716,4 +715,4 @@ def jacobian_tester(work_dir='error_checking'):
     """
 
     valid = validation_runner(jacobian_eval, build_type.jacobian)
-    _run_mechanism_tests(work_dir, valid, build_type.jacobian)
+    _run_mechanism_tests(work_dir, valid)
