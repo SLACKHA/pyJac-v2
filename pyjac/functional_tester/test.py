@@ -522,18 +522,19 @@ class spec_rate_eval(eval):
 
         try:
             err = np.load(filename)
-            names = ['rop_fwd', 'rop_rev', 'pres_mod', 'rop_net', 'dphi']
+            names = ['rop_fwd', 'rop_rev', 'rop_net', 'dphi']
             mods = ['', '_value', '_store']
             # check that we have all expected keys, and there is no nan's, etc.
             allclear = self._check_file(err, names, mods)
             # check Nr size
-            allclear = allclear and np.all(
+            allclear = allclear and all(
                 err[n + mod].size == Nr for n in [x for x in names if 'rop' in x]
                 for mod in mods)
             # check Ns size
-            allclear = allclear and np.all(
+            allclear = allclear and all(
                 err[n + mod].size == Ns + 1 for n in [x for x in names if 'phi' in x]
                 for mod in mods)
+            return allclear
         except:
             return False
 
