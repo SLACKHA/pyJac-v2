@@ -72,9 +72,10 @@ class validation_runner(runner):
 
         Ns = self.gas.n_species
         Nr = self.gas.n_reactions
-        return self.helper.check_file(filename, Ns, Nr)
+        return self.helper.check_file(filename, Ns, Nr, self.current_vecwidth)
 
     def get_filename(self, state):
+        self.current_vecwidth = state['vecsize']
         return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
                 self.descriptor, state['lang'], state['vecsize'], state['order'],
                 'w' if state['wide'] else 'd' if state['deep'] else 'par',
@@ -501,7 +502,15 @@ class spec_rate_eval(eval):
         del out_check
         return err_dict
 
-    def check_file(self, filename, Ns, Nr):
+    def _check_size(self, err, names, mods, size, vecwidth):
+        non_conformant = [n + mod for n in names for mod in mods
+                          if err[n + mod].size != size]
+        if not non_conformant:
+            return True
+        return all(np.all(err[x][size:] == 0) and err[x].size % vecwidth == 0
+                   for x in non_conformant)
+
+    def check_file(self, filename, Ns, Nr, current_vecwidth):
         """
         Checks a species validation file for completion
 
@@ -513,6 +522,11 @@ class spec_rate_eval(eval):
             The number of species in the mechanism
         Nr: int
             The number of reactions in the mechanism
+        current_vecwidth: int
+            The curent vector width being used.  If the current state results in
+            an array split, this may make the stored error arrays larger than
+            expected, so we must check that they are divisible by current_vecwidth
+            and the extra entries are identically zero
 
         Returns
         -------
@@ -522,18 +536,18 @@ class spec_rate_eval(eval):
 
         try:
             err = np.load(filename)
-            names = ['rop_fwd', 'rop_rev', 'pres_mod', 'rop_net', 'dphi']
+            names = ['rop_fwd', 'rop_rev', 'rop_net', 'dphi']
             mods = ['', '_value', '_store']
             # check that we have all expected keys, and there is no nan's, etc.
             allclear = self._check_file(err, names, mods)
             # check Nr size
-            allclear = allclear and np.all(
-                err[n + mod].size == Nr for n in [x for x in names if 'rop' in x]
-                for mod in mods)
+            allclear = allclear and self._check_size(
+                err, [x for x in names if 'rop' in x], mods, Nr, current_vecwidth)
             # check Ns size
-            allclear = allclear and np.all(
-                err[n + mod].size == Ns + 1 for n in [x for x in names if 'phi' in x]
-                for mod in mods)
+            allclear = allclear and self._check_size(
+                err, [x for x in names if 'phi' in x], mods, Ns + 1,
+                current_vecwidth)
+            return allclear
         except:
             return False
 
@@ -647,7 +661,7 @@ class jacobian_eval(eval):
         del out_check
         return err_dict
 
-    def check_file(self, filename, Ns, Nr):
+    def check_file(self, filename, Ns, Nr, current_vecwidth):
         """
         Checks a jacobian validation file for completion
 
@@ -658,6 +672,8 @@ class jacobian_eval(eval):
         Ns: int
             Unused
         Nr: int
+            Unused
+        current_vecwidth: int
             Unused
 
         Returns
