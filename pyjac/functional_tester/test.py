@@ -541,22 +541,12 @@ class spec_rate_eval(eval):
             # check that we have all expected keys, and there is no nan's, etc.
             allclear = self._check_file(err, names, mods)
             # check Nr size
-<<<<<<< HEAD
-            allclear = allclear and all(
-                err[n + mod].size == Nr for n in [x for x in names if 'rop' in x]
-                for mod in mods)
-            # check Ns size
-            allclear = allclear and all(
-                err[n + mod].size == Ns + 1 for n in [x for x in names if 'phi' in x]
-                for mod in mods)
-=======
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'rop' in x], mods, Nr, current_vecwidth)
             # check Ns size
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'phi' in x], mods, Ns + 1,
                 current_vecwidth)
->>>>>>> jacobian
             return allclear
         except:
             return False

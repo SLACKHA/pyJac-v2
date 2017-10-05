@@ -36,7 +36,6 @@ class RateSpecialization(IntEnum):
 
 
 class JacobianType(IntEnum):
-
     """
     The Jacobian type to be constructed.
     A full Jacobian has no approximations for reactions including the last species,
@@ -45,7 +44,20 @@ class JacobianType(IntEnum):
     body species) while in a reaction including the last species
     """
     full = 0,
-    approximate = 1,
+    approximate = 1
+
+
+class JacobianFormat(IntEnum):
+    """
+    The Jacobian format to use, full or sparse.
+
+    A full Jacobian will include all zeros, while a sparse Jacobian will use either
+    a Compressed Row/Column storage based format depending on the data-order ('C'
+    and 'F' respectively)
+    """
+
+    full = 0,
+    sparse = 1
 
 
 class loopy_options(object):
@@ -103,13 +115,18 @@ class loopy_options(object):
         concentrations).  If False, use global device memory (requiring passing in
         from kernel call). Note for C use_private_memory==True corresponds to
         stack based memory allocation
+    jac_type: :class:`JacobianType` [JacobianType.full]
+        The type of Jacobian kernel (full or approximate) to generate
+    jac_format: :class:`JacobianFormat` [JacobianFormat.full]
+        The format of Jacobian kernel (full or sparse) to generate
     """
 
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False, rop_net_kernels=False,
                  platform='', knl_type='map', auto_diff=False, use_atomics=True,
-                 use_private_memory=False):
+                 use_private_memory=False, jac_type=JacobianType.full,
+                 jac_format=JacobianFormat.full):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -135,6 +152,8 @@ class loopy_options(object):
         self.auto_diff = auto_diff
         self.use_atomics = use_atomics
         self.use_private_memory = use_private_memory
+        self.jac_format = jac_format
+        self.jac_type = jac_type
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform:

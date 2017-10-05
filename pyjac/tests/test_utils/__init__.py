@@ -335,7 +335,8 @@ class get_comparable(object):
 
 
 def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
-                        do_conp=True, langs=['opencl'], do_vector=True):
+                        do_conp=True, langs=['opencl'], do_vector=True,
+                        sparse=False):
 
     platforms = get_test_platforms(do_vector=do_vector, langs=langs)
     eqs = {'conp': owner.store.conp_eqs,
@@ -352,6 +353,10 @@ def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
             ('rop_net_kernels', [True])]
     if do_conp:
         oploop += [('conp', [True, False])]
+    if sparse:
+        oploop += [('jac_format', ['sparse'])]
+    else:
+        oploop += [('jac_format', ['full'])]
     oploop += [('knl_type', ['map'])]
     out = None
     for p in platforms:
@@ -366,7 +371,7 @@ def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    langs=['opencl'], **kw_args):
+                    sparse=False, langs=['opencl'], **kw_args):
     """
     A generic testing method that can be used for to test the correctness of
     any _pyJac_ kernel via the supplied :class:`kernel_call`'s
@@ -394,12 +399,15 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         If true, use vectorization in testing
     langs: ['opencl']
         The testing languages, @see utils.langs for allowed languages
+    sparse: bool [False]
+        If true, use a sparse jacobian
     kwargs: dict
         Any additional arguements to pass to the :param:`func`
     """
 
     eqs, oploop = _get_eqs_and_oploop(owner, do_ratespec=do_ratespec,
-                                      do_ropsplit=do_ropsplit, do_conp=do_conp)
+                                      do_ropsplit=do_ropsplit, do_conp=do_conp,
+                                      sparse=sparse)
 
     reacs = owner.store.reacs
     specs = owner.store.specs
