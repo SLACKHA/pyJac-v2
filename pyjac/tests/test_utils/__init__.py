@@ -944,3 +944,33 @@ def _run_mechanism_tests(work_dir, run):
             run.run(state.copy(), asplit, dirs, data_output)
 
         del run
+
+
+def platform_is_gpu(platform_name):
+    """
+    Attempts to determine if the given platform name corresponds to a GPU
+
+    Parameters
+    ----------
+    platform_name: str
+        The name of the platform to check
+
+    Returns
+    -------
+    is_gpu: bool or None
+        True if platform found and the device type is GPU
+        False if platform found and the device type is not GPU
+        None otherwise
+    """
+    import pyopencl as cl
+    for p in cl.get_platforms():
+        if platform_name.lower() in p.name.lower():
+            # match, get device type
+            dtype = set(d.type for d in p.get_devices())
+            assert len(dtype) == 1, (
+                "Mixed device types on platform {}".format(p.name))
+            # fix cores for GPU
+            if cl.device_type.GPU in dtype:
+                return True
+            return False
+    return None

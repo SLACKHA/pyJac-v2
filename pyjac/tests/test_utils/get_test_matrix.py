@@ -5,6 +5,7 @@ import cantera as ct
 from collections import OrderedDict
 from optionloop import OptionLoop
 from .. import get_test_platforms
+from . import platform_is_gpu
 
 
 def get_test_matrix(work_dir):
@@ -90,19 +91,10 @@ def get_test_matrix(work_dir):
             widths = vec_widths
             if _get_key(platform, 'lang') == 'opencl':
                 # test platform type
-                import pyopencl as cl
                 pname = _get_key(platform, 'platform')
-                for p in cl.get_platforms():
-                    if pname.lower() in p.name.lower():
-                        # match, get device type
-                        dtype = set(d.type for d in p.get_devices())
-                        assert len(dtype) == 1, (
-                            "Mixed device types on platform {}".format(p.name))
-                        # fix cores for GPU
-                        if cl.device_type.GPU in dtype:
-                            cores = [1]
-                            widths = gpu_width
-                            break
+                if platform_is_gpu(pname):
+                    cores = [1]
+                    widths = gpu_width
 
             if _any_key(platform, 'width') or _any_key(platform, 'depth'):
                 # set vec widths
