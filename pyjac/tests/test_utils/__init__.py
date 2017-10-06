@@ -800,7 +800,6 @@ def _run_mechanism_tests(work_dir, run):
         # ensure directory structure is valid
         this_dir = os.path.join(work_dir, mech_name)
         this_dir = os.path.abspath(this_dir)
-        os.chdir(this_dir)
         my_obj = os.path.join(this_dir, obj_dir)
         my_build = os.path.join(this_dir, build_dir)
         my_test = os.path.join(this_dir, test_dir)
@@ -808,7 +807,8 @@ def _run_mechanism_tests(work_dir, run):
         utils.create_dir(my_build)
         utils.create_dir(my_test)
 
-        dirs = {'test': my_test,
+        dirs = {'run': this_dir,
+                'test': my_test,
                 'build': my_build,
                 'obj': my_obj}
 
@@ -846,7 +846,7 @@ def _run_mechanism_tests(work_dir, run):
             [], directory=os.path.join(work_dir, mech_name))
 
         # rewrite data to file in 'C' order
-        dbw.write(os.path.join(this_dir))
+        dbw.write(this_dir)
 
         # figure out the number of conditions to test
         num_conditions = int(
@@ -875,7 +875,6 @@ def _run_mechanism_tests(work_dir, run):
         # begin iterations
         from collections import defaultdict
         done_parallel = defaultdict(lambda: False)
-        the_path = os.getcwd()
         op = oploop.copy()
         for i, state in enumerate(op):
             # remove any old builds
@@ -909,7 +908,7 @@ def _run_mechanism_tests(work_dir, run):
             data_output = run.get_filename(state.copy())
 
             # if already run, continue
-            data_output = os.path.join(the_path, data_output)
+            data_output = os.path.join(this_dir, data_output)
             if run.check_file(data_output):
                 continue
 

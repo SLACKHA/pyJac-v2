@@ -138,7 +138,7 @@ class validation_runner(runner):
             The array splitter to use in modifying state arrays
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
-            Has the keys "build", "test" and "obj"
+            Has the keys "build", "test", "obj" and "run"
         data_output: str
             The file to output the results to
 
