@@ -314,6 +314,9 @@ def assign_rates(reacs, specs, rate_spec):
     try:
         troe_a, troe_T3, troe_T1, troe_T2 = [
             np.array(x, dtype=np.float64) for x in zip(*troe_par)]
+        # and invert
+        troe_T1 = 1. / troe_T1
+        troe_T3 = 1. / troe_T3
     except ValueError:
         troe_a = np.empty(0)
         troe_T3 = np.empty(0)
@@ -2512,15 +2515,14 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     # create mapper
     mapstore = arc.MapStore(loopy_opts,
-                            namestore.troe_map, namestore.troe_mask)
+                            namestore.num_troe, namestore.num_troe)
 
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
     # add maps / masks
-    mapstore.check_and_add_transform(namestore.Fcent, namestore.num_troe)
-    mapstore.check_and_add_transform(namestore.Atroe, namestore.num_troe)
-    mapstore.check_and_add_transform(namestore.Btroe, namestore.num_troe)
+    mapstore.check_and_add_transform(namestore.Fi, namestore.troe_map)
+    mapstore.check_and_add_transform(namestore.Pr, namestore.troe_map)
 
     # create the Pr loopy array / string
     Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
@@ -2543,21 +2545,6 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     # update the kernel_data
     kernel_data.extend([Pr_lp, T_lp, Fi_lp, Fcent_lp, Atroe_lp, Btroe_lp])
 
-    # find the falloff form equations
-    Fi_sym = next(x for x in conp_eqs if str(x) == 'F_{i}')
-    keys = conp_eqs[Fi_sym]
-    Fi = {}
-    for key in keys:
-        fall_form = next(x for x in key if isinstance(x, falloff_form))
-        Fi[fall_form] = conp_eqs[Fi_sym][key]
-
-    # get troe syms / eqs
-    Fcent = next(x for x in conp_eqs if str(x) == 'F_{cent}')
-    Atroe = next(x for x in conp_eqs if str(x) == 'A_{Troe}')
-    Btroe = next(x for x in conp_eqs if str(x) == 'B_{Troe}')
-    Fcent_eq, Atroe_eq, Btroe_eq = conp_eqs[
-        Fcent], conp_eqs[Atroe], conp_eqs[Btroe]
-
     # get troe params and create arrays
     troe_a_lp, troe_a_str = mapstore.apply_maps(namestore.troe_a, var_name)
     troe_T3_lp, troe_T3_str = mapstore.apply_maps(namestore.troe_T3, var_name)
@@ -2565,90 +2552,36 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     troe_T2_lp, troe_T2_str = mapstore.apply_maps(namestore.troe_T2, var_name)
     # update the kernel_data
     kernel_data.extend([troe_a_lp, troe_T3_lp, troe_T1_lp, troe_T2_lp])
-    # sub into eqs
-    Fcent_eq = sp_utils.sanitize(Fcent_eq, subs={
-        'a': troe_a_str,
-        'T^{*}': troe_T1_str,
-        'T^{***}': troe_T3_str,
-        'T^{**}': troe_T2_str,
-    })
-
-    # now separate into optional / base parts
-    Fcent_base_eq = sp.Add(
-        *[x for x in sp.Add.make_args(Fcent_eq)
-          if not sp.Symbol(troe_T2_str) in x.free_symbols])
-    Fcent_opt_eq = Fcent_eq - Fcent_base_eq
-
-    # develop the Atroe / Btroe eqs
-    Atroe_eq = sp_utils.sanitize(Atroe_eq, subs=OrderedDict([
-        ('F_{cent}', Fcent_str),
-        ('P_{r, i}', Pr_str),
-        (sp.log(sp.Symbol(Pr_str), 10), 'logPr'),
-        (sp.log(sp.Symbol(Fcent_str), 10), sp.Symbol('logFcent'))
-    ]))
-
-    Btroe_eq = sp_utils.sanitize(Btroe_eq, subs=OrderedDict([
-        ('F_{cent}', Fcent_str),
-        ('P_{r, i}', Pr_str),
-        (sp.log(sp.Symbol(Pr_str), 10), 'logPr'),
-        (sp.log(sp.Symbol(Fcent_str), 10), sp.Symbol('logFcent'))
-    ]))
-
-    Fcent_temp_str = 'Fcent_temp'
-    # finally, work on the Fi form
-    Fi_eq = sp_utils.sanitize(Fi[falloff_form.troe], subs=OrderedDict([
-        ('F_{cent}', Fcent_temp_str),
-        ('A_{Troe}', Atroe_str),
-        ('B_{Troe}', Btroe_str)
-    ]))
-
-    # separate into Fcent and power
-    Fi_base_eq = next(x for x in Fi_eq.args if str(x) == Fcent_temp_str)
-    Fi_pow_eq = next(x for x in Fi_eq.args if str(x) != Fcent_temp_str)
-    Fi_pow_eq = sp_utils.sanitize(Fi_pow_eq, subs=OrderedDict([
-        (sp.Pow(sp.Symbol(Atroe_str), 2), sp.Symbol('Atroe_squared')),
-        (sp.Pow(sp.Symbol(Btroe_str), 2), sp.Symbol('Btroe_squared'))
-    ]))
 
     # make the instructions
     troe_instructions = Template("""
-    <>T = ${T_str}
-    <>${Fcent_temp} = ${Fcent_base_eq} {id=Fcent_decl} # this must be a temporary to avoid a race on future assignments
+    <>Fcent_temp = ${troe_a_str} * exp(-T * ${troe_T1_str}) \
+        + (1 - ${troe_a_str}) * exp(-T * ${troe_T3_str}) {id=Fcent_decl}
     if ${troe_T2_str} != 0
-        ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
+        Fcent_temp = Fcent_temp + exp(-${troe_T2_str} / T) \
+            {id=Fcent_decl2, dep=Fcent_decl}
     end
-    ${Fcent_str} = ${Fcent_temp} {id=Fcent_decl3, dep=Fcent_decl2}
-    <> Fcent_val = fmax(1e-300d, ${Fcent_temp}) {id=Fcv, dep=Fcent_decl3}
-    <>Pr_val = fmax(1e-300d, ${Pr_str}) {id=Prv}
-    <>logFcent = log10(Fcent_val) {dep=Fcv}
-    <>logPr = log10(Pr_val) {dep=Prv}
-    <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*}
-    <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*}
-    ${Atroe_str} = Atroe_temp # this must be a temporary to avoid a race on future assignments
-    ${Btroe_str} = Btroe_temp # this must be a temporary to avoid a race on future assignments
-    <>Atroe_squared = Atroe_temp * Atroe_temp
-    <>Btroe_squared = Btroe_temp * Btroe_temp
-    ${Fi_str} = ${Fi_base_eq}**(${Fi_pow_eq}) {dep=Fcent_decl*}
-    """).safe_substitute(T_str=T_str,
-                         Fcent_temp=Fcent_temp_str,
-                         Fcent_str=Fcent_str,
-                         Fcent_base_eq=Fcent_base_eq,
-                         Fcent_opt_eq=Fcent_opt_eq,
-                         troe_T2_str=troe_T2_str,
-                         Pr_str=Pr_str,
-                         Atroe_eq=Atroe_eq,
-                         Btroe_eq=Btroe_eq,
-                         Atroe_str=Atroe_str,
-                         Btroe_str=Btroe_str,
-                         Fi_str=Fi_str,
-                         Fi_base_eq=Fi_base_eq,
-                         Fi_pow_eq=Fi_pow_eq)
+    ${Fcent_str} = Fcent_temp {id=Fcent_decl3, dep=Fcent_decl2}
+    <>logFcent = log10(fmax(1e-300d, Fcent_temp)) {dep=Fcent_decl3}
+    <>logPr = log10(fmax(1e-300d, ${Pr_str}))
+    <>Atroe_temp = -0.67 * logFcent + logPr - 0.4 {dep=Fcent_decl*}
+    <>Btroe_temp = -1.1762 * logFcent - 0.14 * logPr + 0.806 {dep=Fcent_decl*}
+    ${Atroe_str} = Atroe_temp
+    ${Btroe_str} = Btroe_temp
+    ${Fi_str} = Fcent_temp**(1 / (((Atroe_temp * Atroe_temp) / \
+        (Btroe_temp * Btroe_temp) + 1))) {id=Fi, dep=Fcent_decl*}
+    """).safe_substitute(**locals())
+
+    vec_spec = ic.write_race_silencer(['Fi'])
 
     return [k_gen.knl_info('fall_troe',
+                           pre_instructions=[ic.default_pre_instructs(
+                                'T', T_str, 'VAL')],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
+                           vectorization_specializer=vec_spec,
                            manglers=[lp_pregen.fmax()])]
 
 

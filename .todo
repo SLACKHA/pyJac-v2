@@ -1,5 +1,7 @@
 v2 tasks:
-  ☐ Test Jacobian
+  ☐ Shuffle reactions in tech mech (and synch with chemkin version) to avoid masked
+    problems where the map index == the actual index (e.g. with recent troe problem
+    d60bd02)
   ☐ Implement sparse Jacobian
   ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.)
 Improvements:
