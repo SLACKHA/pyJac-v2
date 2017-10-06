@@ -2129,7 +2129,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
                 ic.default_pre_instructs('Tval', T_str, 'VAL'))
             dFi_instructions = Template("""
                 <> dFcent = -${troe_a_str} * ${troe_T1_str} * \
-                exp(-Tval * ${troe_T1_str}) + (1 - ${troe_a_str}) * ${troe_T3_str} *\
+                exp(-Tval * ${troe_T1_str}) + (${troe_a_str} - 1) * ${troe_T3_str} *\
                 exp(-Tval * ${troe_T3_str}) + ${troe_T2_str} * Tinv * Tinv * \
                     exp(-${troe_T2_str} * Tinv)
                 <> logFcent = log(${Fcent_str})
