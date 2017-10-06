@@ -1651,20 +1651,9 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    # set of eqn's doesn't matter
-    conp_eqs = eqs['conp']
-
     # add the reverse map
     rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
                            namestore.rev_mask)
-
-    # find Kc equation
-    Kc_sym = next(x for x in conp_eqs if str(x) == '{K_c}[i]')
-    Kc_eqn = conp_eqs[Kc_sym]
-    nu_sym = next(x for x in Kc_eqn.free_symbols if str(x) == 'nu[k, i]')
-    B_sym = next(x for x in Kc_eqn.free_symbols if str(x) == 'B[k]')
-    kr_sym = next(x for x in conp_eqs if str(x) == '{k_r}[i]')
-    # kf_sym = next(x for x in conp_eqs if str(x) == '{k_f}[i]')
 
     # map from reverse reaction index to forward reaction index
     rev_map.check_and_add_transform(
@@ -1704,25 +1693,6 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     # the Kc array on the main loop, no map as this is only reversible
     Kc_lp, Kc_str = rev_map.apply_maps(namestore.Kc, *default_inds)
 
-    # modify Kc equation
-    Kc_eqn = sp_utils.sanitize(conp_eqs[Kc_sym],
-                               symlist={'nu': nu_sym,
-                                        'B': B_sym},
-                               subs={
-        sp.Sum(nu_sym, (sp.Idx('k'), 1, sp.Symbol('N_s'))): nu_sum_str})
-
-    # insert the B sum into the Kc equation
-    Kc_eqn_Pres = next(
-        x for x in sp.Mul.make_args(Kc_eqn) if x.has(sp.Symbol('R_u')))
-    Kc_eqn_exp = Kc_eqn / Kc_eqn_Pres
-    Kc_eqn_exp = sp_utils.sanitize(Kc_eqn_exp,
-                                   symlist={'nu': nu_sym,
-                                            'B': B_sym},
-                                   subs={
-                                       sp.Sum(B_sym * nu_sym,
-                                              (sp.Idx('k'), 1, sp.Symbol('N_s')
-                                               )): 'B_sum'})
-
     # create the kf array / str
     kf_arr, kf_str = rev_map.apply_maps(
         namestore.kf, *default_inds)
@@ -1730,18 +1700,6 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     # create the kr array / str (no map as we're looping over rev inds)
     kr_arr, kr_str = rev_map.apply_maps(
         namestore.kr, *default_inds)
-
-    # get the kr eqn
-    Kc_temp_str = 'Kc_temp'
-    # for some reason this substitution is poorly behaved
-    # hence we just do this rather than deriving from sympy for the moment
-    # kr_eqn = sp.Symbol(kf_str) / sp.Symbol(Kc_temp_str)
-    kr_eqn = sp_utils.sanitize(conp_eqs[kr_sym][
-        (reversible_type.non_explicit,)],
-        symlist={'{k_f}[i]': sp.Symbol('kf[i]'),
-                 '{K_c}[i]': sp.Symbol('Kc[i]')},
-        subs={'kf[i]': kf_str,
-              'Kc[i]': Kc_temp_str})
 
     # update kernel data
     kernel_data.extend([nu_sum_lp, spec_lp, num_spec_offsets_lp,
@@ -1771,7 +1729,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     if (int)${nu_sum} == ${nu_sum}
         P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
     else
-        P_sum = fast_powf(P_val, ${nu_sum}) {id=P_accum2, dep=P_val_decl*}
+        P_sum = fast_powf(P_val, fabs(${nu_sum})) {id=P_accum2, dep=P_val_decl*}
     end""").substitute(nu_sum=nu_sum_str)
 
         pressure_prod = k_gen.subs_at_indent(pressure_prod_temp, 'pprod',
@@ -1802,13 +1760,10 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                     )
 
     Rate_assign = Template("""
-    <>${Kc_temp_str} = P_sum * B_sum {dep=P_accum*:B_final}
-    ${Kc_val} = ${Kc_temp_str}
-    ${kr_val} = ${rev_eqn}
-    """).safe_substitute(Kc_val=Kc_str,
-                         Kc_temp_str=Kc_temp_str,
-                         kr_val=kr_str,
-                         rev_eqn=kr_eqn)
+    <>Kc_temp = P_sum * B_sum {dep=P_accum*:B_final}
+    ${Kc_str} = Kc_temp
+    ${kr_str} = ${kf_str} / Kc_temp
+    """).safe_substitute(**locals())
 
     instructions = '\n'.join([Bsum_inst, pressure_prod, Rate_assign])
 
