@@ -10,9 +10,7 @@ import logging
 import inspect
 from string import Template
 
-import six
 import loopy as lp
-import numpy as np
 from loopy.types import AtomicType
 from .array_creator import var_name
 
