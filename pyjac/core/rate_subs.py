@@ -889,7 +889,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                 """
             ).safe_substitute(**locals())]
 
-    if ic.use_atomics(loopy_opts):
+    if loopy_opts.depth:
         can_vectorize, vec_spec = ic.get_deep_specializer(
             loopy_opts, atomic_ids=['final', 'temp_sum'],
             init_ids=['init', 'temp_init'])
