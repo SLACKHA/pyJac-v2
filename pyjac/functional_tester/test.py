@@ -72,7 +72,8 @@ class validation_runner(runner):
 
         Ns = self.gas.n_species
         Nr = self.gas.n_reactions
-        return self.helper.check_file(filename, Ns, Nr, self.current_vecwidth)
+        Nrev = len([x for x in self.gas.reactions() if x.reversible])
+        return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecwidth)
 
     def get_filename(self, state):
         self.current_vecwidth = state['vecsize']
@@ -138,7 +139,7 @@ class validation_runner(runner):
             The array splitter to use in modifying state arrays
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
-            Has the keys "build", "test" and "obj"
+            Has the keys "build", "test", "obj" and "run"
         data_output: str
             The file to output the results to
 
@@ -473,9 +474,12 @@ class spec_rate_eval(eval):
 
                 rop_rev_err = np.zeros(rop_fwd_err.size)
                 rev_mask = tuple(x[self.rev_map] for x in err_mask)
+                our_rev_mask = tuple((
+                    x if not np.allclose(x, self.rev_map)
+                    else np.arange(self.rev_map.size) for x in rev_mask))
                 rop_rev_err[self.rev_map] = np.abs(
-                    out_check[rev_ind][rev_mask] -
-                    reference_answers[rev_ind][rev_mask])
+                    out_check[rev_ind][our_rev_mask] -
+                    reference_answers[rev_ind][our_rev_mask])
                 # now find maximum of error in fwd / rev ROP
                 rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
 
@@ -510,7 +514,7 @@ class spec_rate_eval(eval):
         return all(np.all(err[x][size:] == 0) and err[x].size % vecwidth == 0
                    for x in non_conformant)
 
-    def check_file(self, filename, Ns, Nr, current_vecwidth):
+    def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
         """
         Checks a species validation file for completion
 
@@ -522,6 +526,8 @@ class spec_rate_eval(eval):
             The number of species in the mechanism
         Nr: int
             The number of reactions in the mechanism
+        Nrev: int
+            The number of reversible reactions in the mechanism
         current_vecwidth: int
             The curent vector width being used.  If the current state results in
             an array split, this may make the stored error arrays larger than
@@ -542,7 +548,12 @@ class spec_rate_eval(eval):
             allclear = self._check_file(err, names, mods)
             # check Nr size
             allclear = allclear and self._check_size(
-                err, [x for x in names if 'rop' in x], mods, Nr, current_vecwidth)
+                err, [x for x in names if ('rop_fwd' in x or 'rop_net' in x)],
+                mods, Nr, current_vecwidth)
+            # check reversible
+            allclear = allclear and self._check_size(
+                err, [x for x in names if 'rop_rev' in x],
+                mods, Nr, current_vecwidth)
             # check Ns size
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'phi' in x], mods, Ns + 1,
@@ -661,7 +672,7 @@ class jacobian_eval(eval):
         del out_check
         return err_dict
 
-    def check_file(self, filename, Ns, Nr, current_vecwidth):
+    def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
         """
         Checks a jacobian validation file for completion
 
@@ -672,6 +683,8 @@ class jacobian_eval(eval):
         Ns: int
             Unused
         Nr: int
+            Unused
+        Nrev: int
             Unused
         current_vecwidth: int
             Unused
