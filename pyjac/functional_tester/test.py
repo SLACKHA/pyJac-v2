@@ -418,13 +418,13 @@ class spec_rate_eval(eval):
             i for i, x in enumerate(out_files) if 'rop_rev' in x)
         # fwd
         fwd_masked = parse_split_index(out_check[fwd_ind], self.thd_map, order)
-        fwd_masked = parse_split_index(out_check[fwd_ind], self.thd_map, order)
         out_check[fwd_ind][fwd_masked] *= out_check[pmod_ind][parse_split_index(
-            out_check[pmod_ind], np.arange(
-                self.thd_map.size, dtype=np.int32), order)]
+            out_check[pmod_ind], np.arange(self.thd_map.size, dtype=np.int32),
+            order)]
         # rev
         rev_masked = parse_split_index(out_check[rev_ind], self.rev_to_thd_map,
                                        order)
+        # thd to rev map already in thd index list, so don't need to do arange
         out_check[rev_ind][rev_masked] *= out_check[pmod_ind][parse_split_index(
             out_check[pmod_ind], self.thd_to_rev_map, order)]
 
