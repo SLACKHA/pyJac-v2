@@ -2,7 +2,7 @@
 from collections import defaultdict
 
 # local imports
-from ..core.rate_subs import (get_specrates_kernel, get_rate_eqn,
+from ..core.rate_subs import (get_specrates_kernel,
                               assign_rates, get_simple_arrhenius_rates,
                               get_plog_arrhenius_rates, get_lind_kernel,
                               get_cheb_arrhenius_rates, get_thd_body_concs,
@@ -88,21 +88,6 @@ class kf_wrapper(object):
 
 
 class SubTest(TestClass):
-
-    def test_get_rate_eqs(self):
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        pre = get_rate_eqn(eqs)
-
-        # check the form
-        assert 'exp(' + str(pre) + \
-            ')' == 'exp(A[i] - T_inv*Ta[i] + beta[i]*logT)'
-
-        pre = get_rate_eqn(eqs, index='j')
-
-        # check the form
-        assert 'exp(' + str(pre) + \
-            ')' == 'exp(A[j] - T_inv*Ta[j] + beta[j]*logT)'
 
     def test_assign_rates(self):
         reacs = self.store.reacs
