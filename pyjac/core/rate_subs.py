@@ -25,7 +25,6 @@ from ..loopy_utils import loopy_utils as lp_utils
 from .. import utils
 from . import chem_model as chem
 from ..kernel_utils import kernel_gen as k_gen
-from ..sympy_utils import sympy_utils as sp_utils
 from . reaction_types import reaction_type, falloff_form, thd_body_type
 from . import array_creator as arc
 from ..loopy_utils import preambles_and_manglers as lp_pregen
@@ -3157,61 +3156,6 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
         auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers)
-
-
-def get_rate_eqn(eqs, index='i'):
-    """Helper routine that returns the Arrenhius rate constant in exponential
-    form.
-
-    Parameters
-    ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
-    index : str
-        The index to generate the equations for, 'i' by default
-    Returns
-    -------
-    rate_eqn_pre : `sympy.Expr`
-        The rate constant before taking the exponential (sympy does odd things upon
-        doing so). This is used for various simplifications
-
-    """
-
-    conp_eqs = eqs['conp']
-
-    # define some dummy symbols for loopy writing
-    E_sym = sp.Symbol('Ta[{ind}]'.format(ind=index))
-    A_sym = sp.Symbol('A[{ind}]'.format(ind=index))
-    T_sym = sp.Symbol('T')
-    b_sym = sp.Symbol('beta[{ind}]'.format(ind=index))
-    symlist = {'Ta[i]': E_sym,
-               'A[i]': A_sym,
-               'T': T_sym,
-               'beta[i]': b_sym}
-    Tinv_sym = sp.Symbol('Tinv')
-    logA_sym = sp.Symbol('A[{ind}]'.format(ind=index))
-    logT_sym = sp.Symbol('logT')
-
-    # the rate constant is indep. of conp/conv, so just use conp for simplicity
-    kf_eqs = [x for x in conp_eqs if str(x) == '{k_f}[i]']
-
-    # do some surgery on the equations
-    kf_eqs = {key: (x, conp_eqs[x][key])
-              for x in kf_eqs for key in conp_eqs[x]}
-
-    # first load the arrenhius rate equation
-    rate_eqn = next(kf_eqs[x]
-                    for x in kf_eqs if reaction_type.elementary in x)[1]
-    rate_eqn = sp_utils.sanitize(rate_eqn,
-                                 symlist=symlist,
-                                 subs={sp.Symbol('{E_{a}}[i]') / (
-                                    sp.Symbol('R_u') * T_sym): E_sym * Tinv_sym})
-    # finally, alter to exponential form:
-    rate_eqn_pre = sp.log(A_sym) + sp.log(T_sym) * b_sym - E_sym * Tinv_sym
-    rate_eqn_pre = rate_eqn_pre.subs([(sp.log(A_sym), logA_sym),
-                                      (sp.log(T_sym), logT_sym)])
-
-    return rate_eqn_pre
 
 
 def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
