@@ -2514,11 +2514,10 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
         Fi_temp = Fi_temp * ${sri_d_str} {id=Fi_decl1, dep=Fi_decl}
     end
     if ${sri_e_str} != 0.0
-        Fi_temp = Fi_temp * fast_powi(${Tval}, ${sri_e_str}) \
-            {id=Fi_decl2, dep=Fi_decl}
+        Fi_temp = Fi_temp * ${Tval}**${sri_e_str} {id=Fi_decl2, dep=Fi_decl}
     end
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
-    ${X_str} = X_temp
+    ${X_sri_str} = X_temp
     """).safe_substitute(**locals())
 
     return [k_gen.knl_info('fall_sri',
@@ -2529,8 +2528,7 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           manglers=[lp_pregen.fmax()],
-                           preambles=[lp_pregen.fastpowi_PreambleGen()])]
+                           manglers=[lp_pregen.fmax()])]
 
 
 def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
