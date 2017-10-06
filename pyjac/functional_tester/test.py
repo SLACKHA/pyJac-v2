@@ -473,9 +473,12 @@ class spec_rate_eval(eval):
 
                 rop_rev_err = np.zeros(rop_fwd_err.size)
                 rev_mask = tuple(x[self.rev_map] for x in err_mask)
+                our_rev_mask = tuple((
+                    x if not np.allclose(x, self.rev_map)
+                    else np.arange(self.rev_map.size) for x in rev_mask))
                 rop_rev_err[self.rev_map] = np.abs(
-                    out_check[rev_ind][rev_mask] -
-                    reference_answers[rev_ind][rev_mask])
+                    out_check[rev_ind][our_rev_mask] -
+                    reference_answers[rev_ind][our_rev_mask])
                 # now find maximum of error in fwd / rev ROP
                 rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
 
