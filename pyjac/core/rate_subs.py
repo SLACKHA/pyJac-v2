@@ -1936,37 +1936,8 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
         return None
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.cheb_map,
+    mapstore = arc.MapStore(loopy_opts, namestore.num_cheb,
                             namestore.cheb_mask)
-
-    # the equation set doesn't matter for this application
-    # just use conp
-    conp_eqs = eqs['conp']
-
-    # find the cheb equation
-    cheb_eqn = next(x for x in conp_eqs if str(x) == 'log({k_f}[i])/log(10)')
-    cheb_form, cheb_eqn = cheb_eqn, conp_eqs[cheb_eqn][(reaction_type.cheb,)]
-    cheb_form = sp.Pow(10, sp.Symbol('kf_temp'))
-
-    # make nice symbols
-    Tinv = sp.Symbol('Tinv')
-    logP = sp.Symbol('logP')
-    Pmax, Pmin, Tmax, Tmin = sp.symbols('Pmax Pmin Tmax Tmin')
-    Pred, Tred = sp.symbols('Pred Tred')
-
-    # get tilde{T}, tilde{P}
-    T_red = next(x for x in conp_eqs if str(x) == 'tilde{T}')
-    P_red = next(x for x in conp_eqs if str(x) == 'tilde{P}')
-
-    Pred_eqn = sp_utils.sanitize(conp_eqs[P_red],
-                                 subs={sp.log(sp.Symbol('P_{min}')): Pmin,
-                                       sp.log(sp.Symbol('P_{max}')): Pmax,
-                                       sp.log(sp.Symbol('P')): logP})
-
-    Tred_eqn = sp_utils.sanitize(conp_eqs[T_red],
-                                 subs={sp.S.One / sp.Symbol('T_{min}'): Tmin,
-                                       sp.S.One / sp.Symbol('T_{max}'): Tmax,
-                                       sp.S.One / sp.Symbol('T'): Tinv})
 
     # max degrees in mechanism
     poly_max = int(np.maximum(maxP, maxT))
@@ -1984,15 +1955,7 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
 
     # create arrays
 
-    # parameters, counts and limit arrays are based on number of
-    # chebyshev reacs
-    mapstore.check_and_add_transform(namestore.cheb_numP, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_numT, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_params, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_Plim, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_Tlim, namestore.num_cheb)
-
-    # and the kf based on the map
+    # kf is based on the map
     mapstore.check_and_add_transform(namestore.kf, namestore.cheb_map)
 
     num_P_lp, num_P_str = mapstore.apply_maps(namestore.cheb_numP, var_name)
@@ -2005,10 +1968,10 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
     tlim_lp, _ = mapstore.apply_maps(namestore.cheb_Tlim, var_name, lim_ind)
 
     # workspace vars are based only on their polynomial indicies
-    pres_poly_lp, pres_poly_str = mapstore.apply_maps(namestore.cheb_pres_poly,
-                                                      pres_poly_ind)
-    temp_poly_lp, temp_poly_str = mapstore.apply_maps(namestore.cheb_temp_poly,
-                                                      temp_poly_ind)
+    pres_poly_lp, ppoly_k_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                    pres_poly_ind)
+    temp_poly_lp, tpoly_m_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                    temp_poly_ind)
 
     # create temperature and pressure arrays
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
@@ -2063,60 +2026,39 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
 <>Tmin = ${Tmin_str}
 <>Pmax = ${Pmax_str}
 <>Tmax = ${Tmax_str}
-<>Tred = ${Tred_str}
-<>Pred = ${Pred_str}
-<>numP = ${numP_str} {id=plim}
-<>numT = ${numT_str} {id=tlim}
-${ppoly_0} = 1
-${ppoly_1} = Pred
-${tpoly_0} = 1
-${tpoly_1} = Tred
+<>Tred = (-Tmax - Tmin + 2 * ${Tinv}) / (Tmax - Tmin)
+<>Pred = (-Pmax - Pmin + 2 * ${logP}) / (Pmax - Pmin)
+<>numP = ${num_P_str} {id=plim}
+<>numT = ${num_T_str} {id=tlim}
+${ppoly0_str} = 1
+${ppoly1_str} = Pred
+${tpoly0_str} = 1
+${tpoly1_str} = Tred
 #<> poly_end = max(numP, numT)
 # compute polynomial terms
 for p
     if p < numP
-        ${ppoly_p} = 2 * Pred * ${ppoly_pm1} - ${ppoly_pm2} {id=ppoly, dep=plim}
+        ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} \
+            {id=ppoly, dep=plim}
     end
     if p < numT
-        ${tpoly_p} = 2 * Tred * ${tpoly_pm1} - ${tpoly_pm2} {id=tpoly, dep=tlim}
+        ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} \
+            {id=tpoly, dep=tlim}
     end
 end
 <> kf_temp = 0
 for m
     <>temp = 0
     for k
-        temp = temp + ${ppoly_k} * ${chebpar_km} {id=temp, dep=ppoly:tpoly}
+        temp = temp + ${ppoly_k_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
     end
-    kf_temp = kf_temp + ${tpoly_m} * temp {id=kf, dep=temp}
+    kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
 end
 
-${kf_str} = ${kf_eval} {dep=kf}
+${kf_str} = exp10(kf_temp) {dep=kf}
 """)
 
-    instructions = instructions.safe_substitute(
-        kf_str=kf_str,
-        Tred_str=str(Tred_eqn),
-        Pred_str=str(Pred_eqn),
-        Pmin_str=Pmin_str,
-        Pmax_str=Pmax_str,
-        Tmin_str=Tmin_str,
-        Tmax_str=Tmax_str,
-        ppoly_0=ppoly0_str,
-        ppoly_1=ppoly1_str,
-        ppoly_k=pres_poly_str,
-        ppoly_p=ppolyp_str,
-        ppoly_pm1=ppolypm1_str,
-        ppoly_pm2=ppolypm2_str,
-        tpoly_0=tpoly0_str,
-        tpoly_1=tpoly1_str,
-        tpoly_m=temp_poly_str,
-        tpoly_p=tpolyp_str,
-        tpoly_pm1=tpolypm1_str,
-        tpoly_pm2=tpolypm2_str,
-        chebpar_km=params_str,
-        numP_str=num_P_str,
-        numT_str=num_T_str,
-        kf_eval=str(cheb_form))
+    instructions = instructions.safe_substitute(**locals())
 
     return k_gen.knl_info('rateconst_cheb',
                           instructions=instructions,
