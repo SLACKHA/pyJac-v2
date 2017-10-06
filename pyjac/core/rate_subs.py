@@ -2055,10 +2055,11 @@ for m
     kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
 end
 
-${kf_str} = exp10(kf_temp) {dep=kf}
+${kf_str} = exp10(kf_temp) {id=set, dep=kf}
 """)
 
     instructions = instructions.safe_substitute(**locals())
+    vec_spec = ic.write_race_silencer(['set'])
 
     return k_gen.knl_info('rateconst_cheb',
                           instructions=instructions,
@@ -2066,7 +2067,8 @@ ${kf_str} = exp10(kf_temp) {dep=kf}
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
-                          extra_inames=extra_inames)
+                          extra_inames=extra_inames,
+                          vectorization_specializer=vec_spec)
 
 
 def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
@@ -2211,6 +2213,8 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
         ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
 """).safe_substitute(**locals())
 
+    vec_spec = ic.write_race_silencer(['kf'])
+
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
@@ -2221,7 +2225,8 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           extra_inames=extra_inames)]
+                           extra_inames=extra_inames,
+                           vectorization_specializer=vec_spec)]
 
 
 def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
