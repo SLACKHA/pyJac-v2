@@ -24,6 +24,7 @@ import cantera as ct
 import numpy as np
 from nose.plugins.attrib import attr
 from parameterized import parameterized
+from unittest.case import SkipTest
 
 
 class kf_wrapper(object):
@@ -480,6 +481,11 @@ class SubTest(TestClass):
                 'kf': lambda x: np.zeros_like(ref_const, order=x)}
         if rtype != 'simple':
             args['P_arr'] = P
+
+        if not masks[rtype][0].size:
+            # don't have this type of reaction
+            raise SkipTest('Skipping reaction test for {} reactions: not present in'
+                           'mechanism'.format(rtype))
 
         kw_args = {}
         if rtype == 'plog':

@@ -3040,7 +3040,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         # need to enclose each branch in it's own if statement
         if len(specializations) > 1:
             instruction_list = []
-            preambles = []
+            pre = []
             for i in specializations:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
@@ -3055,7 +3055,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                     '\t' + x for x in insns.split('\n') if x.strip()])
                 instruction_list.append('end')
                 if preambles:
-                    preambles.extend(preambles)
+                    pre.extend(preambles)
         # and combine them
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
@@ -3065,7 +3065,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                            mapstore=mapstore,
                            kernel_data=specializations[0].kernel_data,
                            var_name=var_name,
-                           preambles=preambles)}
+                           preambles=pre)}
 
     out_specs = {}
     # and do some finalizations for the specializations
