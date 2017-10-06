@@ -2252,8 +2252,6 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     if namestore.fall_map is None:
         return None
 
-    conp_eqs = eqs['conp']  # conp / conv irrelevant for rates
-
     # create the mapper
     mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
                             namestore.fall_mask)
@@ -2301,16 +2299,6 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     kernel_data.extend([T_arr, thd_conc_lp, kf_arr, kf_fall_arr, Pr_arr,
                         fall_type_lp])
 
-    # create Pri eqn
-    Pri_sym = next(x for x in conp_eqs if str(x) == 'P_{r, i}')
-    # make substituions to get a usable form
-    pres_mod_sym = sp.Symbol(thd_conc_str)
-    Pri_eqn = sp_utils.sanitize(conp_eqs[Pri_sym][(thd_body_type.mix,)],
-                                subs={'[X]_i': pres_mod_sym,
-                                      'k_{0, i}': 'k0',
-                                      'k_{infty, i}': 'kinf'}
-                                )
-
     # create instruction set
     pr_instructions = Template("""
 if ${fall_type_str}
@@ -2322,23 +2310,20 @@ else
     kinf = ${kf_str} {id=kinf_f}
     k0 = ${kf_fall_str} {id=k0_f}
 end
-${Pr_str} = ${Pr_eq} {dep=k*}
+${Pr_str} = ${thd_conc_str} * k0 / kinf {id=set, dep=k*}
 """)
 
     # sub in strings
-    pr_instructions = pr_instructions.safe_substitute(
-        fall_type_str=fall_type_str,
-        kf_str=kf_str,
-        kf_fall_str=kf_fall_str,
-        Pr_str=Pr_str,
-        Pr_eq=Pri_eqn)
+    pr_instructions = pr_instructions.safe_substitute(**locals())
+    vec_spec = ic.write_race_silencer(['set'])
 
     # and finally return the resulting info
     return [k_gen.knl_info('red_pres',
                            instructions=pr_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=mapstore)]
+                           mapstore=mapstore,
+                           vectorization_specializer=vec_spec)]
 
 
 def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
