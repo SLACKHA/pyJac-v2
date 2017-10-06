@@ -842,7 +842,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
     if conp:
         kernel_data.append(V_lp)
 
-        if loopy_opts.use_atomics and loopy_opts.depth:
+        if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
             pre_instructions = ['<>dE = 0.0d']
             post_instructions = [Template(
@@ -867,7 +867,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
             ]
 
     else:
-        if loopy_opts.use_atomics and loopy_opts.depth:
+        if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
             pre_instructions = ['<>dE = 0.0d']
             post_instructions = [Template(
@@ -891,9 +891,14 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                 """
             ).safe_substitute(**locals())]
 
-    can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['final', 'temp_sum'],
-        init_ids=['init', 'temp_init'])
+    if ic.use_atomics(loopy_opts):
+        can_vectorize, vec_spec = ic.get_deep_specializer(
+            loopy_opts, atomic_ids=['final', 'temp_sum'],
+            init_ids=['init', 'temp_init'])
+    else:
+        can_vectorize = True
+        vec_spec = ic.write_race_silencer(['end'])
+
     return k_gen.knl_info(name='get_extra_var_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,
