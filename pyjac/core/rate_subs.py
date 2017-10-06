@@ -2689,19 +2689,23 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     extra_args = {'kernel_data': base_kernel_data,
                   'var_name': var_name}
 
-    default_preinstructs = {'Tinv':
-                            ic.default_pre_instructs('Tinv', T_str, 'INV'),
-                            'logT':
-                            ic.default_pre_instructs('logT', T_str, 'LOG'),
-                            'Tval':
-                            ic.default_pre_instructs('Tval', T_str, 'VAL')}
+    Tinv = 'Tinv'
+    logT = 'logT'
+    Tval = 'Tval'
+    default_preinstructs = {Tinv:
+                            ic.default_pre_instructs(Tinv, T_str, 'INV'),
+                            logT:
+                            ic.default_pre_instructs(logT, T_str, 'LOG'),
+                            Tval:
+                            ic.default_pre_instructs(Tval, T_str, 'VAL')}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
     expkf_assign = Template("${kf_str} = exp(${rate})")
 
-    def get_instructions(rtype, mapper, kernel_data, beta_iter=1,
-                         single_kernel_rtype=None):
+    def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
+                           single_kernel_rtype=None, Tval=Tval, logT=logT,
+                           Tinv=Tinv):
         # get domain
         domain, inds, num = rdomain(rtype)
 
@@ -2735,13 +2739,14 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         kernel_data.extend([A_lp, b_lp, Ta_lp, kf_lp])
 
         # get rate equations
-        rate_eqn_pre = get_rate_eqn(eqs)
-        rate_eqn_pre = sp_utils.sanitize(rate_eqn_pre,
-                                         symlist={
-                                             'A[i]': A_str,
-                                             'Ta[i]': Ta_str,
-                                             'beta[i]': b_str,
-                                         })
+        rate_eqn_pre = Template(
+            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv}").safe_substitute(
+            **locals())
+        rate_eqn_pre_noTa = Template(
+            "${A_str} + ${logT} * ${b_str}").safe_substitute(**locals())
+        rate_eqn_pre_nobeta = Template(
+            "${A_str} - ${Ta_str} * ${Tinv}").safe_substitute(
+            **locals())
 
         preambles = []
         # the simple formulation
@@ -2762,23 +2767,22 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             else:
                 beta_iter_str = ("${kf_str} = kf_temp * T_iter"
                                  " {id=a4, dep=a3:a2:a1}")
+
             retv = Template(
                 """
-                <> T_iter = Tval {id=a1}
+                <> T_iter = ${Tval} {id=a1}
                 if ${b_str} < 0
                     T_iter = Tinv {id=a2, dep=a1}
                 end
                 <>kf_temp = ${A_str} {id=a3}
-                ${beta_iter}
-                """).safe_substitute(A_str=A_str,
-                                     b_str=b_str,
-                                     beta_iter=beta_iter_str)
+                ${beta_iter_str}
+                """).safe_substitute(**locals())
         elif rtype == 2:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre.subs(Ta_str, 0)))
+                rate=str(rate_eqn_pre_noTa))
         elif rtype == 3:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre.subs(b_str, 0)))
+                rate=str(rate_eqn_pre_nobeta))
 
         return Template(retv).safe_substitute(kf_str=kf_str), preambles
 
@@ -2795,29 +2799,29 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                                 instructions='',
                                 mapstore=mapstore,
                                 pre_instructions=[
-                                    default_preinstructs['Tval'],
-                                    default_preinstructs['Tinv']],
+                                    default_preinstructs[Tval],
+                                    default_preinstructs[Tinv]],
                                 **extra_args)
     i_beta_exp = k_gen.knl_info('beta_exp_{}'.format(tag),
                                 instructions='',
                                 mapstore=mapstore,
                                 pre_instructions=[
-                                    default_preinstructs['Tinv'],
-                                    default_preinstructs['logT']],
+                                    default_preinstructs[Tinv],
+                                    default_preinstructs[logT]],
                                 **extra_args)
     i_ta_exp = k_gen.knl_info('ta_exp_{}'.format(tag),
                               instructions='',
                               mapstore=mapstore,
                               pre_instructions=[
-        default_preinstructs['Tinv'],
-        default_preinstructs['logT']],
+        default_preinstructs[Tinv],
+        default_preinstructs[logT]],
         **extra_args)
     i_full = k_gen.knl_info('rateconst_full{}'.format(tag),
                             instructions='',
                             mapstore=mapstore,
                             pre_instructions=[
-        default_preinstructs['Tinv'],
-        default_preinstructs['logT']],
+        default_preinstructs[Tinv],
+        default_preinstructs[logT]],
         **extra_args)
 
     # set up the simple arrhenius rate specializations
@@ -2853,7 +2857,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
             for i in specializations:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                insns, preambles = get_instructions(
+                insns, preambles = __get_instructions(
                     -1,
                     arc.MapStore(loopy_opts, mapstore.map_domain,
                                  mapstore.mask_domain),
@@ -2897,7 +2901,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
         # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions, info.preambles = get_instructions(
+            info.instructions, info.preambles = __get_instructions(
                 rtype, mapper, info.kernel_data, beta_iter)
 
         out_specs[rtype] = info
