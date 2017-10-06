@@ -2470,15 +2470,14 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     kernel_data = []
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.sri_map, namestore.sri_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_sri, namestore.sri_mask)
 
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
     # maps and transforms
-    for arr in [namestore.X_sri, namestore.sri_a, namestore.sri_b,
-                namestore.sri_c, namestore.sri_d, namestore.sri_e]:
-        mapstore.check_and_add_transform(arr, namestore.num_sri)
+    mapstore.check_and_add_transform(namestore.Fi, namestore.sri_map)
+    mapstore.check_and_add_transform(namestore.Pr, namestore.sri_map)
 
     # Create the temperature array
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
@@ -2501,73 +2500,37 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     kernel_data.extend(
         [X_sri_lp, sri_a_lp, sri_b_lp, sri_c_lp, sri_d_lp, sri_e_lp])
 
-    # start creating SRI kernel
-    Fi_sym = next(x for x in conp_eqs if str(x) == 'F_{i}')
-    Fi = next(val for key, val in conp_eqs[Fi_sym].items()
-              if falloff_form.sri in key)
-
-    # find Pr symbol
-    Pri_sym = next(x for x in conp_eqs if str(x) == 'P_{r, i}')
-
-    # get SRI symbols
-    X_sri_sym = next(x for x in Fi.free_symbols if str(x) == 'X')
-
-    # create SRI eqs
-    X_sri_eq = conp_eqs[X_sri_sym].subs(
-        sp.Pow(sp.log(Pri_sym, 10), 2), 'logPr * logPr')
-    Fi_sri_eq = Fi.copy()
-    Fi_sri_eq = sp_utils.sanitize(Fi_sri_eq,
-                                  subs={
-                                      'a': sri_a_str,
-                                      'b': sri_b_str,
-                                      'c': sri_c_str,
-                                      'd': sri_d_str,
-                                      'e': sri_e_str,
-                                      'X': 'X_temp'
-                                  })
-    # do some surgery on the Fi_sri_eq to get the optional parts
-    Fi_sri_base = next(x for x in sp.Mul.make_args(Fi_sri_eq)
-                       if any(str(y) == sri_a_str for y in x.free_symbols))
-    Fi_sri_opt = Fi_sri_eq / Fi_sri_base
-    Fi_sri_d_opt = next(x for x in sp.Mul.make_args(Fi_sri_opt)
-                        if any(str(y) == sri_d_str for y in x.free_symbols))
-    Fi_sri_e_opt = next(x for x in sp.Mul.make_args(Fi_sri_opt)
-                        if any(str(y) == sri_e_str for y in x.free_symbols))
+    # precomputes
+    Tinv = 'Tinv'
+    Tval = 'Tval'
 
     # create instruction set
     sri_instructions = Template("""
-    <>Pr_val = fmax(1e-300d, ${pr_str}) {id=Pri}
-    <>logPr = log10(Pr_val) {dep=Pri}
-    # this is a temporary to avoid a race on Fi_temp assignment
-    <>X_temp = ${Xeq} {id=X_decl}
-    <>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
-    if ${d_str} != 1.0
-        Fi_temp = Fi_temp * ${d_eval} {id=Fi_decl1, dep=Fi_decl}
+    <>logPr = log10(fmax(1e-300d, ${Pr_str}))
+    <>X_temp = 1 / (logPr * logPr + 1) {id=X_decl}
+    <>Fi_temp = (${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
+        exp(-${Tval} / ${sri_c_str})) **(X_temp) {id=Fi_decl, dep=X_decl}
+    if ${sri_d_str} != 1.0
+        Fi_temp = Fi_temp * ${sri_d_str} {id=Fi_decl1, dep=Fi_decl}
     end
-    if ${e_str} != 0.0
-        Fi_temp = Fi_temp * ${e_eval} {id=Fi_decl2, dep=Fi_decl}
+    if ${sri_e_str} != 0.0
+        Fi_temp = Fi_temp * fast_powi(${Tval}, ${sri_e_str}) \
+            {id=Fi_decl2, dep=Fi_decl}
     end
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
     ${X_str} = X_temp
-    """).safe_substitute(T_str=T_str,
-                         pr_str=Pr_str,
-                         X_str=X_sri_str,
-                         Xeq=X_sri_eq,
-                         Fi_sri=Fi_sri_base,
-                         d_str=sri_d_str,
-                         d_eval=Fi_sri_d_opt,
-                         e_str=sri_e_str,
-                         e_eval=Fi_sri_e_opt,
-                         Fi_str=Fi_str)
+    """).safe_substitute(**locals())
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                               ic.default_pre_instructs('T', T_str, 'VAL')],
+                               ic.default_pre_instructs(Tval, T_str, 'VAL'),
+                               ic.default_pre_instructs(Tinv, T_str, 'INV')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           manglers=[lp_pregen.fmax()])]
+                           manglers=[lp_pregen.fmax()],
+                           preambles=[lp_pregen.fastpowi_PreambleGen()])]
 
 
 def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
