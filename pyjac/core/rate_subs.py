@@ -2099,40 +2099,6 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
     if namestore.plog_map is None:
         return None
 
-    rate_eqn = get_rate_eqn(eqs)
-
-    # find the plog equation
-    plog_eqn = next(x for x in eqs['conp'] if str(x) == 'log({k_f}[i])')
-    _, plog_eqn = plog_eqn, eqs[
-        'conp'][plog_eqn][(reaction_type.plog,)]
-
-    # now we do some surgery to obtain a form w/o 'logs' as we'll take them
-    # explicitly in python
-    logP = sp.Symbol('logP')
-    logP1 = sp.Symbol('low[0]')
-    logP2 = sp.Symbol('hi[0]')
-    logk1 = sp.Symbol('logk1')
-    logk2 = sp.Symbol('logk2')
-    plog_eqn = sp_utils.sanitize(plog_eqn, subs={sp.log(sp.Symbol('k_1')): logk1,
-                                                 sp.log(sp.Symbol('k_2')): logk2,
-                                                 sp.log(sp.Symbol('P')): logP,
-                                                 sp.log(sp.Symbol('P_1')): logP1,
-                                                 sp.log(sp.Symbol('P_2')): logP2})
-
-    # and specialize the k1 / k2 equations
-    A1 = sp.Symbol('low[1]')
-    b1 = sp.Symbol('low[2]')
-    Ta1 = sp.Symbol('low[3]')
-    k1_eq = sp_utils.sanitize(rate_eqn, subs={sp.Symbol('A[i]'): A1,
-                                              sp.Symbol('beta[i]'): b1,
-                                              sp.Symbol('Ta[i]'): Ta1})
-    A2 = sp.Symbol('hi[1]')
-    b2 = sp.Symbol('hi[2]')
-    Ta2 = sp.Symbol('hi[3]')
-    k2_eq = sp_utils.sanitize(rate_eqn, subs={sp.Symbol('A[i]'): A2,
-                                              sp.Symbol('beta[i]'): b2,
-                                              sp.Symbol('Ta[i]'): Ta2})
-
     # parameter indicies
     arrhen_ind = 'm'
     param_ind = 'k'
@@ -2221,34 +2187,29 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
             # check that
             # 1. inside this reactions parameter's still
             # 2. inside pressure range
-            <> midcheck = (k <= numP) and (${logP} > ${pressure_mid_lo}) and (${logP} <= ${pressure_mid_hi})
+            <> midcheck = (k <= numP) and (${logP} > ${pressure_mid_lo}) \
+                and (${logP} <= ${pressure_mid_hi})
             if midcheck
                 lo_ind = k {id=ind20}
                 hi_ind = k + 1 {id=ind21}
             end
         end
+        # load pressure and reaction parameters into temp arrays
         for m
             low[m] = ${pressure_general_lo} {id=lo, dep=ind*}
             hi[m] = ${pressure_general_hi} {id=hi, dep=ind*}
         end
-        <>logk1 = ${loweq} {id=a1, dep=lo}
-        <>logk2 = ${hieq} {id=a2, dep=hi}
+        # eval logkf's
+        <>logk1 = low[1] + ${logT} * low[2] - low[3] * ${Tinv}  {id=a1, dep=lo}
+        <>logk2 = hi[1] + ${logT} * hi[2] - hi[3] * ${Tinv} {id=a2, dep=hi}
         <>kf_temp = logk1 {id=a_oor}
         if not oor
-            kf_temp = ${plog_eqn} {id=a_found, dep=a1:a2}
+            # if not out of bounds, compute interpolant
+            kf_temp = (-logk1 + logk2) * (${logP} - low[0]) / (hi[0] - low[0]) + \
+                kf_temp {id=a_found, dep=a1:a2}
         end
         ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
-""").safe_substitute(loweq=k1_eq, hieq=k2_eq, plog_eqn=plog_eqn,
-                     kf_str=kf_str,
-                     logP=logP,
-                     plog_num_param_str=plog_num_param_str,
-                     pressure_lo=pressure_lo,
-                     pressure_hi=pressure_hi,
-                     pressure_mid_lo=pressure_mid_lo,
-                     pressure_mid_hi=pressure_mid_hi,
-                     pressure_general_lo=pressure_general_lo,
-                     pressure_general_hi=pressure_general_hi
-                     )
+""").safe_substitute(**locals())
 
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
