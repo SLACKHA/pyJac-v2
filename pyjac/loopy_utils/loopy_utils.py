@@ -5,7 +5,11 @@ from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
-import pyopencl as cl
+try:
+    import pyopencl as cl
+except:
+    cl = None
+    pass
 from pyopencl.tools import clear_first_arg_caches
 from .. import utils
 import os
@@ -137,7 +141,7 @@ class loopy_options(object):
         self.use_private_memory = use_private_memory
         # need to find the first platform that has the device of the correct
         # type
-        if self.lang == 'opencl' and self.platform:
+        if self.lang == 'opencl' and self.platform and cl is not None:
             self.device_type = cl.device_type.ALL
             check_name = None
             if platform.lower() == 'cpu':
