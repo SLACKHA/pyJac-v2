@@ -204,7 +204,7 @@ class memory_manager(object):
                                    'c': Template(
             'memcpy(${host_buff}, ${name}, ${buff_size})')}
         self.host_constant_template = Template(
-            'const ${type} ${name} [${size}] = {${init}}'
+            'const ${type} h_${name} [${size}] = {${init}}'
             )
         self.memset_templates = {'opencl': Template(
             """
@@ -361,16 +361,17 @@ class memory_manager(object):
             if lang == 'opencl':
                 return_list.append(self.get_check_err_call('return_code'))
 
-            # add the memset
-            return_list.append(
-                self.get_check_err_call(
-                    self.memset_templates[lang].safe_substitute(
-                        name=name,
-                        buff_size=self._get_size(dev_arr),
-                        fill_value='&zero',  # fill for OpenCL kernels
-                        fill_size='sizeof(double)',  # fill type
-                        size=self._get_size(dev_arr),
-                        ), lang=lang))
+            if not any(dev_arr.name == y.name for y in self.host_constants):
+                # add the memset
+                return_list.append(
+                    self.get_check_err_call(
+                        self.memset_templates[lang].safe_substitute(
+                            name=name,
+                            buff_size=self._get_size(dev_arr),
+                            fill_value='&zero',  # fill for OpenCL kernels
+                            fill_size='sizeof(double)',  # fill type
+                            size=self._get_size(dev_arr),
+                            ), lang=lang))
 
             # return
             return '\n'.join([r + utils.line_end[lang] for r in return_list] +
@@ -423,10 +424,19 @@ class memory_manager(object):
         str_size.append(str(arr.dtype.itemsize))
         return ' * '.join(str_size)
 
-    def _mem_transfers(self, to_device=True):
-        arr_list = self.in_arrays if to_device else self.out_arrays
-        arr_maps = {x: next(y for y in self.arrays if x == y.name)
-                    for x in arr_list}
+    def _mem_transfers(self, to_device=True, host_constants=False):
+        if not host_constants:
+            # get arrays
+            arr_list = self.in_arrays if to_device else self.out_arrays
+            # filter out host constants
+            arr_list = [x for x in arr_list if not any(
+                y.name == x for y in self.host_constants)]
+            arr_maps = {x: next(y for y in self.arrays if x == y.name)
+                        for x in arr_list}
+        else:
+            arr_list = [x.name for x in self.host_constants]
+            arr_maps = {x.name: x for x in self.host_constants}
+
         templates = self.copy_in_templates if to_device else self.copy_out_templates
 
         return '\n'.join([
@@ -469,6 +479,23 @@ class memory_manager(object):
 
         return self._mem_transfers(to_device=False)
 
+    def get_host_constants_in(self):
+        """
+        Generates the memory transfers of the host constants
+        into the device before kernel execution
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        mem_transfer_in : str
+            The string to perform the memory transfers before execution
+        """
+
+        return self._mem_transfers(to_device=True, host_constants=True)
+
     def get_mem_frees(self, free_locals=False):
         """
         Returns code to free the allocated buffers
@@ -491,6 +518,7 @@ class memory_manager(object):
                      for arr in self.arrays]
         else:
             frees = [self.free_template[self.host_lang].safe_substitute(
-                name='h_' + arr + '_local') for arr in self.host_arrays]
+                name='h_' + arr + '_local') for arr in self.host_arrays if not any(
+                        x.name == arr for x in self.host_constants)]
 
         return '\n'.join([x + utils.line_end[self.lang] for x in sorted(set(frees))])
