@@ -55,7 +55,6 @@ class array_splitter(object):
         from loopy.kernel.tools import ArrayChanger
         from loopy.symbolic import SubstitutionRuleMappingContext
         from loopy.transform.padding import ArrayAxisSplitHelper
-        from ..core import array_creator as arc
 
         achng = ArrayChanger(kernel, array_name)
         ary = achng.get()
@@ -68,7 +67,7 @@ class array_splitter(object):
         assert new_shape is not None, 'Cannot split auto-sized arrays'
         new_shape = list(new_shape)
         axis_len = new_shape[split_axis]
-        if str(axis_len) == arc.problem_size.name:
+        if str(axis_len) == problem_size.name:
             # bake in the assumption that the problem size is divisible by the
             # vector width
             outer_len = div_ceil(axis_len, count)  # axis_len / count
