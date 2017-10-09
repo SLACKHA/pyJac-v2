@@ -44,8 +44,8 @@ can_vectorize_lang = {'c': False,
                       'ispc': True}
 """dict: defines whether a language can be 'vectorized' in the loopy sense"""
 
-exp_10_fun = dict(c="pow(10.0, ", cuda='exp10(',
-                  fortran='exp(log(10) * ', matlab='exp(log(10.0) * '
+exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
+                  opencl='exp10({val})', fortran='exp(log(10) * {val})'
                   )
 """dict: exp10 functions for various languages"""
 

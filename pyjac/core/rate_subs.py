@@ -2020,6 +2020,8 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
                                           poly_compute_ind,
                                           affine=-2)
 
+    exp10fun = utils.exp_10_fun[loopy_opts.lang].format(val='kf_temp')
+
     instructions = Template("""
 <>Pmin = ${Pmin_str}
 <>Tmin = ${Tmin_str}
@@ -2054,7 +2056,7 @@ for m
     kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
 end
 
-${kf_str} = exp10(kf_temp) {id=set, dep=kf}
+${kf_str} = ${exp10fun} {id=set, dep=kf}
 """)
 
     instructions = instructions.safe_substitute(**locals())
