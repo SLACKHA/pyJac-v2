@@ -453,7 +453,8 @@ class kernel_generator(object):
             file.add_lines(file_src.safe_substitute(
                 input_args=', '.join([self._get_pass(next(
                     x for x in self.mem.arrays if x.name == a))
-                    for a in self.mem.host_arrays]),
+                    for a in self.mem.host_arrays
+                    if not any(x.name == a for x in self.mem.host_constants)]),
                 knl_name=self.name))
 
     def _special_kernel_subs(self, file_src):
@@ -525,17 +526,20 @@ class kernel_generator(object):
         # these are the args in the kernel defn
         knl_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a))
-            for a in self.mem.host_arrays])
+            for a in self.mem.host_arrays
+            if not any(x.name == a for x in self.mem.host_constants)])
         # these are the args passed to the kernel (exclude type)
         input_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a),
-            include_type=False) for a in self.mem.host_arrays])
+            include_type=False) for a in self.mem.host_arrays
+            if not any(x.name == a for x in self.mem.host_constants)])
         # these are passed from the main method (exclude type, add _local
         # postfix)
         local_input_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a),
             include_type=False,
-            postfix='_local') for a in self.mem.host_arrays])
+            postfix='_local') for a in self.mem.host_arrays
+            if not any(x.name == a for x in self.mem.host_constants)])
         # create doc strings
         knl_args_doc = []
         knl_args_doc_template = Template(
@@ -543,7 +547,8 @@ class kernel_generator(object):
 ${name} : ${type}
     ${desc}
 """)
-        for x in self.mem.in_arrays:
+        for x in [y for y in self.mem.in_arrays if not any(
+                z.name == y for z in self.mem.host_constants)]:
             if x == 'phi':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
                     name=x, type='double*', desc='The state vector'))
@@ -885,7 +890,7 @@ ${name} : ${type}
                                 return _rec_check_name(decl.subdecl)
                             return False
                         # check for migrated constant
-                        if _rec_check_name(item):
+                        if _rec_check_name(item.vdecl):
                             continue
                         if str(item) not in inits:
                             init_list.append(str(item))
@@ -1417,6 +1422,8 @@ class opencl_kernel_generator(kernel_generator):
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
 
+        host_constants_transfers = self.mem.get_host_constants_in()
+
         return subs_at_indent(file_src,
                               vec_width=vec_width,
                               platform_str=platform_str,
@@ -1427,7 +1434,8 @@ class opencl_kernel_generator(kernel_generator):
                               num_source=1,  # only 1 program / binary is built
                               CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
                               max_size=max_size,  # max size for CL1.1 mem init
-                              host_constants=host_constants
+                              host_constants=host_constants,
+                              host_constants_transfers=host_constants_transfers
                               )
 
     def get_kernel_arg_setting(self):

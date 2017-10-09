@@ -79,6 +79,9 @@ void mem_init(cl_uint problem_size)
     /* Alloc buffers */
     ${mem_allocs}
 
+    /* we transfer the constants here, as we only need to do so once */
+    ${host_constants_transfers}
+
     #if CL_LEVEL < 120
         free(zero);
     #endif
