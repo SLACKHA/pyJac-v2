@@ -822,6 +822,13 @@ ${name} : ${type}
                 read_only.append(kernel_data[-1].name)
                 self.mem.host_constants.append(x)
 
+            # and update the types
+            for v in self.mem.host_constants:
+                mem_types[memory_type.m_constant].remove(v)
+                mem_types[memory_type.m_global].append(v)
+
+            mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
+
         # update the memory manager with new args / input arrays
         if len(kernel_data) != data_size:
             self.mem.add_arrays(kernel_data[data_size:],

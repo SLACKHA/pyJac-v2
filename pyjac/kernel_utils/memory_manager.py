@@ -15,6 +15,7 @@ import yaml
 from enum import Enum
 import six
 from ..core import array_creator as arc
+import re
 
 
 class memory_type(Enum):
@@ -83,18 +84,20 @@ class memory_limits(object):
         per_ic = 0
         static = 0
         for array in arrays:
-            size = None
+            size = 1
             is_ic_dep = False
             for s in array.shape:
-                if str(s) == arc.problem_size.name:
+                if arc.problem_size.name in str(s):
                     # mark as dependent on # of initial conditions
                     is_ic_dep = True
+                    # get the floor div (if any)
+                    floor_div = re.search('// (\d+)', str(s))
+                    if floor_div:
+                        floor_div = int(floor_div.group(1))
+                        size /= floor_div
                     continue
                 # update size
-                if size is None:
-                    size = s
-                else:
-                    size *= s
+                size *= s
             # update counter
             if is_ic_dep:
                 per_ic += size
