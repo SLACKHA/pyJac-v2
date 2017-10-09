@@ -3,12 +3,165 @@ memory_manager.py - generators for defining / allocating / transfering memory
 for kernel creation
 """
 
+from __future__ import division
+
 from .. import utils
 
 from string import Template
 import numpy as np
 import loopy as lp
 import re
+import yaml
+from enum import Enum
+import six
+from ..core import array_creator as arc
+
+
+class memory_type(Enum):
+    m_constant = 0,
+    m_local = 1,
+    m_global = 1
+
+    def __int__(self):
+        return self.value
+
+
+class memory_limits(object):
+    """
+    Helps determine whether a kernel is using too much constant / shared memory,
+    etc.
+
+    Properties
+    ----------
+    arrays: dict
+            A mapping of :class:`loopy.TemporaryVariable` or :class:`loopy.GlobalArg`
+            to :class:`memory_type`, representing the types of all arrays to be
+            included
+    limits: dict
+        A dictionary with keys 'shared', 'constant' and 'local' indicated the
+        total amount of each memory type available on the device
+    """
+
+    def __init__(self, lang, arrays, limits):
+        """
+        Initializes a :class:`memory_limits`
+        """
+        self.lang = lang
+        self.arrays = arrays
+        self.limits = limits
+
+    def can_fit(self, type=memory_type.m_constant, with_type_changes={}):
+        """
+        Determines whether the supplied :param:`arrays` of type :param:`type`
+        can fit on the device
+
+        Parameters
+        ----------
+        type: :class:`memory_type`
+            The type of memory to use
+        with_type_changes: dict
+            Updates to apply to :prop:`arrays`
+
+        Returns
+        -------
+        can_fit: int
+            The maximum number of times these arrays can be fit in memory.
+            - For global memory, this determines the number of initial conditions
+            that can be evaluated.
+            - For shared and constant memory, this determines whether this data
+            can be fit
+        """
+
+        if self.lang == 'c':
+            return True
+
+        # filter arrays by type
+        arrays = self.arrays[type]
+        arrays = [a for a in arrays if not any(
+            a in v for k, v in six.iteritems(with_type_changes) if k != type)]
+
+        per_ic = 0
+        static = 0
+        for array in arrays:
+            size = None
+            is_ic_dep = False
+            for s in array.shape:
+                if str(s) == arc.problem_size.name:
+                    # mark as dependent on # of initial conditions
+                    is_ic_dep = True
+                    continue
+                # update size
+                if size is None:
+                    size = s
+                else:
+                    size *= s
+            # update counter
+            if is_ic_dep:
+                per_ic += size
+            else:
+                static += size
+
+        # if no per_ic, just divide by 1
+        if per_ic == 0:
+            per_ic = 1
+
+        # return the number of times we can fit these array
+        return np.maximum(np.floor((self.limits[type] - static) / per_ic), 0)
+
+    @staticmethod
+    def get_limits(loopy_opts, arrays, input_file=""):
+        """
+        Utility method to load shared / constant memory limits from a file or
+        :mod:`pyopencl` as needed
+
+        Parameters
+        ----------
+        loopy_opts: :class:`loopy_options`
+            If loopy_opts.lang == 'opencl', pyopencl will be used to fill in any
+            missing limits
+        arrays: dict
+            A mapping of :class:`memory_type` to :class:`loopy.TemporaryVariable` or
+            :class:`loopy.GlobalArg`, representing the types of all arrays to be
+            included
+        input_file: str
+            The path to a yaml file with specified limits (keys should include
+            'local' and 'constant', and 'global')
+
+        Returns
+        -------
+        limits: :class:`memory_limits`
+            An initialized :class:`memory_limits` that can determine the total
+            'global', 'constant' and 'local' memory available on the device
+        """
+        limits = {}
+        if loopy_opts.lang == 'opencl':
+            try:
+                limits.update({
+                    memory_type.m_global: loopy_opts.device.global_mem_size,
+                    memory_type.m_constant:
+                        loopy_opts.device.max_constant_buffer_size,
+                    memory_type.m_local: loopy_opts.device.local_mem_size})
+            except AttributeError:
+                pass
+            if input_file:
+                with open(input_file, 'r') as file:
+                    # load from file
+                    lims = yaml.load(file.read())
+                    mtype = utils.EnumType(memory_type)
+                    limits = {}
+                    for key, value in six.iteritems(lims):
+                        # check in memory type
+                        if not key.lower() in [mt.name.lower()[2:]
+                                               for mt in memory_type]:
+                            msg = ', '.join([t.name.lower() for t in memory_type])
+                            msg = '{0}: use one of {1}'.format(memory_type.name, msg)
+                            raise Exception(msg)
+                        key += 'm_'
+                        # update with enum
+                        limits[mtype(key)] = value
+
+        return memory_limits(loopy_opts.lang, arrays,
+                             {k: v / 8 for k, v in six.iteritems(limits)})
 
 
 class memory_manager(object):
@@ -27,9 +180,12 @@ class memory_manager(object):
         self.arrays = []
         self.in_arrays = []
         self.out_arrays = []
+        self.host_constants = []
         self.lang = lang
         self.memory_types = {'c': 'double*',
                              'opencl': 'cl_mem'}
+        self.type_map = {np.dtype('int32'): 'int',
+                         np.dtype('float64'): 'double'}
         self.host_langs = {'opencl': 'c',
                            'c': 'c'}
         self.alloc_templates = {'opencl': Template(
@@ -47,6 +203,9 @@ class memory_manager(object):
             '${buff_size}, ${host_buff}, 0, NULL, NULL)'),
                                    'c': Template(
             'memcpy(${host_buff}, ${name}, ${buff_size})')}
+        self.host_constant_template = Template(
+            'const ${type} ${name} [${size}] = {${init}}'
+            )
         self.memset_templates = {'opencl': Template(
             """
             #if CL_LEVEL >= 120
@@ -129,6 +288,35 @@ class memory_manager(object):
         # return defn string
         return '\n'.join(sorted(set(defns)))
 
+    def get_host_constants(self):
+        """
+        Returns allocations of initialized constant variables on the host.
+        These result when we run out of __constant memory on the device, and must
+        migrate to passing constant __global args.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        alloc_str : str
+            The string of memory allocations
+        """
+
+        def _handle_type(arr):
+            return lp.types.to_loopy_type(arr.dtype).numpy_dtype
+
+        def _stringify(arr):
+            return ', '.join(['{}'.format(x) for x in arr.initializer])
+
+        return '\n'.join([self.host_constant_template.safe_substitute(
+            name=x.name,
+            type=self.type_map[_handle_type(x)],
+            size=str(np.prod(x.shape)),
+            init=_stringify(x))
+            + utils.line_end[self.lang] for x in self.host_constants])
+
     def get_mem_allocs(self, alloc_locals=False):
         """
         Returns the allocation strings for this memory manager's arrays
@@ -139,6 +327,7 @@ class memory_manager(object):
             If true, only define host arrays
 
         Returns
+        -------
         alloc_str : str
             The string of memory allocations
         """

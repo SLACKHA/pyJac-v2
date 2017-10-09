@@ -71,6 +71,10 @@ void mem_init(cl_uint problem_size)
         memset(zero, 0, ${max_size});
     #endif
 
+    /* If we've run out of constant memory space, we will place converted
+       global constant here */
+    ${host_constants}
+
     cl_int return_code;
     /* Alloc buffers */
     ${mem_allocs}
