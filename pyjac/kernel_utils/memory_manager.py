@@ -345,7 +345,9 @@ class memory_manager(object):
             # if it's opencl, we need to declare the buffer type
             memflag = None
             if lang == 'opencl':
-                memflag = 'CL_MEM_READ_WRITE'
+                memflag = 'CL_MEM_READ_WRITE' if not any(
+                    x.name == dev_arr.name for x in self.host_constants
+                    ) else 'CL_MEM_READ_ONLY'
 
             # generate allocs
             alloc = self.alloc_templates[lang].safe_substitute(
