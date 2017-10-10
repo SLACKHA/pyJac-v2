@@ -12,6 +12,7 @@ import logging
 from .. import utils
 from .. import site_conf as site
 from enum import Enum
+from ..core.exceptions import CompilationError
 
 
 class build_type(Enum):
@@ -161,7 +162,7 @@ def compiler(fstruct):
         logging.error(
             'Compiler {} not found, generation of pyjac library failed.'.format(
                 args[0]))
-        sys.exit(-1)
+        return -1
     except subprocess.CalledProcessError as exc:
         logging.error('Error: compilation failed for file {} with error:{}'.format(
             fstruct.filename + utils.file_ext[fstruct.build_lang],
@@ -418,8 +419,9 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     results = pool.map(compiler, structs)
     pool.close()
     pool.join()
-    if any(r == -1 for r in results):
-        sys.exit(-1)
+    if any(r != 0 for r in results):
+        failures = [i for i, r in enumerate(results) if r != -1]
+        raise CompilationError([structs[i].filename for i in failures])
 
     libname = libgen(lang, obj_dir, out_dir, files, shared, False, as_executable)
     return os.path.join(out_dir, libname)
