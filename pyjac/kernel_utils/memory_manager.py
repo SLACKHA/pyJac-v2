@@ -216,14 +216,14 @@ class memory_manager(object):
             """
             #if CL_LEVEL >= 120
                 clEnqueueFillBuffer(queue, ${name}, ${fill_value}, ${fill_size}, 0,
-                    ${size}, 0, NULL, NULL)
+                    ${buff_size}, 0, NULL, NULL)
             #else
-                clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${fill_size},
+                clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${buff_size},
                     zero, 0, NULL, NULL)
             #endif
             """
             ),
-            'c': Template('memset(${name}, 0, ${size})')
+            'c': Template('memset(${name}, 0, ${buff_size})')
         }
         self.free_template = {'opencl': Template('clReleaseMemObject(${name})'),
                               'c': Template('free(${name})')}
@@ -343,6 +343,11 @@ class memory_manager(object):
             # than the input args from python
             post_fix = '_local' if alloc_locals else ''
 
+            in_host_const = any(dev_arr.name == y.name for y in self.host_constants)
+
+            if lang == self.host_lang and in_host_const:
+                return ''
+
             # get name
             name = prefix + dev_arr.name + post_fix
             # if it's opencl, we need to declare the buffer type
@@ -369,7 +374,7 @@ class memory_manager(object):
             if lang == 'opencl':
                 return_list.append(self.get_check_err_call('return_code'))
 
-            if not any(dev_arr.name == y.name for y in self.host_constants):
+            if not in_host_const:
                 # add the memset
                 return_list.append(
                     self.get_check_err_call(
@@ -378,7 +383,6 @@ class memory_manager(object):
                             buff_size=self._get_size(dev_arr),
                             fill_value='&zero',  # fill for OpenCL kernels
                             fill_size='sizeof(double)',  # fill type
-                            size=self._get_size(dev_arr),
                             ), lang=lang))
 
             # return
