@@ -652,9 +652,9 @@ ${name} : ${type}
 
         Returns
         -------
-        mem_limits: :class:`memory_limits`
-            An instance of a :class:`memory_limits` to help in generation of the
-            compiling kernel
+        max_per_run: int
+            The maximum number of initial conditions that can be executed per
+            kernel call
         """
 
         from loopy.types import AtomicNumpyType, to_loopy_type
@@ -963,7 +963,7 @@ ${name} : ${type}
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
 
-        return mem_types
+        return mem_limits.can_fit(memory_type.m_global)
 
     def remove_unused_temporaries(self, knl):
         """
