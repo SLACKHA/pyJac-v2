@@ -21,3 +21,15 @@ class MissingDeviceError(Exception):
         self.message = 'Cannot find devices of type {} on platform {}'.format(
                         self.device_type, self.platform)
         super(MissingDeviceError, self).__init__(self.message)
+
+
+class CompilationError(Exception):
+    """
+    Error during compilation
+    """
+
+    def __init__(self, files):
+        if isinstance(files, str):
+            files = [files]
+        self.message = 'Error compiling file(s): {}.'.format(','.join(files))
+        super(CompilationError, self).__init__(self.message)
