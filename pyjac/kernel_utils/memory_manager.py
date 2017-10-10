@@ -14,14 +14,15 @@ import re
 import yaml
 from enum import Enum
 import six
+import logging
 from ..core import array_creator as arc
-import re
 
 
 class memory_type(Enum):
     m_constant = 0,
     m_local = 1,
-    m_global = 1
+    m_global = 2,
+    m_alloc = 3
 
     def __int__(self):
         return self.value
@@ -81,6 +82,7 @@ class memory_limits(object):
         arrays = [a for a in arrays if not any(
             a in v for k, v in six.iteritems(with_type_changes) if k != type)]
 
+        per_alloc_ic_limit = np.iinfo(np.int).max
         per_ic = 0
         static = 0
         for array in arrays:
@@ -107,12 +109,28 @@ class memory_limits(object):
             else:
                 static += size
 
+            # also need to check the maximum allocation size for opencl
+            if self.lang == 'opencl':
+                if is_ic_dep:
+                    per_alloc_ic_limit = np.minimum(
+                        per_alloc_ic_limit,
+                        np.floor(self.limits[memory_type.m_alloc] / per_ic))
+                else:
+                    if static >= self.limits[memory_type.m_alloc]:
+                        logging.warn(
+                            'Allocation of constant memory array {}'
+                            ' exceeds maximum allocation size, this will likely'
+                            ' cause OpenCL to fail on execution.'
+                            .format(array.name)
+                            )
+
         # if no per_ic, just divide by 1
         if per_ic == 0:
             per_ic = 1
 
         # return the number of times we can fit these array
-        return np.maximum(np.floor((self.limits[type] - static) / per_ic), 0)
+        return int(np.maximum(np.minimum(
+            np.floor((self.limits[type] - static) / per_ic), per_alloc_ic_limit), 0))
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file=""):
@@ -146,7 +164,8 @@ class memory_limits(object):
                     memory_type.m_global: loopy_opts.device.global_mem_size,
                     memory_type.m_constant:
                         loopy_opts.device.max_constant_buffer_size,
-                    memory_type.m_local: loopy_opts.device.local_mem_size})
+                    memory_type.m_local: loopy_opts.device.local_mem_size,
+                    memory_type.m_alloc: loopy_opts.device.max_mem_alloc_size})
             except AttributeError:
                 pass
             if input_file:
@@ -155,11 +174,11 @@ class memory_limits(object):
                     lims = yaml.load(file.read())
                     mtype = utils.EnumType(memory_type)
                     limits = {}
+                    choices = [mt.name.lower()[2:] for mt in memory_type] + ['alloc']
                     for key, value in six.iteritems(lims):
                         # check in memory type
-                        if not key.lower() in [mt.name.lower()[2:]
-                                               for mt in memory_type]:
-                            msg = ', '.join([t.name.lower() for t in memory_type])
+                        if not key.lower() in choices:
+                            msg = ', '.join(choices)
                             msg = '{0}: use one of {1}'.format(memory_type.name, msg)
                             raise Exception(msg)
                         key += 'm_'
@@ -394,8 +413,7 @@ class memory_manager(object):
             ] if alloc_locals else self.arrays
         prefix = 'h_' if alloc_locals else 'd_'
         lang = self.lang if not alloc_locals else self.host_lang
-        alloc_list = [__get_alloc_and_memset(
-            arr, lang, prefix) for arr in to_alloc]
+        alloc_list = [__get_alloc_and_memset(arr, lang, prefix) for arr in to_alloc]
 
         return '\n'.join(alloc_list)
 
