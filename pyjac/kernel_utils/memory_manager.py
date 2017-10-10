@@ -480,7 +480,7 @@ class memory_manager(object):
 
         return '\n'.join(alloc_list)
 
-    def _get_size(self, arr, subs_n='problem_size'):
+    def _get_size(self, arr, subs_n='problem_size', include_item_size=True):
         size = arr.shape
         nsize = []
         str_size = []
@@ -514,7 +514,11 @@ class memory_manager(object):
             nsize = str(np.cumprod(nsize, dtype=np.int32)[-1])
             str_size.append(nsize)
         # multiply by the item size
-        str_size.append(str(arr.dtype.itemsize))
+        if include_item_size:
+            str_size.append(str(arr.dtype.itemsize))
+        if not any(x for x in str_size):
+            # if empty, we're multiplying by this anyways...
+            str_size.append(str(1))
         return ' * '.join([x for x in str_size if x])
 
     def _mem_transfers(self, to_device=True, host_constants=False):
@@ -539,7 +543,8 @@ class memory_manager(object):
                 buff_size=self._get_size(arr_maps[arr]),
                 per_run_size=self._get_size(arr_maps[arr], subs_n='per_run'),
                 itemsize=arr_maps[arr].dtype.itemsize,
-                non_ic_size=self._get_size(arr_maps[arr], subs_n=''),
+                non_ic_size=self._get_size(arr_maps[arr], subs_n='',
+                                           include_item_size=False),
                 order=self.order
                 ) for arr in arr_list])
 
