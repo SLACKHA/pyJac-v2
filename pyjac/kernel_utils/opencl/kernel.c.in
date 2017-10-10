@@ -41,7 +41,8 @@ void execute_kernel(cl_uint problem_size, ${knl_args})
 
     for (size_t offset = 0; offset < problem_size; offset += per_run)
     {
-        size_t global_work_size = per_run;
+        cl_int this_run = problem_size - offset < per_run ? problem_size - offset : per_run;
+        size_t global_work_size = this_run;
         size_t local_work_size = ${vec_width};
         #ifdef DEEP
             //need to multiply global worksize by local worksize

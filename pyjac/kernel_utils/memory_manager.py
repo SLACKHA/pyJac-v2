@@ -541,7 +541,7 @@ class memory_manager(object):
         return '\n'.join([templates[self.lang].safe_substitute(
                 name='d_' + arr, host_buff='h_' + arr,
                 buff_size=self._get_size(arr_maps[arr]),
-                per_run_size=self._get_size(arr_maps[arr], subs_n='per_run'),
+                per_run_size=self._get_size(arr_maps[arr], subs_n='this_run'),
                 itemsize=arr_maps[arr].dtype.itemsize,
                 non_ic_size=self._get_size(arr_maps[arr], subs_n='',
                                            include_item_size=False),
