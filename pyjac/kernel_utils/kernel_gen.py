@@ -364,9 +364,9 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        self._generate_wrapping_kernel(path)
+        max_per_run = self._generate_wrapping_kernel(path)
         self._generate_compiling_program(path)
-        self._generate_calling_program(path, data_filename)
+        self._generate_calling_program(path, data_filename, max_per_run)
         self._generate_calling_header(path)
         self._generate_common(path)
 
@@ -497,7 +497,7 @@ class kernel_generator(object):
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
 
-    def _generate_calling_program(self, path, data_filename):
+    def _generate_calling_program(self, path, data_filename, max_per_run):
         """
         Needed for all languages, this generates a simple C file that
         reads in data, sets up the kernel call, executes, etc.
@@ -508,6 +508,9 @@ class kernel_generator(object):
             The output path to write files to
         data_filename : str
             The path to the data file for command line input
+        max_per_run: int
+            The maximum # of initial conditions that can be evaluated per kernel
+            call based on memory limits
 
         Returns
         -------
@@ -617,7 +620,8 @@ ${name} : ${type}
                 order=self.loopy_opts.order,
                 data_filename=data_filename,
                 local_allocs=local_allocs,
-                local_frees=local_frees
+                local_frees=local_frees,
+                max_per_run=max_per_run
             ))
 
     def _generate_compiling_program(self, path):
@@ -963,7 +967,12 @@ ${name} : ${type}
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
 
-        return mem_limits.can_fit(memory_type.m_global)
+        max_per_run = mem_limits.can_fit(memory_type.m_global)
+        # normalize to divide evenly into vec_width
+        if self.vec_width != 0:
+            max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
+
+        return int(max_per_run)
 
     def remove_unused_temporaries(self, knl):
         """
