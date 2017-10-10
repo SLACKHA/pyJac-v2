@@ -765,8 +765,10 @@ ${name} : ${type}
                                         str(x) for x in same_names)))
             temps.append(same_names[0])
 
-        # remove and insert at front
+        # add problem size arg to front, and save
         kernel_data.insert(0, problem_size)
+        self.kernel_data = kernel_data[:]
+        # update memory args
         self.mem.add_arrays(kernel_data)
 
         def _name_assign(arr):
@@ -825,6 +827,7 @@ ${name} : ${type}
                     lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape))
                 read_only.append(kernel_data[-1].name)
                 self.mem.host_constants.append(x)
+                self.kernel_data.append(kernel_data[-1])
 
             # and update the types
             for v in self.mem.host_constants:
@@ -1469,7 +1472,7 @@ class opencl_kernel_generator(kernel_generator):
         """
 
         kernel_arg_sets = []
-        for i, arg in enumerate(self.mem.arrays):
+        for i, arg in enumerate(self.kernel_data):
             if not isinstance(arg, lp.ValueArg):
                 kernel_arg_sets.append(
                     self.set_knl_arg_array_template.safe_substitute(
