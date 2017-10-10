@@ -98,6 +98,9 @@ class memory_limits(object):
                     continue
                 # update size
                 size *= s
+            # and convert size
+            size *= array.dtype.itemsize
+
             # update counter
             if is_ic_dep:
                 per_ic += size
@@ -164,7 +167,7 @@ class memory_limits(object):
                         limits[mtype(key)] = value
 
         return memory_limits(loopy_opts.lang, arrays,
-                             {k: v / 8 for k, v in six.iteritems(limits)})
+                             {k: v for k, v in six.iteritems(limits)})
 
 
 class memory_manager(object):
