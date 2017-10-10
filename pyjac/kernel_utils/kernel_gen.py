@@ -133,7 +133,7 @@ class kernel_generator(object):
         self.loopy_opts = loopy_opts
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
-        self.mem = memory_manager(self.lang)
+        self.mem = memory_manager(self.lang, self.loopy_opts.order)
         self.name = name
         self.kernels = kernels
         self.external_kernels = external_kernels

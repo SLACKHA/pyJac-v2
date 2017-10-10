@@ -195,18 +195,21 @@ class memory_manager(object):
     Aids in defining & allocating arrays for various languages
     """
 
-    def __init__(self, lang):
+    def __init__(self, lang, order):
         """
         Parameters
         ----------
         lang : str
             The language used in this memory initializer
+        order: ['F', 'C']
+            The order of the arrays used
         """
         self.arrays = []
         self.in_arrays = []
         self.out_arrays = []
         self.host_constants = []
         self.lang = lang
+        self.order = order
         self.memory_types = {'c': 'double*',
                              'opencl': 'cl_mem'}
         self.type_map = {np.dtype('int32'): 'int',
@@ -218,16 +221,76 @@ class memory_manager(object):
             '${buff_size}, NULL, &return_code)'),
                                 'c': Template(
             '${name} = (double*)malloc(${buff_size})')}
-        self.copy_in_templates = {'opencl': Template(
-            'clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, '
-            '${buff_size}, ${host_buff}, 0, NULL, NULL)'),
-                                  'c': Template(
-            'memcpy(${name}, ${host_buff}, ${buff_size})')}
-        self.copy_out_templates = {'opencl': Template(
-            'clEnqueueReadBuffer(queue, ${name}, CL_TRUE, 0, '
-            '${buff_size}, ${host_buff}, 0, NULL, NULL)'),
-                                   'c': Template(
-            'memcpy(${host_buff}, ${name}, ${buff_size})')}
+
+        # convienence for opencl, as this is the same between read / writes
+        ocl_2d_copy_template = \
+            """
+                // need a 2D copy using BufferRect
+                size_t buffer_origin[3]  = [0, 0, 0];
+                // check for a split
+                #ifdef SPLIT
+                    size_t host_origin[3] = [0, offset * VECWIDTH * ${itemsize}, 0,
+                        0];
+                    size_t region[3] = [VECWIDTH * ${itemsize},
+                        per_run * ${itemsize}, ${non_ic_size} * ${itemsize}];
+                    size_t buffer_row_pitch = VECWIDTH * ${itemsize};
+                    size_t buffer_slice_pitch = VECWIDTH * per_run * ${itemsize};
+                    size_t host_row_pitch = VECWIDTH * ${itemsize};
+                    size_t host_slice_pitch = VECWIDTH * problem_size * ${itemsize};
+                #else
+                    size_t host_origin[3] = [offset * problem_size * ${itemsize},
+                        0, 0];
+                    size_t region[3] = [per_run * ${itemsize},
+                        ${non_ic_size} * ${itemsize}, 1];
+                    size_t host_row_pitch = problem_size * ${itemsize};
+                    size_t host_slice_pitch = 0;
+                    size_t buffer_row_pitch = 0; // same as region[0], can specify 0
+                    size_t buffer_slice_pitch = 0;
+                #endif
+            """
+        self.copy_in_templates = {'opencl': Template(Template(
+            """
+            #if '${order}' == 'C'
+                // can do a simple copy
+                check_err(
+                    clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${per_run_size},
+                        &${host_buff}[offset * ${non_ic_size}], 0, NULL, NULL));
+            #elif '${order}' == 'F'
+                {
+                    ${ocl_copy_template}
+                    check_err(clEnqueueWriteBufferRect(queue, ${name}, CL_TRUE,
+                        buffer_origin, host_origin, region, buffer_row_pitch,
+                        buffer_slice_pitch, host_row_pitch, host_slice_pitch,
+                        ${host_buff}, 0, NULL, NULL));
+                }
+            #endif
+            """).safe_substitute(ocl_copy_template=ocl_2d_copy_template)),
+            'c': Template('memcpy(${name}, ${host_buff}, ${buff_size});\n')}
+        self.host_in_templates = {'opencl': Template(
+            """
+            check_err(clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${buff_size},
+                        ${host_buff}, 0, NULL, NULL));
+            """),
+            'c': Template('memcpy(${host_buff}, ${name}, ${buff_size});\n')
+            }
+        self.copy_out_templates = {'opencl': Template(Template(
+            """
+            #if '${order}' == 'C'
+                // can do a simple copy
+                check_err(
+                    clEnqueueReadBuffer(queue, ${name}, CL_TRUE, 0, ${per_run_size},
+                        &${host_buff}[offset * ${non_ic_size}], 0, NULL, NULL));
+            #elif '${order}' == 'F'
+                {
+                    ${ocl_copy_template}
+                    check_err(clEnqueueReadBufferRect(queue, ${name}, CL_TRUE,
+                        buffer_origin, host_origin, region, buffer_row_pitch,
+                        buffer_slice_pitch, host_row_pitch, host_slice_pitch,
+                        ${host_buff}, 0, NULL, NULL));
+                }
+            #endif
+            """).safe_substitute(ocl_copy_template=ocl_2d_copy_template)),
+            'c': Template('memcpy(${host_buff}, ${name}, ${buff_size});\n')}
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
@@ -452,7 +515,7 @@ class memory_manager(object):
             str_size.append(nsize)
         # multiply by the item size
         str_size.append(str(arr.dtype.itemsize))
-        return ' * '.join(str_size)
+        return ' * '.join([x for x in str_size if x])
 
     def _mem_transfers(self, to_device=True, host_constants=False):
         if not host_constants:
@@ -463,17 +526,22 @@ class memory_manager(object):
                 y.name == x for y in self.host_constants)]
             arr_maps = {x: next(y for y in self.arrays if x == y.name)
                         for x in arr_list}
+            templates = self.copy_in_templates if to_device \
+                else self.copy_out_templates
         else:
             arr_list = [x.name for x in self.host_constants]
             arr_maps = {x.name: x for x in self.host_constants}
+            assert to_device
+            templates = self.host_in_templates
 
-        templates = self.copy_in_templates if to_device else self.copy_out_templates
-
-        return '\n'.join([
-            self.get_check_err_call(templates[self.lang].safe_substitute(
+        return '\n'.join([templates[self.lang].safe_substitute(
                 name='d_' + arr, host_buff='h_' + arr,
-                buff_size=self._get_size(arr_maps[arr]))) +
-            utils.line_end[self.lang] for arr in arr_list])
+                buff_size=self._get_size(arr_maps[arr]),
+                per_run_size=self._get_size(arr_maps[arr], subs_n='per_run'),
+                itemsize=arr_maps[arr].dtype.itemsize,
+                non_ic_size=self._get_size(arr_maps[arr], subs_n=''),
+                order=self.order
+                ) for arr in arr_list])
 
     def get_mem_transfers_in(self):
         """
