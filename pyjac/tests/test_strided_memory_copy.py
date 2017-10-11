@@ -105,9 +105,6 @@ def test_strided_copy(state):
 
     # kernel must copy in and out, using the mem_manager's format
     knl = Template("""
-    ${type} problem_size = ${problem_size};
-    ${type} per_run = ${max_per_run} < problem_size ? ${max_per_run} :
-        ${problem_size};
     for (size_t offset = 0; offset < problem_size; offset += per_run)
     {
         ${type} this_run = problem_size - offset < per_run ? \
@@ -135,15 +132,16 @@ def test_strided_copy(state):
 
     # device memory allocations
     device_names = ['d_' + a.name for a in lp_arrays]
-    device_allocs = Template("${type} ${name}[${size}];")
+    device_allocs = Template("${type} ${name}[per_run];")
     if lang == 'opencl':
         device_allocs = Template("""
-        ${name} = clCreateBuffer(context, CL_MEM_READ_WRITE, ${size}, \
-            NULL, &return_code);
+        ${name} = clCreateBuffer(context, CL_MEM_READ_WRITE,
+            per_run * ${non_ic_size} * sizeof(${type}), NULL, &return_code);
         check_err(return_code);
         """)
     device_allocs = [device_allocs.safe_substitute(
         name=device_names[i], size=arrays[i].size,
+        non_ic_size=np.prod(arrays[i].shape[1:]),
         type=dtype) for i in range(len(arrays))]
 
     # copy to save for test
@@ -214,7 +212,6 @@ ${lang_headers}
 #include <string.h>
 #include <assert.h>
 
-${mem_declares}
 
 void main()
 {
@@ -222,6 +219,10 @@ void main()
 
     ${host_allocs}
 
+    ${size_type} problem_size = ${problem_size};
+    ${size_type} per_run = ${max_per_run} < problem_size ? ${max_per_run} :
+        ${problem_size};
+    ${mem_declares}
     ${device_allocs}
 
     ${mem_saves}
@@ -235,14 +236,17 @@ void main()
     exit(0);
 }
     """).safe_substitute(lang_headers='\n'.join(lang_headers),
-                         mem_declares=mem.get_defns(),
+                         mem_declares=mem.get_defns() if lang != 'c' else '',
                          host_allocs='\n'.join(host_allocs),
                          device_allocs='\n'.join(device_allocs),
                          mem_saves='\n'.join(host_copies),
                          checks='\n'.join(checks),
                          knl=knl,
                          preamble=preamble,
-                         end=end)
+                         end=end,
+                         size_type=size_type,
+                         max_per_run=max_per_run,
+                         problem_size=ics)
 
     # write file
     fname = os.path.join(build_dir, 'test' + utils.file_ext[lang])
