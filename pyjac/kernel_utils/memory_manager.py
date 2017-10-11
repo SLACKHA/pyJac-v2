@@ -226,22 +226,29 @@ class memory_manager(object):
         ocl_2d_copy_template = \
             """
                 // need a 2D copy using BufferRect
-                size_t buffer_origin[3]  = [0, 0, 0];
+                size_t buffer_origin[3]  = {0, 0, 0};
                 // check for a split
                 #ifdef SPLIT
-                    size_t host_origin[3] = [0, offset * VECWIDTH * ${itemsize}, 0,
-                        0];
-                    size_t region[3] = [VECWIDTH * ${itemsize},
-                        per_run * ${itemsize}, ${non_ic_size} * ${itemsize}];
+                    size_t host_origin[3] = {0, offset, 0};
+                    // this is slightly tricky, the documentation states that
+                    // region should be in "bytes", but really what they mean
+                    // is that the offsets computed as:
+                    //
+                    // region[0] + region[1] * row_pitch + region[2] * slice_pitch
+                    //
+                    // should be in bytes.  Hence, each individual multiplication
+                    // should have units of bytes.  Additionally, the offsets
+                    // should be in "indicies", hence only the _first_ region
+                    // entry should be multiplied by the itemsize
+                    size_t region[3] = {VECWIDTH * ${itemsize}, per_run,
+                                        (${non_ic_size} / VECWIDTH)};
                     size_t buffer_row_pitch = VECWIDTH * ${itemsize};
                     size_t buffer_slice_pitch = VECWIDTH * per_run * ${itemsize};
                     size_t host_row_pitch = VECWIDTH * ${itemsize};
                     size_t host_slice_pitch = VECWIDTH * problem_size * ${itemsize};
                 #else
-                    size_t host_origin[3] = [offset * problem_size * ${itemsize},
-                        0, 0];
-                    size_t region[3] = [per_run * ${itemsize},
-                        ${non_ic_size} * ${itemsize}, 1];
+                    size_t host_origin[3] = {offset, 0, 0};
+                    size_t region[3] = {per_run * ${itemsize}, ${non_ic_size}, 1};
                     size_t host_row_pitch = problem_size * ${itemsize};
                     size_t host_slice_pitch = 0;
                     size_t buffer_row_pitch = 0; // same as region[0], can specify 0
@@ -265,7 +272,17 @@ class memory_manager(object):
                 }
             #endif
             """).safe_substitute(ocl_copy_template=ocl_2d_copy_template)),
-            'c': Template('memcpy(${name}, ${host_buff}, ${buff_size});\n')}
+            'c': Template("""
+            #if '${order}' == 'C'
+                memcpy(${name}, &${host_buff}[offset * ${non_ic_size}],
+                       per_run * ${non_ic_size} * ${itemsize});
+            #elif '${order}' == 'F'
+                memcpy2D_in(${name}, per_run * ${itemsize}, ${host_buff},
+                            problem_size * ${itemsize}, offset,
+                            problem_size * ${itemsize},
+                            ${non_ic_size} * ${itemsize});
+            #endif
+            """)}
         self.host_in_templates = {'opencl': Template(
             """
             check_err(clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${buff_size},
@@ -290,7 +307,18 @@ class memory_manager(object):
                 }
             #endif
             """).safe_substitute(ocl_copy_template=ocl_2d_copy_template)),
-            'c': Template('memcpy(${host_buff}, ${name}, ${buff_size});\n')}
+            'c': Template("""
+            #if '${order}' == 'C'
+                memcpy(&${host_buff}[offset * ${non_ic_size}], ${name},
+                       per_run * ${non_ic_size} * ${itemsize});
+            #elif '${order}' == 'F'
+                memcpy(${host_buff}, ${name}, ${buff_size});
+                            memcpy2D_in(${name}, per_run * ${itemsize}, ${host_buff},
+                            problem_size * ${itemsize}, offset,
+                            problem_size * ${itemsize},
+                            ${non_ic_size} * ${itemsize});
+            #endif
+            """)}
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
