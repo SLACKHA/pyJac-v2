@@ -10,6 +10,7 @@ from .. import utils
 from string import Template
 import numpy as np
 import loopy as lp
+from loopy.types import to_loopy_type
 import re
 import yaml
 from enum import Enum
@@ -210,8 +211,11 @@ class memory_manager(object):
         self.host_constants = []
         self.lang = lang
         self.order = order
-        self.memory_types = {'c': 'double*',
-                             'opencl': 'cl_mem'}
+        self.memory_types = {np.dtype('float64'): {'c': 'double*',
+                                                   'opencl': 'cl_mem'},
+                             np.dtype('int32'): {'c': 'int*',
+                                                 'opencl': 'cl_mem'}
+                             }
         self.type_map = {np.dtype('int32'): 'int',
                          np.dtype('float64'): 'double'}
         self.host_langs = {'opencl': 'c',
@@ -394,15 +398,18 @@ class memory_manager(object):
 
         def __add(arraylist, lang, prefix, defn_list):
             for arr in arraylist:
-                defn_list.append(self.memory_types[lang] + ' ' + prefix +
-                                 arr + utils.line_end[lang])
+                defn_list.append(self.memory_types[self._handle_type(arr)][lang] +
+                                 ' ' + prefix + arr.name + utils.line_end[lang])
 
         defns = []
         # get all 'device' defns
-        __add([x.name for x in self.arrays], self.lang, 'd_', defns)
+        __add(self.arrays, self.lang, 'd_', defns)
 
         # return defn string
         return '\n'.join(sorted(set(defns)))
+
+    def _handle_type(self, arr):
+        return to_loopy_type(arr.dtype).numpy_dtype
 
     def get_host_constants(self):
         """
@@ -420,15 +427,12 @@ class memory_manager(object):
             The string of memory allocations
         """
 
-        def _handle_type(arr):
-            return lp.types.to_loopy_type(arr.dtype).numpy_dtype
-
         def _stringify(arr):
             return ', '.join(['{}'.format(x) for x in arr.initializer])
 
         return '\n'.join([self.host_constant_template.safe_substitute(
             name=x.name,
-            type=self.type_map[_handle_type(x)],
+            type=self.type_map[self._handle_type(x)],
             size=str(np.prod(x.shape)),
             init=_stringify(x))
             + utils.line_end[self.lang] for x in self.host_constants])
@@ -475,7 +479,8 @@ class memory_manager(object):
 
             if alloc_locals:
                 # add a type
-                alloc = self.memory_types[self.host_lang] + ' ' + alloc
+                alloc = self.memory_types[self._handle_type(dev_arr)][
+                    self.host_lang] + ' ' + alloc
 
             # generate allocs
             return_list = [alloc]
