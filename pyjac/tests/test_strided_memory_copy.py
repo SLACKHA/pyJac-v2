@@ -132,7 +132,7 @@ def test_strided_copy(state):
 
     # device memory allocations
     device_names = ['d_' + a.name for a in lp_arrays]
-    device_allocs = Template("${type} ${name}[per_run];")
+    device_allocs = Template("${type} ${name}[per_run * ${non_ic_size}];")
     if lang == 'opencl':
         device_allocs = Template("""
         ${name} = clCreateBuffer(context, CL_MEM_READ_WRITE,
