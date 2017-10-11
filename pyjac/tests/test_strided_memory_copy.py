@@ -34,6 +34,8 @@ def test_strided_copy(state):
     width = state['width']
     if depth and width:
         return True
+    elif (depth is not None or width is not None) and lang == 'c':
+        return True
 
     # cleanup
     clean_dir(build_dir)
