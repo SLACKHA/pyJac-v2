@@ -584,7 +584,7 @@ class memory_manager(object):
             twod_template = self.copy_in_2d if to_device else self.copy_out_2d
 
             def __get_template(arr):
-                return oned_template if len(arr.shape) <= 2 else twod_template
+                return oned_template if len(arr.shape) <= 1 else twod_template
         else:
             arr_list = [x.name for x in self.host_constants]
             arr_maps = {x.name: x for x in self.host_constants}
