@@ -549,7 +549,7 @@ class memory_manager(object):
             str_size.append(str(1))
         return ' * '.join([x for x in str_size if x])
 
-    def _mem_transfers(self, to_device=True, host_constants=False):
+    def _mem_transfers(self, to_device=True, host_constants=False, host_postfix=''):
         if not host_constants:
             # get arrays
             arr_list = self.in_arrays if to_device else self.out_arrays
@@ -567,7 +567,7 @@ class memory_manager(object):
             templates = self.host_in_templates
 
         return '\n'.join([templates[self.lang].safe_substitute(
-                name='d_' + arr, host_buff='h_' + arr,
+                name='d_' + arr, host_buff='h_' + arr + host_postfix,
                 buff_size=self._get_size(arr_maps[arr]),
                 per_run_size=self._get_size(arr_maps[arr], subs_n='this_run'),
                 itemsize=arr_maps[arr].dtype.itemsize,
