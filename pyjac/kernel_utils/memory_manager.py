@@ -196,7 +196,7 @@ class memory_manager(object):
     Aids in defining & allocating arrays for various languages
     """
 
-    def __init__(self, lang, order):
+    def __init__(self, lang, order, have_split):
         """
         Parameters
         ----------
@@ -204,6 +204,9 @@ class memory_manager(object):
             The language used in this memory initializer
         order: ['F', 'C']
             The order of the arrays used
+        have_split: bool
+            If true, the arrays in this manager correspond to a C-split or
+            F-split format (depending on :param:`order`)
         """
         self.arrays = []
         self.in_arrays = []
@@ -226,67 +229,108 @@ class memory_manager(object):
                                 'c': Template(
             '${name} = (double*)malloc(${buff_size})')}
 
-        # convienence for opencl, as this is the same between read / writes
-        ocl_2d_copy_template = \
+        def __get_2d_templates(use_full=False, to_device=False):
             """
-                // need a 2D copy using BufferRect
-                size_t buffer_origin[3]  = {0, 0, 0};
-                // check for a split
-                #ifdef SPLIT
-                    size_t host_origin[3] = {0, offset, 0};
-                    // this is slightly tricky, the documentation states that
-                    // region should be in "bytes", but really what they mean
-                    // is that the offsets computed as:
-                    //
-                    // region[0] + region[1] * row_pitch + region[2] * slice_pitch
-                    // origin[0] + origin[1] * row_pitch + origin[2] * slice_pitch
-                    //
-                    // should be in bytes.  Hence, each individual multiplication
-                    // should have units of bytes.  Additionally, the offsets
-                    // should be in "indicies", hence only the _first_ region
-                    // entry should be multiplied by the itemsize
-                    size_t region[3] = {VECWIDTH * ${itemsize}, this_run,
-                                        (${non_ic_size} / VECWIDTH)};
-                    size_t buffer_row_pitch = VECWIDTH * ${itemsize};
-                    size_t buffer_slice_pitch = VECWIDTH * per_run * ${itemsize};
-                    size_t host_row_pitch = VECWIDTH * ${itemsize};
-                    size_t host_slice_pitch = VECWIDTH * problem_size * ${itemsize};
-                #else
-                    size_t host_origin[3] = {offset * ${itemsize}, 0, 0};
-                    size_t region[3] = {this_run * ${itemsize}, ${non_ic_size}, 1};
-                    size_t host_row_pitch = problem_size * ${itemsize};
-                    size_t host_slice_pitch = 0;
-                    size_t buffer_row_pitch = per_run * ${itemsize};
-                    size_t buffer_slice_pitch = 0;
-                #endif
+            Returns a template to copy (part or all) of a 2D array from "host" to
+            "device" arrays (note this is simulated on C)
+
+            Parameters
+            ----------
+            use_full: bool [False]
+                If true, get the copy template for the full array (useful for
+                if/then guarded full copies)
+            to_device: bool [False]
+                If true, Write to device, else Read from device
+
+            Notes
+            -----
+
+            Note that the OpenCL clEnqueueReadBufferRect/clEnqueueWriteBufferRect
+            usage is somewhat tricky.  The documentation states that the
+            region and row/slice pitch parameters should all be in bytes.
+
+            What they actually mean is that the offsets comptuted by
+
+                region[0] + region[1] * row_pitch + region[2] * slice_pitch
+                origin[0] + origin[1] * row_pitch + origin[2] * slice_pitch
+
+            for both the host and buffer should have units of bytes.  Hence we need
+            to be careful about which values we multiply by the memory type size
+            (i.e. sizeof(double), etc.)
+
+            For reference, we will always select the first region/offset index to be
+            in bytes, and the pitches to be in bytes as well (which seems to be
+            required for all tested OpenCL implementations)
+
+            Returns
+            -------
+            copy_str: Template
+                The copy template to fill in for host/device I/O
             """
-        self.copy_in_templates = {'opencl': Template(Template(
-            """
-            #if '${order}' == 'C'
-                // can do a simple copy
-                check_err(
-                    clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0,
-                        ${this_run_size}, &${host_buff}[offset * ${non_ic_size}],
-                        0, NULL, NULL));
-            #elif '${order}' == 'F'
-                {
-                    ${ocl_copy_template}
-                    check_err(clEnqueueWriteBufferRect(queue, ${name}, CL_TRUE,
-                        buffer_origin, host_origin, region, buffer_row_pitch,
-                        buffer_slice_pitch, host_row_pitch, host_slice_pitch,
-                        ${host_buff}, 0, NULL, NULL));
-                }
-            #endif
-            """).safe_substitute(ocl_copy_template=ocl_2d_copy_template)),
-            'c': Template("""
-            #if '${order}' == 'C'
-                memcpy(${name}, &${host_buff}[offset * ${non_ic_size}],
-                       this_run * ${non_ic_size} * ${itemsize});
-            #elif '${order}' == 'F'
-                memcpy2D_in(${name}, per_run, ${host_buff}, problem_size, offset,
-                            this_run * ${itemsize}, ${non_ic_size});
-            #endif
-            """)}
+
+            if lang == 'opencl':
+                # determine operation type
+                ctype = 'Write' if to_device else 'Read'
+                if order == 'C' or use_full:
+                    # this is a simple opencl-copy
+                    return Template(Template("""
+                check_err(clEnqueue${ctype}Buffer(queue, ${name}, CL_TRUE, 0,
+                          ${this_run_size}, &${host_buff}[offset * ${non_ic_size}],
+                          0, NULL, NULL));""").safe_substitute(ctype=ctype))
+                elif have_split:
+                    # this us a F-split which requires a Rect Read/Write
+                    # with the given pitches / region / offsets
+                    # Note that this is actually a 3D (or 4D in the case of the)
+                    # Jacobian, but we can treat all subsequent dimensions 2 and
+                    # after as a flat 1-D array (as they are flattened in this order)
+                    return Template(Template("""
+                check_err(clEnqueue${ctype}BufferRect(queue, ${name}, CL_TRUE,
+                    (size_t[]) {0, 0, 0}, //buffer origin
+                    (size_t[]) {0, offset, 0}, //host origin
+                    (size_t[]) {VECWIDTH * ${itemsize}, this_run, ${other_dim_size}}\
+, // region
+                    VECWIDTH * ${itemsize}, // buffer row pitch
+                    VECWIDTH * per_run * ${itemsize}, //buffer slice pitch
+                    VECWIDTH * ${itemsize}, //host row pitch,
+                    VECWIDTH * problem_size * ${itemsize}, //host slice pitch,
+                    ${host_buff}, 0, NULL, NULL));""").safe_substitute(ctype=ctype))
+                else:
+                    # this is a regular F-ordered array, which only requires a 2D
+                    # copy
+                    return Template(Template("""
+                check_err(clEnqueue${ctype}BufferRect(queue, ${name}, CL_TRUE,
+                    (size_t[]) {0, 0, 0}, //buffer origin
+                    (size_t[]) {offset * ${itemsize}, 0, 0}, //host origin
+                    (size_t[]) {this_run * ${itemsize}, ${non_ic_size}, 1}, // region
+                    per_run * ${itemsize}, // buffer row pitch
+                    0, //buffer slice pitch
+                    problem_size * ${itemsize}, //host row pitch,
+                    0, //host slice pitch,
+                    ${host_buff}, 0, NULL, NULL));""").safe_substitute(
+                        ctype=ctype))
+            elif lang == 'c':
+                ctype = 'in' if to_device else 'out'
+                if order == 'C' or use_full:
+                    return Template("""
+                memcpy(&${host_buff}[offset * ${non_ic_size}], ${name},
+                    this_run * ${non_ic_size} * ${itemsize});""")
+                elif order == 'F':
+                    dev_arrays = ['${name}', 'per_run']
+                    host_arrays = ['${host_buff}', 'problem_size']
+                    arrays = dev_arrays + host_arrays if to_device else \
+                        host_arrays + dev_arrays
+                    arrays = ', '.join(arrays)
+                    return Template(Template("""
+                memcpy2D_${ctype}(${arrays},
+                    offset, this_run * ${itemsize}, ${non_ic_size});"""
+                                             ).safe_substitute(
+                                             ctype=ctype, arrays=arrays))
+
+        self.copy_in_2d = __get_2d_templates(to_device=True)
+        self.copy_out_2d = __get_2d_templates(to_device=False)
+        self.copy_in_1d = __get_2d_templates(to_device=True, use_full=True)
+        self.copy_out_1d = __get_2d_templates(to_device=False, use_full=True)
+
         self.host_in_templates = {'opencl': Template(
             """
             check_err(clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${buff_size},
@@ -294,32 +338,6 @@ class memory_manager(object):
             """),
             'c': Template('memcpy(${host_buff}, ${name}, ${buff_size});\n')
             }
-        self.copy_out_templates = {'opencl': Template(Template(
-            """
-            #if '${order}' == 'C'
-                // can do a simple copy
-                check_err(
-                    clEnqueueReadBuffer(queue, ${name}, CL_TRUE, 0, ${this_run_size},
-                        &${host_buff}[offset * ${non_ic_size}], 0, NULL, NULL));
-            #elif '${order}' == 'F'
-                {
-                    ${ocl_copy_template}
-                    check_err(clEnqueueReadBufferRect(queue, ${name}, CL_TRUE,
-                        buffer_origin, host_origin, region, buffer_row_pitch,
-                        buffer_slice_pitch, host_row_pitch, host_slice_pitch,
-                        ${host_buff}, 0, NULL, NULL));
-                }
-            #endif
-            """).safe_substitute(ocl_copy_template=ocl_2d_copy_template)),
-            'c': Template("""
-            #if '${order}' == 'C'
-                memcpy(&${host_buff}[offset * ${non_ic_size}], ${name},
-                       this_run * ${non_ic_size} * ${itemsize});
-            #elif '${order}' == 'F'
-                memcpy2D_out(${host_buff}, problem_size, ${name}, per_run, offset,
-                             this_run * ${itemsize}, ${non_ic_size});
-            #endif
-            """)}
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
@@ -558,21 +576,30 @@ class memory_manager(object):
             # filter out host constants
             arr_list = [x for x in arr_list if not any(
                 y.name == x for y in self.host_constants)]
-            arr_maps = {x: next(y for y in self.arrays if x == y.name)
-                        for x in arr_list}
-            templates = self.copy_in_templates if to_device \
-                else self.copy_out_templates
+            # put into map
+            arr_maps = {a.name: a for a in self.arrays}
+
+            # make templates
+            oned_template = self.copy_in_1d if to_device else self.copy_out_1d
+            twod_template = self.copy_in_2d if to_device else self.copy_out_2d
+
+            def __get_template(arr):
+                return oned_template if len(arr.shape) <= 2 else twod_template
         else:
             arr_list = [x.name for x in self.host_constants]
             arr_maps = {x.name: x for x in self.host_constants}
             assert to_device
-            templates = self.host_in_templates
+            templates = self.host_in_templates[self.lang]
 
-        return '\n'.join([templates[self.lang].safe_substitute(
+            def __get_template(arr):
+                return templates
+
+        return '\n'.join([__get_template(arr_maps[arr]).safe_substitute(
                 name='d_' + arr, host_buff='h_' + arr + host_postfix,
                 buff_size=self._get_size(arr_maps[arr]),
                 this_run_size=self._get_size(arr_maps[arr], subs_n='this_run'),
                 itemsize=arr_maps[arr].dtype.itemsize,
+                other_dim_size=np.prod(arr_maps[arr].shape[2:]),
                 non_ic_size=self._get_size(arr_maps[arr], subs_n='',
                                            include_item_size=False),
                 order=self.order

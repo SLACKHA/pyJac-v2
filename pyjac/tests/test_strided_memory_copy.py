@@ -52,7 +52,7 @@ def test_strided_copy(state):
     # set max per run such that we will have a non-full run (1024 - 1008)
     # this should also be evenly divisible by depth and width
     # (as should the non full run)
-    max_per_run = 128
+    max_per_run = 16
     # number of ics should be divisibly by depth and width
     ics = max_per_run * 8 + vec_size
     if vec_size:
@@ -67,7 +67,8 @@ def test_strided_copy(state):
             shape = (shape,)
         shape = (ics,) + shape
         return np.array(np.random.rand(*shape), dtype=dtype, order=order)
-    arrays = [__create(16), __create(10), __create(20), __create((20, 20))]
+    arrays = [__create(16), __create(10), __create(20), __create((20, 20)),
+              __create(())]
     lp_arrays = [lp.GlobalArg('a{}'.format(i), shape=('problem_size',) + a.shape[1:],
                               order=order, dtype=arrays[i].dtype)
                  for i, a in enumerate(arrays)]
@@ -89,13 +90,14 @@ def test_strided_copy(state):
                                 a1[i, i] = 0
                                 a2[i, i] = 0
                                 a3[i, i, i] = 0
+                                a4[i] = 0
                             end
                          """, lp_arrays)
     # split loopy
     lp_arrays = asplit.split_loopy_arrays(knl).args
 
     # now create a simple library
-    mem = memory_manager(opts.lang, opts.order)
+    mem = memory_manager(opts.lang, opts.order, asplit._have_split())
     mem.add_arrays([x for x in lp_arrays], in_arrays=[x.name for x in lp_arrays],
                    out_arrays=[x.name for x in lp_arrays])
 
@@ -146,7 +148,7 @@ def test_strided_copy(state):
         """)
     device_allocs = [device_allocs.safe_substitute(
         name=device_names[i], size=arrays[i].size,
-        non_ic_size=np.prod(arrays[i].shape[1:]),
+        non_ic_size=int(np.prod(arrays[i].shape[1:])),
         type=dtype) for i in range(len(arrays))]
 
     # copy to save for test
