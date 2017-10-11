@@ -55,7 +55,7 @@ shared_flags = dict(c=['-fPIC'],
 shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
                          opencl=['-pie', '-Wl,-E'])
 
-opt_flags = ['-O0', '-g']
+opt_flags = ['-O3']
 
 flags = dict(c=site.CC_FLAGS + opt_flags + ['-fopenmp', '-std=c99'],
              opencl=site.CC_FLAGS + opt_flags + ['-xc', '-std=c99'])
