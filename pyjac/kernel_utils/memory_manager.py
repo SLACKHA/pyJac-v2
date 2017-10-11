@@ -282,10 +282,8 @@ class memory_manager(object):
                 memcpy(${name}, &${host_buff}[offset * ${non_ic_size}],
                        per_run * ${non_ic_size} * ${itemsize});
             #elif '${order}' == 'F'
-                memcpy2D_in(${name}, per_run * ${itemsize}, ${host_buff},
-                            problem_size * ${itemsize}, offset,
-                            problem_size * ${itemsize},
-                            ${non_ic_size} * ${itemsize});
+                memcpy2D_in(${name}, per_run, ${host_buff}, problem_size, offset,
+                            this_run * ${itemsize}, ${non_ic_size});
             #endif
             """)}
         self.host_in_templates = {'opencl': Template(
@@ -317,11 +315,8 @@ class memory_manager(object):
                 memcpy(&${host_buff}[offset * ${non_ic_size}], ${name},
                        per_run * ${non_ic_size} * ${itemsize});
             #elif '${order}' == 'F'
-                memcpy(${host_buff}, ${name}, ${buff_size});
-                            memcpy2D_in(${name}, per_run * ${itemsize}, ${host_buff},
-                            problem_size * ${itemsize}, offset,
-                            problem_size * ${itemsize},
-                            ${non_ic_size} * ${itemsize});
+                memcpy2D_out(${host_buff}, problem_size, ${name}, per_run, offset,
+                             this_run * ${itemsize}, ${non_ic_size});
             #endif
             """)}
         self.host_constant_template = Template(
