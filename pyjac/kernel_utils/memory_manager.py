@@ -239,6 +239,7 @@ class memory_manager(object):
                     // is that the offsets computed as:
                     //
                     // region[0] + region[1] * row_pitch + region[2] * slice_pitch
+                    // origin[0] + origin[1] * row_pitch + origin[2] * slice_pitch
                     //
                     // should be in bytes.  Hence, each individual multiplication
                     // should have units of bytes.  Additionally, the offsets
@@ -251,7 +252,7 @@ class memory_manager(object):
                     size_t host_row_pitch = VECWIDTH * ${itemsize};
                     size_t host_slice_pitch = VECWIDTH * problem_size * ${itemsize};
                 #else
-                    size_t host_origin[3] = {offset, 0, 0};
+                    size_t host_origin[3] = {offset * ${itemsize}, 0, 0};
                     size_t region[3] = {per_run * ${itemsize}, ${non_ic_size}, 1};
                     size_t host_row_pitch = problem_size * ${itemsize};
                     size_t host_slice_pitch = 0;
