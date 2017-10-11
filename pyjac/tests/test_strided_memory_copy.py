@@ -1,5 +1,5 @@
-# tests the memory manager's copy abilities
 
+# tests the memory manager's copy abilities
 from parameterized import parameterized, param
 from ..libgen import compiler, file_struct
 from ..libgen.libgen import libgen
@@ -48,13 +48,17 @@ def test_strided_copy(state):
     utils.create_dir(obj_dir)
     utils.create_dir(lib_dir)
 
-    # number of ics, should be divisibly by depth and width
-    max_per_run = 10
-    ics = max_per_run * 16
-    if depth:
-        assert ics % depth == 0
-    if width:
-        assert ics % width == 0
+    vec_size = depth if depth else (width if width else 0)
+    # set max per run such that we will have a non-full run (1024 - 1008)
+    # this should also be evenly divisible by depth and width
+    # (as should the non full run)
+    max_per_run = 128
+    # number of ics should be divisibly by depth and width
+    ics = max_per_run * 8 + vec_size
+    if vec_size:
+        assert ics % vec_size == 0
+        assert max_per_run % vec_size == 0
+        assert int(np.floor(ics / max_per_run) * max_per_run) % vec_size == 0
     dtype = np.dtype('float64')
 
     # create test arrays

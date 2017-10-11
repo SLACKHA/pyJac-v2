@@ -245,7 +245,7 @@ class memory_manager(object):
                     // should have units of bytes.  Additionally, the offsets
                     // should be in "indicies", hence only the _first_ region
                     // entry should be multiplied by the itemsize
-                    size_t region[3] = {VECWIDTH * ${itemsize}, per_run,
+                    size_t region[3] = {VECWIDTH * ${itemsize}, this_run,
                                         (${non_ic_size} / VECWIDTH)};
                     size_t buffer_row_pitch = VECWIDTH * ${itemsize};
                     size_t buffer_slice_pitch = VECWIDTH * per_run * ${itemsize};
@@ -253,10 +253,10 @@ class memory_manager(object):
                     size_t host_slice_pitch = VECWIDTH * problem_size * ${itemsize};
                 #else
                     size_t host_origin[3] = {offset * ${itemsize}, 0, 0};
-                    size_t region[3] = {per_run * ${itemsize}, ${non_ic_size}, 1};
+                    size_t region[3] = {this_run * ${itemsize}, ${non_ic_size}, 1};
                     size_t host_row_pitch = problem_size * ${itemsize};
                     size_t host_slice_pitch = 0;
-                    size_t buffer_row_pitch = 0; // same as region[0], can specify 0
+                    size_t buffer_row_pitch = per_run * ${itemsize};
                     size_t buffer_slice_pitch = 0;
                 #endif
             """
@@ -265,8 +265,9 @@ class memory_manager(object):
             #if '${order}' == 'C'
                 // can do a simple copy
                 check_err(
-                    clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0, ${per_run_size},
-                        &${host_buff}[offset * ${non_ic_size}], 0, NULL, NULL));
+                    clEnqueueWriteBuffer(queue, ${name}, CL_TRUE, 0,
+                        ${this_run_size}, &${host_buff}[offset * ${non_ic_size}],
+                        0, NULL, NULL));
             #elif '${order}' == 'F'
                 {
                     ${ocl_copy_template}
@@ -280,7 +281,7 @@ class memory_manager(object):
             'c': Template("""
             #if '${order}' == 'C'
                 memcpy(${name}, &${host_buff}[offset * ${non_ic_size}],
-                       per_run * ${non_ic_size} * ${itemsize});
+                       this_run * ${non_ic_size} * ${itemsize});
             #elif '${order}' == 'F'
                 memcpy2D_in(${name}, per_run, ${host_buff}, problem_size, offset,
                             this_run * ${itemsize}, ${non_ic_size});
@@ -298,7 +299,7 @@ class memory_manager(object):
             #if '${order}' == 'C'
                 // can do a simple copy
                 check_err(
-                    clEnqueueReadBuffer(queue, ${name}, CL_TRUE, 0, ${per_run_size},
+                    clEnqueueReadBuffer(queue, ${name}, CL_TRUE, 0, ${this_run_size},
                         &${host_buff}[offset * ${non_ic_size}], 0, NULL, NULL));
             #elif '${order}' == 'F'
                 {
@@ -313,7 +314,7 @@ class memory_manager(object):
             'c': Template("""
             #if '${order}' == 'C'
                 memcpy(&${host_buff}[offset * ${non_ic_size}], ${name},
-                       per_run * ${non_ic_size} * ${itemsize});
+                       this_run * ${non_ic_size} * ${itemsize});
             #elif '${order}' == 'F'
                 memcpy2D_out(${host_buff}, problem_size, ${name}, per_run, offset,
                              this_run * ${itemsize}, ${non_ic_size});
@@ -570,7 +571,7 @@ class memory_manager(object):
         return '\n'.join([templates[self.lang].safe_substitute(
                 name='d_' + arr, host_buff='h_' + arr + host_postfix,
                 buff_size=self._get_size(arr_maps[arr]),
-                per_run_size=self._get_size(arr_maps[arr], subs_n='this_run'),
+                this_run_size=self._get_size(arr_maps[arr], subs_n='this_run'),
                 itemsize=arr_maps[arr].dtype.itemsize,
                 non_ic_size=self._get_size(arr_maps[arr], subs_n='',
                                            include_item_size=False),
