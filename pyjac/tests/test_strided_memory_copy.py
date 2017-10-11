@@ -23,6 +23,11 @@ def __test_cases():
     for state in OptionLoop(OrderedDict(
             [('lang', ['opencl', 'c']), ('order', ['C', 'F']),
              ('width', [4, None]), ('depth', [4, None])])):
+        if state['depth'] and state['width']:
+            continue
+        elif (state['depth'] is not None or state['width'] is not None) \
+                and state['lang'] == 'c':
+            continue
         yield param(state)
 
 
@@ -32,10 +37,6 @@ def test_strided_copy(state):
     order = state['order']
     depth = state['depth']
     width = state['width']
-    if depth and width:
-        return True
-    elif (depth is not None or width is not None) and lang == 'c':
-        return True
 
     # cleanup
     clean_dir(build_dir)
