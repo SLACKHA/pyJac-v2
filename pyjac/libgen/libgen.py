@@ -52,10 +52,10 @@ shared_flags = dict(c=['-fPIC'],
                     opencl=['-fPIC'],
                     cuda=['-Xcompiler', '"-fPIC"']
                     )
-shared_exec_flags = dict(c=['-fPIE'],
-                         opencl=['-fPIE'])
+shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
+                         opencl=['-pie', '-Wl,-E'])
 
-opt_flags = ['-O3']
+opt_flags = ['-O0', '-g']
 
 flags = dict(c=site.CC_FLAGS + opt_flags + ['-fopenmp', '-std=c99'],
              opencl=site.CC_FLAGS + opt_flags + ['-xc', '-std=c99'])
@@ -136,7 +136,6 @@ def compiler(fstruct):
 
     # always use fPIC in case we're building wrapper
     args.extend(shared_flags[fstruct.build_lang])
-    # check for executable
     if fstruct.as_executable:
         args.extend(shared_exec_flags[fstruct.build_lang])
     # and any other flags
@@ -217,10 +216,9 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
     command.extend(
         [os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
 
-    if shared:
+    if shared and not as_executable:
         command.extend(shared_flags[lang])
-
-    if as_executable:
+    elif as_executable:
         command.extend(shared_exec_flags[lang])
 
     if shared or lang == 'cuda':
