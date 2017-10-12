@@ -11,7 +11,7 @@ import copy
 from string import Template
 from loopy.kernel.data import temp_var_scope as scopes
 from ..loopy_utils.loopy_utils import JacobianFormat
-from ..loopy_utils import preambles_and_mangers as lp_pregen
+from ..loopy_utils import preambles_and_manglers as lp_pregen
 import six
 
 
@@ -1173,10 +1173,10 @@ class creator(object):
 
 
 def jac_creator(creator):
-    def __init__(self, row_inds=None, col_inds=None, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         # store our row / column indicies
-        self.row_inds = row_inds
-        self.col_inds = col_inds
+        self.row_inds = kwargs.pop('row_inds')
+        self.col_inds = kwargs.pop('col_inds')
         self.lookup_call = Template(Template(
             '${lookup}(${start}, ${end}, ${match})').safe_substitute(
                 lookup=lp_pregen.jac_indirect_lookup.name))

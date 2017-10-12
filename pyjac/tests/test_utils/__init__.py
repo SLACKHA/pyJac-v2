@@ -377,7 +377,7 @@ def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    sparse=False, langs=['opencl'], **kw_args):
+                    do_sparse=False, langs=['opencl'], **kw_args):
     """
     A generic testing method that can be used for to test the correctness of
     any _pyJac_ kernel via the supplied :class:`kernel_call`'s
@@ -405,15 +405,15 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         If true, use vectorization in testing
     langs: ['opencl']
         The testing languages, @see utils.langs for allowed languages
-    sparse: bool [False]
-        If true, use a sparse jacobian
+    do_sparse: bool [False]
+        If true, test sparse jacobian alongside full
     kwargs: dict
         Any additional arguements to pass to the :param:`func`
     """
 
     eqs, oploop = _get_eqs_and_oploop(owner, do_ratespec=do_ratespec,
                                       do_ropsplit=do_ropsplit, do_conp=do_conp,
-                                      sparse=sparse)
+                                      do_sparse=do_sparse)
 
     reacs = owner.store.reacs
     specs = owner.store.specs
