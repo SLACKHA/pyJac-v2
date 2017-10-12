@@ -462,7 +462,8 @@ class memory_manager(object):
         """
 
         def _stringify(arr):
-            return ', '.join(['{}'.format(x) for x in arr.initializer.flatten('K')])
+            return ', '.join(['{}'.format(x) for x in arr.initializer.flatten(
+                self.order)])
 
         return '\n'.join([self.host_constant_template.safe_substitute(
             name=x.name,
