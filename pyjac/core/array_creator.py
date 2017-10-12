@@ -1354,13 +1354,13 @@ class NameStore(object):
 
             # Compressed Row Storage jacobian
             crs_col_ind = rate_info['jac_inds']['crs']['col_ind']
-            self.crs_jac_col_ind = creator('jac_col_inds',
+            self.crs_jac_col_ind = creator('sparse_jac_col_inds',
                                            shape=crs_col_ind.shape,
                                            dtype=np.int32,
                                            order=self.order,
                                            initializer=crs_col_ind)
             crs_row_ptr = rate_info['jac_inds']['crs']['row_ptr']
-            self.crs_jac_row_ptr = creator('jac_row_ptr',
+            self.crs_jac_row_ptr = creator('sparse_jac_row_ptr',
                                            shape=crs_row_ptr.shape,
                                            dtype=np.int32,
                                            order=self.order,
@@ -1368,13 +1368,13 @@ class NameStore(object):
 
             # Compressed Column Storage jacobian
             ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
-            self.ccs_jac_row_ind = creator('jac_row_inds',
+            self.ccs_jac_row_ind = creator('sparse_ac_row_inds',
                                            shape=ccs_row_ind.shape,
                                            dtype=np.int32,
                                            order=self.order,
                                            initializer=ccs_row_ind)
             ccs_col_ptr = rate_info['jac_inds']['ccs']['col_ptr']
-            self.ccs_jac_col_ptr = creator('jac_col_ptr',
+            self.ccs_jac_col_ptr = creator('sparse_jac_col_ptr',
                                            shape=ccs_col_ptr.shape,
                                            dtype=np.int32,
                                            order=self.order,

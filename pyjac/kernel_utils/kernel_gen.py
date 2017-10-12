@@ -837,12 +837,19 @@ ${name} : ${type}
             # we need to convert our __constant temporary variables to
             # __global kernel args until we can fit
             type_changes = defaultdict(lambda: list())
-            temps = sorted(temps, key=lambda x: np.prod(x.shape), reverse=True)
-            type_changes[memory_type.m_global].append(temps[0])
-            temps = temps[1:]
+            # we can't remove the sparse indicies as we can't pass pointers
+            # to loopy preambles
+            gtemps = [x for x in temps if 'sparse_jac' not in x.name]
+            # sort by largest size
+            gtemps = sorted(gtemps, key=lambda x: np.prod(x.shape), reverse=True)
+            type_changes[memory_type.m_global].append(gtemps[0])
+            gtemps = gtemps[1:]
             while not mem_limits.can_fit(with_type_changes=type_changes):
-                type_changes[memory_type.m_global].append(temps[0])
-                temps = temps[1:]
+                if not gtemps:
+                    logging.exception('Cannot fit kernel {} in memory'.format(
+                        self.name))
+                type_changes[memory_type.m_global].append(gtemps[0])
+                gtemps = gtemps[1:]
 
             # once we've converted enough, we need to physically change these
             for x in [v for arrs in type_changes.values() for v in arrs]:
