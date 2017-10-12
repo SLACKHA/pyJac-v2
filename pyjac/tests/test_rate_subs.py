@@ -2,7 +2,7 @@
 from collections import defaultdict
 
 # local imports
-from ..core.rate_subs import (get_specrates_kernel, get_rate_eqn,
+from ..core.rate_subs import (get_specrates_kernel,
                               assign_rates, get_simple_arrhenius_rates,
                               get_plog_arrhenius_rates, get_lind_kernel,
                               get_cheb_arrhenius_rates, get_thd_body_concs,
@@ -24,6 +24,7 @@ import cantera as ct
 import numpy as np
 from nose.plugins.attrib import attr
 from parameterized import parameterized
+from unittest.case import SkipTest
 
 
 class kf_wrapper(object):
@@ -87,21 +88,6 @@ class kf_wrapper(object):
 
 
 class SubTest(TestClass):
-
-    def test_get_rate_eqs(self):
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
-        pre = get_rate_eqn(eqs)
-
-        # check the form
-        assert 'exp(' + str(pre) + \
-            ')' == 'exp(A[i] - T_inv*Ta[i] + beta[i]*logT)'
-
-        pre = get_rate_eqn(eqs, index='j')
-
-        # check the form
-        assert 'exp(' + str(pre) + \
-            ')' == 'exp(A[j] - T_inv*Ta[j] + beta[j]*logT)'
 
     def test_assign_rates(self):
         reacs = self.store.reacs
@@ -481,6 +467,11 @@ class SubTest(TestClass):
         if rtype != 'simple':
             args['P_arr'] = P
 
+        if not masks[rtype][0].size:
+            # don't have this type of reaction
+            raise SkipTest('Skipping reaction test for {} reactions: not present in'
+                           'mechanism'.format(rtype))
+
         kw_args = {}
         if rtype == 'plog':
             kw_args['maxP'] = np.max([
@@ -600,7 +591,7 @@ class SubTest(TestClass):
     def test_sri_falloff(self):
         ref_phi = self.store.phi_cp
         ref_Pr = self.store.ref_Pr
-        ref_ans = self.store.ref_Sri.copy().squeeze()
+        ref_ans = self.store.ref_Sri.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(ref_phi, order=x, copy=True)
                 }
@@ -623,7 +614,7 @@ class SubTest(TestClass):
     def test_troe_falloff(self):
         phi = self.store.phi_cp
         ref_Pr = self.store.ref_Pr
-        ref_ans = self.store.ref_Troe.copy().squeeze()
+        ref_ans = self.store.ref_Troe.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
                 }

@@ -25,9 +25,7 @@ from ..loopy_utils import loopy_utils as lp_utils
 from .. import utils
 from . import chem_model as chem
 from ..kernel_utils import kernel_gen as k_gen
-from ..sympy_utils import sympy_utils as sp_utils
-from . reaction_types import reaction_type, falloff_form, thd_body_type, \
-    reversible_type
+from . reaction_types import reaction_type, falloff_form, thd_body_type
 from . import array_creator as arc
 from ..loopy_utils import preambles_and_manglers as lp_pregen
 from . import instruction_creator as ic
@@ -314,6 +312,9 @@ def assign_rates(reacs, specs, rate_spec):
     try:
         troe_a, troe_T3, troe_T1, troe_T2 = [
             np.array(x, dtype=np.float64) for x in zip(*troe_par)]
+        # and invert
+        troe_T1 = 1. / troe_T1
+        troe_T3 = 1. / troe_T3
     except ValueError:
         troe_a = np.empty(0)
         troe_T3 = np.empty(0)
@@ -839,7 +840,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
     if conp:
         kernel_data.append(V_lp)
 
-        if loopy_opts.use_atomics and loopy_opts.depth:
+        if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
             pre_instructions = ['<>dE = 0.0d']
             post_instructions = [Template(
@@ -864,7 +865,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
             ]
 
     else:
-        if loopy_opts.use_atomics and loopy_opts.depth:
+        if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
             pre_instructions = ['<>dE = 0.0d']
             post_instructions = [Template(
@@ -888,9 +889,14 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                 """
             ).safe_substitute(**locals())]
 
-    can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['final', 'temp_sum'],
-        init_ids=['init', 'temp_init'])
+    if loopy_opts.depth:
+        can_vectorize, vec_spec = ic.get_deep_specializer(
+            loopy_opts, atomic_ids=['final', 'temp_sum'],
+            init_ids=['init', 'temp_init'])
+    else:
+        can_vectorize = True
+        vec_spec = ic.write_race_silencer(['end'])
+
     return k_gen.knl_info(name='get_extra_var_rates',
                           pre_instructions=pre_instructions,
                           instructions=instructions,
@@ -1644,20 +1650,9 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    # set of eqn's doesn't matter
-    conp_eqs = eqs['conp']
-
     # add the reverse map
     rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
                            namestore.rev_mask)
-
-    # find Kc equation
-    Kc_sym = next(x for x in conp_eqs if str(x) == '{K_c}[i]')
-    Kc_eqn = conp_eqs[Kc_sym]
-    nu_sym = next(x for x in Kc_eqn.free_symbols if str(x) == 'nu[k, i]')
-    B_sym = next(x for x in Kc_eqn.free_symbols if str(x) == 'B[k]')
-    kr_sym = next(x for x in conp_eqs if str(x) == '{k_r}[i]')
-    # kf_sym = next(x for x in conp_eqs if str(x) == '{k_f}[i]')
 
     # map from reverse reaction index to forward reaction index
     rev_map.check_and_add_transform(
@@ -1697,25 +1692,6 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     # the Kc array on the main loop, no map as this is only reversible
     Kc_lp, Kc_str = rev_map.apply_maps(namestore.Kc, *default_inds)
 
-    # modify Kc equation
-    Kc_eqn = sp_utils.sanitize(conp_eqs[Kc_sym],
-                               symlist={'nu': nu_sym,
-                                        'B': B_sym},
-                               subs={
-        sp.Sum(nu_sym, (sp.Idx('k'), 1, sp.Symbol('N_s'))): nu_sum_str})
-
-    # insert the B sum into the Kc equation
-    Kc_eqn_Pres = next(
-        x for x in sp.Mul.make_args(Kc_eqn) if x.has(sp.Symbol('R_u')))
-    Kc_eqn_exp = Kc_eqn / Kc_eqn_Pres
-    Kc_eqn_exp = sp_utils.sanitize(Kc_eqn_exp,
-                                   symlist={'nu': nu_sym,
-                                            'B': B_sym},
-                                   subs={
-                                       sp.Sum(B_sym * nu_sym,
-                                              (sp.Idx('k'), 1, sp.Symbol('N_s')
-                                               )): 'B_sum'})
-
     # create the kf array / str
     kf_arr, kf_str = rev_map.apply_maps(
         namestore.kf, *default_inds)
@@ -1723,18 +1699,6 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     # create the kr array / str (no map as we're looping over rev inds)
     kr_arr, kr_str = rev_map.apply_maps(
         namestore.kr, *default_inds)
-
-    # get the kr eqn
-    Kc_temp_str = 'Kc_temp'
-    # for some reason this substitution is poorly behaved
-    # hence we just do this rather than deriving from sympy for the moment
-    # kr_eqn = sp.Symbol(kf_str) / sp.Symbol(Kc_temp_str)
-    kr_eqn = sp_utils.sanitize(conp_eqs[kr_sym][
-        (reversible_type.non_explicit,)],
-        symlist={'{k_f}[i]': sp.Symbol('kf[i]'),
-                 '{K_c}[i]': sp.Symbol('Kc[i]')},
-        subs={'kf[i]': kf_str,
-              'Kc[i]': Kc_temp_str})
 
     # update kernel data
     kernel_data.extend([nu_sum_lp, spec_lp, num_spec_offsets_lp,
@@ -1764,7 +1728,7 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
     if (int)${nu_sum} == ${nu_sum}
         P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
     else
-        P_sum = fast_powf(P_val, ${nu_sum}) {id=P_accum2, dep=P_val_decl*}
+        P_sum = fast_powf(P_val, fabs(${nu_sum})) {id=P_accum2, dep=P_val_decl*}
     end""").substitute(nu_sum=nu_sum_str)
 
         pressure_prod = k_gen.subs_at_indent(pressure_prod_temp, 'pprod',
@@ -1795,13 +1759,10 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                     )
 
     Rate_assign = Template("""
-    <>${Kc_temp_str} = P_sum * B_sum {dep=P_accum*:B_final}
-    ${Kc_val} = ${Kc_temp_str}
-    ${kr_val} = ${rev_eqn}
-    """).safe_substitute(Kc_val=Kc_str,
-                         Kc_temp_str=Kc_temp_str,
-                         kr_val=kr_str,
-                         rev_eqn=kr_eqn)
+    <>Kc_temp = P_sum * B_sum {dep=P_accum*:B_final}
+    ${Kc_str} = Kc_temp
+    ${kr_str} = ${kf_str} / Kc_temp
+    """).safe_substitute(**locals())
 
     instructions = '\n'.join([Bsum_inst, pressure_prod, Rate_assign])
 
@@ -1974,37 +1935,8 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
         return None
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.cheb_map,
+    mapstore = arc.MapStore(loopy_opts, namestore.num_cheb,
                             namestore.cheb_mask)
-
-    # the equation set doesn't matter for this application
-    # just use conp
-    conp_eqs = eqs['conp']
-
-    # find the cheb equation
-    cheb_eqn = next(x for x in conp_eqs if str(x) == 'log({k_f}[i])/log(10)')
-    cheb_form, cheb_eqn = cheb_eqn, conp_eqs[cheb_eqn][(reaction_type.cheb,)]
-    cheb_form = sp.Pow(10, sp.Symbol('kf_temp'))
-
-    # make nice symbols
-    Tinv = sp.Symbol('Tinv')
-    logP = sp.Symbol('logP')
-    Pmax, Pmin, Tmax, Tmin = sp.symbols('Pmax Pmin Tmax Tmin')
-    Pred, Tred = sp.symbols('Pred Tred')
-
-    # get tilde{T}, tilde{P}
-    T_red = next(x for x in conp_eqs if str(x) == 'tilde{T}')
-    P_red = next(x for x in conp_eqs if str(x) == 'tilde{P}')
-
-    Pred_eqn = sp_utils.sanitize(conp_eqs[P_red],
-                                 subs={sp.log(sp.Symbol('P_{min}')): Pmin,
-                                       sp.log(sp.Symbol('P_{max}')): Pmax,
-                                       sp.log(sp.Symbol('P')): logP})
-
-    Tred_eqn = sp_utils.sanitize(conp_eqs[T_red],
-                                 subs={sp.S.One / sp.Symbol('T_{min}'): Tmin,
-                                       sp.S.One / sp.Symbol('T_{max}'): Tmax,
-                                       sp.S.One / sp.Symbol('T'): Tinv})
 
     # max degrees in mechanism
     poly_max = int(np.maximum(maxP, maxT))
@@ -2022,15 +1954,7 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
 
     # create arrays
 
-    # parameters, counts and limit arrays are based on number of
-    # chebyshev reacs
-    mapstore.check_and_add_transform(namestore.cheb_numP, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_numT, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_params, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_Plim, namestore.num_cheb)
-    mapstore.check_and_add_transform(namestore.cheb_Tlim, namestore.num_cheb)
-
-    # and the kf based on the map
+    # kf is based on the map
     mapstore.check_and_add_transform(namestore.kf, namestore.cheb_map)
 
     num_P_lp, num_P_str = mapstore.apply_maps(namestore.cheb_numP, var_name)
@@ -2043,10 +1967,10 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
     tlim_lp, _ = mapstore.apply_maps(namestore.cheb_Tlim, var_name, lim_ind)
 
     # workspace vars are based only on their polynomial indicies
-    pres_poly_lp, pres_poly_str = mapstore.apply_maps(namestore.cheb_pres_poly,
-                                                      pres_poly_ind)
-    temp_poly_lp, temp_poly_str = mapstore.apply_maps(namestore.cheb_temp_poly,
-                                                      temp_poly_ind)
+    pres_poly_lp, ppoly_k_str = mapstore.apply_maps(namestore.cheb_pres_poly,
+                                                    pres_poly_ind)
+    temp_poly_lp, tpoly_m_str = mapstore.apply_maps(namestore.cheb_temp_poly,
+                                                    temp_poly_ind)
 
     # create temperature and pressure arrays
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
@@ -2096,65 +2020,47 @@ def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
                                           poly_compute_ind,
                                           affine=-2)
 
+    exp10fun = utils.exp_10_fun[loopy_opts.lang].format(val='kf_temp')
+
     instructions = Template("""
 <>Pmin = ${Pmin_str}
 <>Tmin = ${Tmin_str}
 <>Pmax = ${Pmax_str}
 <>Tmax = ${Tmax_str}
-<>Tred = ${Tred_str}
-<>Pred = ${Pred_str}
-<>numP = ${numP_str} {id=plim}
-<>numT = ${numT_str} {id=tlim}
-${ppoly_0} = 1
-${ppoly_1} = Pred
-${tpoly_0} = 1
-${tpoly_1} = Tred
+<>Tred = (-Tmax - Tmin + 2 * ${Tinv}) / (Tmax - Tmin)
+<>Pred = (-Pmax - Pmin + 2 * ${logP}) / (Pmax - Pmin)
+<>numP = ${num_P_str} {id=plim}
+<>numT = ${num_T_str} {id=tlim}
+${ppoly0_str} = 1
+${ppoly1_str} = Pred
+${tpoly0_str} = 1
+${tpoly1_str} = Tred
 #<> poly_end = max(numP, numT)
 # compute polynomial terms
 for p
     if p < numP
-        ${ppoly_p} = 2 * Pred * ${ppoly_pm1} - ${ppoly_pm2} {id=ppoly, dep=plim}
+        ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} \
+            {id=ppoly, dep=plim}
     end
     if p < numT
-        ${tpoly_p} = 2 * Tred * ${tpoly_pm1} - ${tpoly_pm2} {id=tpoly, dep=tlim}
+        ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} \
+            {id=tpoly, dep=tlim}
     end
 end
 <> kf_temp = 0
 for m
     <>temp = 0
     for k
-        temp = temp + ${ppoly_k} * ${chebpar_km} {id=temp, dep=ppoly:tpoly}
+        temp = temp + ${ppoly_k_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
     end
-    kf_temp = kf_temp + ${tpoly_m} * temp {id=kf, dep=temp}
+    kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
 end
 
-${kf_str} = ${kf_eval} {dep=kf}
+${kf_str} = ${exp10fun} {id=set, dep=kf}
 """)
 
-    instructions = instructions.safe_substitute(
-        kf_str=kf_str,
-        Tred_str=str(Tred_eqn),
-        Pred_str=str(Pred_eqn),
-        Pmin_str=Pmin_str,
-        Pmax_str=Pmax_str,
-        Tmin_str=Tmin_str,
-        Tmax_str=Tmax_str,
-        ppoly_0=ppoly0_str,
-        ppoly_1=ppoly1_str,
-        ppoly_k=pres_poly_str,
-        ppoly_p=ppolyp_str,
-        ppoly_pm1=ppolypm1_str,
-        ppoly_pm2=ppolypm2_str,
-        tpoly_0=tpoly0_str,
-        tpoly_1=tpoly1_str,
-        tpoly_m=temp_poly_str,
-        tpoly_p=tpolyp_str,
-        tpoly_pm1=tpolypm1_str,
-        tpoly_pm2=tpolypm2_str,
-        chebpar_km=params_str,
-        numP_str=num_P_str,
-        numT_str=num_T_str,
-        kf_eval=str(cheb_form))
+    instructions = instructions.safe_substitute(**locals())
+    vec_spec = ic.write_race_silencer(['set'])
 
     return k_gen.knl_info('rateconst_cheb',
                           instructions=instructions,
@@ -2162,7 +2068,8 @@ ${kf_str} = ${kf_eval} {dep=kf}
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
-                          extra_inames=extra_inames)
+                          extra_inames=extra_inames,
+                          vectorization_specializer=vec_spec)
 
 
 def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
@@ -2194,40 +2101,6 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
     # check for empty plog (if so, return empty)
     if namestore.plog_map is None:
         return None
-
-    rate_eqn = get_rate_eqn(eqs)
-
-    # find the plog equation
-    plog_eqn = next(x for x in eqs['conp'] if str(x) == 'log({k_f}[i])')
-    _, plog_eqn = plog_eqn, eqs[
-        'conp'][plog_eqn][(reaction_type.plog,)]
-
-    # now we do some surgery to obtain a form w/o 'logs' as we'll take them
-    # explicitly in python
-    logP = sp.Symbol('logP')
-    logP1 = sp.Symbol('low[0]')
-    logP2 = sp.Symbol('hi[0]')
-    logk1 = sp.Symbol('logk1')
-    logk2 = sp.Symbol('logk2')
-    plog_eqn = sp_utils.sanitize(plog_eqn, subs={sp.log(sp.Symbol('k_1')): logk1,
-                                                 sp.log(sp.Symbol('k_2')): logk2,
-                                                 sp.log(sp.Symbol('P')): logP,
-                                                 sp.log(sp.Symbol('P_1')): logP1,
-                                                 sp.log(sp.Symbol('P_2')): logP2})
-
-    # and specialize the k1 / k2 equations
-    A1 = sp.Symbol('low[1]')
-    b1 = sp.Symbol('low[2]')
-    Ta1 = sp.Symbol('low[3]')
-    k1_eq = sp_utils.sanitize(rate_eqn, subs={sp.Symbol('A[i]'): A1,
-                                              sp.Symbol('beta[i]'): b1,
-                                              sp.Symbol('Ta[i]'): Ta1})
-    A2 = sp.Symbol('hi[1]')
-    b2 = sp.Symbol('hi[2]')
-    Ta2 = sp.Symbol('hi[3]')
-    k2_eq = sp_utils.sanitize(rate_eqn, subs={sp.Symbol('A[i]'): A2,
-                                              sp.Symbol('beta[i]'): b2,
-                                              sp.Symbol('Ta[i]'): Ta2})
 
     # parameter indicies
     arrhen_ind = 'm'
@@ -2317,34 +2190,31 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
             # check that
             # 1. inside this reactions parameter's still
             # 2. inside pressure range
-            <> midcheck = (k <= numP) and (${logP} > ${pressure_mid_lo}) and (${logP} <= ${pressure_mid_hi})
+            <> midcheck = (k < numP) and (${logP} > ${pressure_mid_lo}) \
+                and (${logP} <= ${pressure_mid_hi})
             if midcheck
                 lo_ind = k {id=ind20}
                 hi_ind = k + 1 {id=ind21}
             end
         end
+        # load pressure and reaction parameters into temp arrays
         for m
             low[m] = ${pressure_general_lo} {id=lo, dep=ind*}
             hi[m] = ${pressure_general_hi} {id=hi, dep=ind*}
         end
-        <>logk1 = ${loweq} {id=a1, dep=lo}
-        <>logk2 = ${hieq} {id=a2, dep=hi}
+        # eval logkf's
+        <>logk1 = low[1] + ${logT} * low[2] - low[3] * ${Tinv}  {id=a1, dep=lo}
+        <>logk2 = hi[1] + ${logT} * hi[2] - hi[3] * ${Tinv} {id=a2, dep=hi}
         <>kf_temp = logk1 {id=a_oor}
         if not oor
-            kf_temp = ${plog_eqn} {id=a_found, dep=a1:a2}
+            # if not out of bounds, compute interpolant
+            kf_temp = (-logk1 + logk2) * (${logP} - low[0]) / (hi[0] - low[0]) + \
+                kf_temp {id=a_found, dep=a1:a2}
         end
         ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
-""").safe_substitute(loweq=k1_eq, hieq=k2_eq, plog_eqn=plog_eqn,
-                     kf_str=kf_str,
-                     logP=logP,
-                     plog_num_param_str=plog_num_param_str,
-                     pressure_lo=pressure_lo,
-                     pressure_hi=pressure_hi,
-                     pressure_mid_lo=pressure_mid_lo,
-                     pressure_mid_hi=pressure_mid_hi,
-                     pressure_general_lo=pressure_general_lo,
-                     pressure_general_hi=pressure_general_hi
-                     )
+""").safe_substitute(**locals())
+
+    vec_spec = ic.write_race_silencer(['kf'])
 
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
@@ -2356,7 +2226,8 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           extra_inames=extra_inames)]
+                           extra_inames=extra_inames,
+                           vectorization_specializer=vec_spec)]
 
 
 def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
@@ -2386,8 +2257,6 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     # check for empty
     if namestore.fall_map is None:
         return None
-
-    conp_eqs = eqs['conp']  # conp / conv irrelevant for rates
 
     # create the mapper
     mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
@@ -2436,16 +2305,6 @@ def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
     kernel_data.extend([T_arr, thd_conc_lp, kf_arr, kf_fall_arr, Pr_arr,
                         fall_type_lp])
 
-    # create Pri eqn
-    Pri_sym = next(x for x in conp_eqs if str(x) == 'P_{r, i}')
-    # make substituions to get a usable form
-    pres_mod_sym = sp.Symbol(thd_conc_str)
-    Pri_eqn = sp_utils.sanitize(conp_eqs[Pri_sym][(thd_body_type.mix,)],
-                                subs={'[X]_i': pres_mod_sym,
-                                      'k_{0, i}': 'k0',
-                                      'k_{infty, i}': 'kinf'}
-                                )
-
     # create instruction set
     pr_instructions = Template("""
 if ${fall_type_str}
@@ -2457,23 +2316,20 @@ else
     kinf = ${kf_str} {id=kinf_f}
     k0 = ${kf_fall_str} {id=k0_f}
 end
-${Pr_str} = ${Pr_eq} {dep=k*}
+${Pr_str} = ${thd_conc_str} * k0 / kinf {id=set, dep=k*}
 """)
 
     # sub in strings
-    pr_instructions = pr_instructions.safe_substitute(
-        fall_type_str=fall_type_str,
-        kf_str=kf_str,
-        kf_fall_str=kf_fall_str,
-        Pr_str=Pr_str,
-        Pr_eq=Pri_eqn)
+    pr_instructions = pr_instructions.safe_substitute(**locals())
+    vec_spec = ic.write_race_silencer(['set'])
 
     # and finally return the resulting info
     return [k_gen.knl_info('red_pres',
                            instructions=pr_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=mapstore)]
+                           mapstore=mapstore,
+                           vectorization_specializer=vec_spec)]
 
 
 def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
@@ -2512,15 +2368,14 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     # create mapper
     mapstore = arc.MapStore(loopy_opts,
-                            namestore.troe_map, namestore.troe_mask)
+                            namestore.num_troe, namestore.num_troe)
 
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
     # add maps / masks
-    mapstore.check_and_add_transform(namestore.Fcent, namestore.num_troe)
-    mapstore.check_and_add_transform(namestore.Atroe, namestore.num_troe)
-    mapstore.check_and_add_transform(namestore.Btroe, namestore.num_troe)
+    mapstore.check_and_add_transform(namestore.Fi, namestore.troe_map)
+    mapstore.check_and_add_transform(namestore.Pr, namestore.troe_map)
 
     # create the Pr loopy array / string
     Pr_lp, Pr_str = mapstore.apply_maps(namestore.Pr, *default_inds)
@@ -2543,21 +2398,6 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     # update the kernel_data
     kernel_data.extend([Pr_lp, T_lp, Fi_lp, Fcent_lp, Atroe_lp, Btroe_lp])
 
-    # find the falloff form equations
-    Fi_sym = next(x for x in conp_eqs if str(x) == 'F_{i}')
-    keys = conp_eqs[Fi_sym]
-    Fi = {}
-    for key in keys:
-        fall_form = next(x for x in key if isinstance(x, falloff_form))
-        Fi[fall_form] = conp_eqs[Fi_sym][key]
-
-    # get troe syms / eqs
-    Fcent = next(x for x in conp_eqs if str(x) == 'F_{cent}')
-    Atroe = next(x for x in conp_eqs if str(x) == 'A_{Troe}')
-    Btroe = next(x for x in conp_eqs if str(x) == 'B_{Troe}')
-    Fcent_eq, Atroe_eq, Btroe_eq = conp_eqs[
-        Fcent], conp_eqs[Atroe], conp_eqs[Btroe]
-
     # get troe params and create arrays
     troe_a_lp, troe_a_str = mapstore.apply_maps(namestore.troe_a, var_name)
     troe_T3_lp, troe_T3_str = mapstore.apply_maps(namestore.troe_T3, var_name)
@@ -2565,90 +2405,36 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     troe_T2_lp, troe_T2_str = mapstore.apply_maps(namestore.troe_T2, var_name)
     # update the kernel_data
     kernel_data.extend([troe_a_lp, troe_T3_lp, troe_T1_lp, troe_T2_lp])
-    # sub into eqs
-    Fcent_eq = sp_utils.sanitize(Fcent_eq, subs={
-        'a': troe_a_str,
-        'T^{*}': troe_T1_str,
-        'T^{***}': troe_T3_str,
-        'T^{**}': troe_T2_str,
-    })
-
-    # now separate into optional / base parts
-    Fcent_base_eq = sp.Add(
-        *[x for x in sp.Add.make_args(Fcent_eq)
-          if not sp.Symbol(troe_T2_str) in x.free_symbols])
-    Fcent_opt_eq = Fcent_eq - Fcent_base_eq
-
-    # develop the Atroe / Btroe eqs
-    Atroe_eq = sp_utils.sanitize(Atroe_eq, subs=OrderedDict([
-        ('F_{cent}', Fcent_str),
-        ('P_{r, i}', Pr_str),
-        (sp.log(sp.Symbol(Pr_str), 10), 'logPr'),
-        (sp.log(sp.Symbol(Fcent_str), 10), sp.Symbol('logFcent'))
-    ]))
-
-    Btroe_eq = sp_utils.sanitize(Btroe_eq, subs=OrderedDict([
-        ('F_{cent}', Fcent_str),
-        ('P_{r, i}', Pr_str),
-        (sp.log(sp.Symbol(Pr_str), 10), 'logPr'),
-        (sp.log(sp.Symbol(Fcent_str), 10), sp.Symbol('logFcent'))
-    ]))
-
-    Fcent_temp_str = 'Fcent_temp'
-    # finally, work on the Fi form
-    Fi_eq = sp_utils.sanitize(Fi[falloff_form.troe], subs=OrderedDict([
-        ('F_{cent}', Fcent_temp_str),
-        ('A_{Troe}', Atroe_str),
-        ('B_{Troe}', Btroe_str)
-    ]))
-
-    # separate into Fcent and power
-    Fi_base_eq = next(x for x in Fi_eq.args if str(x) == Fcent_temp_str)
-    Fi_pow_eq = next(x for x in Fi_eq.args if str(x) != Fcent_temp_str)
-    Fi_pow_eq = sp_utils.sanitize(Fi_pow_eq, subs=OrderedDict([
-        (sp.Pow(sp.Symbol(Atroe_str), 2), sp.Symbol('Atroe_squared')),
-        (sp.Pow(sp.Symbol(Btroe_str), 2), sp.Symbol('Btroe_squared'))
-    ]))
 
     # make the instructions
     troe_instructions = Template("""
-    <>T = ${T_str}
-    <>${Fcent_temp} = ${Fcent_base_eq} {id=Fcent_decl} # this must be a temporary to avoid a race on future assignments
+    <>Fcent_temp = ${troe_a_str} * exp(-T * ${troe_T1_str}) \
+        + (1 - ${troe_a_str}) * exp(-T * ${troe_T3_str}) {id=Fcent_decl}
     if ${troe_T2_str} != 0
-        ${Fcent_temp} = ${Fcent_temp} + ${Fcent_opt_eq} {id=Fcent_decl2, dep=Fcent_decl}
+        Fcent_temp = Fcent_temp + exp(-${troe_T2_str} / T) \
+            {id=Fcent_decl2, dep=Fcent_decl}
     end
-    ${Fcent_str} = ${Fcent_temp} {id=Fcent_decl3, dep=Fcent_decl2}
-    <> Fcent_val = fmax(1e-300d, ${Fcent_temp}) {id=Fcv, dep=Fcent_decl3}
-    <>Pr_val = fmax(1e-300d, ${Pr_str}) {id=Prv}
-    <>logFcent = log10(Fcent_val) {dep=Fcv}
-    <>logPr = log10(Pr_val) {dep=Prv}
-    <>Atroe_temp = ${Atroe_eq} {dep=Fcent_decl*}
-    <>Btroe_temp = ${Btroe_eq} {dep=Fcent_decl*}
-    ${Atroe_str} = Atroe_temp # this must be a temporary to avoid a race on future assignments
-    ${Btroe_str} = Btroe_temp # this must be a temporary to avoid a race on future assignments
-    <>Atroe_squared = Atroe_temp * Atroe_temp
-    <>Btroe_squared = Btroe_temp * Btroe_temp
-    ${Fi_str} = ${Fi_base_eq}**(${Fi_pow_eq}) {dep=Fcent_decl*}
-    """).safe_substitute(T_str=T_str,
-                         Fcent_temp=Fcent_temp_str,
-                         Fcent_str=Fcent_str,
-                         Fcent_base_eq=Fcent_base_eq,
-                         Fcent_opt_eq=Fcent_opt_eq,
-                         troe_T2_str=troe_T2_str,
-                         Pr_str=Pr_str,
-                         Atroe_eq=Atroe_eq,
-                         Btroe_eq=Btroe_eq,
-                         Atroe_str=Atroe_str,
-                         Btroe_str=Btroe_str,
-                         Fi_str=Fi_str,
-                         Fi_base_eq=Fi_base_eq,
-                         Fi_pow_eq=Fi_pow_eq)
+    ${Fcent_str} = Fcent_temp {id=Fcent_decl3, dep=Fcent_decl2}
+    <>logFcent = log10(fmax(1e-300d, Fcent_temp)) {dep=Fcent_decl3}
+    <>logPr = log10(fmax(1e-300d, ${Pr_str}))
+    <>Atroe_temp = -0.67 * logFcent + logPr - 0.4 {dep=Fcent_decl*}
+    <>Btroe_temp = -1.1762 * logFcent - 0.14 * logPr + 0.806 {dep=Fcent_decl*}
+    ${Atroe_str} = Atroe_temp
+    ${Btroe_str} = Btroe_temp
+    ${Fi_str} = Fcent_temp**(1 / (((Atroe_temp * Atroe_temp) / \
+        (Btroe_temp * Btroe_temp) + 1))) {id=Fi, dep=Fcent_decl*}
+    """).safe_substitute(**locals())
+
+    vec_spec = ic.write_race_silencer(['Fi'])
 
     return [k_gen.knl_info('fall_troe',
+                           pre_instructions=[ic.default_pre_instructs(
+                                'T', T_str, 'VAL')],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
+                           vectorization_specializer=vec_spec,
                            manglers=[lp_pregen.fmax()])]
 
 
@@ -2685,15 +2471,14 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     kernel_data = []
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.sri_map, namestore.sri_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_sri, namestore.sri_mask)
 
     if test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
     # maps and transforms
-    for arr in [namestore.X_sri, namestore.sri_a, namestore.sri_b,
-                namestore.sri_c, namestore.sri_d, namestore.sri_e]:
-        mapstore.check_and_add_transform(arr, namestore.num_sri)
+    mapstore.check_and_add_transform(namestore.Fi, namestore.sri_map)
+    mapstore.check_and_add_transform(namestore.Pr, namestore.sri_map)
 
     # Create the temperature array
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
@@ -2716,69 +2501,31 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     kernel_data.extend(
         [X_sri_lp, sri_a_lp, sri_b_lp, sri_c_lp, sri_d_lp, sri_e_lp])
 
-    # start creating SRI kernel
-    Fi_sym = next(x for x in conp_eqs if str(x) == 'F_{i}')
-    Fi = next(val for key, val in conp_eqs[Fi_sym].items()
-              if falloff_form.sri in key)
-
-    # find Pr symbol
-    Pri_sym = next(x for x in conp_eqs if str(x) == 'P_{r, i}')
-
-    # get SRI symbols
-    X_sri_sym = next(x for x in Fi.free_symbols if str(x) == 'X')
-
-    # create SRI eqs
-    X_sri_eq = conp_eqs[X_sri_sym].subs(
-        sp.Pow(sp.log(Pri_sym, 10), 2), 'logPr * logPr')
-    Fi_sri_eq = Fi.copy()
-    Fi_sri_eq = sp_utils.sanitize(Fi_sri_eq,
-                                  subs={
-                                      'a': sri_a_str,
-                                      'b': sri_b_str,
-                                      'c': sri_c_str,
-                                      'd': sri_d_str,
-                                      'e': sri_e_str,
-                                      'X': 'X_temp'
-                                  })
-    # do some surgery on the Fi_sri_eq to get the optional parts
-    Fi_sri_base = next(x for x in sp.Mul.make_args(Fi_sri_eq)
-                       if any(str(y) == sri_a_str for y in x.free_symbols))
-    Fi_sri_opt = Fi_sri_eq / Fi_sri_base
-    Fi_sri_d_opt = next(x for x in sp.Mul.make_args(Fi_sri_opt)
-                        if any(str(y) == sri_d_str for y in x.free_symbols))
-    Fi_sri_e_opt = next(x for x in sp.Mul.make_args(Fi_sri_opt)
-                        if any(str(y) == sri_e_str for y in x.free_symbols))
+    # precomputes
+    Tinv = 'Tinv'
+    Tval = 'Tval'
 
     # create instruction set
     sri_instructions = Template("""
-    <>Pr_val = fmax(1e-300d, ${pr_str}) {id=Pri}
-    <>logPr = log10(Pr_val) {dep=Pri}
-    # this is a temporary to avoid a race on Fi_temp assignment
-    <>X_temp = ${Xeq} {id=X_decl}
-    <>Fi_temp = ${Fi_sri} {id=Fi_decl, dep=X_decl}
-    if ${d_str} != 1.0
-        Fi_temp = Fi_temp * ${d_eval} {id=Fi_decl1, dep=Fi_decl}
+    <>logPr = log10(fmax(1e-300d, ${Pr_str}))
+    <>X_temp = 1 / (logPr * logPr + 1) {id=X_decl}
+    <>Fi_temp = (${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
+        exp(-${Tval} / ${sri_c_str})) **(X_temp) {id=Fi_decl, dep=X_decl}
+    if ${sri_d_str} != 1.0
+        Fi_temp = Fi_temp * ${sri_d_str} {id=Fi_decl1, dep=Fi_decl}
     end
-    if ${e_str} != 0.0
-        Fi_temp = Fi_temp * ${e_eval} {id=Fi_decl2, dep=Fi_decl}
+    if ${sri_e_str} != 0.0
+        Fi_temp = Fi_temp * ${Tval}**${sri_e_str} {id=Fi_decl2, dep=Fi_decl}
     end
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
-    ${X_str} = X_temp
-    """).safe_substitute(T_str=T_str,
-                         pr_str=Pr_str,
-                         X_str=X_sri_str,
-                         Xeq=X_sri_eq,
-                         Fi_sri=Fi_sri_base,
-                         d_str=sri_d_str,
-                         d_eval=Fi_sri_d_opt,
-                         e_str=sri_e_str,
-                         e_eval=Fi_sri_e_opt,
-                         Fi_str=Fi_str)
+    ${X_sri_str} = X_temp
+    """).safe_substitute(**locals())
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                               ic.default_pre_instructs('T', T_str, 'VAL')],
+                               ic.default_pre_instructs(Tval, T_str, 'VAL'),
+                               ic.default_pre_instructs(Tinv, T_str, 'INV')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2943,19 +2690,23 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     extra_args = {'kernel_data': base_kernel_data,
                   'var_name': var_name}
 
-    default_preinstructs = {'Tinv':
-                            ic.default_pre_instructs('Tinv', T_str, 'INV'),
-                            'logT':
-                            ic.default_pre_instructs('logT', T_str, 'LOG'),
-                            'Tval':
-                            ic.default_pre_instructs('Tval', T_str, 'VAL')}
+    Tinv = 'Tinv'
+    logT = 'logT'
+    Tval = 'Tval'
+    default_preinstructs = {Tinv:
+                            ic.default_pre_instructs(Tinv, T_str, 'INV'),
+                            logT:
+                            ic.default_pre_instructs(logT, T_str, 'LOG'),
+                            Tval:
+                            ic.default_pre_instructs(Tval, T_str, 'VAL')}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
     expkf_assign = Template("${kf_str} = exp(${rate})")
 
-    def get_instructions(rtype, mapper, kernel_data, beta_iter=1,
-                         single_kernel_rtype=None):
+    def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
+                           single_kernel_rtype=None, Tval=Tval, logT=logT,
+                           Tinv=Tinv):
         # get domain
         domain, inds, num = rdomain(rtype)
 
@@ -2989,15 +2740,16 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         kernel_data.extend([A_lp, b_lp, Ta_lp, kf_lp])
 
         # get rate equations
-        rate_eqn_pre = get_rate_eqn(eqs)
-        rate_eqn_pre = sp_utils.sanitize(rate_eqn_pre,
-                                         symlist={
-                                             'A[i]': A_str,
-                                             'Ta[i]': Ta_str,
-                                             'beta[i]': b_str,
-                                         })
+        rate_eqn_pre = Template(
+            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv}").safe_substitute(
+            **locals())
+        rate_eqn_pre_noTa = Template(
+            "${A_str} + ${logT} * ${b_str}").safe_substitute(**locals())
+        rate_eqn_pre_nobeta = Template(
+            "${A_str} - ${Ta_str} * ${Tinv}").safe_substitute(
+            **locals())
 
-        manglers = []
+        preambles = []
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
             retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
@@ -3008,35 +2760,32 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         elif rtype == 1:
             if beta_iter > 1:
                 beta_iter_str = Template("""
-                <> b_end = abs(${b_str})
-                <> ${kf_str} = kf_temp * pown(T_iter, b_end) {id=a4, dep=a3:a2:a1}
+                <int32> b_end = abs(${b_str})
+                kf_temp = kf_temp * fast_powi(T_iter, b_end) {id=a4, dep=a3:a2:a1}
                 ${kf_str} = kf_temp {dep=a4}
                 """).safe_substitute(b_str=b_str)
-                manglers.append(k_gen.MangleGen('pown',
-                                                (np.float64, np.int32),
-                                                np.float64))
+                preambles.append(lp_pregen.fastpowi_PreambleGen())
             else:
                 beta_iter_str = ("${kf_str} = kf_temp * T_iter"
                                  " {id=a4, dep=a3:a2:a1}")
+
             retv = Template(
                 """
-                <> T_iter = Tval {id=a1}
+                <> T_iter = ${Tval} {id=a1}
                 if ${b_str} < 0
                     T_iter = Tinv {id=a2, dep=a1}
                 end
                 <>kf_temp = ${A_str} {id=a3}
-                ${beta_iter}
-                """).safe_substitute(A_str=A_str,
-                                     b_str=b_str,
-                                     beta_iter=beta_iter_str)
+                ${beta_iter_str}
+                """).safe_substitute(**locals())
         elif rtype == 2:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre.subs(Ta_str, 0)))
+                rate=str(rate_eqn_pre_noTa))
         elif rtype == 3:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre.subs(b_str, 0)))
+                rate=str(rate_eqn_pre_nobeta))
 
-        return Template(retv).safe_substitute(kf_str=kf_str), manglers
+        return Template(retv).safe_substitute(kf_str=kf_str), preambles
 
     # various specializations of the rate form
     specializations = {}
@@ -3051,29 +2800,29 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                                 instructions='',
                                 mapstore=mapstore,
                                 pre_instructions=[
-                                    default_preinstructs['Tval'],
-                                    default_preinstructs['Tinv']],
+                                    default_preinstructs[Tval],
+                                    default_preinstructs[Tinv]],
                                 **extra_args)
     i_beta_exp = k_gen.knl_info('beta_exp_{}'.format(tag),
                                 instructions='',
                                 mapstore=mapstore,
                                 pre_instructions=[
-                                    default_preinstructs['Tinv'],
-                                    default_preinstructs['logT']],
+                                    default_preinstructs[Tinv],
+                                    default_preinstructs[logT]],
                                 **extra_args)
     i_ta_exp = k_gen.knl_info('ta_exp_{}'.format(tag),
                               instructions='',
                               mapstore=mapstore,
                               pre_instructions=[
-        default_preinstructs['Tinv'],
-        default_preinstructs['logT']],
+        default_preinstructs[Tinv],
+        default_preinstructs[logT]],
         **extra_args)
     i_full = k_gen.knl_info('rateconst_full{}'.format(tag),
                             instructions='',
                             mapstore=mapstore,
                             pre_instructions=[
-        default_preinstructs['Tinv'],
-        default_preinstructs['logT']],
+        default_preinstructs[Tinv],
+        default_preinstructs[logT]],
         **extra_args)
 
     # set up the simple arrhenius rate specializations
@@ -3105,11 +2854,11 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
         # need to enclose each branch in it's own if statement
         if len(specializations) > 1:
             instruction_list = []
-            func_manglers = []
+            pre = []
             for i in specializations:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                insns, manglers = get_instructions(
+                insns, preambles = __get_instructions(
                     -1,
                     arc.MapStore(loopy_opts, mapstore.map_domain,
                                  mapstore.mask_domain),
@@ -3119,8 +2868,8 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                 instruction_list.extend([
                     '\t' + x for x in insns.split('\n') if x.strip()])
                 instruction_list.append('end')
-                if manglers:
-                    func_manglers.extend(manglers)
+                if preambles:
+                    pre.extend(preambles)
         # and combine them
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
@@ -3130,7 +2879,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
                            mapstore=mapstore,
                            kernel_data=specializations[0].kernel_data,
                            var_name=var_name,
-                           manglers=func_manglers)}
+                           preambles=pre)}
 
     out_specs = {}
     # and do some finalizations for the specializations
@@ -3153,7 +2902,7 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
 
         # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions, info.manglers = get_instructions(
+            info.instructions, info.preambles = __get_instructions(
                 rtype, mapper, info.kernel_data, beta_iter)
 
         out_specs[rtype] = info
@@ -3411,61 +3160,6 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
         auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers)
-
-
-def get_rate_eqn(eqs, index='i'):
-    """Helper routine that returns the Arrenhius rate constant in exponential
-    form.
-
-    Parameters
-    ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
-    index : str
-        The index to generate the equations for, 'i' by default
-    Returns
-    -------
-    rate_eqn_pre : `sympy.Expr`
-        The rate constant before taking the exponential (sympy does odd things upon
-        doing so). This is used for various simplifications
-
-    """
-
-    conp_eqs = eqs['conp']
-
-    # define some dummy symbols for loopy writing
-    E_sym = sp.Symbol('Ta[{ind}]'.format(ind=index))
-    A_sym = sp.Symbol('A[{ind}]'.format(ind=index))
-    T_sym = sp.Symbol('T')
-    b_sym = sp.Symbol('beta[{ind}]'.format(ind=index))
-    symlist = {'Ta[i]': E_sym,
-               'A[i]': A_sym,
-               'T': T_sym,
-               'beta[i]': b_sym}
-    Tinv_sym = sp.Symbol('Tinv')
-    logA_sym = sp.Symbol('A[{ind}]'.format(ind=index))
-    logT_sym = sp.Symbol('logT')
-
-    # the rate constant is indep. of conp/conv, so just use conp for simplicity
-    kf_eqs = [x for x in conp_eqs if str(x) == '{k_f}[i]']
-
-    # do some surgery on the equations
-    kf_eqs = {key: (x, conp_eqs[x][key])
-              for x in kf_eqs for key in conp_eqs[x]}
-
-    # first load the arrenhius rate equation
-    rate_eqn = next(kf_eqs[x]
-                    for x in kf_eqs if reaction_type.elementary in x)[1]
-    rate_eqn = sp_utils.sanitize(rate_eqn,
-                                 symlist=symlist,
-                                 subs={sp.Symbol('{E_{a}}[i]') / (
-                                    sp.Symbol('R_u') * T_sym): E_sym * Tinv_sym})
-    # finally, alter to exponential form:
-    rate_eqn_pre = sp.log(A_sym) + sp.log(T_sym) * b_sym - E_sym * Tinv_sym
-    rate_eqn_pre = rate_eqn_pre.subs([(sp.log(A_sym), logA_sym),
-                                      (sp.log(T_sym), logT_sym)])
-
-    return rate_eqn_pre
 
 
 def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):

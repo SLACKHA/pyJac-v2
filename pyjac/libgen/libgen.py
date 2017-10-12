@@ -12,6 +12,7 @@ import logging
 from .. import utils
 from .. import site_conf as site
 from enum import Enum
+from ..core.exceptions import CompilationError
 
 
 class build_type(Enum):
@@ -51,13 +52,15 @@ shared_flags = dict(c=['-fPIC'],
                     opencl=['-fPIC'],
                     cuda=['-Xcompiler', '"-fPIC"']
                     )
-shared_exec_flags = dict(c=['-fPIE'],
-                         opencl=['-fPIE'])
+shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
+                         opencl=['-pie', '-Wl,-E'])
 
 opt_flags = ['-O3']
+debug_flags = ['-O0', '-g']
+compile_flags = debug_flags if 'PYJAC_DEBUG' in os.environ else opt_flags
 
-flags = dict(c=site.CC_FLAGS + opt_flags + ['-fopenmp', '-std=c99'],
-             opencl=site.CC_FLAGS + opt_flags + ['-xc', '-std=c99'])
+flags = dict(c=site.CC_FLAGS + compile_flags + ['-fopenmp', '-std=c99'],
+             opencl=site.CC_FLAGS + compile_flags + ['-xc', '-std=c99'])
 
 libs = dict(c=['-lm', '-fopenmp'],
             opencl=['-l' + x for x in site.CL_LIBNAME]
@@ -135,7 +138,6 @@ def compiler(fstruct):
 
     # always use fPIC in case we're building wrapper
     args.extend(shared_flags[fstruct.build_lang])
-    # check for executable
     if fstruct.as_executable:
         args.extend(shared_exec_flags[fstruct.build_lang])
     # and any other flags
@@ -161,7 +163,7 @@ def compiler(fstruct):
         logging.error(
             'Compiler {} not found, generation of pyjac library failed.'.format(
                 args[0]))
-        sys.exit(-1)
+        return -1
     except subprocess.CalledProcessError as exc:
         logging.error('Error: compilation failed for file {} with error:{}'.format(
             fstruct.filename + utils.file_ext[fstruct.build_lang],
@@ -216,10 +218,9 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
     command.extend(
         [os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
 
-    if shared:
+    if shared and not as_executable:
         command.extend(shared_flags[lang])
-
-    if as_executable:
+    elif as_executable:
         command.extend(shared_exec_flags[lang])
 
     if shared or lang == 'cuda':
@@ -418,8 +419,9 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     results = pool.map(compiler, structs)
     pool.close()
     pool.join()
-    if any(r == -1 for r in results):
-        sys.exit(-1)
+    if any(r != 0 for r in results):
+        failures = [i for i, r in enumerate(results) if r != -1]
+        raise CompilationError([structs[i].filename for i in failures])
 
     libname = libgen(lang, obj_dir, out_dir, files, shared, False, as_executable)
     return os.path.join(out_dir, libname)

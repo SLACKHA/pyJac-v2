@@ -19,6 +19,8 @@ cl_kernel kernel = NULL;
 cl_program program = NULL;
 cl_context context = NULL;
 cl_command_queue queue = NULL;
+// maximum # of IC's per run, based on memory limits
+cl_uint max_per_run = ${max_per_run};
 
 /* declare host/cl buffers */
 ${mem_declares}
@@ -34,22 +36,28 @@ ${knl_args_doc}
 */
 void execute_kernel(cl_uint problem_size, ${knl_args})
 {
-    /* Memory Transfers into the kernel, if any */
-    ${mem_transfers_in}
 
-    size_t global_work_size = problem_size;
-    size_t local_work_size = ${vec_width};
-    #ifdef DEEP
-        //need to multiply global worksize by local worksize
-        //to get correct number of global items
-        global_work_size *= local_work_size;
-    #endif
+    cl_uint per_run = max_per_run < problem_size ? max_per_run : problem_size;
 
-    /* run kernel */
-    check_err(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
+    for (size_t offset = 0; offset < problem_size; offset += per_run)
+    {
+        cl_int this_run = problem_size - offset < per_run ? problem_size - offset : per_run;
+        size_t global_work_size = this_run;
+        size_t local_work_size = ${vec_width};
+        #ifdef DEEP
+            //need to multiply global worksize by local worksize
+            //to get correct number of global items
+            global_work_size *= local_work_size;
+        #endif
+        /* Memory Transfers into the kernel, if any */
+        ${mem_transfers_in}
 
-    /* Memory Transfers out */
-    ${mem_transfers_out}
+        /* run kernel */
+        check_err(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
+
+        /* Memory Transfers out */
+        ${mem_transfers_out}
+    }
 }
 
 /*
@@ -71,9 +79,16 @@ void mem_init(cl_uint problem_size)
         memset(zero, 0, ${max_size});
     #endif
 
+    /* If we've run out of constant memory space, we will place converted
+       global constant here */
+    ${host_constants}
+
     cl_int return_code;
     /* Alloc buffers */
     ${mem_allocs}
+
+    /* we transfer the constants here, as we only need to do so once */
+    ${host_constants_transfers}
 
     #if CL_LEVEL < 120
         free(zero);
@@ -278,33 +293,34 @@ void finalize()
 
 //knl specific vars
 bool ${knl_name}_init = false;
-cl_uint problem_size_store = 0;
+cl_uint per_run_store = 0;
 cl_uint num_devices_store = 0;
 void ${knl_name}_call(cl_uint problem_size, cl_uint num_devices,
                     ${knl_args})
 {
+    cl_uint per_run = max_per_run < problem_size ? max_per_run : problem_size;
     if (num_devices != num_devices_store && ${knl_name}_init)
     {
         //check to see if we need to completely reset (i.e. on device change)
         finalize();
         ${knl_name}_init = false;
     }
-    else if (problem_size != problem_size_store && ${knl_name}_init)
+    else if (per_run != per_run_store && ${knl_name}_init)
     {
         //check to see if the problem size changed, if so we need to realloc memory
         newsize_finalize();
-        mem_init(problem_size);
+        mem_init(per_run);
     }
     if(!${knl_name}_init)
     {
-        init(problem_size, num_devices);
+        init(per_run, num_devices);
         ${knl_name}_init = true;
     }
     execute_kernel(problem_size, ${input_args});
 
     //store for next call
     num_devices_store = num_devices;
-    problem_size_store = problem_size;
+    per_run_store = per_run;
 }
 
 int main(int argc, char* argv[])
@@ -338,7 +354,8 @@ int main(int argc, char* argv[])
 
     //init memory & program
     StartTimer();
-    init(problem_size, num_devices);
+    cl_uint per_run = max_per_run < problem_size ? max_per_run : problem_size;
+    init(per_run, num_devices);
     double setup_time = GetTimer();
     //read input data
     read_initial_conditions("${data_filename}", problem_size,

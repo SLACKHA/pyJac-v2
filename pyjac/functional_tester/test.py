@@ -418,13 +418,13 @@ class spec_rate_eval(eval):
             i for i, x in enumerate(out_files) if 'rop_rev' in x)
         # fwd
         fwd_masked = parse_split_index(out_check[fwd_ind], self.thd_map, order)
-        fwd_masked = parse_split_index(out_check[fwd_ind], self.thd_map, order)
         out_check[fwd_ind][fwd_masked] *= out_check[pmod_ind][parse_split_index(
-            out_check[pmod_ind], np.arange(
-                self.thd_map.size, dtype=np.int32), order)]
+            out_check[pmod_ind], np.arange(self.thd_map.size, dtype=np.int32),
+            order)]
         # rev
         rev_masked = parse_split_index(out_check[rev_ind], self.rev_to_thd_map,
                                        order)
+        # thd to rev map already in thd index list, so don't need to do arange
         out_check[rev_ind][rev_masked] *= out_check[pmod_ind][parse_split_index(
             out_check[pmod_ind], self.thd_to_rev_map, order)]
 
@@ -441,27 +441,33 @@ class spec_rate_eval(eval):
             # get err
             err = np.abs(out - check_arr)
             err_compare = err / (self.atol + self.rtol * np.abs(check_arr))
+
             # find the split, if any
-            err_size = int(np.prod(out.shape) / this_run)
-            err_mask = parse_split_index(err_compare,
-                                         np.arange(err_size, dtype=np.int32), order,
-                                         axis=(1,))
-            # get maximum relative error locations
-            err_locs = np.argmax(err_compare[err_mask], axis=IC_axis)
-            if err_locs.ndim >= 2:
-                # C-split, need to convert to two 1-d arrays
-                lrange = np.arange(err_locs[0].size, dtype=np.int32)
-                fixed = [np.zeros(err_size, dtype=np.int32),
-                         np.zeros(err_size, dtype=np.int32)]
-                for i, x in enumerate(err_locs):
-                    # find max in err_locs
-                    ind = np.argmax(err_compare[x, [i], lrange])
-                    fixed[0][i] = x[ind]
-                    fixed[1][i] = ind
-                err_mask = (fixed[0], err_mask[1], fixed[1])
-            else:
-                err_mask = tuple(
-                    x if i != IC_axis else err_locs for i, x in enumerate(err_mask))
+            def __get_locs_and_mask(arr, locs=None, inds=None):
+                size = int(np.prod(arr.shape) / this_run)
+                if inds is None:
+                    inds = np.arange(size, dtype=np.int32)
+                mask = parse_split_index(arr, inds, order, axis=(1,))
+                # get maximum relative error locations
+                if locs is None:
+                    locs = np.argmax(err_compare[mask], axis=IC_axis)
+                if locs.ndim >= 2:
+                    # C-split, need to convert to two 1-d arrays
+                    lrange = np.arange(locs[0].size, dtype=np.int32)
+                    fixed = [np.zeros(size, dtype=np.int32),
+                             np.zeros(size, dtype=np.int32)]
+                    for i, x in enumerate(locs):
+                        # find max in err_locs
+                        ind = np.argmax(err_compare[x, [i], lrange])
+                        fixed[0][i] = x[ind]
+                        fixed[1][i] = ind
+                    mask = (fixed[0], mask[1], fixed[1])
+                else:
+                    mask = tuple(
+                        x if i != IC_axis else locs for i, x in enumerate(mask))
+                return locs, mask
+
+            err_locs, err_mask = __get_locs_and_mask(err_compare)
 
             # take err norm
             err_comp_store = err_compare[err_mask]
@@ -473,13 +479,17 @@ class spec_rate_eval(eval):
                                      reference_answers[fwd_ind][err_mask])
 
                 rop_rev_err = np.zeros(rop_fwd_err.size)
-                rev_mask = tuple(x[self.rev_map] for x in err_mask)
-                our_rev_mask = tuple((
-                    x if not np.allclose(x, self.rev_map)
-                    else np.arange(self.rev_map.size) for x in rev_mask))
+                # get err locs for rev reactions
+                rev_err_locs = err_locs[self.rev_map]
+                # get reversible mask using the error locations for the reversible
+                # reactions, and the rev_map size for the mask
+                _, rev_mask = __get_locs_and_mask(
+                    out_check[rev_ind], locs=rev_err_locs,
+                    inds=np.arange(self.rev_map.size))
+                # and finally update
                 rop_rev_err[self.rev_map] = np.abs(
-                    out_check[rev_ind][our_rev_mask] -
-                    reference_answers[rev_ind][our_rev_mask])
+                    out_check[rev_ind][rev_mask] -
+                    reference_answers[rev_ind][rev_mask])
                 # now find maximum of error in fwd / rev ROP
                 rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
 
@@ -553,7 +563,7 @@ class spec_rate_eval(eval):
             # check reversible
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'rop_rev' in x],
-                mods, Nr, current_vecwidth)
+                mods, Nrev, current_vecwidth)
             # check Ns size
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'phi' in x], mods, Ns + 1,

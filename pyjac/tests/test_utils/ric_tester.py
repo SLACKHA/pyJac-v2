@@ -2,15 +2,16 @@ import importlib
 import numpy as np
 import sys
 import os
+import six
 
 home_dir = os.path.dirname(__file__)
 read_ics = importlib.import_module('py_readics')
-data = os.path.join(home_dir, 'data.bin')
+data = six.u(os.path.join(home_dir, 'data.bin')).encode('UTF-8')
 
 phi_test = np.fromfile(os.path.join(home_dir, 'phi_test.npy'))
 param_test = np.fromfile(os.path.join(home_dir, 'param_test.npy'))
 
-order = sys.argv[1]
+order = str(sys.argv[1])
 num = int(sys.argv[2])
 assert order in ['C', 'F']
 

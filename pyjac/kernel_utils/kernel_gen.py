@@ -8,6 +8,7 @@ import os
 import re
 from string import Template
 import logging
+from collections import defaultdict
 
 import six
 import loopy as lp
@@ -16,7 +17,7 @@ import numpy as np
 import cgen
 
 from . import file_writers as filew
-from .memory_manager import memory_manager
+from .memory_manager import memory_manager, memory_limits, memory_type
 from .. import site_conf as site
 from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
@@ -141,7 +142,8 @@ class kernel_generator(object):
         self.loopy_opts = loopy_opts
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
-        self.mem = memory_manager(self.lang)
+        self.mem = memory_manager(self.lang, self.loopy_opts.order,
+                                  self.array_split._have_split())
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
@@ -385,9 +387,9 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        self._generate_wrapping_kernel(path)
+        max_per_run = self._generate_wrapping_kernel(path)
         self._generate_compiling_program(path)
-        self._generate_calling_program(path, data_filename)
+        self._generate_calling_program(path, data_filename, max_per_run)
         self._generate_calling_header(path)
         self._generate_common(path)
 
@@ -474,7 +476,8 @@ class kernel_generator(object):
             file.add_lines(file_src.safe_substitute(
                 input_args=', '.join([self._get_pass(next(
                     x for x in self.mem.arrays if x.name == a))
-                    for a in self.mem.host_arrays]),
+                    for a in self.mem.host_arrays
+                    if not any(x.name == a for x in self.mem.host_constants)]),
                 knl_name=self.name))
 
     def _special_kernel_subs(self, file_src):
@@ -517,7 +520,7 @@ class kernel_generator(object):
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
 
-    def _generate_calling_program(self, path, data_filename):
+    def _generate_calling_program(self, path, data_filename, max_per_run):
         """
         Needed for all languages, this generates a simple C file that
         reads in data, sets up the kernel call, executes, etc.
@@ -528,6 +531,9 @@ class kernel_generator(object):
             The output path to write files to
         data_filename : str
             The path to the data file for command line input
+        max_per_run: int
+            The maximum # of initial conditions that can be evaluated per kernel
+            call based on memory limits
 
         Returns
         -------
@@ -546,17 +552,20 @@ class kernel_generator(object):
         # these are the args in the kernel defn
         knl_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a))
-            for a in self.mem.host_arrays])
+            for a in self.mem.host_arrays
+            if not any(x.name == a for x in self.mem.host_constants)])
         # these are the args passed to the kernel (exclude type)
         input_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a),
-            include_type=False) for a in self.mem.host_arrays])
+            include_type=False) for a in self.mem.host_arrays
+            if not any(x.name == a for x in self.mem.host_constants)])
         # these are passed from the main method (exclude type, add _local
         # postfix)
         local_input_args = ', '.join([self._get_pass(
             next(x for x in self.mem.arrays if x.name == a),
             include_type=False,
-            postfix='_local') for a in self.mem.host_arrays])
+            postfix='_local') for a in self.mem.host_arrays
+            if not any(x.name == a for x in self.mem.host_constants)])
         # create doc strings
         knl_args_doc = []
         knl_args_doc_template = Template(
@@ -564,7 +573,8 @@ class kernel_generator(object):
 ${name} : ${type}
     ${desc}
 """)
-        for x in self.mem.in_arrays:
+        for x in [y for y in self.mem.in_arrays if not any(
+                z.name == y for z in self.mem.host_constants)]:
             if x == 'phi':
                 knl_args_doc.append(knl_args_doc_template.safe_substitute(
                     name=x, type='double*', desc='The state vector'))
@@ -633,7 +643,8 @@ ${name} : ${type}
                 order=self.loopy_opts.order,
                 data_filename=data_filename,
                 local_allocs=local_allocs,
-                local_frees=local_frees
+                local_frees=local_frees,
+                max_per_run=max_per_run
             ))
 
     def _generate_compiling_program(self, path):
@@ -668,7 +679,9 @@ ${name} : ${type}
 
         Returns
         -------
-        None
+        max_per_run: int
+            The maximum number of initial conditions that can be executed per
+            kernel call
         """
 
         from loopy.types import AtomicNumpyType, to_loopy_type
@@ -700,8 +713,14 @@ ${name} : ${type}
         # Find the list of all arguements needed for this kernel:
         # Scan through all our kernels and compile the args
         kernel_data = []
-        defines = [arg for dummy in self.kernels for arg in dummy.args if
-                   not isinstance(arg, lp.TemporaryVariable)]
+        defines = [arg for dummy in self.kernels for arg in dummy.args]
+
+        # get read_only variables
+        read_only = list(
+            set(arg.name for dummy in self.kernels for arg in dummy.args
+                if not any(
+                    arg.name in d.get_written_variables() for d in self.kernels)
+                and not isinstance(arg, lp.ValueArg)))
 
         # find problem_size
         problem_size = next(x for x in defines if x == p_size)
@@ -752,14 +771,31 @@ ${name} : ${type}
             same_name = same_name.pop()
             kernel_data.append(same_name)
 
-        # remove and insert at front
-        kernel_data.insert(0, problem_size)
+        # check (non-private) temporary variable duplicates
+        temps = [arg for dummy in self.kernels
+                 for arg in dummy.temporary_variables.values()
+                 if isinstance(arg, lp.TemporaryVariable) and
+                 arg.scope != lp.temp_var_scope.PRIVATE and
+                 arg.scope != lp.auto]
+        copy = temps[:]
+        temps = []
+        for name in sorted(set(x.name for x in copy)):
+            same_names = [x for x in copy if x.name == name]
+            if len(same_names) > 1:
+                if not all(x == same_names[0] for x in same_names[1:]):
+                    raise Exception('Cannot resolve different arguements of '
+                                    'same name: {}'.format(', '.join(
+                                        str(x) for x in same_names)))
+            temps.append(same_names[0])
 
-        self.all_arrays = kernel_data[:]
+        # add problem size arg to front, and save
+        kernel_data.insert(0, problem_size)
+        self.kernel_data = kernel_data[:]
+        # update memory args
         self.mem.add_arrays(kernel_data)
 
         def _name_assign(arr):
-            if arr.name not in ['P_arr', 'V_arr', 'phi'] and not \
+            if arr.name not in read_only and not \
                     isinstance(arr, lp.ValueArg):
                 return arr.name + '[{ind}] = 0 {atomic}'.format(
                     ind=', '.join(['0'] * len(arr.shape)),
@@ -773,6 +809,60 @@ ${name} : ${type}
             self.vec_width = self.loopy_opts.width
         if self.vec_width is None:
             self.vec_width = 0
+
+        # keep track of local / global / constant memory allocations
+        mem_types = defaultdict(lambda: list())
+        # find if we need to pass constants in via global args
+        for i, k in enumerate(self.kernels):
+            # before generating, get memory types
+            for a in (x for x in k.args if not isinstance(x, lp.ValueArg)):
+                if a not in mem_types[memory_type.m_global]:
+                    mem_types[memory_type.m_global].append(a)
+            for a, v in six.iteritems(k.temporary_variables):
+                # check scope to find type
+                if v.scope == lp.temp_var_scope.LOCAL:
+                    if v not in mem_types[memory_type.m_local]:
+                        mem_types[memory_type.m_local].append(v)
+                elif v.scope == lp.temp_var_scope.GLOBAL:
+                    if v not in mem_types[memory_type.m_constant]:
+                        # for opencl < 2.0, a constant global can only be a
+                        # __constant
+                        mem_types[memory_type.m_constant].append(v)
+
+        # check if we're over our constant memory limit
+        mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
+        data_size = len(kernel_data)
+        read_size = len(read_only)
+        if not mem_limits.can_fit():
+            # we need to convert our __constant temporary variables to
+            # __global kernel args until we can fit
+            type_changes = defaultdict(lambda: list())
+            temps = sorted(temps, key=lambda x: np.prod(x.shape), reverse=True)
+            type_changes[memory_type.m_global].append(temps[0])
+            temps = temps[1:]
+            while not mem_limits.can_fit(with_type_changes=type_changes):
+                type_changes[memory_type.m_global].append(temps[0])
+                temps = temps[1:]
+
+            # once we've converted enough, we need to physically change these
+            for x in [v for arrs in type_changes.values() for v in arrs]:
+                kernel_data.append(
+                    lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape))
+                read_only.append(kernel_data[-1].name)
+                self.mem.host_constants.append(x)
+                self.kernel_data.append(kernel_data[-1])
+
+            # and update the types
+            for v in self.mem.host_constants:
+                mem_types[memory_type.m_constant].remove(v)
+                mem_types[memory_type.m_global].append(v)
+
+            mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
+
+        # update the memory manager with new args / input arrays
+        if len(kernel_data) != data_size:
+            self.mem.add_arrays(kernel_data[data_size:],
+                                in_arrays=read_only[read_size:])
 
         inames, _ = self.get_inames(0)
 
@@ -795,16 +885,13 @@ ${name} : ${type}
         if self.vec_width != 0:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
-        # get defn
-        defn_str = lp_utils.get_header(knl)
 
         # and finally, generate the kernel code
-
         preambles = []
         inits = []
         instructions = []
         # split into bodies, preambles, etc.
-        for i, k in enumerate(self.kernels):
+        for i, k, in enumerate(self.kernels):
             if k in sub_instructions:
                 # avoid regeneration if possible
                 inst, pre, init = sub_instructions[k]
@@ -833,6 +920,15 @@ ${name} : ${type}
                 for item in cgr.ast.contents:
                     # initializers go in the preamble
                     if isinstance(item, cgen.Initializer):
+                        def _rec_check_name(decl):
+                            if 'name' in vars(decl):
+                                return decl.name in read_only
+                            elif 'subdecl' in vars(decl):
+                                return _rec_check_name(decl.subdecl)
+                            return False
+                        # check for migrated constant
+                        if _rec_check_name(item.vdecl):
+                            continue
                         if str(item) not in inits:
                             init_list.append(str(item))
 
@@ -855,6 +951,9 @@ ${name} : ${type}
 
         # insert barriers if any
         instructions = self.apply_barriers(instructions)
+
+        # get defn
+        defn_str = lp_utils.get_header(knl)
 
         # join to str
         instructions = '\n'.join(instructions)
@@ -893,6 +992,13 @@ ${name} : ${type}
                 file.add_lines('using adept::adouble;\n')
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
+
+        max_per_run = mem_limits.can_fit(memory_type.m_global)
+        # normalize to divide evenly into vec_width
+        if self.vec_width != 0:
+            max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
+
+        return int(max_per_run)
 
     def remove_unused_temporaries(self, knl):
         """
@@ -1355,6 +1461,11 @@ class opencl_kernel_generator(kernel_generator):
             for a in self.mem.arrays))
         max_size = str(max_size) + ' * problem_size'
 
+        # find converted constant variables -> global args
+        host_constants = self.mem.get_host_constants()
+
+        host_constants_transfers = self.mem.get_host_constants_in()
+
         return subs_at_indent(file_src,
                               vec_width=vec_width,
                               platform_str=platform_str,
@@ -1364,7 +1475,9 @@ class opencl_kernel_generator(kernel_generator):
                               device_type=str(self.loopy_opts.device_type),
                               num_source=1,  # only 1 program / binary is built
                               CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
-                              max_size=max_size  # max size for CL1.1 mem init
+                              max_size=max_size,  # max size for CL1.1 mem init
+                              host_constants=host_constants,
+                              host_constants_transfers=host_constants_transfers
                               )
 
     def get_kernel_arg_setting(self):
@@ -1382,7 +1495,7 @@ class opencl_kernel_generator(kernel_generator):
         """
 
         kernel_arg_sets = []
-        for i, arg in enumerate(self.all_arrays):
+        for i, arg in enumerate(self.kernel_data):
             if not isinstance(arg, lp.ValueArg):
                 kernel_arg_sets.append(
                     self.set_knl_arg_array_template.safe_substitute(

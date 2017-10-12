@@ -5,7 +5,11 @@ from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
-import pyopencl as cl
+try:
+    import pyopencl as cl
+except:
+    cl = None
+    pass
 from pyopencl.tools import clear_first_arg_caches
 from .. import utils
 import os
@@ -156,7 +160,7 @@ class loopy_options(object):
         self.jac_type = jac_type
         # need to find the first platform that has the device of the correct
         # type
-        if self.lang == 'opencl' and self.platform:
+        if self.lang == 'opencl' and self.platform and cl is not None:
             self.device_type = cl.device_type.ALL
             check_name = None
             if platform.lower() == 'cpu':
@@ -926,10 +930,14 @@ def populate(knl, kernel_calls, device='0',
                     for ind in range(len(out)):
                         # get indicies that are non-zero (already in there)
                         # or non infinity/nan
-                        copy_inds = np.where(np.logical_not(
-                            np.logical_or(np.isinf(out[ind]),
-                                          out[ind] == 0, np.isnan(out[ind]))),
-                        )
+
+                        # try w/o finite check (I'm paranoid, don't want to mask)
+                        # any bad data
+                        copy_inds = np.where(np.logical_not(out[ind] == 0))
+                        # copy_inds = np.where(np.logical_not(
+                        #    np.logical_or(np.isinf(out[ind]),
+                        #                  out[ind] == 0, np.isnan(out[ind]))),
+                        # )
                         out_ref[ind][copy_inds] = out[ind][copy_inds]
 
             output.append(out_ref)
