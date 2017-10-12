@@ -21,6 +21,7 @@ from .memory_manager import memory_manager, memory_limits, memory_type
 from .. import site_conf as site
 from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
+from ..loopy_utils import preambles_and_manglers as lp_pregen
 from ..core.array_creator import problem_size as p_size
 from ..core import array_creator as arc
 
@@ -87,6 +88,7 @@ class kernel_generator(object):
     """
 
     def __init__(self, loopy_opts, name, kernels,
+                 namestore,
                  external_kernels=[],
                  input_arrays=[],
                  output_arrays=[],
@@ -95,7 +97,8 @@ class kernel_generator(object):
                  depends_on=[],
                  array_props={},
                  barriers=[],
-                 extra_kernel_data=[]):
+                 extra_kernel_data=[],
+                 extra_preambles=[]):
         """
         Parameters
         ----------
@@ -105,6 +108,10 @@ class kernel_generator(object):
             The kernel name to use
         kernels : list of :class:`loopy.LoopKernel`
             The kernels / calls to wrap
+        namestore: :class:`NameStore`
+            The namestore object used in creation of this kernel.
+            This is used to pull any extra data (e.g. the Jacobian row/col inds)
+            as needed
         external_kernels : list of :class:`loopy.LoopKernel`
             External kernels that must be called, but not implemented in this
             file
@@ -127,6 +134,8 @@ class kernel_generator(object):
             List of global memory barriers needed, (knl1, knl2, barrier_type)
         extra_kernel_data : list of :class:`loopy.ArrayBase`
             Extra kernel arguements to add to this kernel
+        extra_preambles: list of :class:`PreambleGen`
+            Preambles to add to subkernels
         """
 
         self.compiler = None
@@ -137,6 +146,7 @@ class kernel_generator(object):
                                   self.array_split._have_split())
         self.name = name
         self.kernels = kernels
+        self.namestore = namestore
         self.external_kernels = external_kernels
         self.test_size = test_size
         self.auto_diff = auto_diff
@@ -178,6 +188,18 @@ class kernel_generator(object):
 
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = extra_kernel_data[:]
+
+        self.extra_preambles = extra_preambles[:]
+        # check for Jacobian type
+        if self.loopy_opts.jac_format == lp_utils.JacobianFormat.sparse:
+            # need to add the row / column inds
+            self.extra_kernel_data.extend([self.namestore.jac_row_inds([''])[0],
+                                           self.namestore.jac_col_inds([''])[0]])
+
+            # and the preamble
+            self.extra_preambles.append(lp_pregen.jac_indirect_lookup(
+                self.namestore.jac_col_inds.name if order == 'C'
+                else self.namestore.jac_row_inds.name))
 
     def apply_barriers(self, instructions):
         """
@@ -1103,8 +1125,7 @@ ${name} : ${type}
             ))
 
         # get extra mapping data
-        extra_kernel_data = [domain(node.iname)[0]
-                             for domain, node in
+        extra_kernel_data = [domain(node.iname)[0] for domain, node in
                              six.iteritems(info.mapstore.domain_to_nodes)
                              if not node.is_leaf()]
 
@@ -1134,13 +1155,14 @@ ${name} : ${type}
         if info.manglers:
             knl = lp.register_function_manglers(knl, info.manglers)
 
+        preambles = info.preambles + self.extra_preambles[:]
         # check preambles
-        if info.preambles:
+        if preambles:
             # register custom preamble functions
-            knl = lp.register_preamble_generators(knl, info.preambles)
+            knl = lp.register_preamble_generators(knl, preambles)
             # also register their function manglers
             knl = lp.register_function_manglers(knl, [
-                p.get_func_mangler() for p in info.preambles])
+                p.get_func_mangler() for p in preambles])
 
         return self.remove_unused_temporaries(knl)
 
