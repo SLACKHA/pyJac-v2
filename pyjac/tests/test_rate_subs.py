@@ -591,7 +591,7 @@ class SubTest(TestClass):
     def test_sri_falloff(self):
         ref_phi = self.store.phi_cp
         ref_Pr = self.store.ref_Pr
-        ref_ans = self.store.ref_Sri.copy().squeeze()
+        ref_ans = self.store.ref_Sri.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(ref_phi, order=x, copy=True)
                 }
@@ -614,7 +614,7 @@ class SubTest(TestClass):
     def test_troe_falloff(self):
         phi = self.store.phi_cp
         ref_Pr = self.store.ref_Pr
-        ref_ans = self.store.ref_Troe.copy().squeeze()
+        ref_ans = self.store.ref_Troe.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
                 }
