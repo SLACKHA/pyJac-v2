@@ -33,7 +33,7 @@ from .rate_subs import assign_rates
 import numpy as np
 
 
-def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full):
+def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
     """
     From a given set of reactions, determine the populated jacobian indicies.
     Additionally, populate the rate information from :meth:`pyjac.core.assign_rates`
@@ -143,7 +143,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
             # looking for a full Jacobian, this entire row has non-zero
             # derivatives
             if rxn in has_ns or thd_ind in thd_has_ns and \
-                    jacobian_type == JacobianType.full:
+                    jacobian_type == JacobianType.exact:
                 __add_specs(range(row_size))
                 break
 
@@ -189,11 +189,9 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.full)
     val['jac_inds'] = {
         'flat': np.asarray(inds, dtype=np.int32),
         'crs': {'col_ind': np.array(col_ind, dtype=np.int32),
-                'row_ptr': __offset(row_ptr),
-                'size': inds.shape[0]},
+                'row_ptr': __offset(row_ptr)},
         'ccs': {'row_ind': np.array(row_ind, dtype=np.int32),
-                'col_ptr': __offset(col_ptr),
-                'size': inds.shape[0]},
+                'col_ptr': __offset(col_ptr)},
     }
     return val
 
