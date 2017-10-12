@@ -633,12 +633,18 @@ pdep_arrhenius('H + aC3H4 <=> aC3H5',
                [(1.0, 'atm'), 4.670000e+51, -11.45, 21340.0],
                [(10.0, 'atm'), 3.750000e+48, -10.27, 22511.0],
                [(100.0, 'atm'), 4.230000e+43, -8.61, 22522.0])
-#  plog with under range
 
+#  plog with pressures under range
 # Reaction 26
 pdep_arrhenius('C5H5 + CH3 <=> C5H4CH3 + H',
                [(55.0, 'atm'), 1.212400e+16, -0.5779, 10872.7],
                [(100.0, 'atm'), 4.910800e+31, -4.8507, 24772.8])
+
+# plog with pressures over range
+pdep_arrhenius('C5H5 + CH3 <=> C5H4CH3 + H',
+               [(1e-6, 'atm'), 1.212400e+16, -0.5779, 10872.7],
+               [(1e-5, 'atm'), 4.910800e+31, -4.8507, 24772.8])
+
 #  and this one should test the last species (Ns) present in a reaction
 
 # Reaction 27

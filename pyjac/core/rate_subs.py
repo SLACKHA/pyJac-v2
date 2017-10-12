@@ -2190,7 +2190,7 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
             # check that
             # 1. inside this reactions parameter's still
             # 2. inside pressure range
-            <> midcheck = (k <= numP) and (${logP} > ${pressure_mid_lo}) \
+            <> midcheck = (k < numP) and (${logP} > ${pressure_mid_lo}) \
                 and (${logP} <= ${pressure_mid_hi})
             if midcheck
                 lo_ind = k {id=ind20}
