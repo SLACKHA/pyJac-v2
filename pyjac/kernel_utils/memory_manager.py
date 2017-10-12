@@ -196,7 +196,7 @@ class memory_manager(object):
     Aids in defining & allocating arrays for various languages
     """
 
-    def __init__(self, lang, order, have_split):
+    def __init__(self, lang, order, have_split, strided_c_copy=False):
         """
         Parameters
         ----------
@@ -207,6 +207,8 @@ class memory_manager(object):
         have_split: bool
             If true, the arrays in this manager correspond to a C-split or
             F-split format (depending on :param:`order`)
+        strided_c_copy: bool [False]
+            If true, enable strided copies for 'C'
         """
         self.arrays = []
         self.in_arrays = []
@@ -310,24 +312,41 @@ class memory_manager(object):
                         ctype=ctype))
             elif lang == 'c':
                 ctype = 'in' if to_device else 'out'
-                if order == 'C' or use_full:
-                    return Template("""
-                memcpy(&${host_buff}[offset * ${non_ic_size}], ${name},
-                    this_run * ${non_ic_size} * ${itemsize});""")
-                elif order == 'F':
-                    dev_arrays = ['${name}', 'per_run']
-                    host_arrays = ['${host_buff}', 'problem_size']
-                    arrays = dev_arrays + host_arrays if to_device else \
-                        host_arrays + dev_arrays
+                host_arrays = ['${host_buff}']
+                dev_arrays = ['${name}']
+
+                def __combine(host, dev):
+                    arrays = dev + host if to_device else host + dev
                     arrays = ', '.join(arrays)
-                    return Template(Template("""
-                memcpy2D_${ctype}(${arrays},
-                    offset, this_run * ${itemsize}, ${non_ic_size});"""
+                    return arrays
+
+                if use_full:
+                    arrays = __combine(host_arrays, dev_arrays)
+                    # don't put in the offset
+                    return Template(Template(
+                        'memcpy(${arrays}, ${buff_size});').safe_substitute(
+                            arrays=arrays))
+                if order == 'C':
+                    host_arrays[0] += '&' + host_arrays[0] + \
+                        '[offset * ${non_ic_size}]'
+                    arrays = __combine(host_arrays, dev_arrays)
+                    return Template(Template(
+                        'memcpy(${arrays}, this_run * ${non_ic_size} * ${itemsize});'
+                        ).safe_substitute(arrays=arrays))
+                elif order == 'F':
+                    dev_arrays += ['per_run']
+                    host_arrays += ['problem_size']
+                    arrays = __combine(host_arrays(dev_arrays))
+                    return Template(Template(
+                        'memcpy2D_${ctype}(${arrays}, offset, '
+                        'this_run * ${itemsize}, ${non_ic_size});'
                                              ).safe_substitute(
                                              ctype=ctype, arrays=arrays))
 
-        self.copy_in_2d = __get_2d_templates(to_device=True)
-        self.copy_out_2d = __get_2d_templates(to_device=False)
+        self.copy_in_2d = __get_2d_templates(
+            to_device=True, use_full=lang == 'c' and not strided_c_copy)
+        self.copy_out_2d = __get_2d_templates(
+            to_device=False, use_full=lang == 'c' and not strided_c_copy)
         self.copy_in_1d = __get_2d_templates(to_device=True, use_full=True)
         self.copy_out_1d = __get_2d_templates(to_device=False, use_full=True)
 

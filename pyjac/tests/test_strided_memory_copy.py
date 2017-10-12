@@ -22,11 +22,14 @@ import shutil
 def __test_cases():
     for state in OptionLoop(OrderedDict(
             [('lang', ['opencl', 'c']), ('order', ['C', 'F']),
-             ('width', [4, None]), ('depth', [4, None])])):
+             ('width', [4, None]), ('depth', [4, None]),
+             ('strided_c_copy', [True, False])])):
         if state['depth'] and state['width']:
             continue
         elif (state['depth'] is not None or state['width'] is not None) \
                 and state['lang'] == 'c':
+            continue
+        elif (state['strided_c_copy'] and state['lang'] == 'c'):
             continue
         yield param(state)
 
@@ -37,6 +40,7 @@ def test_strided_copy(state):
     order = state['order']
     depth = state['depth']
     width = state['width']
+    strided_c_copy = state['strided_c_copy']
 
     # cleanup
     clean_dir(build_dir)
@@ -97,7 +101,8 @@ def test_strided_copy(state):
     lp_arrays = asplit.split_loopy_arrays(knl).args
 
     # now create a simple library
-    mem = memory_manager(opts.lang, opts.order, asplit._have_split())
+    mem = memory_manager(opts.lang, opts.order, asplit._have_split(),
+                         state['strided_c_copy'])
     mem.add_arrays([x for x in lp_arrays], in_arrays=[x.name for x in lp_arrays],
                    out_arrays=[x.name for x in lp_arrays])
 
@@ -139,7 +144,7 @@ def test_strided_copy(state):
 
     # device memory allocations
     device_names = ['d_' + a.name for a in lp_arrays]
-    device_allocs = Template("${type} ${name}[per_run * ${non_ic_size}];")
+    device_allocs = Template("${type} ${name}[${device_size} * ${non_ic_size}];")
     if lang == 'opencl':
         device_allocs = Template("""
         ${name} = clCreateBuffer(context, CL_MEM_READ_WRITE,
@@ -149,7 +154,8 @@ def test_strided_copy(state):
     device_allocs = [device_allocs.safe_substitute(
         name=device_names[i], size=arrays[i].size,
         non_ic_size=int(np.prod(arrays[i].shape[1:])),
-        type=dtype) for i in range(len(arrays))]
+        type=dtype, device_size='per_run' if strided_c_copy else 'problem_size')
+                     for i in range(len(arrays))]
 
     # copy to save for test
     host_name_saves = ['h_' + a.name + '_save' for a in lp_arrays]
