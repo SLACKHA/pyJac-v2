@@ -911,10 +911,14 @@ def populate(knl, kernel_calls, device='0',
                     for ind in range(len(out)):
                         # get indicies that are non-zero (already in there)
                         # or non infinity/nan
-                        copy_inds = np.where(np.logical_not(
-                            np.logical_or(np.isinf(out[ind]),
-                                          out[ind] == 0, np.isnan(out[ind]))),
-                        )
+
+                        # try w/o finite check (I'm paranoid, don't want to mask)
+                        # any bad data
+                        copy_inds = np.where(np.logical_not(out[ind] == 0))
+                        # copy_inds = np.where(np.logical_not(
+                        #    np.logical_or(np.isinf(out[ind]),
+                        #                  out[ind] == 0, np.isnan(out[ind]))),
+                        # )
                         out_ref[ind][copy_inds] = out[ind][copy_inds]
 
             output.append(out_ref)
