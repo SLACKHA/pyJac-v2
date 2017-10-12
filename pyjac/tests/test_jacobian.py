@@ -315,6 +315,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         name='jacobian',
         loopy_opts=ad_opts,
         kernels=infos,
+        namestore=namestore,
         test_size=self.store.test_size,
         extra_kernel_data=[editor.output]
     )
@@ -385,6 +386,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         name='spec_rates',
         loopy_opts=ad_opts,
         kernels=single_info,
+        namestore=single_name,
         test_size=1,
         extra_kernel_data=[editor.output]
     )
@@ -453,7 +455,7 @@ class SubTest(TestClass):
 
         _generic_tester(self, func, kernel_calls, determine_jac_inds,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                        do_conp=do_conp, **kw_args)
+                        do_conp=do_conp, do_sparse=True, **kw_args)
 
     def _make_namestore(self, conp):
         # get number of sri reactions

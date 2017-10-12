@@ -8,8 +8,10 @@ import logging
 import loopy as lp
 import numpy as np
 import copy
+from string import Template
 from loopy.kernel.data import temp_var_scope as scopes
 from ..loopy_utils.loopy_utils import JacobianFormat
+from ..loopy_utils import preambles_and_mangers as lp_pregen
 import six
 
 
@@ -1093,9 +1095,14 @@ class creator(object):
 
     @property
     def size(self):
-        if self.initializer is None or self.initializer.ndim > 1:
+        if self.initializer is None:
             raise NotImplementedError
         return self.initializer.size
+
+    def __getitem__(self, key):
+        if self.initializer is None:
+            raise NotImplementedError
+        return self.initializer[key]
 
     def __get_indicies(self, *indicies):
         if self.fixed_indicies:
@@ -1164,6 +1171,42 @@ class creator(object):
 
     def copy(self):
         return copy.deepcopy(self)
+
+
+def jac_creator(creator):
+    def __init__(self, row_inds=None, col_inds=None, *args, **kwargs):
+        # store our row / column indicies
+        self.row_inds = row_inds
+        self.col_inds = col_inds
+        self.lookup_call = Template(Template(
+            '${lookup}(${start}, ${end}, ${match})').safe_substitute(
+                lookup=lp_pregen.jac_indirect_lookup.name))
+        super(jac_creator, self).__init__(*args, **kwargs)
+
+    def __call__(self, *indicies, **kwargs):
+        ignore_lookups = kwargs.pop('ignore_lookups', False)
+        # all we have to do here is figure out the order, and add the row / column
+        # indirect lookup accordingly
+        if not ignore_lookups:
+            if self.order == 'C':
+                # looking at a CRS, hence we take the row index (indicies[-2])
+                # and use that to get the row offset
+                indicies[-2] = self.row_inds(indicies[-2])
+                # and we need to do a lookup on the column ind
+                indicies[-1] = self.lookup_call.safe_substitute(
+                    start=self.row_inds(indicies[-2]),
+                    end=self.row_inds(indicies[-2] + ' + 1'),
+                    match=indicies[-1])
+            else:
+                # looking at a CCS, hence take the column index (indicies[-1])
+                # and use that to get the column offset
+                indicies[-1] = self.col_inds(indicies[-1])
+                # and we need to do a lookup on the column ind
+                indicies[-2] = self.lookup_call.safe_substitute(
+                    start=self.col_inds(indicies[-1]),
+                    end=self.col_inds(indicies[-1] + ' + 1'),
+                    match=indicies[-2])
+        return super(jac_creator, self).__call__(*indicies, **kwargs)
 
 
 def _make_mask(map_arr, mask_size):
@@ -1394,12 +1437,13 @@ class NameStore(object):
                              is_input_or_output=True)
 
         if self.jac_format == JacobianFormat.sparse:
-            self.jac = creator('jac',
-                               shape=(test_size,
-                                      self.num_nonzero_jac_inds.size),
-                               order=self.order,
-                               dtype=np.float64,
-                               is_input_or_output=True)
+            self.jac = jac_creator('jac',
+                                   shape=(test_size, self.num_nonzero_jac_inds.size),
+                                   order=self.order,
+                                   dtype=np.float64,
+                                   is_input_or_output=True,
+                                   row_inds=self.jac_row_inds,
+                                   col_inds=self.jac_col_inds)
         else:
             self.jac = creator('jac',
                                shape=(test_size, rate_info['Ns'] + 1,

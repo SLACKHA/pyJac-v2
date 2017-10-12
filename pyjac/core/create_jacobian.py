@@ -241,7 +241,8 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
     j_ind = 'col'
 
     if loopy_opts.jac_format == JacobianFormat.sparse:
-        jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, var_name)
+        jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, var_name,
+                                              ignore_lookups=True)
         instructions = Template(
             """
                 ${jac_str} = 0d {id=reset}
@@ -4474,6 +4475,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
         loopy_opts=loopy_opts,
         name='jacobian_kernel',
         kernels=sub_kernels + kernels,
+        namestore=namestore,
         depends_on=[sgen],
         input_arrays=input_arrays,
         output_arrays=output_arrays,
@@ -4568,7 +4570,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     data_order='C', rate_specialization='full',
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
-                    use_atomics=True, jac_type='full', jac_format='full'):
+                    use_atomics=True, jac_type='exact', jac_format='full'):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4635,7 +4637,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         Useful in testing, as there are serious floating point errors for
         net production rates near equilibrium, invalidating direct comparison to
         Cantera
-    jac_type: ['full', 'approximate']
+    jac_type: ['exact', 'approximate']
         The type of Jacobian kernel to generate.  An approximate Jacobian ignores
         derivatives of the last species with respect to other species in the
         mechanism -- i.e. :math:`\frac{\partial n_{N_s}}{\partial n_{j}}` -- in the

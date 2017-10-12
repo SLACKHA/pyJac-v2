@@ -11,7 +11,8 @@ import sys
 from functools import wraps
 
 from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
-                                        auto_run, RateSpecialization, loopy_options)
+                                        auto_run, RateSpecialization, loopy_options,
+                                        JacobianType, JacobianFormat)
 from ...core.exceptions import MissingPlatformError
 from ...kernel_utils import kernel_gen as k_gen
 from ...core import array_creator as arc
@@ -100,6 +101,7 @@ class kernel_runner(object):
             name='dummy',
             loopy_opts=loopy_opts,
             kernels=infos,
+            namestore=namestore,
             test_size=self.test_size
         )
         gen._make_kernels()
@@ -336,7 +338,7 @@ class get_comparable(object):
 
 def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
                         do_conp=True, langs=['opencl'], do_vector=True,
-                        sparse=False):
+                        do_sparse=False, do_approximate=False):
 
     platforms = get_test_platforms(do_vector=do_vector, langs=langs)
     eqs = {'conp': owner.store.conp_eqs,
@@ -353,10 +355,14 @@ def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
             ('rop_net_kernels', [True])]
     if do_conp:
         oploop += [('conp', [True, False])]
-    if sparse:
-        oploop += [('jac_format', ['sparse'])]
+    if do_sparse:
+        oploop += [('jac_format', [JacobianFormat.full, JacobianFormat.sparse])]
     else:
         oploop += [('jac_format', ['full'])]
+    if do_approximate:
+        oploop += [('jac_type', [JacobianType.exact, JacobianType.approximate])]
+    else:
+        oploop += [('jac_type', [JacobianType.exact])]
     oploop += [('knl_type', ['map'])]
     out = None
     for p in platforms:
@@ -461,6 +467,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             name='spec_rates',
             loopy_opts=opt,
             kernels=infos,
+            namestore=namestore,
             test_size=owner.store.test_size
         )
 

@@ -1,5 +1,4 @@
 from string import Template
-import re
 import numpy as np
 
 
@@ -66,14 +65,15 @@ class PreambleGen(object):
             return vals
         return (vals,)
 
-    def __init__(self, name, arg_dtypes, result_dtypes):
+    def __init__(self, name, code, arg_dtypes, result_dtypes):
         self.func_mangler = MangleGen(name, arg_dtypes, result_dtypes)
         self.name = name
+        self.code = code
         self.arg_dtypes = self.__tuple_gen(arg_dtypes)
         self.result_dtypes = self.__tuple_gen(result_dtypes)
 
     def generate_code(self, preamble_info):
-        raise NotImplementedError
+        return self.code
 
     def get_descriptor(self, func_match):
         raise NotImplementedError
@@ -115,12 +115,9 @@ class fastpowi_PreambleGen(PreambleGen):
             """
 
         super(fastpowi_PreambleGen, self).__init__(
-            'fast_powi',
+            'fast_powi', self.code,
             (np.float64, np.int32),
             (np.float64))
-
-    def generate_code(self, preamble_info):
-        return self.code
 
     def get_descriptor(self, func_match):
         return 'cust_funcs_fastpowi'
@@ -144,12 +141,9 @@ class fastpowf_PreambleGen(PreambleGen):
             """
 
         super(fastpowf_PreambleGen, self).__init__(
-            'fast_powf',
+            'fast_powf', self.code,
             (np.float64, np.float64),
             (np.float64))
-
-    def generate_code(self, preamble_info):
-        return self.code
 
     def get_descriptor(self, func_match):
         return 'cust_funcs_fastpowf'
@@ -161,6 +155,28 @@ class fmax(MangleGen):
         super(fmax, self).__init__(name, arg_dtypes, result_dtypes)
 
 
-class jacptr_PreambleGen(PreambleGen):
-    def __init__(self, name):
-        pass
+class jac_indirect_lookup(PreambleGen):
+    name = 'jac_indirect'
+
+    def __init__(self, array):
+        self.code = Template("""
+    int ${name}(int start, int end, int match)
+    {
+        for (int i = start; i < end; ++i)
+        {
+            if (${array}[i] == match)
+                return i - start;
+        }
+    }
+
+
+
+    """).safe_substute(name=jac_indirect_lookup.name, array=array)
+
+        super(jac_indirect_lookup, self).__init__(
+            jac_indirect_lookup.name, self.code,
+            (np.float64, np.int32, np.int32, np.int32),
+            (np.int32))
+
+    def get_descriptor(self, func_match):
+        return 'cust_funcs_jac_indirect'
