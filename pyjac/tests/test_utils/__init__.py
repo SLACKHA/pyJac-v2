@@ -476,11 +476,13 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         # create a list of answers to check
         try:
             for kc in kernel_calls:
-                kc.set_state(knl.array_split, state['order'])
+                kc.set_state(knl.array_split, state['order'], namestore,
+                             state['jac_format'])
         except TypeError as e:
             if str(e) != "'kernel_call' object is not iterable":
                 raise e
-            kernel_calls.set_state(knl.array_split, state['order'])
+            kernel_calls.set_state(knl.array_split, state['order'], namestore,
+                                   state['jac_format'])
 
         assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
             'Evaluate {} rates failed'.format(func.__name__)
