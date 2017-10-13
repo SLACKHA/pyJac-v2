@@ -595,7 +595,7 @@ class SubTest(TestClass):
         if not cond.size:
             return tuple([None]) * 4   # nothing to test
 
-        def __get_val(vals, mask):
+        def __get_val(vals, mask, **kwargs):
             outv = vals.copy()
             for ax, m in enumerate(mask):
                 outv = np.take(outv, m, axis=ax)
@@ -610,8 +610,8 @@ class SubTest(TestClass):
                 ref_answer=mask.ref_answer)
 
             # and redefine the value extractor
-            def __get_val(vals, *args):
-                return mask(kc, vals, 0)
+            def __get_val(vals, *args, **kwargs):
+                return mask(kc, vals, 0, **kwargs)
             extractor = __get_val
 
         # and return the extractor
@@ -734,7 +734,7 @@ class SubTest(TestClass):
             return is_correct
 
         return __compare(extractor(our_val, (cond, x, y)),
-                         extractor(ref_val, (cond, x, y)))
+                         extractor(ref_val, (cond, x, y), is_answer=True))
 
     def our_nan_compare(self, kc, our_val, ref_val, mask):
         return self.nan_compare(kc, our_val, ref_val, mask, allow_our_nans=True)
@@ -1588,7 +1588,7 @@ class SubTest(TestClass):
 
             # find where there isn't a match
             outv = extractor(our_vals, (cond, x, y))
-            refv = extractor(ref_vals, (cond, x, y))
+            refv = extractor(ref_vals, (cond, x, y), is_answer=True)
             check = np.where(
                 np.logical_not(np.isclose(outv, refv, rtol=rtol)))[0]
 
