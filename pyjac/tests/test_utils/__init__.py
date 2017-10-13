@@ -387,7 +387,7 @@ class get_comparable(object):
         if self.compare_axis != -1:
             # get the split indicies
             masking = parse_split_index(
-                outv, mask, kc.current_order, ans.ndim, axis)
+                outv, mask, kc.current_order, ndim, axis)
 
         else:
             # we supplied a list of indicies, all we really have to do is convert
