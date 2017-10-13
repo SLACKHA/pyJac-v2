@@ -161,8 +161,20 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
 
     # get the compressed storage
     rows, cols = zip(*inds)
+
     rows = np.array(rows, dtype=np.int32)
     cols = np.array(cols, dtype=np.int32)
+
+    # get a column-major version for flat inds
+    inds_F = np.array(inds, copy=True)
+    offset = 0
+    for i, col in enumerate(np.unique(cols)):
+        # find the rows that contains this col
+        row_F = rows[np.where(cols == col)[0]]
+        # place in inds
+        inds_F[offset:offset + row_F.size] = np.asarray(
+            (row_F, [col] * row_F.size), dtype=np.int32).T
+        offset += row_F.size
 
     # turn into row and colum counts
     row_ptr = []
@@ -187,7 +199,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
 
     # update indicies in return value
     val['jac_inds'] = {
-        'flat': np.asarray(inds, dtype=np.int32),
+        'flat_C': np.asarray(inds, dtype=np.int32),
+        'flat_F': np.asarray(inds_F, dtype=np.int32),
         'crs': {'col_ind': np.array(col_ind, dtype=np.int32),
                 'row_ptr': __offset(row_ptr)},
         'ccs': {'row_ind': np.array(row_ind, dtype=np.int32),
