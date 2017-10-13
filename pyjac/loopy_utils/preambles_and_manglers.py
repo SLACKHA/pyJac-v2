@@ -168,15 +168,11 @@ class jac_indirect_lookup(PreambleGen):
                 return i - start;
         }
     }
-
-
-
-    """).safe_substute(name=jac_indirect_lookup.name, array=array)
+    """).safe_substitute(name=jac_indirect_lookup.name, array=array)
 
         super(jac_indirect_lookup, self).__init__(
             jac_indirect_lookup.name, self.code,
-            (np.float64, np.int32, np.int32, np.int32),
-            (np.int32))
+            (np.int32, np.int32, np.int32), (np.int32))
 
     def get_descriptor(self, func_match):
         return 'cust_funcs_jac_indirect'

@@ -1172,7 +1172,7 @@ class creator(object):
         return copy.deepcopy(self)
 
 
-def jac_creator(creator):
+class jac_creator(creator):
     def __init__(self, *args, **kwargs):
         # store our row / column indicies
         self.row_inds = kwargs.pop('row_inds')
@@ -1187,24 +1187,34 @@ def jac_creator(creator):
         # all we have to do here is figure out the order, and add the row / column
         # indirect lookup accordingly
         if not ignore_lookups:
+            def __lookups(arr, lookup, match):
+                if isinstance(match, int):
+                    # this is a temperature or extra variable derivative
+                    # hence, we don't need to do an actual lookup (as all entries
+                    # are populated
+                    return str(match)
+                # otherwise, we need to call the lookup function
+                return self.lookup_call.safe_substitute(
+                    start=arr(lookup)[1],
+                    end=arr(lookup + ' + 1')[1],
+                    match=match)
+            lookups = list(indicies[:])
+            indicies = list(indicies)
             if self.order == 'C':
                 # looking at a CRS, hence we take the row index (indicies[-2])
                 # and use that to get the row offset
-                indicies[-2] = self.row_inds(indicies[-2])
                 # and we need to do a lookup on the column ind
-                indicies[-1] = self.lookup_call.safe_substitute(
-                    start=self.row_inds(indicies[-2]),
-                    end=self.row_inds(indicies[-2] + ' + 1'),
-                    match=indicies[-1])
+                indicies[-1] = __lookups(self.row_inds, lookups[-2], lookups[-1])
+                # and use the row index to get the row offsets
+                indicies[-2] = self.row_inds(lookups[-2])[1]
             else:
-                # looking at a CCS, hence take the column index (indicies[-1])
-                # and use that to get the column offset
-                indicies[-1] = self.col_inds(indicies[-1])
-                # and we need to do a lookup on the column ind
-                indicies[-2] = self.lookup_call.safe_substitute(
-                    start=self.col_inds(indicies[-1]),
-                    end=self.col_inds(indicies[-1] + ' + 1'),
-                    match=indicies[-2])
+                # looking at a CCS:
+                # we need to do a lookup on the column ind
+                indicies[-1] = __lookups(self.col_inds, lookups[-1], lookups[-2])
+                # and use the column index to get the column offset
+                indicies[-2] = self.col_inds(lookups[-1])[1]
+            # and add the offset to the lookup
+            indicies = (indicies[0], ' + '.join(indicies[1:]))
         return super(jac_creator, self).__call__(*indicies, **kwargs)
 
 
