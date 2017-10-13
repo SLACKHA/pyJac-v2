@@ -1188,15 +1188,21 @@ class jac_creator(creator):
         # indirect lookup accordingly
         if not ignore_lookups:
             def __lookups(arr, lookup, match):
-                if isinstance(match, int):
+                if isinstance(match, int) or (isinstance(lookup, int) and
+                                              self.order == 'C'):
                     # this is a temperature or extra variable derivative
                     # hence, we don't need to do an actual lookup (as all entries
                     # are populated
                     return str(match)
+
+                def __add():
+                    if isinstance(lookup, int):
+                        return lookup + 1
+                    return str(lookup) + ' + 1'
                 # otherwise, we need to call the lookup function
                 return self.lookup_call.safe_substitute(
                     start=arr(lookup)[1],
-                    end=arr(lookup + ' + 1')[1],
+                    end=arr(__add())[1],
                     match=match)
             lookups = list(indicies[:])
             indicies = list(indicies)
