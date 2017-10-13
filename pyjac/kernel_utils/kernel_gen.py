@@ -198,7 +198,7 @@ class kernel_generator(object):
 
             # and the preamble
             self.extra_preambles.append(lp_pregen.jac_indirect_lookup(
-                self.namestore.jac_col_inds.name if order == 'C'
+                self.namestore.jac_col_inds.name if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds.name))
 
     def apply_barriers(self, instructions):
