@@ -661,7 +661,8 @@ class kernel_call(object):
             return self.name == knl.name
         return True
 
-    def set_state(self, array_splitter, order='F'):
+    def set_state(self, array_splitter, order='F',
+                  namestore=None, jac_format=JacobianFormat.full):
         """
         Updates the kernel arguements, and  and compare axis to the order given
         If the 'arg' is a function, it will be called to get the correct answer
@@ -675,6 +676,13 @@ class kernel_call(object):
         order : {'C', 'F'}
             The memory layout of the arrays, C (row major) or
             Fortran (column major)
+        namestore : :class:`NameStore`
+            Must be supplied if :param:`jac_format` is of type
+            :class:`JacobianFormat.sparse`, in order to pull row / column indicies
+            for conversion to / from sparse matricies
+        jac_format: :class:`JacobianFormat` [JacobianFormat.full]
+            If sparse, we are testing a sparse matrix (and :param:`namestore` must
+            be supplied)
         """
         self.current_order = order
 
@@ -696,6 +704,21 @@ class kernel_call(object):
         self.kernel_args = args_copy
         self.transformed_ref_ans = [np.array(ans, order=order, copy=True)
                                     for ans in self.ref_answer]
+
+        if jac_format == JacobianFormat.sparse:
+            # need to convert the jacobian arg to a sparse representation
+            # the easiest way to deal with this is to convert the kernel argument
+            # to the sparse dimensions
+
+            # Then afterwards we can use the row / col inds as an intermediate
+            # index in the comparison step
+            import pdb; pdb.set_trace()
+            self.kernel_args['jac'] = np.array(self.kernel_args['jac'][
+                :,
+                namestore.flat_jac_row_inds.initializer,
+                namestore.flat_jac_col_inds.initializer],
+                order=order,
+                copy=True)
 
         # and finally feed through the array splitter
         self.current_split = array_splitter
