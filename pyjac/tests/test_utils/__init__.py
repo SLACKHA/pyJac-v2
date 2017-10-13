@@ -22,7 +22,14 @@ from ...pywrap import generate_wrapper
 from ... import utils
 from ...libgen import build_type
 
+try:
+    from scipy.sparse import csr_matrix, csc_matrix
+except:
+    csr_matrix = None
+    csc_matrix = None
 
+
+from unittest.case import SkipTest
 from optionloop import OptionLoop
 import numpy as np
 import pyopencl as cl
@@ -304,22 +311,83 @@ class get_comparable(object):
             assert all(len(x) == len(self.compare_axis) for x in self.compare_mask),\
                 "Can't use dissimilar compare masks / axes"
 
-    def __call__(self, kc, outv, index):
-        mask = self.compare_mask[index]
+    def __call__(self, kc, outv, index, is_answer=False):
+        mask = self.compare_mask[index][:]
         ans = self.ref_answer[index]
+        axis = self.compare_axis[:]
+        ndim = ans.ndim
+
+        # check for sparse (ignore answers, which do not get transformed into
+        # sparse and should be dealt with as usual)
+        if kc.jac_format == JacobianFormat.sparse and not is_answer:
+            if csc_matrix is None and csr_matrix is None:
+                raise SkipTest('Cannot test sparse matricies without scipy'
+                               ' installed')
+            # need to collapse the mask
+            # first, setup dummy sparse matrix
+            if kc.current_order == 'C':
+                matrix = csr_matrix
+                inds = kc.col_inds
+                indptr = kc.row_inds
+            else:
+                matrix = csc_matrix
+                inds = kc.row_inds
+                indptr = kc.col_inds
+            # next create and get indicies
+            matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
+            row, col = matrix.row, matrix.col
+            inds = np.asarray((row, col)).T
+
+            # https://stackoverflow.com/a/25655090
+            def __combination(*arrays):
+                shape = (len(x) for x in arrays)
+
+                ix = np.indices(shape, dtype=int)
+                ix = ix.reshape(len(arrays), -1).T
+
+                for n, arr in enumerate(arrays):
+                    ix[:, n] = arrays[n][ix[:, n]]
+
+                return ix
+
+            # next we need to find the 1D index of all the row, col pairs in
+            # the mask
+            row_ind = next(i for i, ind in enumerate(self.compare_axis)
+                           if ind == 1)
+            row_mask = mask[row_ind]
+            col_ind = next(i for i, ind in enumerate(self.compare_axis)
+                           if ind == 2)
+            col_mask = mask[col_ind]
+
+            # remove old inds
+            mask = [mask[i] for i in range(len(mask)) if i not in [
+                row_ind, col_ind]]
+            axis = tuple(x for i, x in enumerate(axis) if i not in [
+                row_ind, col_ind])
+
+            # https://stackoverflow.com/a/41234399
+            def inNd(a, b, assume_unique=False):
+                return np.where((a[:, None] == b).all(-1).any(0))[0]
+
+            # add the sparse indicies
+            mask.append(inNd(__combination(row_mask, col_mask), inds))
+            # and the new axis
+            axis = axis + (len(axis),)
+            # and indicated that we've lost a dimension
+            ndim -= 1
 
         # check for vectorized data order
-        if outv.ndim == ans.ndim:
+        if outv.ndim == ndim:
             # return the default, as it can handle it
             return kernel_call('', [], compare_mask=[mask],
-                               compare_axis=self.compare_axis)._get_comparable(
+                               compare_axis=axis)._get_comparable(
                                outv, 0)
 
         _get_index = indexer(ans.ndim, outv.ndim, outv.shape, kc.current_order)
         if self.compare_axis != -1:
             # get the split indicies
             masking = parse_split_index(
-                outv, mask, kc.current_order, ans.ndim, self.compare_axis)
+                outv, mask, kc.current_order, ans.ndim, axis)
 
         else:
             # we supplied a list of indicies, all we really have to do is convert
@@ -356,7 +424,7 @@ def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
     if do_conp:
         oploop += [('conp', [True, False])]
     if do_sparse:
-        oploop += [('jac_format', [JacobianFormat.full, JacobianFormat.sparse])]
+        oploop += [('jac_format', [JacobianFormat.sparse, JacobianFormat.full])]
     else:
         oploop += [('jac_format', ['full'])]
     if do_approximate:

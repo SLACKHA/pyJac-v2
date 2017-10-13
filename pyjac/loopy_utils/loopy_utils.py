@@ -705,6 +705,7 @@ class kernel_call(object):
         self.transformed_ref_ans = [np.array(ans, order=order, copy=True)
                                     for ans in self.ref_answer]
 
+        self.jac_format = jac_format
         if jac_format == JacobianFormat.sparse:
             # need to convert the jacobian arg to a sparse representation
             # the easiest way to deal with this is to convert the kernel argument
@@ -712,13 +713,15 @@ class kernel_call(object):
 
             # Then afterwards we can use the row / col inds as an intermediate
             # index in the comparison step
-            import pdb; pdb.set_trace()
             self.kernel_args['jac'] = np.array(self.kernel_args['jac'][
                 :,
                 namestore.flat_jac_row_inds.initializer,
                 namestore.flat_jac_col_inds.initializer],
                 order=order,
                 copy=True)
+            # save for comparable
+            self.row_inds = namestore.jac_row_inds.initializer
+            self.col_inds = namestore.jac_col_inds.initializer
 
         # and finally feed through the array splitter
         self.current_split = array_splitter
@@ -775,7 +778,7 @@ class kernel_call(object):
 
         if six.callable(mask):
             # see if it's a supplied callable
-            return mask(self, variable, index)
+            return mask(self, variable, index, is_answer=is_answer)
 
         try:
             # test if list of indicies
