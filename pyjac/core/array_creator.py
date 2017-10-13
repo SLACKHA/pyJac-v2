@@ -1378,7 +1378,7 @@ class NameStore(object):
 
             # Compressed Column Storage jacobian
             ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
-            self.ccs_jac_row_ind = creator('sparse_ac_row_inds',
+            self.ccs_jac_row_ind = creator('sparse_jac_row_inds',
                                            shape=ccs_row_ind.shape,
                                            dtype=np.int32,
                                            order=self.order,
