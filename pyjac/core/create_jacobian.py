@@ -1618,7 +1618,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
         kernel_data.append(namestore.problem_size)
 
     mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+        loopy_opts, namestore.net_nonzero_spec, namestore.net_nonzero_spec)
 
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
@@ -1651,11 +1651,14 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     param_str = P_str if conp else V_str
 
     pre_instructions = [Template("""
-        <> sum = 0
+        <> sum = 0 {id=init}
+        ... nop {id=index_dummy} # included to avoid non-existant dep check
         """).safe_substitute(**locals())]
 
     instructions = Template("""
-        sum = sum + (1 - ${mw_str}) * ${dnkdot_de_str} {id=up, dep=*}
+        # hook the sum depenency onto any resulting index changes for the
+        # net_non_zero sum
+        sum = sum + (1 - ${mw_str}) * ${dnkdot_de_str} {id=up, dep=index*}
     """).safe_substitute(**locals())
 
     post_instructions = [Template("""
