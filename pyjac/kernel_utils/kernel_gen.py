@@ -906,6 +906,8 @@ ${name} : ${type}
                 if pre and pre not in preambles:
                     preambles.extend(pre)
                 if init and init not in inits:
+                    # filter out any host constants in sub inits
+                    init = [x for x in init if not any(n in x for n in read_only)]
                     inits.extend(init)
                 continue
 
