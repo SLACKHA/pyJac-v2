@@ -346,7 +346,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     rxn_range = namestore.thd_map
 
     # number of species
-    ns = namestore.num_specs.initializer[-1]
+    ns = namestore.num_specs[-1]
 
     # create mapstore
     mapstore = arc.MapStore(loopy_opts, num_range, num_range)
@@ -868,7 +868,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         return None
 
     # number of species
-    ns = namestore.num_specs.initializer[-1]
+    ns = namestore.num_specs[-1]
 
     mapstore = arc.MapStore(loopy_opts, num_range, num_range)
 
@@ -1715,7 +1715,7 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True):
     if namestore.test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    ns = namestore.num_specs.initializer[-1]
+    ns = namestore.num_specs[-1]
 
     mapstore = arc.MapStore(
         loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
@@ -1858,7 +1858,7 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
     if namestore.test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    ns = namestore.num_specs.initializer[-1]
+    ns = namestore.num_specs[-1]
 
     mapstore = arc.MapStore(
         loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
@@ -1980,7 +1980,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     rxn_range = namestore.thd_map
 
     # number of species
-    ns = namestore.num_specs.initializer[-1]
+    ns = namestore.num_specs[-1]
 
     # create mapstore
     mapstore = arc.MapStore(loopy_opts, num_range, num_range)
@@ -2452,7 +2452,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         return None
 
     # number of species
-    ns = namestore.num_specs.initializer[-1]
+    ns = namestore.num_specs[-1]
 
     mapstore = arc.MapStore(loopy_opts, num_range, num_range)
 
@@ -3051,7 +3051,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                             namestore.num_specs_no_ns,
                             namestore.num_specs_no_ns)
 
-    num_specs = namestore.num_specs.initializer[-1] + 1
+    num_specs = namestore.num_specs[-1] + 1
     # k loop
     spec_k = 'spec_k'
     extra_inames = [(spec_k, '0 <= spec_k < {}'.format(
@@ -3679,7 +3679,7 @@ def __dci_dnj(loopy_opts, namestore,
             prod_nu_k_str=prod_nu_k_str,
             reac_nu_k_str=reac_nu_k_str,
             jac_str=jac_str,
-            ns=namestore.num_specs.initializer[-1],
+            ns=namestore.num_specs[-1],
             thd_type_str=thd_type_str,
             mix=int(thd_body_type.mix),
             species=int(thd_body_type.species),
@@ -3690,7 +3690,7 @@ def __dci_dnj(loopy_opts, namestore,
         )
     else:
         extra_inames.append((spec_j, '0 <= {} < {}'.format(
-            spec_j, namestore.num_specs.initializer[-1])))
+            spec_j, namestore.num_specs[-1])))
 
         instructions = Template("""
         <> rxn_off = ${rxn_to_spec_offsets_str}
@@ -3741,7 +3741,7 @@ def __dci_dnj(loopy_opts, namestore,
             prod_nu_k_str=prod_nu_k_str,
             reac_nu_k_str=reac_nu_k_str,
             jac_str=jac_str,
-            ns=namestore.num_specs.initializer[-1],
+            ns=namestore.num_specs[-1],
             thd_type_str=thd_type_str,
             mix=int(thd_body_type.mix),
             species=int(thd_body_type.species),
@@ -4154,7 +4154,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             """)
         else:
             extra_inames.append((spec_j, '0 <= {} < {}'.format(
-                spec_j, namestore.num_specs.initializer[-1])))
+                spec_j, namestore.num_specs[-1])))
             inner = ("""
                 <> Sns_fwd = 1.0d {id=Sns_fwd_init}
                 <> Sns_rev = 1.0d {id=Sns_rev_init}
@@ -4238,7 +4238,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             pmod_mask_str=pmod_mask_str,
             rev_mask_str=rev_mask_str,
             pres_mod_str=pres_mod_str,
-            ns=namestore.num_specs.initializer[-1]
+            ns=namestore.num_specs[-1]
         )
 
         inames, ranges = zip(*extra_inames)
