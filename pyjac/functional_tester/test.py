@@ -714,7 +714,7 @@ class jacobian_eval(eval):
         try:
             err = np.load(filename)
             names = ['jac']
-            mods = ['', '_zero', '_lapack', '_thresholded', '_weighted']
+            mods = ['', '_zero', '_lapack', '_thresholded']
             # check that we have all expected keys, and there is no nan's, etc.
             self._check_file(err, names, mods)
             # check that we have the stored errors / values
