@@ -801,6 +801,10 @@ def with_check_inds(check_inds={}, custom_checks={}):
                 __fix_callables()
                 mask = np.array([slice(None)] * array.ndim)
                 for ax, ind in check_inds.items():
+                    if ax == 0:
+                        # don't skip resetting any initial conditions,
+                        # even if we're only testing some
+                        continue
                     mask[ax] = ind
                 array[tuple(mask)] = value
 
