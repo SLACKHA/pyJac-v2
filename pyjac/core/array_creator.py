@@ -982,7 +982,9 @@ class MapStore(object):
         Returns
         -------
         map_inst : str
-            A string to be used as a `loopy.Instruction`
+            A string to be used as a `loopy.Instruction`.
+            By convention these will be given ids, id=index_new_iname
+            to enable proper dependencies in loop sums
         """
 
         try:
@@ -993,7 +995,8 @@ class MapStore(object):
                 affine = ''
             pass
 
-        return '<> {newname} = {mapper}[{oldname}]{affine}'.format(
+        return ('<> {newname} = {mapper}[{oldname}]{affine} '
+                '{{id=index_{newname}}}').format(
             newname=newname,
             mapper=map_arr,
             oldname=oldname,

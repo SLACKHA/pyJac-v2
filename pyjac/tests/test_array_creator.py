@@ -21,6 +21,7 @@ def _dummy_opts(knl_type, order='C', use_private_memory=False):
             self.knl_type = knl_type
             self.order = order
             self.use_private_memory = use_private_memory
+            self.jac_format = ''
     return dummy(knl_type, order=order, use_private_memory=use_private_memory)
 
 
@@ -272,10 +273,10 @@ def test_map_range_update():
             and mstore.tree.parent is not None)
     # c2 should be on the tree
     assert (mstore.domain_to_nodes[c2].parent == mstore.tree and
-            mstore.domain_to_nodes[c2].insn == '<> i_1 = c2[i + 3]')
+            mstore.domain_to_nodes[c2].insn == '<> i_1 = c2[i + 3] {id=index_i_1}')
     # c3 should be an regular transform off c2
     assert (mstore.domain_to_nodes[c3].parent == mstore.domain_to_nodes[c2] and
-            mstore.domain_to_nodes[c3].insn == '<> i_2 = c3[i_1]')
+            mstore.domain_to_nodes[c3].insn == '<> i_2 = c3[i_1] {id=index_i_2}')
     # c4 should not have a transform (and thus should take the iname of c3)
     assert (mstore.domain_to_nodes[c4].parent == mstore.domain_to_nodes[c3] and
             mstore.domain_to_nodes[c4].insn is None
@@ -469,7 +470,7 @@ def test_map_variable_creator(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_1]'
-    assert '<> i_1 = domain[i + 3]' in mstore.transform_insns
+    assert '<> i_1 = domain[i + 3] {id=index_i_1}' in mstore.transform_insns
 
 
 @parameterized(['map'])
@@ -491,7 +492,7 @@ def test_map_to_larger(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_0]'
-    assert '<> i_0 = domain[i]' in mstore.transform_insns
+    assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
 
 
 @parameterized(['map'])
@@ -535,7 +536,7 @@ def test_chained_maps(maptype):
     var_lp, var_str = mstore.apply_maps(var, 'i')
 
     # test that the base map is there
-    assert '<> {} = domain[i]'.format(__get_iname(domain)) in \
+    assert '<> {0} = domain[i] {{id=index_{0}}}'.format(__get_iname(domain)) in \
         mstore.transform_insns
 
     # var 1 should be based off domain's iname i_0
@@ -552,7 +553,7 @@ def test_chained_maps(maptype):
     var3_lp, var3_str = mstore.apply_maps(var3, 'i')
     assert var3_str == 'var3[{}]'.format(__get_iname(var3))
     assert (
-        '<> {} = domain3[{}]'.format(
+        '<> {0} = domain3[{1}] {{id=index_{0}}}'.format(
             __get_iname(var3), __get_iname(domain2))
         in mstore.transform_insns)
 
@@ -577,7 +578,7 @@ def test_mask_variable_creator(maptype):
 
     assert isinstance(var, lp.GlobalArg)
     assert var_str == 'var[i_0]'
-    assert '<> i_0 = domain[i]' in mstore.transform_insns
+    assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
 
 
 @parameterized(['mask'])
@@ -668,8 +669,8 @@ def test_leaf_inames():
     assert d_str == 'domain[i]'
     assert d2_str == 'domain2[i_0]'
     assert v_str == 'var[i_1]'
-    assert '<> i_0 = domain[i]' in mstore.transform_insns
-    assert '<> i_1 = domain2[i_0]' in mstore.transform_insns
+    assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
+    assert '<> i_1 = domain2[i_0] {id=index_i_1}' in mstore.transform_insns
 
 
 def test_input_map_pickup():
