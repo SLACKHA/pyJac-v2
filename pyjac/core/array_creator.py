@@ -945,6 +945,19 @@ class MapStore(object):
                             " as the index to apply to cannot be"
                             " determined".format(','.join(indicies)))
 
+        # watch out for input maps w/ affine dicts
+        if node == self.tree and isinstance(affine, dict)\
+                and self.iname in affine:
+            # copy to avoid any outside effects
+            affine = affine.copy()
+            # check
+            assert node.iname not in affine, (
+                "Can't resolve both input map {} and iname {} in affine map".format(
+                    node.iname, self.iname))
+            # copy over
+            affine[node.iname] = affine[self.iname]
+            del affine[self.iname]
+
         # pick up any mappings
         indicies = tuple(x if x != self.iname else
                          (node.iname if node.is_leaf() or node == self.tree

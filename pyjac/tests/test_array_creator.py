@@ -755,6 +755,22 @@ def test_private_memory_creations():
     assert arr_str == 'a[k, i]'
 
 
+def test_affine_dict_with_input_map():
+    lp_opt = _dummy_opts('map')
+
+    # make a creator to form the base of the mapstore
+    c1 = arc.creator('c1', np.int32, (10,), 'C',
+                     initializer=np.array(list(range(4)) + list(range(6, 12)),
+                                          dtype=np.int32))
+
+    mstore = arc.MapStore(lp_opt, c1, c1, 'i')
+
+    # create a variable
+    x = __create_var('x')
+
+    assert mstore.apply_maps(x, 'i', affine={'i': 1})[1] == 'x[i_0 + 1]'
+
+
 class SubTest(TestClass):
     @attr('long')
     def test_namestore_init(self):
