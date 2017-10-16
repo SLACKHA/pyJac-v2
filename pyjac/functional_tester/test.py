@@ -26,6 +26,7 @@ from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner
 from ..tests import test_utils
+from ..loopy_utils.loopy_utils import JacobianFormat
 from ..libgen import build_type
 
 # turn off cache
@@ -77,8 +78,12 @@ class validation_runner(runner):
 
     def get_filename(self, state):
         self.current_vecwidth = state['vecsize']
+        desc = self.descriptor
+        if self.rtype == build_type.jacobian:
+            desc += '_sparse' if state['jac_format'] == JacobianFormat.sparse else \
+                '_full'
         return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                self.descriptor, state['lang'], state['vecsize'], state['order'],
+                desc, state['lang'], state['vecsize'], state['order'],
                 'w' if state['wide'] else 'd' if state['deep'] else 'par',
                 state['platform'], state['rate_spec'],
                 'split' if state['split_kernels'] else 'single',
