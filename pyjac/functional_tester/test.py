@@ -671,13 +671,19 @@ class jacobian_eval(eval):
                 denom)
 
             # thresholded error
-            threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e15)
+            threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e20)
             err_dict['jac_thresholded'] = np.linalg.norm(
                 err[threshold] / denom[threshold])
 
-            # try weighted
-            err_dict['jac_weighted'] = np.linalg.norm(err / (
-                self.atol + self.rtol * denom))
+            # largest relative errors
+            err_max = np.argmax(err[non_zero] / denom[non_zero], axis=0)
+            err_dict['jac_err_max'] = err[err_max]
+            err_dict['jac_err_vals'] = denom[err_max]
+
+            # largest thresholded relative errors
+            err_max = np.argmax(err[threshold] / denom[threshold], axis=0)
+            err_dict['jac_thr_err_max'] = err[threshold]
+            err_dict['jac_thr_err_vals'] = denom[threshold]
 
         del out_check
         return err_dict
@@ -710,6 +716,10 @@ class jacobian_eval(eval):
             names = ['jac']
             mods = ['', '_zero', '_lapack', '_thresholded', '_weighted']
             # check that we have all expected keys, and there is no nan's, etc.
+            self._check_file(err, names, mods)
+            # check that we have the stored errors / values
+            names = ['jac_err', 'jac_thr_err']
+            mods = ['_max', '_vals']
             self._check_file(err, names, mods)
         except:
             return False
