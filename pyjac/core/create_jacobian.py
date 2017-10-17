@@ -618,8 +618,10 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     <> offset = ${offset_str}
     <> offset_next = ${offset_next_str}
     for ${k_ind}
-        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-            ${factor} {id=jac, dep=dci_*}
+        if ${spec_k_str} != ${ns}
+            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
+                ${factor} {id=jac, dep=dci_*}
+        end
     end
     """).safe_substitute(**locals())
 
@@ -1289,8 +1291,10 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
         for ${k_ind}
-            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) \
-                * dRopi_dE {id=jac, dep=dE*}
+            if ${spec_k_str} != ${ns}
+                ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) \
+                    * dRopi_dE {id=jac, dep=dE*}
+            end
         end
     """).substitute(**locals())
 
@@ -2248,8 +2252,10 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     <> offset = ${offset_str}
     <> offset_next = ${offset_next_str}
     for ${k_ind}
-        ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-            ${factor} {id=jac}
+        if ${spec_k_str} != ${ns}
+            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
+                ${factor} {id=jac}
+        end
     end
     """).safe_substitute(**locals())
 
@@ -2824,9 +2830,11 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
         for ${k_ind}
-            ${jac_str} = ${jac_str} + \
-                (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT \
-                {id=jac, dep=Ropi_final}
+            if ${spec_k_str} != ${ns}
+                ${jac_str} = ${jac_str} + \
+                    (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT \
+                    {id=jac, dep=Ropi_final}
+            end
         end
     """).substitute(**locals())
 
