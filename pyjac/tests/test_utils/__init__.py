@@ -372,8 +372,8 @@ class get_comparable(object):
             # add the sparse indicies
             mask.append(inNd(__combination(row_mask, col_mask), inds))
             # and the new axis
-            axis = axis + (len(axis),)
-            # and indicated that we've lost a dimension
+            axis = axis + (1,)
+            # and indicate that we've lost a dimension
             ndim -= 1
 
         # check for vectorized data order
@@ -383,7 +383,6 @@ class get_comparable(object):
                                compare_axis=axis)._get_comparable(
                                outv, 0)
 
-        _get_index = indexer(ans.ndim, outv.ndim, outv.shape, kc.current_order)
         if self.compare_axis != -1:
             # get the split indicies
             masking = parse_split_index(
@@ -393,10 +392,11 @@ class get_comparable(object):
             # we supplied a list of indicies, all we really have to do is convert
             # them and return
 
+            _get_index = indexer(ndim, outv.ndim, outv.shape, kc.current_order)
             # first check we have a reasonable mask
             assert ans.ndim == len(mask), "Can't use dissimilar compare masks / axes"
             # dummy comparison axis
-            comp_axis = np.arange(ans.ndim)
+            comp_axis = np.arange(ndim)
             # convert inds
             masking = tuple(_get_index(mask, comp_axis))
 
