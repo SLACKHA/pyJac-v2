@@ -198,8 +198,8 @@ class kernel_generator(object):
 
             # and the preamble
             self.extra_preambles.append(lp_pregen.jac_indirect_lookup(
-                self.namestore.jac_col_inds.name if self.loopy_opts.order == 'C'
-                else self.namestore.jac_row_inds.name))
+                self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
+                else self.namestore.jac_row_inds))
 
     def apply_barriers(self, instructions):
         """
@@ -1009,7 +1009,7 @@ ${name} : ${type}
 
         return int(max_per_run)
 
-    def remove_unused_temporaries(self, knl, exceptions=['sparse_jac']):
+    def remove_unused_temporaries(self, knl):
         """
         Convenience method to remove unused temporary variables from created
         :class:`loopy.LoopKernel`'s
@@ -1045,7 +1045,7 @@ ${name} : ${type}
                             tolerant_get_deps(dim_tag.stride))
 
         for arg in knl.temporary_variables:
-            if arg in refd_vars or any(x in arg for x in exceptions):
+            if arg in refd_vars:
                 new_args.append(arg)
 
         return knl.copy(temporary_variables={arg: knl.temporary_variables[arg]

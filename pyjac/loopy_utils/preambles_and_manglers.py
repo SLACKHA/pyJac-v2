@@ -96,7 +96,7 @@ class PreambleGen(object):
             # check types
             if tuple(to_loopy_type(x) for x in self.arg_dtypes) == \
                     func_match.arg_dtypes:
-                code = self.generate_code(func_match)
+                code = self.generate_code(preamble_info)
         # return code generator
         yield (desc, code)
 
@@ -162,17 +162,43 @@ class jac_indirect_lookup(PreambleGen):
         self.code = Template("""
     int ${name}(int start, int end, int match)
     {
-        for (int i = start; i < end; ++i)
+        int result = start;
+        for (int i = start + 1; i < end; ++i)
         {
             if (${array}[i] == match)
-                return i - start;
+                result = i - start;
         }
+        return result;
     }
-    """).safe_substitute(name=jac_indirect_lookup.name, array=array)
+    """).safe_substitute(name=jac_indirect_lookup.name, array=array.name)
+        from loopy.kernel.data import temp_var_scope as scopes
+        from loopy.kernel.data import TemporaryVariable
+        self.array = TemporaryVariable(array.name, shape=array.shape,
+                                       dtype=array.dtype,
+                                       initializer=array.initializer,
+                                       scope=scopes.GLOBAL, read_only=True)
 
         super(jac_indirect_lookup, self).__init__(
             jac_indirect_lookup.name, self.code,
             (np.int32, np.int32, np.int32), (np.int32))
+
+    def generate_code(self, preamble_info):
+        from cgen import Initializer
+        from loopy.target.c import generate_array_literal
+        codegen_state = preamble_info.codegen_state.copy(
+            is_generating_device_code=True)
+        kernel = preamble_info.kernel
+        ast_builder = codegen_state.ast_builder
+        target = kernel.target
+        decl_info, = self.array.decl_info(target, index_dtype=kernel.index_dtype)
+        decl = ast_builder.wrap_global_constant(
+                ast_builder.get_temporary_decl(
+                    codegen_state, 1, self.array,
+                    decl_info))
+        if self.array.initializer is not None:
+            decl = Initializer(decl, generate_array_literal(
+                codegen_state, self.array, self.array.initializer))
+        return '\n'.join([str(decl), self.code])
 
     def get_descriptor(self, func_match):
         return 'cust_funcs_jac_indirect'
