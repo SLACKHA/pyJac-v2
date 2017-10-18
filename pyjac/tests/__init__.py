@@ -135,6 +135,7 @@ class storage(object):
         self.jac_dim = self.gas.n_species - 1 + 2
 
         # create states
+        np.random.seed(0)
         self.T = np.random.uniform(600, 2200, size=test_size)
         self.P = np.random.uniform(0.5, 50, size=test_size) * ct.one_atm
         self.V = np.random.uniform(1e-3, 1, size=test_size)
