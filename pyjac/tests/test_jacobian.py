@@ -777,7 +777,7 @@ class SubTest(TestClass):
         # get kf
         runner = kernel_runner(get_simple_arrhenius_rates,
                                self.store.test_size, args)
-        kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+        kf = runner(eqs, opts, namestore, self.store.test_size)['kf']
 
         if self.store.ref_Pr.size:
             args = {'phi': lambda x: np.array(phi, order=x, copy=True),
@@ -786,7 +786,7 @@ class SubTest(TestClass):
             runner = kernel_runner(get_simple_arrhenius_rates,
                                    self.store.test_size, args,
                                    {'falloff': True})
-            kf_fall = runner(eqs, opts, namestore, self.store.test_size)[0]
+            kf_fall = runner(eqs, opts, namestore, self.store.test_size)['kf_fall']
         else:
             kf_fall = None
 
@@ -799,7 +799,7 @@ class SubTest(TestClass):
             # get plog
             runner = kernel_runner(_get_plog_call_wrapper(rate_info),
                                    self.store.test_size, args)
-            kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+            kf = runner(eqs, opts, namestore, self.store.test_size)['kf']
 
         if namestore.num_cheb is not None:
             args = {'phi': lambda x: np.array(phi, order=x, copy=True),
@@ -810,7 +810,7 @@ class SubTest(TestClass):
             # get plog
             runner = kernel_runner(_get_cheb_call_wrapper(rate_info),
                                    self.store.test_size, args)
-            kf = runner(eqs, opts, namestore, self.store.test_size)[0]
+            kf = runner(eqs, opts, namestore, self.store.test_size)['kf']
 
         return kf, kf_fall
 
@@ -833,9 +833,8 @@ class SubTest(TestClass):
         # get kf
         runner = kernel_runner(get_rev_rates,
                                self.store.test_size, args, {'allint': allint})
-        out = runner(eqs, opts, namestore, self.store.test_size)
-        return out[next(i for i, x in enumerate(runner.out_arg_names[0])
-                        if x == 'kr')]
+        kr = runner(eqs, opts, namestore, self.store.test_size)['kr']
+        return kr
 
     def __get_db(self):
         reacs = self.store.reacs
@@ -856,9 +855,9 @@ class SubTest(TestClass):
                 'db', eqs,
                 loopy_opts, namestore,
                 test_size)
-        # get kf
+        # get db
         runner = kernel_runner(__call_wrapper, self.store.test_size, args)
-        return runner(eqs, opts, namestore, self.store.test_size)[0]
+        return runner(eqs, opts, namestore, self.store.test_size)['db']
 
     @attr('long')
     @with_check_inds(check_inds={
@@ -964,7 +963,7 @@ class SubTest(TestClass):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        X = runner(eqs, opts, namestore, self.store.test_size)[0]
+        X = runner(eqs, opts, namestore, self.store.test_size)['X']
         return X
 
     @attr('long')
@@ -1081,8 +1080,9 @@ class SubTest(TestClass):
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        Fcent, Atroe, Btroe = runner(
-            eqs, opts, namestore, self.store.test_size)
+        Fcent, Atroe, Btroe = [runner(
+            eqs, opts, namestore, self.store.test_size)[x] for x in
+            ['Fcent', 'Atroe', 'Btroe']]
         return Fcent, Atroe, Btroe
 
     @attr('long')
@@ -1733,10 +1733,10 @@ class SubTest(TestClass):
         # get dcp
         args = {'phi': lambda x: np.array(
             phi, order=x, copy=True)}
-        dc = kernel_runner(_get_poly_wrapper(
-            'dcp' if conp else 'dcv', conp),
-            self.store.test_size, args)(
-            eqs, opts, namestore, self.store.test_size)[0]
+        dc_name = 'dcp' if conp else 'dcv'
+        dc = kernel_runner(_get_poly_wrapper(dc_name, conp),
+                           self.store.test_size, args)(
+                           eqs, opts, namestore, self.store.test_size)[dc_name]
 
         args = {'conc': lambda x: np.array(
             self.store.concs, order=x, copy=True),
