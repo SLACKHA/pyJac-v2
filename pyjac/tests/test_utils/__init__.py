@@ -116,11 +116,17 @@ class kernel_runner(object):
                          [None],
                          **self.args)
         kc.set_state(gen.array_split, loopy_opts.order)
-        self.out_arg_names = [[
-            x for x in k.get_written_variables()
-            if x not in k.temporary_variables]
+        out_arg_names = [
+            [arg.name for arg in k.args if arg.name in k.get_written_variables()]
             for k in gen.kernels]
-        return populate(gen.kernels, kc, device=device)[0]
+        output = populate(gen.kernels, kc, device=device)
+        # turn into dicts
+        output = [{oa_name[i]: output[ind][i] for i in range(len(oa_name))}
+                  for ind, oa_name in enumerate(out_arg_names)]
+        # and collapse into single dict if single kernel
+        if len(output) == 1:
+            output = output[0]
+        return output
 
 
 class indexer(object):
