@@ -947,7 +947,7 @@ class MapStore(object):
 
         # watch out for input maps w/ affine dicts
         if node == self.tree and isinstance(affine, dict)\
-                and self.iname in affine:
+                and self.iname in affine and self.have_input_map:
             # copy to avoid any outside effects
             affine = affine.copy()
             # check
