@@ -71,7 +71,7 @@ class kf_wrapper(object):
                 {'falloff': True})
 
             self.kf_fall_val.append(
-                runner(eqs, opts, namestore, test_size)[0])
+                runner(eqs, opts, namestore, test_size)['kf_fall'])
 
             # next with regular parameters
             runner = test_utils.kernel_runner(
@@ -80,7 +80,7 @@ class kf_wrapper(object):
                 {'phi': self.kwargs['phi']})
 
             self.kf_val.append(
-                runner(eqs, opts, namestore, test_size)[0])
+                runner(eqs, opts, namestore, test_size)['kf'])
 
         # finally we can call the function
         return self.func(
