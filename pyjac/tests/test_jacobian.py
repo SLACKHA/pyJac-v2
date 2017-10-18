@@ -1458,13 +1458,9 @@ class SubTest(TestClass):
                 self.store.rev_rxn_rate, order=x),
             'rop_net': lambda x: np.zeros_like(self.store.rxn_rates, order=x),
             'jac': lambda x: np.zeros(namestore.jac.shape, order=x),
-            'b': lambda x: np.zeros_like(
-                    self.store.ref_B_rev, order=x),
-            'Kc': lambda x: np.zeros_like(
-                self.store.equilibrium_constants, order=x),
         }
 
-        if test_variable:
+        if test_variable and (rxn_type == reaction_type.elementary or conp):
             args.update({
                 'kf': lambda x: np.array(kf, order=x, copy=True),
                 'kr': lambda x: np.array(kr, order=x, copy=True)
@@ -1474,6 +1470,10 @@ class SubTest(TestClass):
             args.update({
                 'kf': lambda x: np.zeros_like(kf, order=x),
                 'kr': lambda x: np.zeros_like(kr, order=x),
+                'b': lambda x: np.zeros_like(
+                        self.store.ref_B_rev, order=x),
+                'Kc': lambda x: np.zeros_like(
+                    self.store.equilibrium_constants, order=x),
                 #  'kf_fall': lambda x: np.zeros_like(
                 #    self.store.ref_Pr, order=x)
             })
@@ -1500,12 +1500,15 @@ class SubTest(TestClass):
             rate_sub = _get_plog_call_wrapper(rate_info)
         elif rxn_type == reaction_type.cheb:
             rate_sub = _get_cheb_call_wrapper(rate_info)
+        rate_sub = [rate_sub] + [_get_poly_wrapper('b', conp), get_rev_rates]
+
+        if test_variable and (rxn_type == reaction_type.elementary or conp):
+            rate_sub = []
 
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, conp,
-            extra_funcs=[get_concentrations, rate_sub,
-                         _get_poly_wrapper('b', conp),
-                         get_rev_rates, get_rop, get_rop_net, get_spec_rates],
+            extra_funcs=[get_concentrations] + rate_sub +
+                        [get_rop, get_rop_net, get_spec_rates],
             allint=allint)
 
         # get our form of rop_fwd / rop_rev
