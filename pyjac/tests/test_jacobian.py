@@ -1684,8 +1684,7 @@ class SubTest(TestClass):
         # can cause some problems in the FD Jac
         0: lambda self: np.where(self.store.concs[:, -1] != 0)[0],
         1: lambda self: self.__get_check(
-            lambda rxn: not (isinstance(rxn, ct.PlogReaction)
-                             or isinstance(rxn, ct.ChebyshevReaction))),
+            lambda rxn: isinstance(rxn, ct.ChebyshevReaction)),
         2: np.array([1])
         })
     def test_dRopi_cheb_dE(self):
