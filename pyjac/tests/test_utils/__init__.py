@@ -135,6 +135,15 @@ class indexer(object):
     indicies
     """
 
+    @classmethod
+    def get_split_dim(self, shape, order='C'):
+        """
+        Returns the split dimension of the supplied :param:`shape` based on the
+        supplied data order :param:`order`
+        """
+
+        return shape[0] if order == 'F' else shape[-1]
+
     def _get_F_index(self, inds, axes):
         """
         for the 'F' order split, the last axis is split and moved to the beginning.
@@ -150,7 +159,7 @@ class indexer(object):
             # if it is we don't need to to anything
             if isinstance(inds[axi], np.ndarray):
                 rv[-1], rv[0] = np.divmod(
-                    inds[axi], self.out_shape[0], dtype=np.int32)
+                    inds[axi], self.split_dim, dtype=np.int32)
 
         for i, ax in enumerate(axes):
             if i != axi:
@@ -181,7 +190,7 @@ class indexer(object):
             if isinstance(inds[axi], np.ndarray):
                 # it's a numpy array, so we can divmod
                 rv[0], rv[-1] = np.divmod(
-                    inds[axi], self.out_shape[-1], dtype=np.int32)
+                    inds[axi], self.split_dim, dtype=np.int32)
 
         for i, ax in enumerate(axes):
             if i != axi:
@@ -196,16 +205,16 @@ class indexer(object):
 
     def __init__(self, ref_ndim, out_ndim, out_shape, order='C'):
         self.ref_ndim = ref_ndim
-        self.out_shape = out_shape
         self.out_ndim = out_ndim
         self._indexer = self._get_F_index if order == 'F' else \
             self._get_C_index
+        self.split_dim = self.get_split_dim(out_shape, order)
 
     def __call__(self, inds, axes):
         return self._indexer(inds, axes)
 
 
-def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,)):
+def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None):
     """
     A helper method to get the index of an element in a split array for all initial
     conditions
@@ -223,10 +232,16 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,)):
     axis: int or list of int
         The axes the mask's correspond to.
         Must be of the same shape / size as mask
+    stride_arr: :class:`np.ndarray` or list
+        This should _never_ be supplied by the user.  Essentially what happens is
+        that for an F-split sparse Jacobian, the size of the split dimension differs
+        between the reference answer, and the sparse matrix.  In order to get the
+        comparison right, the sparse split must use the strides of the reference
+        answer in order to get proper tiling of the mask.
 
     Returns
     -------
-    index: tuple of int / slice
+    mask: tuple of int / slice
         A proper indexing for the split array
     """
 
@@ -250,7 +265,8 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,)):
 
     # get the index arrays
     inds = np.array(_get_index(mask, axis))
-    stride_arr = np.array([np.unique(x).size for x in inds], dtype=np.int32)
+    stride_arr = np.array([np.unique(x).size for x in inds], dtype=np.int32) \
+        if stride_arr is None else stride_arr
     # get non-slice inds
     non_slice = np.array([i for i, x in enumerate(inds)
                           if isinstance(x, np.ndarray)], dtype=np.int32)
@@ -325,6 +341,7 @@ class get_comparable(object):
 
         # check for sparse (ignore answers, which do not get transformed into
         # sparse and should be dealt with as usual)
+        stride_arr = None
         if kc.jac_format == JacobianFormat.sparse and not is_answer:
             if csc_matrix is None and csr_matrix is None:
                 raise SkipTest('Cannot test sparse matricies without scipy'
@@ -365,6 +382,9 @@ class get_comparable(object):
                            if ind == 2)
             col_mask = mask[col_ind]
 
+            # store ic mask in case we need strides array
+            ic_mask = mask[0].size if mask else ans.shape[0]
+
             # remove old inds
             mask = [mask[i] for i in range(len(mask)) if i not in [
                 row_ind, col_ind]]
@@ -382,6 +402,24 @@ class get_comparable(object):
             # and indicate that we've lost a dimension
             ndim -= 1
 
+            if kc.current_order == 'F' and outv.ndim != ndim:
+                # as the split array dimension differs, we need to supply the
+                # same strides as the reference answer
+                split_dim = indexer.get_split_dim(outv.shape, kc.current_order)
+                stride_arr = np.array([
+                    # the first entry is number of resulting entries in the split
+                    # dimension for the reference answer
+                    np.unique(col_mask % split_dim).size,
+                    # the first entry is the number of initial conditions to test
+                    ic_mask,
+                    # the second entry is simply our mask size in our own
+                    # split dimension
+                    row_mask.size,
+                    # the last entry is the dimension of the split index for the
+                    # reference answer (that is the column mask divided by the
+                    # split size)
+                    int(np.ceil(col_mask.size / split_dim))], dtype=np.int32)
+
         # check for vectorized data order
         if outv.ndim == ndim:
             # return the default, as it can handle it
@@ -392,7 +430,7 @@ class get_comparable(object):
         if self.compare_axis != -1:
             # get the split indicies
             masking = parse_split_index(
-                outv, mask, kc.current_order, ndim, axis)
+                outv, mask, kc.current_order, ndim, axis, stride_arr)
 
         else:
             # we supplied a list of indicies, all we really have to do is convert
