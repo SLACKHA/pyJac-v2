@@ -339,14 +339,7 @@ class get_comparable(object):
         axis = self.compare_axis[:]
         ndim = ans.ndim
 
-        # check for sparse (ignore answers, which do not get transformed into
-        # sparse and should be dealt with as usual)
-        stride_arr = None
-        if kc.jac_format == JacobianFormat.sparse and not is_answer:
-            if csc_matrix is None and csr_matrix is None:
-                raise SkipTest('Cannot test sparse matricies without scipy'
-                               ' installed')
-            # need to collapse the mask
+        def __get_sparse_mat():
             # first, setup dummy sparse matrix
             if kc.current_order == 'C':
                 matrix = csr_matrix
@@ -359,31 +352,46 @@ class get_comparable(object):
             # next create and get indicies
             matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
             row, col = matrix.row, matrix.col
-            inds = np.asarray((row, col)).T
+            return np.asarray((row, col)).T
 
-            # https://stackoverflow.com/a/25655090
-            def __combination(*arrays):
-                shape = (len(x) for x in arrays)
-
-                ix = np.indices(shape, dtype=int)
-                ix = ix.reshape(len(arrays), -1).T
-
-                for n, arr in enumerate(arrays):
-                    ix[:, n] = arrays[n][ix[:, n]]
-
-                return ix
-
-            # next we need to find the 1D index of all the row, col pairs in
-            # the mask
+        def __row_and_col_mask():
             row_ind = next(i for i, ind in enumerate(self.compare_axis)
                            if ind == 1)
             row_mask = mask[row_ind]
             col_ind = next(i for i, ind in enumerate(self.compare_axis)
                            if ind == 2)
             col_mask = mask[col_ind]
+            return row_ind, row_mask, col_ind, col_mask
 
-            # store ic mask in case we need strides array
-            ic_mask = mask[0].size if mask else ans.shape[0]
+        # https://stackoverflow.com/a/41234399
+        def inNd(a, b, assume_unique=False):
+            return np.where((a[:, None] == b).all(-1).any(0))[0]
+
+        # https://stackoverflow.com/a/25655090
+        def combination(*arrays):
+            shape = (len(x) for x in arrays)
+
+            ix = np.indices(shape, dtype=int)
+            ix = ix.reshape(len(arrays), -1).T
+
+            for n, arr in enumerate(arrays):
+                ix[:, n] = arrays[n][ix[:, n]]
+
+            return ix
+
+        # check for sparse (ignore answers, which do not get transformed into
+        # sparse and should be dealt with as usual)
+        stride_arr = None
+        if kc.jac_format == JacobianFormat.sparse and not is_answer:
+            if csc_matrix is None and csr_matrix is None:
+                raise SkipTest('Cannot test sparse matricies without scipy'
+                               ' installed')
+            # need to collapse the mask
+            inds = __get_sparse_mat()
+
+            # next we need to find the 1D index of all the row, col pairs in
+            # the mask
+            row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
 
             # remove old inds
             mask = [mask[i] for i in range(len(mask)) if i not in [
@@ -391,12 +399,11 @@ class get_comparable(object):
             axis = tuple(x for i, x in enumerate(axis) if i not in [
                 row_ind, col_ind])
 
-            # https://stackoverflow.com/a/41234399
-            def inNd(a, b, assume_unique=False):
-                return np.where((a[:, None] == b).all(-1).any(0))[0]
+            # store ic mask in case we need strides array
+            ic_mask = mask[0].size if mask else ans.shape[0]
 
             # add the sparse indicies
-            mask.append(inNd(__combination(row_mask, col_mask), inds))
+            mask.append(inNd(combination(row_mask, col_mask), inds))
             # and the new axis
             axis = axis + (1,)
             # and indicate that we've lost a dimension
@@ -420,14 +427,31 @@ class get_comparable(object):
                     # split size)
                     int(np.ceil(col_mask.size / split_dim))], dtype=np.int32)
 
+        if is_answer and kc.jac_format == JacobianFormat.sparse:
+            # we need to filter these values based on what is actually in the
+            # sparse jacoban
+
+            # get the (row, col) indicies of the sparse matrix
+            inds = __get_sparse_mat()
+            # find the row & column mask
+            row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
+            # find where the sparse indicies correspond to our row & column masks
+            new_mask = new_mask[inNd(inds, combination(row_mask, col_mask))]
+            # split back into rows and columns
+            mask[row_ind] = new_mask[:, 0]
+            mask[col_ind] = new_mask[:, 1]
+            # and mark as a list of indicies
+            axis = -1
+            if len(mask) == 2:
+                # missing IC's
+                mask.insert(0, slice(None))
+
         # check for vectorized data order
-        if outv.ndim == ndim:
+        if outv.ndim == ndim and axis != -1:
             # return the default, as it can handle it
             return kernel_call('', [], compare_mask=[mask],
-                               compare_axis=axis)._get_comparable(
-                               outv, 0)
-
-        if self.compare_axis != -1:
+                               compare_axis=axis)._get_comparable(outv, 0)
+        elif axis != -1:
             # get the split indicies
             masking = parse_split_index(
                 outv, mask, kc.current_order, ndim, axis, stride_arr)
