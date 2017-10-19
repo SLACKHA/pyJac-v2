@@ -136,13 +136,21 @@ class indexer(object):
     """
 
     @classmethod
+    def get_split_axis(self, order='C'):
+        """
+        Returns the array axis that would be split (if there exists a split)
+        based on :param:`order`
+        """
+        return -1 if order == 'F' else 0
+
+    @classmethod
     def get_split_dim(self, shape, order='C'):
         """
         Returns the split dimension of the supplied :param:`shape` based on the
         supplied data order :param:`order`
         """
 
-        return shape[0] if order == 'F' else shape[-1]
+        return shape[0 if order == 'F' else -1]
 
     def _get_F_index(self, inds, axes):
         """
@@ -334,13 +342,14 @@ class get_comparable(object):
                 "Can't use dissimilar compare masks / axes"
 
     def __call__(self, kc, outv, index, is_answer=False):
-        mask = self.compare_mask[index][:]
+        mask = list(self.compare_mask[index][:])
         ans = self.ref_answer[index]
         axis = self.compare_axis[:]
         ndim = ans.ndim
 
-        def __get_sparse_mat():
-            # first, setup dummy sparse matrix
+        # helper methods
+        def __get_sparse_mat(as_inds=True):
+            # setup dummy sparse matrix
             if kc.current_order == 'C':
                 matrix = csr_matrix
                 inds = kc.col_inds
@@ -352,8 +361,11 @@ class get_comparable(object):
             # next create and get indicies
             matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
             row, col = matrix.row, matrix.col
-            return np.asarray((row, col)).T
+            if as_inds:
+                return np.asarray((row, col)).T
+            return row, col
 
+        # extract row & column masks
         def __row_and_col_mask():
             row_ind = next(i for i, ind in enumerate(self.compare_axis)
                            if ind == 1)
@@ -382,72 +394,117 @@ class get_comparable(object):
         # check for sparse (ignore answers, which do not get transformed into
         # sparse and should be dealt with as usual)
         stride_arr = None
-        if kc.jac_format == JacobianFormat.sparse and not is_answer:
-            if csc_matrix is None and csr_matrix is None:
-                raise SkipTest('Cannot test sparse matricies without scipy'
-                               ' installed')
-            # need to collapse the mask
-            inds = __get_sparse_mat()
+        if kc.jac_format == JacobianFormat.sparse:
+            if not is_answer:
+                if csc_matrix is None and csr_matrix is None:
+                    raise SkipTest('Cannot test sparse matricies without scipy'
+                                   ' installed')
+                import pdb; pdb.set_trace()
+                # need to collapse the mask
+                inds = __get_sparse_mat()
 
-            # next we need to find the 1D index of all the row, col pairs in
-            # the mask
-            row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
+                # next we need to find the 1D index of all the row, col pairs in
+                # the mask
+                row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
 
-            # remove old inds
-            mask = [mask[i] for i in range(len(mask)) if i not in [
-                row_ind, col_ind]]
-            axis = tuple(x for i, x in enumerate(axis) if i not in [
-                row_ind, col_ind])
+                # remove old inds
+                mask = [mask[i] for i in range(len(mask)) if i not in [
+                    row_ind, col_ind]]
+                axis = tuple(x for i, x in enumerate(axis) if i not in [
+                    row_ind, col_ind])
 
-            # store ic mask in case we need strides array
-            ic_mask = mask[0].size if mask else ans.shape[0]
+                # store ic mask in case we need strides array
+                ic_mask = mask[0].size if mask else ans.shape[0]
 
-            # add the sparse indicies
-            mask.append(inNd(combination(row_mask, col_mask), inds))
-            # and the new axis
-            axis = axis + (1,)
-            # and indicate that we've lost a dimension
-            ndim -= 1
+                # add the sparse indicies
+                mask.append(inNd(combination(row_mask, col_mask), inds))
+                # and the new axis
+                axis = axis + (1,)
+                # and indicate that we've lost a dimension
+                ndim -= 1
 
-            if kc.current_order == 'F' and outv.ndim != ndim:
-                # as the split array dimension differs, we need to supply the
-                # same strides as the reference answer
-                split_dim = indexer.get_split_dim(outv.shape, kc.current_order)
-                stride_arr = np.array([
-                    # the first entry is number of resulting entries in the split
-                    # dimension for the reference answer
-                    np.unique(col_mask % split_dim).size,
-                    # the first entry is the number of initial conditions to test
-                    ic_mask,
-                    # the second entry is simply our mask size in our own
-                    # split dimension
-                    row_mask.size,
-                    # the last entry is the dimension of the split index for the
-                    # reference answer (that is the column mask divided by the
-                    # split size)
-                    int(np.ceil(col_mask.size / split_dim))], dtype=np.int32)
+                if kc.current_order == 'F' and outv.ndim != ndim:
+                    import pdb; pdb.set_trace()
+                    # as the split array dimension differs, we need to supply the
+                    # same strides as the reference answer
+                    split_dim = indexer.get_split_dim(outv.shape, kc.current_order)
+                    stride_arr = np.array([
+                        # the first entry is number of resulting entries in the split
+                        # dimension for the reference answer
+                        np.unique(col_mask % split_dim).size,
+                        # the first entry is the number of initial conditions to test
+                        ic_mask,
+                        # the second entry is simply our mask size in our own
+                        # split dimension
+                        row_mask.size,
+                        # the last entry is the dimension of the split index for the
+                        # reference answer (that is the column mask divided by the
+                        # split size)
+                        int(np.ceil(col_mask.size / split_dim))], dtype=np.int32)
 
-        if is_answer and kc.jac_format == JacobianFormat.sparse:
-            # we need to filter these values based on what is actually in the
-            # sparse jacoban
+            else:
+                # we need to filter the reference answer based on what is actually in
+                # the sparse jacoban
 
-            # get the (row, col) indicies of the sparse matrix
-            inds = __get_sparse_mat()
-            # find the row & column mask
-            row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
-            # find where the sparse indicies correspond to our row & column masks
-            new_mask = new_mask[inNd(inds, combination(row_mask, col_mask))]
-            # split back into rows and columns
-            mask[row_ind] = new_mask[:, 0]
-            mask[col_ind] = new_mask[:, 1]
-            # and mark as a list of indicies
-            axis = -1
-            if len(mask) == 2:
-                # missing IC's
-                mask.insert(0, slice(None))
+                # get the (row, col) indicies of the sparse matrix
+                inds = __get_sparse_mat()
+                # find the row & column mask
+                row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
+                # combine col & row masks
+                new_mask = combination(row_mask, col_mask)
+                # find where the sparse indicies correspond to our row & column masks
+                new_mask = new_mask[inNd(inds, new_mask)]
+                # split back into rows and columns
+                mask[row_ind] = new_mask[:, 0]
+                mask[col_ind] = new_mask[:, 1]
+
+                # if no IC mask, add dummy
+                if len(mask) == 2:
+                    mask.insert(0, slice(None))
+
+                # split only the the required axis to keep from getting extra
+                # entries due to the tiling
+                split_axis = indexer.get_split_axis(kc.current_order)
+                if outv.ndim != ndim:
+                    masking = list(parse_split_index(
+                        outv, mask[split_axis], kc.current_order, ndim,
+                        (split_axis,)))
+                else:
+                    masking = [slice(None)] * outv.ndim
+                    masking[split_axis] = mask[split_axis]
+                # copy mask into masking
+                unsplit = [m for i, m in enumerate(mask) if i != split_axis]
+                ind = 0
+                for i in range(len(masking)):
+                    if i != split_axis and not isinstance(masking[i], np.ndarray):
+                        masking[i] = unsplit[ind]
+                        ind += 1
+                    if ind == len(unsplit):
+                        # nothing left to copy
+                        break
+
+                # split into ICs and row/col masks as they may differ in size
+                if outv.ndim == ndim:
+                    # no split
+                    filter_ind = [0]
+                elif kc.current_order == 'C':
+                    # split ICs to first and last index
+                    filter_ind = [0, outv.ndim - 1]
+                else:
+                    # ICs unsplit, but split axis put in front
+                    filter_ind = [1]
+
+                # filter based on the IC mask
+                take = [masking[i] if i in filter_ind else slice(None)
+                        for i in range(len(masking))]
+                outv = outv[tuple(take)]
+                # and then based on the the supplied indicies
+                take = [masking[i] if i not in filter_ind else slice(None)
+                        for i in range(outv.ndim)]
+                return outv[tuple(take)]
 
         # check for vectorized data order
-        if outv.ndim == ndim and axis != -1:
+        if outv.ndim == ndim:
             # return the default, as it can handle it
             return kernel_call('', [], compare_mask=[mask],
                                compare_axis=axis)._get_comparable(outv, 0)
