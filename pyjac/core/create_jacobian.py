@@ -115,21 +115,18 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     thd_map = val['thd']['map']
     num_specs_in_thd = __offset(val['thd']['spec_num'])
 
-    seen = set()
+    assert np.unique(non_zero_specs).size == non_zero_specs.size
     for spec in non_zero_specs:
-        row = spec + 2
-        nonzero_derivs = set()
+        row = spec + species_offset
+        nonzero_derivs = set([0, 1])
 
         def __add_specs(slist):
             # add species to derivative list
             nonzero_derivs.update([x + species_offset for x in slist
                                    if x + species_offset < row_size])
 
-        if spec not in seen:
-            # new species
-            seen.update([spec])
-            # add the temperature and extra var derivative
-            nonzero_derivs.update([0, 1])
+        # add the temperature and extra var derivative
+        nonzero_derivs.update([0, 1])
 
         # now we go through the reactions for which this species is non-zero
         inner_ind = np.where(non_zero_specs == spec)[0][0]
@@ -157,7 +154,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
                     num_specs_in_thd[thd_ind]:num_specs_in_thd[thd_ind + 1]])
 
         # finally add the non-zero derivatives
-        inds.extend([(row, x) for x in sorted(nonzero_derivs)])
+        if len(nonzero_derivs):
+            inds.extend([(row, x) for x in sorted(nonzero_derivs)])
 
     # get the compressed storage
     rows, cols = zip(*inds)
