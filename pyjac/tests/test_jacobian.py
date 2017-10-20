@@ -2503,7 +2503,6 @@ class SubTest(TestClass):
                 end
             """).safe_substitute(**subs)
 
-            import pdb; pdb.set_trace()
             return knl_info(instructions=instructions,
                             mapstore=mapstore,
                             name='index_test',

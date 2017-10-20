@@ -256,6 +256,8 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
             """
                 ${jac_str} = 0d {id=reset}
             """).substitute(**locals())
+
+        kernel_data.extend([jac_lp])
     else:
         # need jac_array
         jac_lp, jac_str = mapstore.apply_maps(
