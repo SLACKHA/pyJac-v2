@@ -162,7 +162,7 @@ class jac_indirect_lookup(PreambleGen):
         self.code = Template("""
     int ${name}(int start, int end, int match)
     {
-        int result = start;
+        int result = 0;
         for (int i = start + 1; i < end; ++i)
         {
             if (${array}[i] == match)

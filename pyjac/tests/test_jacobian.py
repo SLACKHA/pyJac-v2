@@ -2314,40 +2314,238 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_reset_arrays(self):
-        namestore, _, _, _ = self.__get_non_ad_params(True)
         # find our non-zero indicies
         ret = determine_jac_inds(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)['jac_inds']
 
-        for jtype in ['flat', 'sparse']:
-            non_zero_inds = ret['flat']
-            jac_format = utils.EnumType(JacobianFormat)(jtype)
-            jac_shape = namestore.jac.shape if jac_format != JacobianFormat.sparse \
-                else namestore.num_nonzero_jac_inds.size
+        non_zero_inds = ret['flat_C']
+        jac_shape = (self.store.test_size,) + (len(self.store.specs) + 1,) * 2
 
-            def __flat_set(order):
-                x = np.zeros(jac_shape, order=order)
-                x[:, non_zero_inds[:, 0], non_zero_inds[:, 1]] = 1
-                return x
+        def __set(order):
+            x = np.zeros(jac_shape, order=order)
+            x[:, non_zero_inds[:, 0], non_zero_inds[:, 1]] = 1
+            return x
 
-            def __sparse_set(order):
-                return np.ones(jac_shape, order=order)
+        args = {'jac': __set}
 
-            args = {'jac': __set if jac_format != JacobianFormat.sparse
-                    else __sparse_set}
+        comp = get_comparable(ref_answer=[np.zeros(jac_shape)],
+                              compare_mask=[
+                                (slice(None), non_zero_inds[:, 0],
+                                    non_zero_inds[:, 1])],
+                              compare_axis=-1)
 
-            comp = get_comparable(ref_answer=[np.zeros(jac_shape)],
-                                  compare_mask=[
-                                    (slice(None), non_zero_inds[:, 0],
-                                        non_zero_inds[:, 1])],
-                                  compare_axis=-1)
+        # and get mask
+        kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
+                         compare_axis=comp.compare_axis, **args)
 
-            # and get mask
-            kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
-                             compare_axis=comp.compare_axis, **args)
+        return self._generic_jac_tester(reset_arrays, kc)
 
-            return self._generic_jac_tester(reset_arrays, kc, sparse=(
-                jac_format == JacobianFormat.sparse))
+    def test_sparse_indexing(self):
+        # a simple test to ensure our sparse indexing is working correctly
+        def __kernel_creator(_, loopy_opts, namestore, test_size=None):
+            from ..loopy_utils.loopy_utils import JacobianFormat
+            if loopy_opts.jac_format != JacobianFormat.sparse:
+                raise SkipTest('Not relevant')
+            from ..core import array_creator as arc
+            from ..kernel_utils.kernel_gen import knl_info
+            from string import Template
+            from ..loopy_utils.preambles_and_manglers import jac_indirect_lookup
+            # get ptrs and inds
+            if loopy_opts.order == 'C':
+                inds = namestore.jac_col_inds
+                indptr = namestore.jac_row_inds
+            else:
+                inds = namestore.jac_row_inds
+                indptr = namestore.jac_col_inds
+            # create maps
+            mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_phi,
+                                    namestore.net_nonzero_phi)
+            mapstore.finalize()
+            base_index = mapstore.tree.parent.iname
+            var_name = mapstore.tree.iname
+
+            kernel_data = []
+
+            # convert to loopy & str
+            inds_arr, inds_str = mapstore.apply_maps(inds, var_name)
+            indptr_arr, indptr_str = mapstore.apply_maps(indptr, var_name)
+            _, indptr_next_str = mapstore.apply_maps(indptr, var_name,
+                                                     affine=1)
+            kernel_data.extend([inds_arr, indptr_arr])
+            # and lookup function
+            lookup = jac_indirect_lookup(indptr_arr)
+
+            # create jacobian and bypass lookup insertion
+            jac_arr, jac_str = namestore.jac(arc.global_ind, 'index',
+                                             ignore_lookups=True)
+            kernel_data.append(jac_arr)
+            # create get species -> rxn offsets & rxns
+            offsets, s_t_r_offset_str = mapstore.apply_maps(
+                namestore.spec_to_rxn_offsets, 'ind')
+            _, s_t_r_next_offset_str = mapstore.apply_maps(
+                namestore.spec_to_rxn_offsets, 'ind', affine=1)
+            rxn, rxn_str = mapstore.apply_maps(
+                namestore.spec_to_rxn, 'i_rxn')
+            # now get rxn -> species and offsets
+            rxn_offsets, r_t_s_offset_str = mapstore.apply_maps(
+                namestore.rxn_to_spec_offsets, rxn_str)
+            _, r_t_s_next_offset_str = mapstore.apply_maps(
+                namestore.rxn_to_spec_offsets, rxn_str, affine=1)
+            spec, spec_str = mapstore.apply_maps(
+                namestore.rxn_to_spec, 'is1')
+            kernel_data.extend([offsets, rxn_offsets, spec, rxn])
+
+            # set ns
+            ns = namestore.num_specs[-1]
+
+            # finally we need the third body indicies
+            thd_mask, thd_mask_str = mapstore.apply_maps(
+                namestore.thd_mask, rxn_str)
+            thd_offset, toffset_str = mapstore.apply_maps(
+                namestore.thd_offset, thd_mask_str)
+            _, toffset_next_str = mapstore.apply_maps(
+                namestore.thd_offset, thd_mask_str, affine=1)
+            thd_spec, thd_spec_str = mapstore.apply_maps(
+                namestore.thd_spec, 'i_thd')
+            kernel_data.extend([thd_mask, thd_offset, thd_spec])
+
+            # add all species for temperature / variable loop
+
+            numspec, specloop2_str = mapstore.apply_maps(
+                namestore.num_specs, 'is2')
+            numspec, specloop3_str = mapstore.apply_maps(
+                namestore.num_specs, 'is3')
+            kernel_data.append(numspec)
+
+            # create a custom has_ns mask
+            has_ns_mask = np.full(namestore.num_reacs.size, -1, dtype=np.int32)
+            has_ns_mask[namestore.rxn_has_ns.initializer] = 1
+            has_ns_mask[namestore.thd_map[
+                namestore.thd_only_ns_inds.initializer]] = 1
+            has_ns_mask = arc.creator('has_ns', initializer=has_ns_mask,
+                                      dtype=np.int32, shape=has_ns_mask.shape,
+                                      order=loopy_opts.order)
+            has_ns, has_ns_str = mapstore.apply_maps(
+                has_ns_mask, rxn_str)
+            kernel_data.append(has_ns)
+
+            extra_inames = [('i_rxn', 'roffset <= i_rxn < roffset_next'),
+                            ('is1', 'soffset <= is1 < soffset_next'),
+                            ('is2,is3', '0 <= is2,is3 < {} - 1'.format(
+                                namestore.num_specs.size)),
+                            ('i_thd', 'toffset <= i_thd <= toffset_next')]
+            # subs
+            subs = locals().copy()
+            subs.update({
+                        'lookup': lookup.name,
+                        'indptr': indptr_str})
+
+            # make kernel
+            instructions = Template("""
+                # for each phi entry in the jacobian
+                <> index = ${indptr} + ${lookup}(${indptr}, ${indptr_next_str}, 0)
+                # and store
+                ${jac_str} = index {id=set1}
+                # extra variable
+                index = ${indptr} + ${lookup}(${indptr}, ${indptr_next_str}, 1)
+                # and store
+                ${jac_str} = index {id=set2, nosync=set1}
+                if ${var_name} >= 2
+                    # and then go through the reactions for this species
+                    <> ind = i - 2
+                    <> roffset = ${s_t_r_offset_str}
+                    <> roffset_next = ${s_t_r_next_offset_str}
+                    for i_rxn
+                        # and now loop over species in reaction
+                        <> soffset = ${r_t_s_offset_str}
+                        <> soffset_next = ${r_t_s_next_offset_str}
+                        for is1
+                            <> spec = ${spec_str}
+                            if spec != ${ns}
+                                # do lookup
+                                index = ${indptr} + ${lookup}(${indptr}, \
+                                    ${indptr_next_str}, spec + 2)
+                                ${jac_str} = index {id=set3, nosync=set*}
+                            end
+                        end
+                        # and species in third body (if present)
+                        if ${thd_mask_str} != -1
+                            <>toffset = ${toffset_str}
+                            <>toffset_next = ${toffset_next_str}
+                            for i_thd
+                                spec = ${thd_spec_str}
+                                if spec != ${ns}
+                                    index = ${indptr} + ${lookup}(${indptr}, \
+                                            ${indptr_next_str}, spec + 2)
+                                    ${jac_str} = index {id=set4, nosync=set*}
+                                end
+                            end
+                        end
+                        if ${has_ns_str}
+                            # turn on every species
+                            for is2
+                                spec = ${specloop2_str}
+                                # do lookup
+                                index = ${indptr} + ${lookup}(${indptr},
+                                    ${indptr_next_str}, spec + 2)
+                                ${jac_str} = index {id=set5, nosync=set*}
+                            end
+                        end
+                    end
+                else
+                    for is3
+                        spec = ${specloop3_str}
+                        # do lookup
+                        index = ${indptr} + ${lookup}(${indptr},
+                            ${indptr_next_str}, spec + 2)
+                        ${jac_str} = index {id=set6, nosync=set*}
+                    end
+                end
+            """).safe_substitute(**subs)
+
+            import pdb; pdb.set_trace()
+            return knl_info(instructions=instructions,
+                            mapstore=mapstore,
+                            name='index_test',
+                            kernel_data=kernel_data,
+                            extra_inames=extra_inames,
+                            preambles=[lookup],
+                            seq_dependencies=True)
+
+        # create reference answer
+        # get number of non-zero jacobian inds
+        jac_inds = determine_jac_inds(self.store.reacs, self.store.specs,
+                                      RateSpecialization.fixed)['jac_inds']
+        jac_size = len(self.store.specs) + 1
+        num_nonzero_jac = jac_inds['flat_C'].shape[0]
+        # get reference answer and comparable
+        ref_ans = np.tile(np.arange(num_nonzero_jac, dtype=np.int32),
+                          (self.store.test_size, 1))
+        compare_mask = (slice(None), np.arange(num_nonzero_jac))
+
+        def __get_compare(kc, outv, index, is_answer=False):
+            from .test_utils import indexer
+            _get_index = indexer(ref_ans.ndim, outv.ndim, outv.shape,
+                                 kc.current_order)
+            # first check we have a reasonable mask
+            assert ref_ans.ndim == len(compare_mask), (
+                "Can't use dissimilar compare masks / axes")
+            # dummy comparison axis
+            comp_axis = np.arange(ref_ans.ndim)
+            # convert inds
+            masking = tuple(_get_index(compare_mask, comp_axis))
+            return outv[masking]
+
+        # and finally create args
+        args = {
+            'jac': lambda x: np.zeros((self.store.test_size, jac_size, jac_size),
+                                      order=x)
+        }
+
+        kc = kernel_call('index_test', ref_ans, compare_mask=[__get_compare],
+                         compare_axis=-1, **args)
+
+        return self._generic_jac_tester(__kernel_creator, kc)
 
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')

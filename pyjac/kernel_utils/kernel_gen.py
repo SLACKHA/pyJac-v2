@@ -1154,7 +1154,8 @@ ${name} : ${type}
                              kernel_data=kernel_data,
                              name=info.name,
                              target=target,
-                             assumptions=' and '.join(assumptions)
+                             assumptions=' and '.join(assumptions),
+                             **info.kwargs
                              )
         # fix parameters
         if info.parameters:
@@ -1686,6 +1687,8 @@ class knl_info(object):
         arise in vectorization
     preambles : :class:`preamble.PreambleGen`
         A list of preamble generators to insert code into loopy / opencl
+    **kwargs: dict
+        Any other keyword args to pass to :func:`loopy.make_kernel`
     """
 
     def __init__(self, name, instructions, mapstore, pre_instructions=[],
@@ -1697,7 +1700,8 @@ class knl_info(object):
                  vectorization_specializer=None,
                  can_vectorize=True,
                  manglers=[],
-                 preambles=[]):
+                 preambles=[],
+                 **kwargs):
         self.name = name
         self.instructions = instructions
         self.mapstore = mapstore
@@ -1715,6 +1719,7 @@ class knl_info(object):
         self.vectorization_specializer = vectorization_specializer
         self.manglers = manglers[:]
         self.preambles = preambles[:]
+        self.kwargs = kwargs.copy()
 
 
 def create_function_mangler(kernel, return_dtypes=()):
