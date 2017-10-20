@@ -1549,6 +1549,15 @@ class NameStore(object):
                                                     'map'].size,
                                                 dtype=np.int32),
                                             order=self.order)
+        self.num_net_nonzero_phi = creator('num_net_nonzero_phi',
+                                           dtype=np.int32,
+                                           shape=(rate_info['net_per_spec'][
+                                                'map'].shape[0] + 2,),
+                                           initializer=np.arange(
+                                                rate_info['net_per_spec'][
+                                                    'map'].size + 2,
+                                                dtype=np.int32),
+                                           order=self.order)
         self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
                                         shape=rate_info['net_per_spec'][
                                             'map'].shape,
@@ -1556,10 +1565,12 @@ class NameStore(object):
                                             'net_per_spec']['map'],
                                         order=self.order)
         self.net_nonzero_phi = creator('net_nonzero_phi', dtype=np.int32,
-                                       shape=rate_info['net_per_spec'][
-                                           'map'].shape,
-                                       initializer=rate_info[
-                                           'net_per_spec']['map'] + 2,
+                                       shape=(rate_info['net_per_spec'][
+                                           'map'].shape[0] + 2,),
+                                       initializer=np.asarray(
+                                            np.hstack(([0, 1], rate_info[
+                                                'net_per_spec']['map'] + 2)),
+                                            dtype=np.int32),
                                        order=self.order)
 
         self.spec_to_rxn = creator('spec_to_rxn', dtype=np.int32,
