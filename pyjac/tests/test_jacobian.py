@@ -2289,7 +2289,7 @@ class SubTest(TestClass):
         # find our non-zero indicies
         ret = determine_jac_inds(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)['jac_inds']
-        non_zero_inds = ret['flat']
+        non_zero_inds = ret['flat_C']
         non_zero_inds = non_zero_inds.T
 
         jac_inds = np.where(jac != 0)[1:3]
@@ -2304,13 +2304,13 @@ class SubTest(TestClass):
 
         # create a CRS
         crs = csr_matrix(jac)
-        assert np.allclose(ret['crs']['row_ptr'], crs.indptr) and \
-            np.allclose(ret['crs']['col_ind'], crs.indices)
+        assert np.array_equal(ret['crs']['row_ptr'], crs.indptr) and \
+            np.array_equal(ret['crs']['col_ind'], crs.indices)
 
         # and repeat with CCS
         ccs = csc_matrix(jac)
-        assert np.allclose(ret['ccs']['col_ptr'], ccs.indptr) and \
-            np.allclose(ret['ccs']['row_ind'], ccs.indices)
+        assert np.array_equal(ret['ccs']['col_ptr'], ccs.indptr) and \
+            np.array_equal(ret['ccs']['row_ind'], ccs.indices)
 
     @attr('long')
     def test_reset_arrays(self):
