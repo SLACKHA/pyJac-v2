@@ -1204,8 +1204,18 @@ class jac_creator(creator):
         # indirect lookup accordingly
         if not ignore_lookups:
             def __lookups(arr, lookup, match):
-                if isinstance(match, int) or (isinstance(lookup, int) and
-                                              self.order == 'C'):
+                can_skip = False
+                try:
+                    lookup = int(lookup)
+                    can_skip = can_skip or (self.order == 'C' and lookup < 2)
+                except:
+                    pass
+                try:
+                    match = int(match)
+                    can_skip = can_skip or (self.order == 'F' and match < 2)
+                except:
+                    pass
+                if can_skip:
                     # this is a temperature or extra variable derivative
                     # hence, we don't need to do an actual lookup (as all entries
                     # are populated
