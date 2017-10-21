@@ -7,12 +7,13 @@ etc.)
 from __future__ import division
 
 import logging
-import inspect
+import re
 from string import Template
+from functools import wraps
 
 import loopy as lp
 from loopy.types import AtomicType
-from .array_creator import var_name
+from .array_creator import var_name, jac_creator
 
 
 def use_atomics(loopy_opts):
@@ -321,6 +322,16 @@ def wrap_instruction_on_condition(insn, condition, wrapper):
     Utility function to wrap the :param:`insn` in the supplied :param:`wrapper`
     if :param:`condition` is True
 
+    Parameters
+    ----------
+    insn: str
+        The instruction to execute
+    condition: bool or Callable
+        If true, :param:`insn` will be wrapped in an if statement given by
+        :param:`wrapper`
+    wrapper: str
+        The if statement condition to wrap :param:`insn` in if not :param:`condition`
+
     Returns
     -------
     If condition:
@@ -339,3 +350,114 @@ def wrap_instruction_on_condition(insn, condition, wrapper):
             end
         """).safe_substitute(locals())
     return insn
+
+
+def with_conditional_jacobian(func):
+    """
+    A function wrapper that makes available the :func:`_conditional_jacobian`
+    instruction to seemlessly enable checking for the existance of Jacobian entries
+    and / or precomputing expensive Jacobian lookups
+    """
+
+    # define the jacobian wrapper logic
+    def _conditional_jacobian(mapstore, jac, *jac_inds, **kwargs):
+        """
+        A method to handle updates / setting of the Jacobian for sparse and
+        non-sparse matricies.  This helps ease the burden of checking to see if an
+        entry is actually present in the Jacobian or not, and will automatically
+        guard against out-of-bounds accesses to the sparse Jacobian (or just to the
+        wrong entry)
+
+        Parameters
+        ----------
+        loopy_opts: :class:`loopy_options`
+            The loopy options indicating whether this jacobian is sparse or not
+        mapstore: :class:`MapStore`
+            The mapstore use in creation of the jacobian
+        jac: :class:`creator`
+            The Jacobian creator from the mapstore's :class:`NameStore`
+        jac_inds: tuple of int/str
+            The Jacobian indicies to use, of length 3
+        insn: str ['']
+            The update or Jacobian setting instruction to execute.
+                -A template  key form of the ${jac_str} is expected to substitute the
+                 resulting Jacobian entry into
+            Ignored if not supplied
+        index_insn: bool [True]
+            If true, use an index instruction to precompute the Jacobian index
+        entry_exists: bool [False]
+            If True, this Jacobian entry exists so do not wrap in a conditonal
+        return_arg: bool [True]
+            If True, return the created :loopy:`GlobalArg`
+        **kwargs: dict
+            Any other arguements will be passed to the :func:`mapstore.apply_maps`
+            call
+        Returns
+        -------
+        insn: str
+            The jacobian lookup / access instructions
+        """
+
+        # Get defaults out of kwargs
+        index_insn = kwargs.pop('index_insn', True)
+        entry_exists = kwargs.pop('entry_exists', False)
+        return_arg = kwargs.pop('return_arg', True)
+        insn = kwargs.pop('insn', '')
+        created_index = _conditional_jacobian.created_index
+
+        # check jacobian type
+        if isinstance(jac, jac_creator):
+            is_sparse = True
+            if not index_insn:
+                logging.warn('Using a sparse jacobian without precomputing the index'
+                             ' will result in extra indirect lookups.')
+        elif index_insn:
+            logging.info('Precomputed non-sparse Jacobian indicies not currently'
+                         'supported.')
+            index_insn = False
+
+        # if we want to precompute the index, do so
+        if is_sparse:
+            sparse_index = mapstore.apply_maps(jac, *jac_inds, plain_index=True,
+                                               **kwargs)
+            if index_insn:
+                # get the index
+                index_insn = Template(
+                    '${creation}jac_index = ${index_str}').substitute(
+                        creation='<> ' if not created_index else '',
+                        index_str=sparse_index)
+                # and redefine the jac indicies
+                jac_inds = (jac_inds[0],) + ('jac_index',)
+                conditional = jac_inds[-1]
+                # we've now created the temporary
+                _conditional_jacobian.created_index = True
+            else:
+                # otherwise we're conditional on the lookup
+                index_insn = ''
+                conditional = sparse_index
+
+        if is_sparse and insn:
+            # need to wrap the instruction
+            insn = wrap_instruction_on_condition(
+                insn, not entry_exists, '{} != -1'.format(conditional))
+
+        # and finally return the insn
+        jac_lp, jac_str = mapstore.apply_maps(
+            jac, *jac_inds, ignore_lookups=index_insn != '', **kwargs)
+        retv = Template(insn).safe_substitute(jac_str=jac_str)
+        if index_insn:
+            retv = Template("""${index}
+${retv}
+""").safe_substitute(index=re.match(r"^\s*", retv).group() + index_insn,
+                     retv=retv)
+
+        if return_arg:
+            return jac_lp, retv
+        return retv
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # pass into the function as a kwarg
+        _conditional_jacobian.created_index = False
+        return func(*args, jac_create=_conditional_jacobian, **kwargs)
+    return wrapper
