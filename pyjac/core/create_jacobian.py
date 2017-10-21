@@ -3102,7 +3102,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     # 2. it has to exist by defn and 3. we haven't trained the creator to hanle
     # multiple indicies
     _, dTdot_dnj_str = jac_create(
-        mapstore, namestore.jac, global_ind, var_name, 0, affine={
+        mapstore, namestore.jac, global_ind, 0, var_name, affine={
             var_name: 2,
         }, entry_exists=True, index_insn=False)
 
