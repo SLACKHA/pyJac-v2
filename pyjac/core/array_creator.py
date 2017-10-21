@@ -1198,6 +1198,55 @@ class jac_creator(creator):
                 lookup=lp_pregen.jac_indirect_lookup.name))
         super(jac_creator, self).__init__(*args, **kwargs)
 
+    def get_offset_and_lookup(self, *indicies):
+        """
+        Returns the correct sparse offset and lookup based on :param:`indicies` and
+        our own :param:`order`
+        """
+
+        def __lookups(arr, lookup, match):
+            can_skip = False
+            try:
+                lookup = int(lookup)
+                can_skip = can_skip or (self.order == 'C' and lookup < 2)
+            except:
+                pass
+            try:
+                match = int(match)
+                can_skip = can_skip or (self.order == 'F' and match < 2)
+            except:
+                pass
+            if can_skip:
+                # this is a temperature or extra variable derivative
+                # hence, we don't need to do an actual lookup (as all entries
+                # are populated
+                return str(match)
+
+            def __add():
+                if isinstance(lookup, int):
+                    return lookup + 1
+                return str(lookup) + ' + 1'
+            # otherwise, we need to call the lookup function
+            return self.lookup_call.safe_substitute(
+                start=arr(lookup)[1],
+                end=arr(__add())[1],
+                match=match)
+
+        if self.order == 'C':
+            # looking at a CRS, hence we take the row index (indicies[-2])
+            # and use that to get the row offset
+            # and we need to do a lookup on the column ind
+            lookup = __lookups(self.row_inds, indicies[-2], indicies[-1])
+            # and use the row index to get the row offsets
+            offset = self.row_inds(indicies[-2])[1]
+        else:
+            # looking at a CCS:
+            # and use the column index to get the column offset
+            offset = self.col_inds(indicies[-1])[1]
+            # we need to do a lookup on the row ind
+            lookup = __lookups(self.col_inds, indicies[-1], indicies[-2])
+        return offset, lookup
+
     def __call__(self, *indicies, **kwargs):
         """
         Special keywords for :class:`jac_creator`
@@ -1216,50 +1265,10 @@ class jac_creator(creator):
         # all we have to do here is figure out the order, and add the row / column
         # indirect lookup accordingly
         if not ignore_lookups:
-            def __lookups(arr, lookup, match):
-                can_skip = False
-                try:
-                    lookup = int(lookup)
-                    can_skip = can_skip or (self.order == 'C' and lookup < 2)
-                except:
-                    pass
-                try:
-                    match = int(match)
-                    can_skip = can_skip or (self.order == 'F' and match < 2)
-                except:
-                    pass
-                if can_skip:
-                    # this is a temperature or extra variable derivative
-                    # hence, we don't need to do an actual lookup (as all entries
-                    # are populated
-                    return str(match)
-
-                def __add():
-                    if isinstance(lookup, int):
-                        return lookup + 1
-                    return str(lookup) + ' + 1'
-                # otherwise, we need to call the lookup function
-                return self.lookup_call.safe_substitute(
-                    start=arr(lookup)[1],
-                    end=arr(__add())[1],
-                    match=match)
-            lookups = list(indicies[:])
             indicies = list(indicies)
-            if self.order == 'C':
-                # looking at a CRS, hence we take the row index (indicies[-2])
-                # and use that to get the row offset
-                # and we need to do a lookup on the column ind
-                indicies[-1] = __lookups(self.row_inds, lookups[-2], lookups[-1])
-                # and use the row index to get the row offsets
-                indicies[-2] = self.row_inds(lookups[-2])[1]
-            else:
-                # looking at a CCS:
-                # and use the column index to get the column offset
-                indicies[-1] = self.col_inds(lookups[-1])[1]
-                # we need to do a lookup on the row ind
-                indicies[-2] = __lookups(self.col_inds, lookups[-1], lookups[-2])
+            offset, lookup = self.get_offset_and_lookup(*indicies[:])
             # and add the offset to the lookup
-            indicies = (indicies[0], ' + '.join(indicies[1:]))
+            indicies = (indicies[0], ' + '.join((offset, lookup)))
 
         if plain_index:
             # return sparse index

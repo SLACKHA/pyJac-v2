@@ -424,9 +424,11 @@ def with_conditional_jacobian(func):
         if is_sparse:
             sparse_index = mapstore.apply_maps(jac, *jac_inds, plain_index=True,
                                                **kwargs)
+            offset, _ = jac.get_offset_and_lookup(*jac_inds)
             if index_insn:
                 # get the index
                 deps = _conditional_jacobian.id_namer('ind')
+                name = _conditional_jacobian.id_namer('ind')
                 index_insn = Template(
                     '${creation}jac_index = ${index_str} {id=${name}}'
                     ).substitute(
@@ -436,18 +438,18 @@ def with_conditional_jacobian(func):
                 deps += ':'
                 # and redefine the jac indicies
                 jac_inds = (jac_inds[0],) + ('jac_index',)
-                conditional = jac_inds[-1]
+                conditional = 'jac_index >= {}'.format(offset)
                 # we've now created the temporary
                 _conditional_jacobian.created_index = True
             else:
                 # otherwise we're conditional on the lookup
                 index_insn = ''
-                conditional = sparse_index
+                conditional = '{} >= {}'.format(sparse_index, offset)
 
         if is_sparse and insn:
             # need to wrap the instruction
             insn = wrap_instruction_on_condition(
-                insn, not entry_exists, '{} != -1'.format(conditional))
+                insn, not entry_exists, conditional)
 
         # and finally return the insn
         jac_lp, jac_str = mapstore.apply_maps(
