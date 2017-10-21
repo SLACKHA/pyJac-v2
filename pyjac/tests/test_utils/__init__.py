@@ -443,7 +443,7 @@ class get_comparable(object):
                     # as the split array dimension differs, we need to supply the
                     # same strides as the reference answer
                     size_arr = [mask[row_ind].size]
-                    if len(mask) == 3:
+                    if len(self.compare_mask[index]) == 3:
                         size_arr = [ic_size] + size_arr
                     # and fix the stride such that the rows and columns
                     # move together
@@ -477,16 +477,21 @@ class get_comparable(object):
                 else:
                     # need to take the size to be the number of initial conditions
                     # multiplied by the number of indicies in our mask
-                    ic_size = mask[0].size if len(mask) == 3 else ans.shape[0]
+                    ic_vals = mask[0] if len(mask) == 3 else np.range(
+                        ans.shape[0])
+                    ic_size = ic_vals.size
                     size_arr = [mask[row_ind].size]
                     if len(mask) == 3:
                         size_arr = [ic_size] + size_arr
                     # and fix the stride such that the rows and columns
                     # move together
+                    stride_arr = [1] * outv.ndim
                     if kc.current_order == 'F':
-                        stride_arr = [1] + [outv.shape[1], 1, 1]
+                        stride_arr = [1] + [np.unique(ic_vals).size, 1, 1]
                     else:
-                        stride_arr = [outv.shape[0]] + [1, 1] + [outv.shape[-1]]
+                        d, m = np.divmod(ic_vals, outv.shape[-1])
+                        stride_arr = [np.unique(d).size] \
+                            + [1, 1] + [np.unique(m).size]
 
         # check for vectorized data order
         if outv.ndim == ndim:
