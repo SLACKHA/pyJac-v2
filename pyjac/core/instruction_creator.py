@@ -433,6 +433,8 @@ def with_conditional_jacobian(func):
             if index_insn:
                 # get the index
                 existing = sorted(_conditional_jacobian.id_namer.existing_names)
+                if not existing:
+                    existing = ['*']
                 name = _conditional_jacobian.id_namer('ind')
                 index_insn = Template(
                     '${creation}jac_index = ${index_str} {id=${name}, dep=${dep}}'
@@ -443,7 +445,7 @@ def with_conditional_jacobian(func):
                         dep=':'.join(existing))
                 # add dependency to all before me (and just added)
                 # so that we don't get out of order
-                deps += existing + [name]
+                deps += [name]
                 # and redefine the jac indicies
                 jac_inds = (jac_inds[0],) + ('jac_index',)
                 conditional = 'jac_index >= {}'.format(offset)

@@ -1205,17 +1205,17 @@ class jac_creator(creator):
         """
 
         def __lookups(arr, lookup, match):
-            can_skip = False
-            try:
-                lookup = int(lookup)
-                can_skip = can_skip or (self.order == 'C' and lookup < 2)
-            except:
-                pass
-            try:
-                match = int(match)
-                can_skip = can_skip or (self.order == 'F' and match < 2)
-            except:
-                pass
+            def __lt(x):
+                try:
+                    x = int(x)
+                except:
+                    return False
+                return x < 2
+
+            # if we're in the first two rows, they are full
+            can_skip = self.order == 'C' and __lt(lookup)
+            # or if our match is less than two in any column
+            can_skip = can_skip or __lt(match)
             if can_skip:
                 # this is a temperature or extra variable derivative
                 # hence, we don't need to do an actual lookup (as all entries
@@ -1270,7 +1270,9 @@ class jac_creator(creator):
             indicies = list(indicies)
             offset, lookup = self.__get_offset_and_lookup(*indicies[:])
             # and add the offset to the lookup
-            indicies = (indicies[0], ' + '.join((offset, lookup)))
+            indicies[1], indicies[2] = offset, lookup
+
+        indicies = (indicies[0], ' + '.join([str(x) for x in indicies[1:]]))
 
         if plain_index:
             assert not ignore_lookups, "Can't do both."
