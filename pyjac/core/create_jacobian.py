@@ -3128,8 +3128,9 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                           )
 
 
+@ic.with_conditional_jacobian
 def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
-              conp=True):
+              conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the partial derivatives of dT/dt with respect to the molar species
     quanities
@@ -3149,6 +3150,8 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -3188,15 +3191,27 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
         namestore.V_arr, global_ind)
     T_dot_lp, T_dot_str = mapstore.apply_maps(
         namestore.T_dot, global_ind)
-    jac_lp, jac_spec_str = mapstore.apply_maps(
-        namestore.jac, global_ind, spec_k, var_name, affine={
+
+    # start creating the Jacobian
+
+    # species jacobian sum
+    species_jac_insn = ("sum = sum + (${energy_k_str} - ${energy_ns_str} * "
+                        "${mw_str}) * ${jac_str} {id=sum, dep=*}")
+    jac_lp, species_jac_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
-        })
-    _, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, '0', var_name, affine={
+        }, insn=species_jac_insn)
+
+    # dTdot/dnj jacobian set
+    tdot_jac_insn = (
+        "${jac_str} = -(sum + ${T_dot_str} * "
+        "(${spec_heat_k_str} - ${spec_heat_ns_str})) / "
+        "(${V_str} * ${spec_heat_total_str}) {id=jac, dep=sum, nosync=sum}")
+    _, tdot_jac_insn = jac_create(
+        mapstore, namestore.jac, global_ind, '0', var_name, affine={
             var_name: 2,
-        })
+        }, entry_exists=True, insn=tdot_jac_insn)
 
     kernel_data = []
     if namestore.test_size == 'problem_size':
@@ -3205,16 +3220,13 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     kernel_data.extend([spec_heat_lp, energy_lp, spec_heat_tot_lp, mw_lp,
                         V_lp, T_dot_lp, jac_lp, nonzero_lp])
 
-    instructions = Template("""
+    instructions = Template(Template("""
     <> sum = 0 {id=init}
     for ${i_spec_k}
-        sum = sum + (${energy_k_str} - ${energy_ns_str} * ${mw_str}) * \
-            ${jac_spec_str} {id=sum, dep=*}
+        ${species_jac_insn}
     end
-
-    ${jac_str} = -(sum + ${T_dot_str} * (${spec_heat_k_str} - ${spec_heat_ns_str})) \
-        / (${V_str} * ${spec_heat_total_str}) {id=jac, dep=sum, nosync=sum}
-    """).safe_substitute(**locals())
+    ${tdot_jac_insn}
+    """).safe_substitute(**locals())).safe_substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, init_ids=['jac'])
 
