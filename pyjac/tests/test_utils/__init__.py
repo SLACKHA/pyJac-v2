@@ -119,6 +119,9 @@ class kernel_runner(object):
         out_arg_names = [
             [arg.name for arg in k.args if arg.name in k.get_written_variables()]
             for k in gen.kernels]
+        if 'out_mask' in self.args:
+            out_arg_names = [[oa_name[i] for i in self.args['out_mask']]
+                             for oa_name in out_arg_names]
         output = populate(gen.kernels, kc, device=device)
         # turn into dicts
         output = [{oa_name[i]: output[ind][i] for i in range(len(oa_name))}
@@ -477,7 +480,7 @@ class get_comparable(object):
                 else:
                     # need to take the size to be the number of initial conditions
                     # multiplied by the number of indicies in our mask
-                    ic_vals = mask[0] if len(mask) == 3 else np.range(
+                    ic_vals = mask[0] if len(mask) == 3 else np.arange(
                         ans.shape[0])
                     ic_size = ic_vals.size
                     size_arr = [mask[row_ind].size]
