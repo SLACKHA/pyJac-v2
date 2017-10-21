@@ -383,11 +383,16 @@ class get_comparable(object):
             return row_ind, row_mask, col_ind, col_mask
 
         # https://stackoverflow.com/a/41234399
-        def inNd(a, b, assume_unique=False):
+        def inNd(a, b):
             return np.where((a[:, None] == b).all(-1).any(0))[0]
 
         # https://stackoverflow.com/a/25655090
-        def combination(*arrays):
+        def combination(*arrays, **kwargs):
+            order = kwargs.pop('order')
+            if order == 'F':
+                # need to have the columns incrementing slower, easier to
+                # put the col mask first and then...
+                arrays = list(reversed(arrays))
             shape = (len(x) for x in arrays)
 
             ix = np.indices(shape, dtype=int)
@@ -396,6 +401,9 @@ class get_comparable(object):
             for n, arr in enumerate(arrays):
                 ix[:, n] = arrays[n][ix[:, n]]
 
+            if order == 'F':
+                # ...flop rows and columns
+                ix = ix[:, [1, 0]]
             return ix
 
         # check for sparse (ignore answers, which do not get transformed into
@@ -424,14 +432,7 @@ class get_comparable(object):
                 ic_size = mask[0].size if mask else ans.shape[0]
 
                 # add the sparse indicies
-                if kc.current_order == 'F':
-                    # need to have the columns incrementing slower, easier to
-                    # put the col mask first and then...
-                    new_mask = combination(col_mask, row_mask)
-                    # ...flop rows and columns
-                    new_mask = new_mask[:, [1, 0]]
-                else:
-                    new_mask = combination(row_mask, col_mask)
+                new_mask = combination(row_mask, col_mask, order=kc.current_order)
                 mask.append(inNd(new_mask, inds))
                 # and the new axis
                 axis = axis + (1,)
@@ -458,7 +459,7 @@ class get_comparable(object):
                 # find the row & column mask
                 row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
                 # combine col & row masks
-                new_mask = combination(row_mask, col_mask)
+                new_mask = combination(row_mask, col_mask, order=kc.current_order)
                 # find where the sparse indicies correspond to our row & column masks
                 new_mask = new_mask[inNd(inds, new_mask)]
                 # split back into rows and columns
