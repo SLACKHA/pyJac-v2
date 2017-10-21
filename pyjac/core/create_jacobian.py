@@ -288,8 +288,9 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
                           vectorization_specializer=vec_spec)
 
 
+@ic.with_conditional_jacobian
 def __dcidE(eqs, loopy_opts, namestore, test_size=None,
-            rxn_type=reaction_type.thd, conp=True):
+            rxn_type=reaction_type.thd, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term for all third body /
     falloff / chemically activated reactions with respect to the extra variable
@@ -314,7 +315,8 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
-
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
     Returns
     -------
     knl_list : list of :class:`knl_info`
@@ -417,8 +419,12 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     spec_lp, spec_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec, k_ind)
     # and jac
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2})
+    jac_update_insn = (
+        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * "
+        "${factor} {id=jac, dep=${deps}}")
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k_str, 1,
+        affine={spec_k_str: 2}, insn=jac_update_insn, deps='dci_*')
 
     # ropnet
     rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
@@ -610,7 +616,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     """).safe_substitute(**locals())
 
     # and instructions
-    instructions = Template("""
+    instructions = Template(Template("""
     <> rop_net = ${rop_fwd_str} {id=rop_net_init}
     ${rop_net_rev_update}
     ${thd_mod_insns}
@@ -619,11 +625,10 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     <> offset_next = ${offset_next_str}
     for ${k_ind}
         if ${spec_k_str} != ${ns}
-            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-                ${factor} {id=jac, dep=dci_*}
+            ${jac_update_insn}
         end
     end
-    """).safe_substitute(**locals())
+    """).safe_substitute(**locals())).safe_substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, atomic_ids=['jac'])
