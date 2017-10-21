@@ -3207,11 +3207,11 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     tdot_jac_insn = (
         "${jac_str} = -(sum + ${T_dot_str} * "
         "(${spec_heat_k_str} - ${spec_heat_ns_str})) / "
-        "(${V_str} * ${spec_heat_total_str}) {id=jac, dep=${deps}sum, nosync=sum}")
+        "(${V_str} * ${spec_heat_total_str}) {id=jac, dep=${deps}, nosync=sum}")
     _, tdot_jac_insn = jac_create(
         mapstore, namestore.jac, global_ind, '0', var_name, affine={
             var_name: 2,
-        }, entry_exists=True, insn=tdot_jac_insn)
+        }, entry_exists=True, insn=tdot_jac_insn, deps='sum')
 
     kernel_data = []
     if namestore.test_size == 'problem_size':
