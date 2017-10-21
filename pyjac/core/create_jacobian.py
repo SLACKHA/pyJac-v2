@@ -3062,11 +3062,17 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                             namestore.num_specs_no_ns,
                             namestore.num_specs_no_ns)
 
-    num_specs = namestore.num_specs[-1] + 1
+    # k loop is _only_ over non-zero dnk/dnj deriviatives
+    ns = namestore.num_specs[-1]
+    num_nonzero_specs = namestore.num_net_nonzero_spec.size
+    if ns in namestore.num_net_nonzero_spec.initializer:
+        num_nonzero_specs -= 1
     # k loop
-    spec_k = 'spec_k'
-    extra_inames = [(spec_k, '0 <= spec_k < {}'.format(
-        num_specs - 1))]
+    i_spec_k = 'i_spec_k'
+    extra_inames = [(i_spec_k, '0 <= i_spec_k < {}'.format(
+        num_nonzero_specs))]
+    nonzero_lp, spec_k = mapstore.apply_maps(
+        namestore.net_nonzero_spec, i_spec_k)
 
     mw_lp, mw_str = mapstore.apply_maps(
         namestore.mw_post_arr, spec_k)
@@ -3095,13 +3101,13 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     if namestore.test_size == 'problem_size':
         kernel_data.append(namestore.problem_size)
 
-    kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp])
+    kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp, nonzero_lp])
 
     extra_var_str = V_str if conp else P_str
     fixed_var_str = P_str if conp else V_str
     instructions = Template("""
     <> sum = 0 {id=init}
-    for ${spec_k}
+    for ${i_spec_k}
         sum = sum + (1 - ${mw_str}) * ${dnk_dnj_str} {id=sum, dep=*}
     end
     ${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + \
@@ -3155,12 +3161,17 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                             namestore.num_specs_no_ns,
                             namestore.num_specs_no_ns)
 
-    num_specs = namestore.num_specs.initializer[-1] + 1
+    # k loop is _only_ over non-zero dnk/dnj deriviatives
+    ns = namestore.num_specs[-1]
+    num_nonzero_specs = namestore.num_net_nonzero_spec.size
+    if ns in namestore.num_net_nonzero_spec.initializer:
+        num_nonzero_specs -= 1
     # k loop
-    spec_k = 'spec_k'
-    extra_inames = [(spec_k, '0 <= spec_k < {}'.format(
-        num_specs - 1))]
-
+    i_spec_k = 'i_spec_k'
+    extra_inames = [(i_spec_k, '0 <= i_spec_k < {}'.format(
+        num_nonzero_specs))]
+    nonzero_lp, spec_k = mapstore.apply_maps(
+        namestore.net_nonzero_spec, i_spec_k)
     spec_heat_lp, spec_heat_k_str = mapstore.apply_maps(
         namestore.spec_heat, *default_inds)
     _, spec_heat_ns_str = mapstore.apply_maps(
@@ -3192,11 +3203,11 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
         kernel_data.append(namestore.problem_size)
 
     kernel_data.extend([spec_heat_lp, energy_lp, spec_heat_tot_lp, mw_lp,
-                        V_lp, T_dot_lp, jac_lp])
+                        V_lp, T_dot_lp, jac_lp, nonzero_lp])
 
     instructions = Template("""
     <> sum = 0 {id=init}
-    for ${spec_k}
+    for ${i_spec_k}
         sum = sum + (${energy_k_str} - ${energy_ns_str} * ${mw_str}) * \
             ${jac_spec_str} {id=sum, dep=*}
     end

@@ -315,3 +315,27 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
 
     # else return the base update insn
     return base_update_insn
+
+def wrap_instruction_on_condition(insn, condition, wrapper):
+    """
+    Utility function to wrap the :param:`insn` in the supplied :param:`wrapper`
+    if :param:`condition` is True
+
+    Returns
+    -------
+    If condition:
+        `if wrapper
+            insn
+         end
+        `
+    else:
+        insn
+    """
+
+    if condition:
+        return Template("""
+            if ${wrapper}
+                ${insn}
+            end
+        """).safe_substitute(locals())
+    return insn
