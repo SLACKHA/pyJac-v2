@@ -1199,7 +1199,20 @@ class jac_creator(creator):
         super(jac_creator, self).__init__(*args, **kwargs)
 
     def __call__(self, *indicies, **kwargs):
+        """
+        Special keywords for :class:`jac_creator`
+
+        ignore_lookups: bool [False]
+            If True, do not call the indirect lookups.  Occasionally useful
+            e.g. when resetting the Jacobian we don't need to lookup entries.
+        plain_index: bool [False]
+            If True, return the sparse Jacobian index instead of the
+            :class:`loopy.GlobalArg` and access string returned by the parent
+            :func:`creator.__call__`.  Useful when precomputing indicies
+        """
         ignore_lookups = kwargs.pop('ignore_lookups', False)
+        plain_index = kwargs.pop('plain_index', False)
+
         # all we have to do here is figure out the order, and add the row / column
         # indirect lookup accordingly
         if not ignore_lookups:
@@ -1247,6 +1260,11 @@ class jac_creator(creator):
                 indicies[-2] = __lookups(self.col_inds, lookups[-1], lookups[-2])
             # and add the offset to the lookup
             indicies = (indicies[0], ' + '.join(indicies[1:]))
+
+        if plain_index:
+            # return sparse index
+            return indicies[1]
+
         return super(jac_creator, self).__call__(*indicies, **kwargs)
 
 
