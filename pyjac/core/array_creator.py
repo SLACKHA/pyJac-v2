@@ -1231,10 +1231,10 @@ class jac_creator(creator):
                 indicies[-2] = self.row_inds(lookups[-2])[1]
             else:
                 # looking at a CCS:
-                # we need to do a lookup on the column ind
-                indicies[-1] = __lookups(self.col_inds, lookups[-1], lookups[-2])
                 # and use the column index to get the column offset
-                indicies[-2] = self.col_inds(lookups[-1])[1]
+                indicies[-1] = self.col_inds(lookups[-1])[1]
+                # we need to do a lookup on the row ind
+                indicies[-2] = __lookups(self.col_inds, lookups[-1], lookups[-2])
             # and add the offset to the lookup
             indicies = (indicies[0], ' + '.join(indicies[1:]))
         return super(jac_creator, self).__call__(*indicies, **kwargs)
