@@ -3028,8 +3028,9 @@ def thermo_temperature_derivative(nicename, eqs, loopy_opts, namestore,
         nicename, eq, loopy_opts, namestore, test_size)
 
 
+@ic.with_conditional_jacobian
 def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
-              conp=True):
+              conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the extra variable (i.e. V or P depending on conp/conv)
     w.r.t. the molar variables
@@ -3050,6 +3051,8 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -3078,19 +3081,30 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
         namestore.mw_post_arr, spec_k)
     V_lp, V_str = mapstore.apply_maps(
         namestore.V_arr, global_ind)
-    jac_lp, dnk_dnj_str = mapstore.apply_maps(
-        namestore.jac, global_ind, spec_k, var_name, affine={
+    # dnk/dnj jacobian set
+    dnkdnj_insn = ("sum = sum + (1 - ${mw_str}) * ${jac_str} {id=sum, dep=${deps}}")
+    jac_lp, dnkdnj_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
-        })
-    _, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, 1, var_name, affine={
+        }, insn=dnkdnj_insn, deps='*')
+    # and the dtdot / dnj instruction
+    dtdotdnj_insn = (
+        "${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + "
+        "${extra_var_str} * ${dTdot_dnj_str} / ${T_str} "
+        "{id=jac, dep=${deps}, nosync=sum}")
+    _, dtdotdnj_insn = jac_create(
+        mapstore, namestore.jac, global_ind, 1, var_name, affine={
             var_name: 2,
-        })
-    _, dTdot_dnj_str = mapstore.apply_maps(
-        namestore.jac, global_ind, 0, var_name, affine={
+        }, insn=dtdotdnj_insn, deps='sum')
+    # and finally do a simple string creation for dTdot / dnj
+    # NOTE: do not precompute index here as 1. it's only called once
+    # 2. it has to exist by defn and 3. we haven't trained the creator to hanle
+    # multiple indicies
+    _, dTdot_dnj_str = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k, 0, affine={
             var_name: 2,
-        })
+        }, entry_exists=True, index_insn=False)
 
     P_lp, P_str = mapstore.apply_maps(
         namestore.P_arr, global_ind)
@@ -3105,14 +3119,13 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
 
     extra_var_str = V_str if conp else P_str
     fixed_var_str = P_str if conp else V_str
-    instructions = Template("""
+    instructions = Template(Template("""
     <> sum = 0 {id=init}
     for ${i_spec_k}
-        sum = sum + (1 - ${mw_str}) * ${dnk_dnj_str} {id=sum, dep=*}
+        ${dnkdnj_insn}
     end
-    ${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + \
-        ${extra_var_str} * ${dTdot_dnj_str} / ${T_str} {id=jac, dep=sum, nosync=sum}
-    """).safe_substitute(**locals())
+    ${dtdotdnj_insn}
+    """).safe_substitute(**locals())).safe_substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, atomic_ids=['jac'])
 
