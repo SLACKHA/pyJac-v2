@@ -3196,12 +3196,12 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
 
     # species jacobian sum
     species_jac_insn = ("sum = sum + (${energy_k_str} - ${energy_ns_str} * "
-                        "${mw_str}) * ${jac_str} {id=sum, dep=${deps}*}")
+                        "${mw_str}) * ${jac_str} {id=sum, dep=${deps}}")
     jac_lp, species_jac_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
-        }, insn=species_jac_insn)
+        }, insn=species_jac_insn, deps='*')
 
     # dTdot/dnj jacobian set
     tdot_jac_insn = (

@@ -386,6 +386,9 @@ def with_conditional_jacobian(func):
                 -Additionaly, the instruction must have the key ${deps} in order
                  to insert any relevant pre-computed index depencency
             Ignored if not supplied
+        deps: str ['']
+            A colon separated list of dependencies for the insn.  Ignored if insn
+            not supplied.  Taken as '' if not supplied
         index_insn: bool [True]
             If true, use an index instruction to precompute the Jacobian index
         entry_exists: bool [False]
@@ -406,6 +409,8 @@ def with_conditional_jacobian(func):
         entry_exists = kwargs.pop('entry_exists', False)
         return_arg = kwargs.pop('return_arg', True)
         insn = kwargs.pop('insn', '')
+        deps = kwargs.pop('deps', '')
+        deps = deps.split(':')
         created_index = _conditional_jacobian.created_index
 
         # check jacobian type
@@ -420,22 +425,24 @@ def with_conditional_jacobian(func):
             index_insn = False
 
         # if we want to precompute the index, do so
-        deps = ''
         if is_sparse:
             sparse_index = mapstore.apply_maps(jac, *jac_inds, plain_index=True,
                                                **kwargs)
             offset, _ = jac.get_offset_and_lookup(*jac_inds)
             if index_insn:
                 # get the index
-                deps = _conditional_jacobian.id_namer('ind')
+                existing = sorted(_conditional_jacobian.id_namer.existing_names)
                 name = _conditional_jacobian.id_namer('ind')
                 index_insn = Template(
-                    '${creation}jac_index = ${index_str} {id=${name}}'
+                    '${creation}jac_index = ${index_str} {id=${name}, dep=${dep}}'
                     ).substitute(
                         creation='<> ' if not created_index else '',
                         index_str=sparse_index,
-                        name=deps)
-                deps += ':'
+                        name=name,
+                        dep=':'.join(existing))
+                # add dependency to all before me (and just added)
+                # so that we don't get out of order
+                deps += existing + [name]
                 # and redefine the jac indicies
                 jac_inds = (jac_inds[0],) + ('jac_index',)
                 conditional = 'jac_index >= {}'.format(offset)
@@ -454,7 +461,7 @@ def with_conditional_jacobian(func):
         # and finally return the insn
         jac_lp, jac_str = mapstore.apply_maps(
             jac, *jac_inds, ignore_lookups=index_insn != '', **kwargs)
-        retv = Template(insn).safe_substitute(jac_str=jac_str, deps=deps)
+        retv = Template(insn).safe_substitute(jac_str=jac_str, deps=':'.join(deps))
         if index_insn:
             retv = Template("""${index}
 ${retv}
