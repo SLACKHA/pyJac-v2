@@ -414,6 +414,7 @@ def with_conditional_jacobian(func):
         created_index = _conditional_jacobian.created_index
 
         # check jacobian type
+        is_sparse = False
         if isinstance(jac, jac_creator):
             is_sparse = True
             if not index_insn:
