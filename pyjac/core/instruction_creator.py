@@ -6,6 +6,7 @@ etc.)
 
 from __future__ import division
 
+import inspect
 import logging
 import re
 from string import Template
