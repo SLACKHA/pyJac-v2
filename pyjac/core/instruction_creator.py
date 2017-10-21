@@ -459,8 +459,11 @@ def with_conditional_jacobian(func):
                 insn, not entry_exists, conditional)
 
         # and finally return the insn
+        mykwargs = kwargs.copy()
+        if is_sparse:
+            mykwargs.update({'ignore_lookups': index_insn != ''})
         jac_lp, jac_str = mapstore.apply_maps(
-            jac, *jac_inds, ignore_lookups=index_insn != '', **kwargs)
+            jac, *jac_inds, **mykwargs)
         retv = Template(insn).safe_substitute(jac_str=jac_str, deps=':'.join(deps))
         if index_insn:
             retv = Template("""${index}
