@@ -3088,15 +3088,15 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
             var_name: 2,
             spec_k: 2
         }, insn=dnkdnj_insn, deps='*')
-    # and the dtdot / dnj instruction
-    dtdotdnj_insn = (
+    # and the dedot / dnj instruction
+    dedotdnj_insn = (
         "${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + "
         "${extra_var_str} * ${dTdot_dnj_str} / ${T_str} "
         "{id=jac, dep=${deps}, nosync=sum}")
-    _, dtdotdnj_insn = jac_create(
+    _, dedotdnj_insn = jac_create(
         mapstore, namestore.jac, global_ind, 1, var_name, affine={
             var_name: 2,
-        }, insn=dtdotdnj_insn, deps='sum')
+        }, insn=dedotdnj_insn, deps='sum', entry_exists=True)
     # and finally do a simple string creation for dTdot / dnj
     # NOTE: do not precompute index here as 1. it's only called once
     # 2. it has to exist by defn and 3. we haven't trained the creator to hanle
@@ -3124,7 +3124,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     for ${i_spec_k}
         ${dnkdnj_insn}
     end
-    ${dtdotdnj_insn}
+    ${dedotdnj_insn}
     """).safe_substitute(**locals())).safe_substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, atomic_ids=['jac'])
