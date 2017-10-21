@@ -1198,7 +1198,7 @@ class jac_creator(creator):
                 lookup=lp_pregen.jac_indirect_lookup.name))
         super(jac_creator, self).__init__(*args, **kwargs)
 
-    def get_offset_and_lookup(self, *indicies):
+    def __get_offset_and_lookup(self, *indicies):
         """
         Returns the correct sparse offset and lookup based on :param:`indicies` and
         our own :param:`order`
@@ -1258,6 +1258,8 @@ class jac_creator(creator):
             If True, return the sparse Jacobian index instead of the
             :class:`loopy.GlobalArg` and access string returned by the parent
             :func:`creator.__call__`.  Useful when precomputing indicies
+            Also return the offset and lookup
+            -> Useful for checking to see if jacobian entry exists
         """
         ignore_lookups = kwargs.pop('ignore_lookups', False)
         plain_index = kwargs.pop('plain_index', False)
@@ -1266,13 +1268,14 @@ class jac_creator(creator):
         # indirect lookup accordingly
         if not ignore_lookups:
             indicies = list(indicies)
-            offset, lookup = self.get_offset_and_lookup(*indicies[:])
+            offset, lookup = self.__get_offset_and_lookup(*indicies[:])
             # and add the offset to the lookup
             indicies = (indicies[0], ' + '.join((offset, lookup)))
 
         if plain_index:
+            assert not ignore_lookups, "Can't do both."
             # return sparse index
-            return indicies[1]
+            return (indicies[1], offset, lookup)
 
         return super(jac_creator, self).__call__(*indicies, **kwargs)
 

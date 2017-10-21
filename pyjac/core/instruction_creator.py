@@ -426,9 +426,8 @@ def with_conditional_jacobian(func):
 
         # if we want to precompute the index, do so
         if is_sparse:
-            sparse_index = mapstore.apply_maps(jac, *jac_inds, plain_index=True,
-                                               **kwargs)
-            offset, _ = jac.get_offset_and_lookup(*jac_inds)
+            sparse_index, offset, _ = mapstore.apply_maps(
+                jac, *jac_inds, plain_index=True, **kwargs)
             if index_insn:
                 # get the index
                 existing = sorted(_conditional_jacobian.id_namer.existing_names)
