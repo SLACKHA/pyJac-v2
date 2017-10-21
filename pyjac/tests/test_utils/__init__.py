@@ -112,19 +112,20 @@ class kernel_runner(object):
             test_size=self.test_size
         )
         gen._make_kernels()
-        # setup kernel call
+        # setup kernel call and output names
         kc = []
+        out_arg_names = []
         for k in gen.kernels:
+            written = [x for x in k.get_written_variables()
+                       if x not in k.temporary_variables]
             kc.append(
                 kernel_call('dummy', [None],
-                            out_mask=list(range(k.get_written_variables())),
+                            out_mask=list(range(len(written))),
                             **self.args))
+            out_arg_names.append([
+                arg.name for arg in k.args if arg.name in k.get_written_variables()])
             kc[-1].set_state(gen.array_split, loopy_opts.order)
 
-        # set output names
-        out_arg_names = [
-            [arg.name for arg in k.args if arg.name in k.get_written_variables()]
-            for k in gen.kernels]
         output = populate(gen.kernels, kc, device=device)
         # turn into dicts
         output = [{oa_name[i]: output[ind][i] for i in range(len(oa_name))}
