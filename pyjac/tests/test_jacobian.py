@@ -822,8 +822,7 @@ class SubTest(TestClass):
         args = {
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'b': lambda x: np.array(
-                self.store.ref_B_rev, order=x, copy=True),
-            'out_mask': [0, 1]}
+                self.store.ref_B_rev, order=x, copy=True)}
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
@@ -957,8 +956,7 @@ class SubTest(TestClass):
         sri_args = {'Pr': lambda x: np.array(
             self.store.ref_Pr, order=x, copy=True),
             'phi': lambda x: np.array(
-            self.store.phi_cp, order=x, copy=True),
-            'out_mask': [1]}
+            self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
         eqs = {'conp': self.store.conp_eqs,
                'conv': self.store.conv_eqs}
@@ -1073,8 +1071,7 @@ class SubTest(TestClass):
         troe_args = {'Pr': lambda x: np.array(
             self.store.ref_Pr, order=x, copy=True),
             'phi': lambda x: np.array(
-            self.store.phi_cp, order=x, copy=True),
-            'out_mask': [1, 2, 3]}
+            self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(
             get_troe_kernel, self.store.test_size, troe_args)
         eqs = {'conp': self.store.conp_eqs,
