@@ -319,6 +319,7 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
     # else return the base update insn
     return base_update_insn
 
+
 def wrap_instruction_on_condition(insn, condition, wrapper):
     """
     Utility function to wrap the :param:`insn` in the supplied :param:`wrapper`
@@ -464,7 +465,7 @@ def with_conditional_jacobian(func):
         # and finally return the insn
         mykwargs = kwargs.copy()
         if is_sparse:
-            mykwargs.update({'ignore_lookups': index_insn != '' or entry_exists})
+            mykwargs.update({'ignore_lookups': index_insn != ''})
         # get jac_str
         jac_lp, jac_str = mapstore.apply_maps(
             jac, *jac_inds, **mykwargs)
