@@ -21,7 +21,6 @@ from ..kernel_utils import kernel_gen as k_gen
 from .test_utils import (kernel_runner, get_comparable, _generic_tester,
                          _full_kernel_test, with_check_inds)
 from ..libgen import build_type
-from .. import utils
 
 import numpy as np
 import six

@@ -800,9 +800,10 @@ def dci_sri_dE(eqs, loopy_opts, namestore, test_size=None,
             if x is not None]
 
 
+@ic.with_conditional_jacobian
 def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
-              maxT=None, conp=True):
+              maxT=None, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for all reaction types)
     with respect to the extra variable -- Volume / Pressure, depending on
@@ -839,6 +840,8 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -939,8 +942,12 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
     _, spec_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec, k_ind)
     # and jac
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2})
+    jac_update_insn = (
+        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) "
+        "* dRopi_dE {id=jac, dep=${deps}}")
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2},
+        insn=jac_update_insn, deps='dE*:')
 
     # add to data
     kernel_data.extend([T_lp, V_lp, pres_mod_lp, nu_offset_lp, nu_lp, spec_lp,
@@ -1291,17 +1298,16 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec_reac_nu, k_ind, affine=k_ind)
     _, prod_nu_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec_prod_nu, k_ind, affine=k_ind)
-    instructions = Template("""
+    instructions = Template(Template("""
         <> offset = ${nu_offset_str}
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
         for ${k_ind}
             if ${spec_k_str} != ${ns}
-                ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) \
-                    * dRopi_dE {id=jac, dep=dE*}
+                ${jac_update_insn}
             end
         end
-    """).substitute(**locals())
+    """).substitute(**locals())).safe_substitute(**locals())
 
     name_description = {reaction_type.elementary: '',
                         reaction_type.plog: '_plog',
