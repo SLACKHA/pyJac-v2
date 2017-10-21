@@ -6,8 +6,10 @@ from collections import OrderedDict
 from optionloop import OptionLoop
 from .. import get_test_platforms
 from . import platform_is_gpu
+from nose.tools import nottest
 
 
+@nottest
 def get_test_matrix(work_dir):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
