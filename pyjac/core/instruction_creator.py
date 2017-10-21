@@ -462,15 +462,21 @@ def with_conditional_jacobian(func):
         # and finally return the insn
         mykwargs = kwargs.copy()
         if is_sparse:
-            mykwargs.update({'ignore_lookups': index_insn != ''})
+        # get jac_str
         jac_lp, jac_str = mapstore.apply_maps(
             jac, *jac_inds, **mykwargs)
-        retv = Template(insn).safe_substitute(jac_str=jac_str, deps=':'.join(deps))
-        if index_insn:
-            retv = Template("""${index}
+
+        # find return value
+        if insn:
+            retv = Template(insn).safe_substitute(
+                jac_str=jac_str, deps=':'.join(deps))
+            if index_insn:
+                retv = Template("""${index}
 ${retv}
 """).safe_substitute(index=re.match(r"^\s*", retv).group() + index_insn,
                      retv=retv)
+        else:
+            retv = jac_str
 
         if return_arg:
             return jac_lp, retv
