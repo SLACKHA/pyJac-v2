@@ -14,6 +14,7 @@ from functools import wraps
 import loopy as lp
 from loopy.types import AtomicType
 from .array_creator import var_name, jac_creator
+from pytools import UniqueNameGenerator
 
 
 def use_atomics(loopy_opts):
@@ -380,8 +381,10 @@ def with_conditional_jacobian(func):
             The Jacobian indicies to use, of length 3
         insn: str ['']
             The update or Jacobian setting instruction to execute.
-                -A template  key form of the ${jac_str} is expected to substitute the
+                -A template key form of the ${jac_str} is expected to substitute the
                  resulting Jacobian entry into
+                -Additionaly, the instruction must have the key ${deps} in order
+                 to insert any relevant pre-computed index depencency
             Ignored if not supplied
         index_insn: bool [True]
             If true, use an index instruction to precompute the Jacobian index
@@ -417,15 +420,20 @@ def with_conditional_jacobian(func):
             index_insn = False
 
         # if we want to precompute the index, do so
+        deps = ''
         if is_sparse:
             sparse_index = mapstore.apply_maps(jac, *jac_inds, plain_index=True,
                                                **kwargs)
             if index_insn:
                 # get the index
+                deps = _conditional_jacobian.id_namer('ind')
                 index_insn = Template(
-                    '${creation}jac_index = ${index_str}').substitute(
+                    '${creation}jac_index = ${index_str} {id=${name}}'
+                    ).substitute(
                         creation='<> ' if not created_index else '',
-                        index_str=sparse_index)
+                        index_str=sparse_index,
+                        name=deps)
+                deps += ':'
                 # and redefine the jac indicies
                 jac_inds = (jac_inds[0],) + ('jac_index',)
                 conditional = jac_inds[-1]
@@ -444,7 +452,7 @@ def with_conditional_jacobian(func):
         # and finally return the insn
         jac_lp, jac_str = mapstore.apply_maps(
             jac, *jac_inds, ignore_lookups=index_insn != '', **kwargs)
-        retv = Template(insn).safe_substitute(jac_str=jac_str)
+        retv = Template(insn).safe_substitute(jac_str=jac_str, deps=deps)
         if index_insn:
             retv = Template("""${index}
 ${retv}
@@ -459,5 +467,6 @@ ${retv}
     def wrapper(*args, **kwargs):
         # pass into the function as a kwarg
         _conditional_jacobian.created_index = False
+        _conditional_jacobian.id_namer = UniqueNameGenerator()
         return func(*args, jac_create=_conditional_jacobian, **kwargs)
     return wrapper

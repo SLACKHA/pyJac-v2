@@ -3196,7 +3196,7 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
 
     # species jacobian sum
     species_jac_insn = ("sum = sum + (${energy_k_str} - ${energy_ns_str} * "
-                        "${mw_str}) * ${jac_str} {id=sum, dep=*}")
+                        "${mw_str}) * ${jac_str} {id=sum, dep=${deps}*}")
     jac_lp, species_jac_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
@@ -3207,7 +3207,7 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     tdot_jac_insn = (
         "${jac_str} = -(sum + ${T_dot_str} * "
         "(${spec_heat_k_str} - ${spec_heat_ns_str})) / "
-        "(${V_str} * ${spec_heat_total_str}) {id=jac, dep=sum, nosync=sum}")
+        "(${V_str} * ${spec_heat_total_str}) {id=jac, dep=${deps}sum, nosync=sum}")
     _, tdot_jac_insn = jac_create(
         mapstore, namestore.jac, global_ind, '0', var_name, affine={
             var_name: 2,
