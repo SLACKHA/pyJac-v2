@@ -521,6 +521,30 @@ def get_code(knl):
     code, _ = lp.generate_code(knl)
     return codefix('stdin', text_in=code)
 
+def not_is_close(arr1, arr2, **kwargs):
+    """
+    A utility method that returns the result of:
+        numpy.where(numpy.logical_not(numpy.isclose(arr1, arr2, **kwargs)))
+    Since I use if often in testing
+
+    Parameters
+    ----------
+    arr1: :class:`np.ndarray`
+        Array to compare
+    arr2: :class:`np.ndarray`
+        Reference answer
+    **kwargs: dict
+        Keyword args for :func:`numpy.isclose`
+
+    Returns
+    -------
+    inds: tuple of :class:`numpy.ndarray`
+        result of:
+        `numpy.where(numpy.logical_not(numpy.isclose(arr1, arr2, **kwargs)))`
+    """
+
+    return np.where(np.logical_not(np.isclose(arr1, arr2, **kwargs)))
+
 
 class kernel_call(object):
 
