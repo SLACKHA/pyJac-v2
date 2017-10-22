@@ -1160,7 +1160,7 @@ def _run_mechanism_tests(work_dir, run):
                                 output_full_rop=rtype == build_type.species_rates,
                                 conp=conp,
                                 use_atomics=state['use_atomics'],
-                                sparse=sparse)
+                                jac_format=sparse)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.add([platform])
