@@ -358,7 +358,10 @@ class get_comparable(object):
     def __call__(self, kc, outv, index, is_answer=False):
         mask = list(self.compare_mask[index][:])
         ans = self.ref_answer[index]
-        axis = self.compare_axis[:]
+        try:
+            axis = self.compare_axis[:]
+        except:
+            axis = self.compare_axis
         ndim = ans.ndim
 
         # helper methods
@@ -381,6 +384,8 @@ class get_comparable(object):
 
         # extract row & column masks
         def __row_and_col_mask():
+            if self.compare_axis == -1:
+                return 1, mask[1], 2, mask[2]
             row_ind = next(i for i, ind in enumerate(self.compare_axis)
                            if ind == 1)
             row_mask = mask[row_ind]
@@ -432,14 +437,20 @@ class get_comparable(object):
                 # remove old inds
                 mask = [mask[i] for i in range(len(mask)) if i not in [
                     row_ind, col_ind]]
-                axis = tuple(x for i, x in enumerate(axis) if i not in [
-                    row_ind, col_ind])
+                if self.compare_axis != -1:
+                    axis = tuple(x for i, x in enumerate(axis) if i not in [
+                        row_ind, col_ind])
 
                 # store ic mask in case we need strides array
-                ic_size = mask[0].size if mask else ans.shape[0]
+                ic_size = mask[0].size if mask and isinstance(mask[0], np.ndarray) \
+                    else ans.shape[0]
 
                 # add the sparse indicies
-                new_mask = combination(row_mask, col_mask, order=kc.current_order)
+                if self.compare_axis != -1:
+                    new_mask = combination(
+                        row_mask, col_mask, order=kc.current_order)
+                else:
+                    new_mask = np.vstack((row_mask.T, col_mask.T)).T
                 mask.append(inNd(new_mask, inds))
                 # and the new axis
                 axis = axis + (1,)
@@ -466,7 +477,11 @@ class get_comparable(object):
                 # find the row & column mask
                 row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
                 # combine col & row masks
-                new_mask = combination(row_mask, col_mask, order=kc.current_order)
+                if self.compare_axis != -1:
+                    new_mask = combination(row_mask, col_mask,
+                                           order=kc.current_order)
+                else:
+                    new_mask = np.vstack((row_mask, col_mask)).T
                 # find where the sparse indicies correspond to our row & column masks
                 new_mask = new_mask[inNd(inds, new_mask)]
                 # split back into rows and columns
@@ -484,8 +499,8 @@ class get_comparable(object):
                 else:
                     # need to take the size to be the number of initial conditions
                     # multiplied by the number of indicies in our mask
-                    ic_vals = mask[0] if len(mask) == 3 else np.arange(
-                        ans.shape[0])
+                    ic_vals = mask[0] if len(mask) == 3 and isinstance(
+                        mask[0], np.ndarray) else np.arange(ans.shape[0])
                     ic_size = ic_vals.size
                     size_arr = [mask[row_ind].size]
                     if len(mask) == 3:
@@ -516,7 +531,7 @@ class get_comparable(object):
 
             _get_index = indexer(ndim, outv.ndim, outv.shape, kc.current_order)
             # first check we have a reasonable mask
-            assert ans.ndim == len(mask), "Can't use dissimilar compare masks / axes"
+            assert ndim == len(mask), "Can't use dissimilar compare masks / axes"
             # dummy comparison axis
             comp_axis = np.arange(ndim)
             # convert inds
