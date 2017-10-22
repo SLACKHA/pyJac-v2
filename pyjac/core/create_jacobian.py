@@ -1619,7 +1619,8 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
                           )
 
 
-def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
+@ic.with_conditional_jacobian
+def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of volume / pressure
     with respect to the extra variable (volume/pressure for const. pressure /
@@ -1640,6 +1641,8 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
     Returns
     -------
     knl_list : list of :class:`knl_info`
@@ -1662,14 +1665,6 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     P_lp, P_str = mapstore.apply_maps(
         namestore.P_arr, global_ind)
 
-    # jacobian entries
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, 1, 1)
-    _, dnkdot_de_str = mapstore.apply_maps(
-        namestore.jac, global_ind, var_name, 1, affine={var_name: 2})
-    _, dTdot_de_str = mapstore.apply_maps(
-        namestore.jac, global_ind, 0, 1)
-
     # rates
     Tdot_lp, Tdot_str = mapstore.apply_maps(
         namestore.T_dot, global_ind)
@@ -1679,7 +1674,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
         namestore.mw_post_arr, var_name)
 
     kernel_data.extend([
-        T_lp, V_lp, P_lp, jac_lp, Tdot_lp, mw_lp])
+        T_lp, V_lp, P_lp, Tdot_lp, mw_lp])
 
     var_str = V_str if conp else P_str
     param_str = P_str if conp else V_str
@@ -1689,18 +1684,32 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
         ... nop {id=index_dummy} # included to avoid non-existant dep check
         """).safe_substitute(**locals())]
 
+    # jacobian entries
     instructions = Template("""
         # hook the sum depenency onto any resulting index changes for the
         # net_non_zero sum
-        sum = sum + (1 - ${mw_str}) * ${dnkdot_de_str} {id=up, dep=index*}
+        sum = sum + (1 - ${mw_str}) * ${jac_str} {id=up, dep=${deps}}
     """).safe_substitute(**locals())
+    jac_lp, instructions = jac_create(
+        mapstore, namestore.jac, global_ind, var_name, 1, affine={var_name: 2},
+        deps='index*', insn=instructions,
+        entry_exists=True,  # as we're looping over non-zero
+        )
 
-    post_instructions = [Template("""
+    kernel_data.append(jac_lp)
+
+    # and create post instructions
+    _, dTdot_de_str = jac_create(
+        mapstore, namestore.jac, global_ind, 0, 1, entry_exists=True)
+    post_instructions = Template("""
         ${jac_str} = ${jac_str} + Ru * ${T_str} * sum / ${param_str} \
-            {id=jac, dep=up, nosync=up}
+            {id=jac, dep=${deps}, nosync=up}
         ${jac_str} = ${jac_str} + (${var_str} * ${dTdot_de_str} + ${Tdot_str}) \
-            / ${T_str} {id=jac_split}
-    """).safe_substitute(**locals())]
+            / ${T_str} {id=jac_split, dep=${deps}, nosync=up}
+    """).safe_substitute(**locals())
+    _, post_instructions = jac_create(
+        mapstore, namestore.jac, global_ind, 1, 1, insn=post_instructions,
+        deps='up', entry_exists=True)
 
     parameters = {'Ru': chem.RU}
 
@@ -1710,7 +1719,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     return k_gen.knl_info(name='d{0}dotd{0}'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
-                          post_instructions=post_instructions,
+                          post_instructions=[post_instructions],
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
