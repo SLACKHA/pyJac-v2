@@ -773,4 +773,4 @@ def jacobian_tester(work_dir='error_checking'):
     """
 
     valid = validation_runner(jacobian_eval, build_type.jacobian)
-    _run_mechanism_tests(work_dir, valid, do_sparse=True)
+    _run_mechanism_tests(work_dir, valid)
