@@ -407,10 +407,10 @@ def with_conditional_jacobian(func):
         """
 
         # Get defaults out of kwargs
-        index_insn = kwargs.pop('index_insn', True)
         entry_exists = kwargs.pop('entry_exists', False)
         return_arg = kwargs.pop('return_arg', True)
         insn = kwargs.pop('insn', '')
+        index_insn = kwargs.pop('index_insn', True) and insn != ''
         deps = kwargs.pop('deps', '')
         deps = deps.split(':')
         created_index = _conditional_jacobian.created_index
