@@ -730,6 +730,7 @@ class jacobian_eval(eval):
             names = ['jac_weighted']
             mods = ['_1', '_10', '_100']
             self._check_file(err, names, mods)
+            return True
         except:
             return False
 
