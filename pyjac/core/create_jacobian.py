@@ -944,8 +944,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec, k_ind)
 
     # add to data
-    kernel_data.extend([T_lp, V_lp, pres_mod_lp, nu_offset_lp, nu_lp, spec_lp,
-                        jac_lp])
+    kernel_data.extend([T_lp, V_lp, pres_mod_lp, nu_offset_lp, nu_lp, spec_lp])
 
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
@@ -1299,6 +1298,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2},
         insn=jac_update_insn, deps='dE*:')
+    kernel_data.append(jac_lp)
     instructions = Template("""
         <> offset = ${nu_offset_str}
         <> offset_next = ${nu_offset_next_str}
