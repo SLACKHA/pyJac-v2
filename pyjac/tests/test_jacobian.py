@@ -720,7 +720,7 @@ class SubTest(TestClass):
             # based on the concentration of the last species)
             fac = 1 if not good[0].size else np.max(np.abs(ref_vals[good]))
             is_correct = is_correct or (
-                (np.min(np.abs(ref_vals[bad])) / fac) > 1e12)
+                (np.min(np.abs(ref_vals[bad])) / fac) > 1e10)
 
             # and ensure all our values are 'large' but finite numbers
             # (defined here by > 1e295)
@@ -1968,14 +1968,8 @@ class SubTest(TestClass):
             args.update({'jac': lambda x: np.array(
                 starting_jac, order=x, copy=True)})
 
-        # sri is a bit more fincky
         rtol = 1e-5
         atol = 1e-8
-        if rxn_type == falloff_form.sri and conp:
-            import pdb; pdb.set_trace()
-            rtol = 1e-3
-            atol = 1e-5
-
         kc = [kernel_call('dci_dT',
                           comp.ref_answer, compare_mask=[comp],
                           compare_axis=comp.compare_axis,
