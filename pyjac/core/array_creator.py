@@ -1212,9 +1212,9 @@ class jac_creator(creator):
                     return False
                 return x < 2
 
-            # if we're in the first two rows, they are full
+            # if we're in the first two rows in C-order, they are full
             can_skip = self.order == 'C' and __lt(lookup)
-            # or if our match is less than two in any column
+            # or if our match is less than two in any column in F-order
             can_skip = can_skip or self.order == 'F' and __lt(match)
             if can_skip:
                 # this is a temperature or extra variable derivative
