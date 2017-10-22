@@ -430,8 +430,7 @@ class SubTest(TestClass):
         super(SubTest, self).setUp()
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
-                            do_ropsplit=None,
-                            do_conp=False,
+                            do_ropsplit=None, do_conp=False, do_sparse=True,
                             **kw_args):
         """
         A generic testing method that can be used for testing jacobian kernels
@@ -454,7 +453,7 @@ class SubTest(TestClass):
 
         _generic_tester(self, func, kernel_calls, determine_jac_inds,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                        do_conp=do_conp, do_sparse=True, **kw_args)
+                        do_conp=do_conp, do_sparse=do_sparse, **kw_args)
 
     def _make_namestore(self, conp):
         # get number of sri reactions
@@ -1217,7 +1216,8 @@ class SubTest(TestClass):
         kc = [kernel_call('cv_total', [ref_cv], strict_name_match=True,
                           **cv_args)]
 
-        self._generic_jac_tester(total_specific_energy, kc, conp=False)
+        self._generic_jac_tester(total_specific_energy, kc, conp=False,
+                                 do_sparse=False)
 
     def __get_full_jac(self, conp=True):
         # see if we've already computed this, no need to redo if we have it
@@ -1419,7 +1419,7 @@ class SubTest(TestClass):
             # call
             kc = [kernel_call(myname, [ref_ans], **args)]
 
-            self._generic_jac_tester(__call_wrapper, kc)
+            self._generic_jac_tester(__call_wrapper, kc, do_sparse=False)
 
         __test_name('cp')
         __test_name('cv')
