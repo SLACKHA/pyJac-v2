@@ -2051,9 +2051,13 @@ end
 for m
     <>temp = 0
     for k
-        temp = temp + ${ppoly_k_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+        if k < numP
+            temp = temp + ${ppoly_k_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+        end
     end
-    kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
+    if m < numT
+        kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
+    end
 end
 
 ${kf_str} = ${exp10fun} {id=set, dep=kf}

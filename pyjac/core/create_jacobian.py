@@ -2802,11 +2802,15 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
                 for m
                     <>temp = 0
                     for k
-                        temp = temp + ${ppoly_str} * ${params_str} \
-                            {id=temp, dep=ppoly:tpoly}
+                        if k < numP
+                            temp = temp + ${ppoly_str} * ${params_str} \
+                                {id=temp, dep=ppoly:tpoly}
+                        end
                     end
-                    dkf = dkf + (m + 1) * ${tpoly_str} * temp \
-                        {id=dkf_update, dep=temp:dkf_init}
+                    if m < numT
+                        dkf = dkf + (m + 1) * ${tpoly_str} * temp \
+                            {id=dkf_update, dep=temp:dkf_init}
+                    end
                 end
                 dkf = -dkf * 2 * logten * Tinv * Tinv / (${Tmax_str} - ${Tmin_str}) \
                     {id=dkf, dep=dkf_update}
