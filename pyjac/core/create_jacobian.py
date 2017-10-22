@@ -4016,7 +4016,8 @@ def dci_troe_dnj(eqs, loopy_opts, namestore, test_size=None):
     return infos
 
 
-def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
+@ic.with_conditional_jacobian
+def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the Rate of Progress with respect to the molar quantity of
     a species
@@ -4056,6 +4057,8 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -4184,13 +4187,8 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
         conc_lp, conc_inner_str = mapstore.apply_maps(
             namestore.conc_arr, global_ind, spec_inner)
 
-        # and finally the jacobian
-        jac_lp, jac_str = mapstore.apply_maps(
-            namestore.jac, global_ind, *jac_map, affine={x: 2 for x in jac_map}
-        )
-
         kernel_data.extend([rxn_to_spec_offsets_lp, net_specs_lp, net_nu_lp,
-                            pres_mod_lp, kf_lp, kr_lp, conc_lp, jac_lp,
+                            pres_mod_lp, kf_lp, kr_lp, conc_lp,
                             pmod_mask_lp, rev_mask_lp])
 
         # now start creating the instructions
@@ -4203,6 +4201,15 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                 (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
         if not do_ns:
+            jac_update_insn = (
+                "${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev)"
+                "* ci * nu_k {id=jac, dep=${deps}}")
+            # and finally the jacobian
+            jac_lp, jac_update_insn = jac_create(
+                mapstore, namestore.jac, global_ind, *jac_map,
+                affine={x: 2 for x in jac_map},
+                deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k', insn=jac_update_insn
+            )
             inner = ("""
                 for ${net_ind_j}
                     <> ${spec_j} = ${spec_j_str} {id=spec_j}
@@ -4226,13 +4233,18 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                                 {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
                         end
                         # and update Jacobian
-                        ${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev) * \
-                            ci * nu_k \
-                            {id=jac, dep=Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k}
+                        ${jac_update_insn}
                     end
                 end
             """)
         else:
+            jac_update_insn = ("${jac_str} = ${jac_str} + jac_updater "
+                               "{id=jac, dep=${deps}}")
+            # and finally the jacobian
+            jac_lp, jac_update_insn = jac_create(
+                mapstore, namestore.jac, global_ind, *jac_map,
+                affine={x: 2 for x in jac_map}, insn=jac_update_insn
+            )
             extra_inames.append((spec_j, '0 <= {} < {}'.format(
                 spec_j, namestore.num_specs[-1])))
             inner = ("""
@@ -4262,10 +4274,11 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
                 <> jac_updater =  (kr_i * Sns_rev - kf_i * Sns_fwd) * ci * nu_k \
                     {id=jac_up, dep=Sns_fwd_up*:Sns_rev_up*:ci_up:nu_k:spec_k:kf:kr*}
                 for ${spec_j}
-                    ${jac_str} = ${jac_str} + jac_updater {id=jac}
+                    ${jac_update_insn}
                 end
             """)
 
+        kernel_data.append(jac_lp)
         instructions = Template("""
             # loop over all species in reaction
             <> ci = 1.0d {id=ci_set}
@@ -4294,31 +4307,8 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
             end
         """).safe_substitute(inner=inner)
         instructions = Template(instructions).substitute(
-            rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
-            rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
-            net_ind_k=net_ind_k,
-            spec_k=spec_k,
-            net_spec_k_str=net_spec_k_str,
-            prod_nu_k_str=prod_nu_k_str,
-            reac_nu_k_str=reac_nu_k_str,
-            net_ind_inner=net_ind_inner,
-            net_ind_j=net_ind_j,
-            spec_j=spec_j,
-            spec_j_str=spec_j_str,
-            spec_j_reac_nu_str=spec_j_reac_nu_str,
-            spec_j_prod_nu_str=spec_j_prod_nu_str,
-            inner_reac_nu_str=inner_reac_nu_str,
-            inner_prod_nu_str=inner_prod_nu_str,
-            spec_inner=spec_inner,
-            spec_inner_str=spec_inner_str,
-            conc_inner_str=conc_inner_str,
-            kf_str=kf_str,
-            kr_str=kr_str,
-            jac_str=jac_str,
-            pmod_mask_str=pmod_mask_str,
-            rev_mask_str=rev_mask_str,
-            pres_mod_str=pres_mod_str,
-            ns=namestore.num_specs[-1]
+            ns=namestore.num_specs[-1],
+            **locals()
         )
 
         inames, ranges = zip(*extra_inames)
