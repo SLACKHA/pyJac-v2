@@ -474,7 +474,7 @@ def with_conditional_jacobian(func):
 
         # find return value
         if insn:
-            retv = Template(insn).substitute(
+            retv = Template(insn).safe_substitute(
                 jac_str=jac_str, deps=':'.join(deps))
             if index_insn:
                 retv = Template("""${index}
