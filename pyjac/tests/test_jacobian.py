@@ -1200,7 +1200,8 @@ class SubTest(TestClass):
         kc = [kernel_call('cp_total', [ref_cp], strict_name_match=True,
                           **cp_args)]
 
-        self._generic_jac_tester(total_specific_energy, kc, conp=True)
+        self._generic_jac_tester(total_specific_energy, kc, conp=True,
+                                 do_sparse=False)
 
         # conv
         ref_cv = np.sum(self.store.concs * self.store.spec_cv, axis=1)
