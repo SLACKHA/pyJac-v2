@@ -1972,6 +1972,7 @@ class SubTest(TestClass):
         rtol = 1e-5
         atol = 1e-8
         if rxn_type == falloff_form.sri and conp:
+            import pdb; pdb.set_trace()
             rtol = 1e-3
             atol = 1e-5
 
