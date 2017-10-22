@@ -1475,7 +1475,8 @@ def dRopi_cheb_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
     return [x for x in ret if x is not None]
 
 
-def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
+@ic.with_conditional_jacobian
+def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of temperature with respect to
     the extra variable (volume/pressure for const. pressure / volume
@@ -1497,6 +1498,9 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
+
     Returns
     -------
     knl_list : list of :class:`knl_info`
@@ -1545,52 +1549,67 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True):
     mw_lp, mw_str = mapstore.apply_maps(
         namestore.mw_post_arr, var_name)
 
-    # jacobian entries
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, 0, 1)
-    _, dnkdot_de_str = mapstore.apply_maps(
-        namestore.jac, global_ind, var_name, 1, affine={var_name: 2})
-
+    # setup instructions
     parameters = {}
-    kernel_data.extend([x for x in [
-        spec_heat_tot_lp, spec_heat_lp, spec_energy_lp, wdot_lp, Tdot_lp,
-        mw_lp, jac_lp, conc_lp, T_lp, V_lp] if x is not None])
     if conp:
         pre_instructions = ['<> dTsum = 0',
                             '<> specsum = 0']
-        instructions = Template("""
+        instructions = [(True, Template("""
             specsum = specsum + (${spec_energy_str} - ${spec_energy_ns_str} * \
-                ${mw_str}) * (${dnkdot_de_str} - ${wdot_str}) {id=up, dep=*}
+                ${mw_str}) * (${jac_str} - ${wdot_str}) {id=up, dep=${deps}}
+            """).safe_substitute(**locals())), (False, Template("""
             dTsum = dTsum + (${spec_heat_str} - ${spec_heat_ns_str}) * \
                 ${conc_str} {id=up2, dep=*}
-        """).safe_substitute(**locals())
-        post_instructions = [Template("""
+            """).safe_substitute(**locals()))]
+        post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str} * ${V_str})
-            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum - specsum) * spec_inv \
-                {id=jac, dep=up*, nosync=up*}
-            """).safe_substitute(**locals())]
+            ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum - specsum) * \
+                spec_inv {id=jac, dep=${deps}, nosync=up*}
+            """).safe_substitute(**locals())
+        deps = '*'
+        post_deps = 'up*'
     else:
-        parameters['Ru'] = chem.RU
         pre_instructions = ['<> sum = 0',
                             ic.default_pre_instructs('Vinv', V_str, 'INV')]
-        instructions = Template("""
+        parameters['Ru'] = chem.RU
+        instructions = [(True, Template("""
             sum = sum + (${spec_energy_str} - ${spec_energy_ns_str} * \
-                ${mw_str}) * ${dnkdot_de_str} {id=up, dep=*}
-        """).safe_substitute(**locals())
-        post_instructions = [Template("""
-            <>spec_inv = 1 / (${spec_heat_total_str})
+                ${mw_str}) * ${jac_str} {id=up, dep=${deps}}
+        """).safe_substitute(**locals()))]
+        post_instructions = Template("""
+            <> spec_inv = 1 / (${spec_heat_total_str})
             ${jac_str} = ${jac_str} - (${Tdot_str} * ${spec_heat_ns_str} \
-                / (Ru * ${T_str})) * spec_inv {id=jac_split}
+                / (Ru * ${T_str})) * spec_inv {id=jac_split, dep=${deps}, nosync=up}
             ${jac_str} = ${jac_str} - (sum * Vinv) * spec_inv \
-                {id=jac, dep=up, nosync=up}
-            """).safe_substitute(**locals())]
+                {id=jac, dep=${deps}, nosync=up}
+                    """).safe_substitute(**locals())
+        deps = '*'
+        post_deps = 'up'
+
+    # jacobian entries
+    for i, insn in enumerate(instructions):
+        has_jac, insn = insn
+        if has_jac:
+            _, instructions[i] = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 1,
+                affine={var_name: 2}, insn=insn, deps=deps)
+        else:
+            instructions[i] = insn
+
+    jac_lp, post_instructions = jac_create(
+        mapstore, namestore.jac, global_ind, 0, 1, insn=post_instructions,
+        deps=post_deps, entry_exists=True)
+
+    kernel_data.extend([x for x in [
+        spec_heat_tot_lp, spec_heat_lp, spec_energy_lp, wdot_lp, Tdot_lp,
+        mw_lp, jac_lp, conc_lp, T_lp, V_lp] if x is not None])
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
     return k_gen.knl_info(name='dTdotd{}'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
-                          post_instructions=post_instructions,
+                          post_instructions=[post_instructions],
                           var_name=var_name,
                           kernel_data=kernel_data,
                           mapstore=mapstore,
