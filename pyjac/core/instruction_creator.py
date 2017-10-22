@@ -443,7 +443,7 @@ def with_conditional_jacobian(func):
                         creation='<> ' if not created_index else '',
                         index_str=sparse_index,
                         name=name,
-                        dep=':'.join(existing))
+                        dep=':'.join(existing + deps))
                 # add dependency to all before me (and just added)
                 # so that we don't get out of order
                 deps += [name]
