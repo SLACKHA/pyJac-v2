@@ -2456,9 +2456,10 @@ def dci_sri_dT(eqs, loopy_opts, namestore, test_size=None):
                                 falloff_form.sri)] if x is not None]
 
 
+@ic.with_conditional_jacobian
 def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
-              maxT=None):
+              maxT=None, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for all reaction types)
     with respect to temperature
@@ -2491,6 +2492,8 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     maxT : int [None]
         The maximum degree of temperature polynomials for chebyshev reactions
         in this mechanism
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -2595,13 +2598,10 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec, net_ind)
     _, spec_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec, k_ind)
-    # and jac
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2})
 
     # add to data
     kernel_data.extend([T_lp, V_lp, rev_mask_lp, thd_mask_lp, pres_mod_lp,
-                        nu_offset_lp, nu_lp, spec_lp, jac_lp])
+                        nu_offset_lp, nu_lp, spec_lp])
 
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
@@ -2891,15 +2891,21 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec_reac_nu, k_ind, affine=k_ind)
     _, prod_nu_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec_prod_nu, k_ind, affine=k_ind)
+    # and finally jac
+    jac_update_insn = Template(
+        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT "
+        "{id=jac, dep=${deps}}").safe_substitute(**locals())
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2},
+        insn=jac_update_insn, deps='Ropi_final')
+    kernel_data.append(jac_lp)
     instructions = Template("""
         <> offset = ${nu_offset_str}
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
         for ${k_ind}
             if ${spec_k_str} != ${ns}
-                ${jac_str} = ${jac_str} + \
-                    (${prod_nu_k_str} - ${reac_nu_k_str}) * dRopidT \
-                    {id=jac, dep=Ropi_final}
+                ${jac_update_insn}
             end
         end
     """).substitute(**locals())
