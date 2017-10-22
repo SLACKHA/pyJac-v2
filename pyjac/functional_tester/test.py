@@ -692,7 +692,6 @@ class jacobian_eval(eval):
                 err_dict['jac_weighted_{}'.format(mul)] = np.linalg.norm(
                     err_weighted)
 
-
         del out_check
         return err_dict
 
