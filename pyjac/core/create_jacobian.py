@@ -1991,8 +1991,9 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False, jac_create=N
                           )
 
 
+@ic.with_conditional_jacobian
 def __dcidT(eqs, loopy_opts, namestore, test_size=None,
-            rxn_type=reaction_type.thd):
+            rxn_type=reaction_type.thd, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term for all third body /
     falloff / chemically activated reactions with respect to temperature
@@ -2013,6 +2014,8 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     rxn_type: [reaction_type.thd, falloff_form.lind, falloff_form.sri,
                falloff_form.troe]
         The reaction type to generate the pressure modification derivative for
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -2126,9 +2129,6 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     # get species
     spec_lp, spec_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec, k_ind)
-    # and jac
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2})
 
     # ropnet
     rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
@@ -2147,7 +2147,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     # update kernel data
     kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
-                        jac_lp, T_lp, V_lp, P_lp])
+                        T_lp, V_lp, P_lp])
 
     pre_instructions = [ic.default_pre_instructs('Tinv', T_str, 'INV')]
     parameters = {}
@@ -2285,6 +2285,15 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
             {id=dfall_final, dep=dfall_up1}
         """).safe_substitute(**locals())
 
+    # and jac update insn
+    jac_update_insn = Template(
+        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * "
+        "${factor} {id=jac, dep=${deps}}").safe_substitute(**locals())
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2},
+        insn=jac_update_insn)
+    kernel_data.append(jac_lp)
+
     rop_net_rev_update = ic.get_update_instruction(
         mapstore, namestore.rop_rev,
         Template(
@@ -2311,8 +2320,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     <> offset_next = ${offset_next_str}
     for ${k_ind}
         if ${spec_k_str} != ${ns}
-            ${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * \
-                ${factor} {id=jac}
+            ${jac_update_insn}
         end
     end
     """).safe_substitute(**locals())
