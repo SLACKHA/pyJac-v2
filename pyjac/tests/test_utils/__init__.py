@@ -1015,7 +1015,7 @@ def _run_mechanism_tests(work_dir, run):
     import cantera as ct
 
     work_dir = os.path.abspath(work_dir)
-    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir)
+    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir, run.rtype)
 
     if len(mechanism_list) == 0:
         logging.error('No mechanisms found for testing in directory:{}, '
@@ -1117,6 +1117,7 @@ def _run_mechanism_tests(work_dir, run):
             split_kernels = state['split_kernels']
             conp = state['conp']
             par_check = tuple(state[x] for x in state if x != 'vecsize')
+            sparse = state['sparse']
             if platform in bad_platforms:
                 continue
             if not (deep or wide) and done_parallel[par_check]:
@@ -1158,7 +1159,8 @@ def _run_mechanism_tests(work_dir, run):
                                 split_rop_net_kernels=split_kernels,
                                 output_full_rop=rtype == build_type.species_rates,
                                 conp=conp,
-                                use_atomics=state['use_atomics'])
+                                use_atomics=state['use_atomics'],
+                                sparse=sparse)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.add([platform])
