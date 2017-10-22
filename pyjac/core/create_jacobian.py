@@ -3748,7 +3748,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
     # and jacobian
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, *jac_map,
-        affine={x: 2 for x in jac_map}, insn=jac_update_insn, deps='fall'
+        affine={x: 2 for x in jac_map}, insn=jac_update_insn, deps='fall:spec_k'
     )
     kernel_data.append(jac_lp)
     # update the subtitution args
@@ -3788,7 +3788,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
                 end
                 for ${spec_k_ind}
                     if ${spec_k_str} != ${ns}
-                        <> ${spec_k} = ${spec_k_str}
+                        <> ${spec_k} = ${spec_k_str} {id=spec_k}
                         <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
                         ${jac_update_insn}
                     end
@@ -3821,7 +3821,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
             dci = -1.0d {id=ci_up2, dep=ci_init}
         end
         for ${spec_k_ind}
-            <> ${spec_k} = ${spec_k_str}
+            <> ${spec_k} = ${spec_k_str} {id=spec_k}
             <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
             if ${spec_k} != ${ns}
                 for ${spec_j}
