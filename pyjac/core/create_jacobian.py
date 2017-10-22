@@ -3404,8 +3404,9 @@ def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
                           )
 
 
-def __dci_dnj(loopy_opts, namestore,
-              do_ns=False, fall_type=falloff_form.none):
+@ic.with_conditional_jacobian
+def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
+              jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the third body concentrations / falloff blending factors
     with respect to the molar quantity of a species
@@ -3456,6 +3457,8 @@ def __dci_dnj(loopy_opts, namestore,
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
 
     Returns
     -------
@@ -3615,15 +3618,10 @@ def __dci_dnj(loopy_opts, namestore,
     rev_mask_lp, rev_mask_str = mapstore.apply_maps(
         namestore.rev_mask, var_name)
 
-    # and jacobian
-    jac_lp, jac_str = mapstore.apply_maps(
-        namestore.jac, global_ind, *jac_map, affine={x: 2 for x in jac_map}
-    )
-
     # update data and extra inames
     kernel_data.extend([thd_offset_lp, thd_eff_ns_lp, thd_type_lp, thd_eff_lp,
                         thd_spec_lp, rxn_to_spec_offsets_lp, specs_lp, nu_lp,
-                        rop_fwd_lp, rop_rev_lp, rev_mask_lp, jac_lp])
+                        rop_fwd_lp, rop_rev_lp, rev_mask_lp])
 
     parameters = {}
     manglers = []
@@ -3738,7 +3736,26 @@ def __dci_dnj(loopy_opts, namestore,
             Fi_str=Fi_str,
             pres_mod_str=pres_mod_str
         )
+    else:
+        # use a no-op to simplify the dependencies
+        fall_update = '... nop {id=fall}'
 
+    # create the jacobian update
+    jac_update_insn = Template(
+        "${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} "
+        "{id=jac, dep=${deps}}").safe_substitute(
+        fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''))
+    # and jacobian
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, *jac_map,
+        affine={x: 2 for x in jac_map}, insn=jac_update_insn, deps='fall'
+    )
+    kernel_data.append(jac_lp)
+    # update the subtitution args
+    subs = locals().copy()
+    subs.update({'ns': namestore.num_specs[-1],
+                 'mix': int(thd_body_type.mix),
+                 'species': int(thd_body_type.species)})
     extra_inames = [
         (spec_k_ind, 'rxn_off <= {} < rxn_off_next'.format(spec_k_ind))]
     if not do_ns:
@@ -3770,43 +3787,15 @@ def __dci_dnj(loopy_opts, namestore,
                     dci = 1d {id=ci_up2, dep=ci_init}
                 end
                 for ${spec_k_ind}
-                    <> ${spec_k} = ${spec_k_str}
-                    <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
-                    if ${spec_k} != ${ns}
-                        ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} \
-                            {id=jac${fall_dep_str}}
+                    if ${spec_k_str} != ${ns}
+                        <> ${spec_k} = ${spec_k_str}
+                        <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
+                        ${jac_update_insn}
                     end
                 end
             end
         end
-        """).substitute(
-            thd_offset_str=thd_offset_str,
-            thd_offset_next_str=thd_offset_next_str,
-            rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
-            rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
-            thd_eff_ns_str=thd_eff_ns_str,
-            rop_fwd_str=rop_fwd_str,
-            rop_rev_str=rop_rev_str,
-            rev_mask_str=rev_mask_str,
-            thd_eff_j_str=thd_eff_j_str,
-            spec_j_ind=spec_j_ind,
-            spec_j=spec_j,
-            spec_j_str=spec_j_str,
-            spec_k=spec_k,
-            spec_k_str=spec_k_str,
-            spec_k_ind=spec_k_ind,
-            prod_nu_k_str=prod_nu_k_str,
-            reac_nu_k_str=reac_nu_k_str,
-            jac_str=jac_str,
-            ns=namestore.num_specs[-1],
-            thd_type_str=thd_type_str,
-            mix=int(thd_body_type.mix),
-            species=int(thd_body_type.species),
-            fall_update=fall_update,
-            fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''),
-            fall_dep_str=(
-                ', dep=fall' if fall_type != falloff_form.none else '')
-        )
+        """).safe_substitute(**subs)
     else:
         extra_inames.append((spec_j, '0 <= {} < {}'.format(
             spec_j, namestore.num_specs[-1])))
@@ -3836,39 +3825,11 @@ def __dci_dnj(loopy_opts, namestore,
             <> nu_k= ${prod_nu_k_str} - ${reac_nu_k_str}
             if ${spec_k} != ${ns}
                 for ${spec_j}
-                    ${jac_str} = ${jac_str} + nu_k * dci * ropi${fall_mul_str} \
-                        {id=jac${fall_dep_str}}
+                    ${jac_update_insn}
                 end
             end
         end
-        """).substitute(
-            thd_offset_str=thd_offset_str,
-            thd_offset_next_str=thd_offset_next_str,
-            rxn_to_spec_offsets_str=rxn_to_spec_offsets_str,
-            rxn_to_spec_offsets_next_str=rxn_to_spec_offsets_next_str,
-            thd_eff_ns_str=thd_eff_ns_str,
-            rop_fwd_str=rop_fwd_str,
-            rop_rev_str=rop_rev_str,
-            rev_mask_str=rev_mask_str,
-            thd_eff_j_str=thd_eff_j_str,
-            spec_j_ind=spec_j_ind,
-            spec_j=spec_j,
-            spec_j_str=spec_j_str,
-            spec_k=spec_k,
-            spec_k_str=spec_k_str,
-            spec_k_ind=spec_k_ind,
-            prod_nu_k_str=prod_nu_k_str,
-            reac_nu_k_str=reac_nu_k_str,
-            jac_str=jac_str,
-            ns=namestore.num_specs[-1],
-            thd_type_str=thd_type_str,
-            mix=int(thd_body_type.mix),
-            species=int(thd_body_type.species),
-            fall_update=fall_update,
-            fall_mul_str=(' * dFi ' if fall_type != falloff_form.none else ''),
-            fall_dep_str=(
-                ', dep=fall' if fall_type != falloff_form.none else '')
-        )
+        """).safe_substitute(**subs)
 
     inames, ranges = zip(*extra_inames)
     # join inames
