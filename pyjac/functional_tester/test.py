@@ -677,18 +677,21 @@ class jacobian_eval(eval):
 
             # thresholded error
             threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e20)
-            err_dict['jac_thresholded'] = np.linalg.norm(
+            err_dict['jac_thresholded_20'] = np.linalg.norm(
+                err[threshold] / denom[threshold])
+
+            threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e15)
+            err_dict['jac_thresholded_15'] = np.linalg.norm(
                 err[threshold] / denom[threshold])
 
             # largest relative errors
-            err_max = np.argmax(err[non_zero] / denom[non_zero], axis=0)
-            err_dict['jac_err_max'] = err[err_max]
-            err_dict['jac_err_vals'] = denom[err_max]
+            for mul in [1, 10, 100]:
+                atol = self.atol * mul
+                rtol = self.rtol * mul
+                err_weighted = err / (atol + rtol * denom)
+                err_dict['jac_weighted_{}'.format(mul)] = np.linalg.norm(
+                    err_weighted)
 
-            # largest thresholded relative errors
-            err_max = np.argmax(err[threshold] / denom[threshold], axis=0)
-            err_dict['jac_thr_err_max'] = err[threshold]
-            err_dict['jac_thr_err_vals'] = denom[threshold]
 
         del out_check
         return err_dict
@@ -719,12 +722,13 @@ class jacobian_eval(eval):
         try:
             err = np.load(filename)
             names = ['jac']
-            mods = ['', '_zero', '_lapack', '_thresholded']
+            mods = ['', '_zero', '_lapack', '_thresholded_15',
+                    '_thresholded_20']
             # check that we have all expected keys, and there is no nan's, etc.
             self._check_file(err, names, mods)
             # check that we have the stored errors / values
-            names = ['jac_err', 'jac_thr_err']
-            mods = ['_max', '_vals']
+            names = ['jac_weighted']
+            mods = ['_1', '_10', '_100']
             self._check_file(err, names, mods)
         except:
             return False
