@@ -229,7 +229,7 @@ def get_context(device='0'):
         The running context
     """
 
-    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+    # os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
     if isinstance(device, str):
         os.environ['PYOPENCL_CTX'] = device
         ctx = cl.create_some_context(interactive=False)
