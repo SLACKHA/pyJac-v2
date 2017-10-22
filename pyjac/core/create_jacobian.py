@@ -1880,7 +1880,8 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True, jac_create=No
                           )
 
 
-def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
+@ic.with_conditional_jacobian
+def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of the extra variable (volume/pressure
     for constant pressure/volume respectively) with respect to temperature
@@ -1901,6 +1902,9 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
     conp : bool [True]
         If supplied, True for constant pressure jacobian. False for constant
         volume [Default: True]
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
+
     Returns
     -------
     knl_list : list of :class:`knl_info`
@@ -1921,17 +1925,15 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
     V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
     P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
     T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
-    jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, 1, 0)
-    _, dnkdot_dT_str = mapstore.apply_maps(
-        namestore.jac, global_ind, var_name, 0, affine={var_name: 2})
-    _, dTdot_dT_str = mapstore.apply_maps(namestore.jac, global_ind, 0, 0)
     wdot_lp, wdot_str = mapstore.apply_maps(
         namestore.spec_rates, *default_inds)
     dphi_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, global_ind)
 
-    kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp, wdot_lp, dphi_lp])
+    kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, wdot_lp, dphi_lp])
 
     # instructions
+    _, dTdot_dT_str = jac_create(
+        mapstore, namestore.jac, global_ind, 0, 0)
     pre_instructions = ['<> sum = 0',
                         ic.default_pre_instructs('Tinv', T_str, 'INV')]
     if conp:
@@ -1939,28 +1941,38 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False):
             ic.default_pre_instructs('Vinv', V_str, 'INV'))
         # sums
         instructions = Template("""
-            sum = sum + (1 - ${mw_str}) * (Vinv * ${dnkdot_dT_str} + Tinv * \
-                ${wdot_str}) {id=sum, dep=*}
+            sum = sum + (1 - ${mw_str}) * (Vinv * ${jac_str} + Tinv * \
+                ${wdot_str}) {id=sum, dep=${deps}}
         """).safe_substitute(**locals())
         # sum finish
-        post_instructions = [Template("""
+        post_instructions = Template("""
             ${jac_str} = ${jac_str} + Ru * ${T_str} * ${V_str} * sum / ${P_str} \
-                {id=jac, dep=sum, nosync=sum}
+                {id=jac, dep=${deps}, nosync=sum}
             ${jac_str} = ${jac_str} + ${V_str} * Tinv * \
-                (${dTdot_dT_str} - Tinv * ${Tdot_str}) {id=jac_split}
-        """).safe_substitute(**locals())]
+                (${dTdot_dT_str} - Tinv * ${Tdot_str}) {id=jac_split, dep=${deps},\
+                    nosync=sum}
+        """).safe_substitute(**locals())
     else:
         pre_instructions.append(Template(
             '<> fac = ${T_str} / ${V_str}').safe_substitute(**locals()))
         instructions = Template("""
-            sum = sum + (1 - ${mw_str}) * (${dnkdot_dT_str} * fac + \
-                ${wdot_str}) {id=sum, dep=*}
+            sum = sum + (1 - ${mw_str}) * (${jac_str} * fac + \
+                ${wdot_str}) {id=sum, dep=${deps}}
         """).safe_substitute(**locals())
-        post_instructions = [Template("""
-            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum, dep=sum}
+        post_instructions = Template("""
+            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum, dep=${deps}}
             ${jac_str} = ${jac_str} + ${P_str} * \
-                (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv {id=jac_split}
-        """).safe_substitute(**locals())]
+                (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv {id=jac_split, \
+                dep=${deps}, nosync=sum}
+        """).safe_substitute(**locals())
+
+    _, instructions = jac_create(
+        mapstore, namestore.jac, global_ind, var_name, 0, affine={var_name: 2},
+        insn=instructions, deps='*')
+    jac_lp, post_instructions = jac_create(
+        mapstore, namestore.jac, global_ind, 1, 0, insn=post_instructions,
+        deps='sum')
+    kernel_data.append(jac_lp)
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
