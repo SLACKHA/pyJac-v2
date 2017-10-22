@@ -1163,7 +1163,7 @@ def _run_mechanism_tests(work_dir, run):
                                 jac_format=sparse)
             except MissingPlatformError:
                 # can't run on this platform
-                bad_platforms.add([platform])
+                bad_platforms.update([platform])
                 continue
             except Exception as e:
                 logging.exception(e)
