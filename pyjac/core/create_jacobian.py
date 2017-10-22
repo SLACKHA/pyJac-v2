@@ -418,13 +418,6 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     # get species
     spec_lp, spec_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec, k_ind)
-    # and jac
-    jac_update_insn = (
-        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * "
-        "${factor} {id=jac, dep=${deps}}")
-    jac_lp, jac_update_insn = jac_create(
-        mapstore, namestore.jac, global_ind, spec_k_str, 1,
-        affine={spec_k_str: 2}, insn=jac_update_insn, deps='dci_*')
 
     # ropnet
     rop_fwd_lp, rop_fwd_str = mapstore.apply_maps(
@@ -442,7 +435,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     # update kernel data
     kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
-                        jac_lp, pres_mod_lp, T_lp, V_lp, P_lp])
+                        pres_mod_lp, T_lp, V_lp, P_lp])
 
     mix = int(thd_body_type.mix)
     spec = int(thd_body_type.species)
@@ -614,6 +607,14 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     ${mod_update}
     ${thd_factor_set}
     """).safe_substitute(**locals())
+    # and jac
+    jac_update_insn = Template(
+        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) * "
+        "${factor} {id=jac, dep=${deps}}").safe_substitute(**locals())
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k_str, 1,
+        affine={spec_k_str: 2}, insn=jac_update_insn, deps='dci_*')
+    kernel_data.append(jac_lp)
 
     # and instructions
     instructions = Template(Template("""
@@ -941,13 +942,6 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec, net_ind)
     _, spec_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec, k_ind)
-    # and jac
-    jac_update_insn = (
-        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) "
-        "* dRopi_dE {id=jac, dep=${deps}}")
-    jac_lp, jac_update_insn = jac_create(
-        mapstore, namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2},
-        insn=jac_update_insn, deps='dE*:')
 
     # add to data
     kernel_data.extend([T_lp, V_lp, pres_mod_lp, nu_offset_lp, nu_lp, spec_lp,
@@ -1298,7 +1292,14 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
         namestore.rxn_to_spec_reac_nu, k_ind, affine=k_ind)
     _, prod_nu_k_str = mapstore.apply_maps(
         namestore.rxn_to_spec_prod_nu, k_ind, affine=k_ind)
-    instructions = Template(Template("""
+    # and jac
+    jac_update_insn = Template(
+        "${jac_str} = ${jac_str} + (${prod_nu_k_str} - ${reac_nu_k_str}) "
+        "* dRopi_dE {id=jac, dep=${deps}}").safe_substitute(**locals())
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2},
+        insn=jac_update_insn, deps='dE*:')
+    instructions = Template("""
         <> offset = ${nu_offset_str}
         <> offset_next = ${nu_offset_next_str}
         ${instructions}
@@ -1307,7 +1308,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
                 ${jac_update_insn}
             end
         end
-    """).substitute(**locals())).safe_substitute(**locals())
+    """).substitute(**locals())
 
     name_description = {reaction_type.elementary: '',
                         reaction_type.plog: '_plog',
@@ -3154,17 +3155,19 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     V_lp, V_str = mapstore.apply_maps(
         namestore.V_arr, global_ind)
     # dnk/dnj jacobian set
-    dnkdnj_insn = ("sum = sum + (1 - ${mw_str}) * ${jac_str} {id=sum, dep=${deps}}")
+    dnkdnj_insn = Template(
+        "sum = sum + (1 - ${mw_str}) * ${jac_str} {id=sum, dep=${deps}}"
+        ).safe_substitute(**locals())
     jac_lp, dnkdnj_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
         }, insn=dnkdnj_insn, deps='*')
     # and the dedot / dnj instruction
-    dedotdnj_insn = (
+    dedotdnj_insn = Template(
         "${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + "
         "${extra_var_str} * ${dTdot_dnj_str} / ${T_str} "
-        "{id=jac, dep=${deps}, nosync=sum}")
+        "{id=jac, dep=${deps}, nosync=sum}").safe_substitute(**locals())
     _, dedotdnj_insn = jac_create(
         mapstore, namestore.jac, global_ind, 1, var_name, affine={
             var_name: 2,

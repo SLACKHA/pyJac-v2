@@ -441,7 +441,7 @@ def with_conditional_jacobian(func):
                 name = _conditional_jacobian.id_namer('sparse_jac_index')
                 index_insn = Template(
                     '${creation}jac_index = ${index_str} {id=${name}, ${dep_str}}'
-                    ).substitute(
+                    ).safe_substitute(
                         creation='<> ' if not created_index else '',
                         index_str=sparse_index,
                         name=name,
