@@ -1702,11 +1702,16 @@ class knl_info(object):
                  manglers=[],
                  preambles=[],
                  **kwargs):
+
+        def __listify(arr):
+            if isinstance(arr, str):
+                return [arr]
+            return arr
         self.name = name
         self.instructions = instructions
         self.mapstore = mapstore
-        self.pre_instructions = pre_instructions[:]
-        self.post_instructions = post_instructions[:]
+        self.pre_instructions = __listify(pre_instructions)[:]
+        self.post_instructions = __listify(post_instructions)[:]
         self.var_name = var_name
         if isinstance(kernel_data, set):
             kernel_data = list(kernel_data)
