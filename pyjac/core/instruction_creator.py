@@ -434,16 +434,18 @@ def with_conditional_jacobian(func):
             if index_insn:
                 # get the index
                 existing = sorted(_conditional_jacobian.id_namer.existing_names)
-                if not existing and deps[0] != '*':
-                    existing = ['*']
+                if existing or deps:
+                    dep_str = 'dep={}'.format(':'.join(deps + existing))
+                else:
+                    dep_str = ''
                 name = _conditional_jacobian.id_namer('sparse_jac_index')
                 index_insn = Template(
-                    '${creation}jac_index = ${index_str} {id=${name}, dep=${dep}}'
+                    '${creation}jac_index = ${index_str} {id=${name}, ${dep_str}}'
                     ).substitute(
                         creation='<> ' if not created_index else '',
                         index_str=sparse_index,
                         name=name,
-                        dep=':'.join(existing + deps))
+                        dep_str=dep_str)
                 # add dependency to all before me (and just added)
                 # so that we don't get out of order
                 deps += [name]

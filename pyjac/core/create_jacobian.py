@@ -4017,7 +4017,8 @@ def dci_troe_dnj(eqs, loopy_opts, namestore, test_size=None):
 
 
 @ic.with_conditional_jacobian
-def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None, jac_create=None):
+def __dropidnj(eqs, loopy_opts, namestore, allint, test_size=None,
+               do_ns=False, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the Rate of Progress with respect to the molar quantity of
     a species
@@ -4065,273 +4066,303 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None, jac_create=Non
     knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
+    spec_j = 'spec_j'
+    spec_k = 'spec_k'
+    net_ind_k = 'net_ind_k'
+    net_ind_j = 'net_ind_j'
 
-    # start developing the kernel
+    net_ind_inner = 'net_ind_inner'
+    spec_inner = 'spec_inner'
+    inner_inds = (net_ind_j, net_ind_inner) if not do_ns else (
+        net_ind_inner,)
 
-    def __dropidnj(do_ns=False):
+    jac_map = (spec_k, spec_j)
 
-        spec_j = 'spec_j'
-        spec_k = 'spec_k'
-        net_ind_k = 'net_ind_k'
-        net_ind_j = 'net_ind_j'
+    # indicies
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
 
-        net_ind_inner = 'net_ind_inner'
-        spec_inner = 'spec_inner'
-        inner_inds = (net_ind_j, net_ind_inner) if not do_ns else (
-            net_ind_inner,)
+    rxn_range = namestore.num_reacs if not do_ns else namestore.rxn_has_ns
+    if do_ns and rxn_range.initializer is None or not rxn_range.initializer.size:
+        return None
 
-        jac_map = (spec_k, spec_j)
+    mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+    # get net offsets
 
-        # indicies
-        kernel_data = []
-        if namestore.test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+    # may need offset on all arrays on the main loop if do_ns,
+    # hence check for transforms
+    mapstore.check_and_add_transform(
+        namestore.rxn_to_spec_offsets, rxn_range)
 
-        rxn_range = namestore.num_reacs if not do_ns else namestore.rxn_has_ns
-        if do_ns and rxn_range.initializer is None or not rxn_range.initializer.size:
-            return None
+    if do_ns:
+        # check for transform on forward
+        mapstore.check_and_add_transform(namestore.kf, rxn_range)
 
-        mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
-        # get net offsets
-
-        # may need offset on all arrays on the main loop if do_ns,
-        # hence check for transforms
+        # and reverse
         mapstore.check_and_add_transform(
-            namestore.rxn_to_spec_offsets, rxn_range)
+            namestore.rev_mask, rxn_range)
 
-        if do_ns:
-            # check for transform on forward
-            mapstore.check_and_add_transform(namestore.kf, rxn_range)
+        # check and add transforms for pressure mod
+        mapstore.check_and_add_transform(
+            namestore.thd_mask, rxn_range)
 
-            # and reverse
-            mapstore.check_and_add_transform(
-                namestore.rev_mask, rxn_range)
+    else:
+        # add default transforms
+        mapstore.check_and_add_transform(
+            namestore.kr, namestore.rev_mask)
+        mapstore.check_and_add_transform(
+            namestore.pres_mod, namestore.thd_mask)
 
-            # check and add transforms for pressure mod
-            mapstore.check_and_add_transform(
-                namestore.thd_mask, rxn_range)
+    rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name)
+    _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_offsets, var_name, affine=1)
 
-        else:
-            # add default transforms
-            mapstore.check_and_add_transform(
-                namestore.kr, namestore.rev_mask)
-            mapstore.check_and_add_transform(
-                namestore.pres_mod, namestore.thd_mask)
+    # get net species
+    net_specs_lp, net_spec_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, net_ind_k)
 
-        rxn_to_spec_offsets_lp, rxn_to_spec_offsets_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_offsets, var_name)
-        _, rxn_to_spec_offsets_next_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_offsets, var_name, affine=1)
+    # get product nu
+    net_nu_lp, prod_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, net_ind_k, affine=net_ind_k)
+    # and reac nu
+    _, reac_nu_k_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, net_ind_k, affine=net_ind_k)
 
-        # get net species
-        net_specs_lp, net_spec_k_str = mapstore.apply_maps(
-            namestore.rxn_to_spec, net_ind_k)
-
-        # get product nu
-        net_nu_lp, prod_nu_k_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_prod_nu, net_ind_k, affine=net_ind_k)
-        # and reac nu
-        _, reac_nu_k_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_reac_nu, net_ind_k, affine=net_ind_k)
-
-        # Check for forward / rev / third body maps with/without NS
+    # Check for forward / rev / third body maps with/without NS
+    rev_mask_lp, rev_mask_str = mapstore.apply_maps(
+        namestore.rev_mask, var_name)
+    kr_lp = None
+    pres_mod_lp = None
+    if do_ns:
+        # create mask string and use as kr index
         rev_mask_lp, rev_mask_str = mapstore.apply_maps(
             namestore.rev_mask, var_name)
-        kr_lp = None
-        pres_mod_lp = None
-        if do_ns:
-            # create mask string and use as kr index
-            rev_mask_lp, rev_mask_str = mapstore.apply_maps(
-                namestore.rev_mask, var_name)
-            kr_lp, kr_str = mapstore.apply_maps(
-                namestore.kr, global_ind, rev_mask_str)
+        kr_lp, kr_str = mapstore.apply_maps(
+            namestore.kr, global_ind, rev_mask_str)
 
-            # create mask string and use as pmod index
-            pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
-                namestore.thd_mask, var_name)
-            pres_mod_lp, pres_mod_str = mapstore.apply_maps(
-                namestore.pres_mod, global_ind, pmod_mask_str)
-        else:
+        # create mask string and use as pmod index
+        pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
+            namestore.thd_mask, var_name)
+        pres_mod_lp, pres_mod_str = mapstore.apply_maps(
+            namestore.pres_mod, global_ind, pmod_mask_str)
+    else:
 
-            # default creators:
-            rev_mask_lp, rev_mask_str = mapstore.apply_maps(
-                namestore.rev_mask, var_name)
-            kr_lp, kr_str = mapstore.apply_maps(
-                namestore.kr, *default_inds)
+        # default creators:
+        rev_mask_lp, rev_mask_str = mapstore.apply_maps(
+            namestore.rev_mask, var_name)
+        kr_lp, kr_str = mapstore.apply_maps(
+            namestore.kr, *default_inds)
 
-            pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
-                namestore.thd_mask, var_name)
-            pres_mod_lp, pres_mod_str = mapstore.apply_maps(
-                namestore.pres_mod, *default_inds)
+        pmod_mask_lp, pmod_mask_str = mapstore.apply_maps(
+            namestore.thd_mask, var_name)
+        pres_mod_lp, pres_mod_str = mapstore.apply_maps(
+            namestore.pres_mod, *default_inds)
 
-        # get fwd / rev rates
+    # get fwd / rev rates
 
-        kf_lp, kf_str = mapstore.apply_maps(
-            namestore.kf, *default_inds)
+    kf_lp, kf_str = mapstore.apply_maps(
+        namestore.kf, *default_inds)
 
-        # next we need the forward / reverse nu's and species
-        specs_lp, spec_j_str = mapstore.apply_maps(
-            namestore.rxn_to_spec, net_ind_j)
-        _, spec_inner_str = mapstore.apply_maps(
-            namestore.rxn_to_spec, net_ind_inner)
-        _, spec_j_prod_nu_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_prod_nu, net_ind_j, affine=net_ind_j)
-        _, spec_j_reac_nu_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_reac_nu, net_ind_j, affine=net_ind_j)
-        _, inner_prod_nu_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_prod_nu, net_ind_inner, affine=net_ind_inner)
-        _, inner_reac_nu_str = mapstore.apply_maps(
-            namestore.rxn_to_spec_reac_nu, net_ind_inner, affine=net_ind_inner)
+    # next we need the forward / reverse nu's and species
+    specs_lp, spec_j_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, net_ind_j)
+    _, spec_inner_str = mapstore.apply_maps(
+        namestore.rxn_to_spec, net_ind_inner)
+    _, spec_j_prod_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, net_ind_j, affine=net_ind_j)
+    _, spec_j_reac_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, net_ind_j, affine=net_ind_j)
+    _, inner_prod_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_prod_nu, net_ind_inner, affine=net_ind_inner)
+    _, inner_reac_nu_str = mapstore.apply_maps(
+        namestore.rxn_to_spec_reac_nu, net_ind_inner, affine=net_ind_inner)
 
-        # finally, we need the concentrations for the fwd / rev loops
-        conc_lp, conc_inner_str = mapstore.apply_maps(
-            namestore.conc_arr, global_ind, spec_inner)
+    # finally, we need the concentrations for the fwd / rev loops
+    conc_lp, conc_inner_str = mapstore.apply_maps(
+        namestore.conc_arr, global_ind, spec_inner)
 
-        kernel_data.extend([rxn_to_spec_offsets_lp, net_specs_lp, net_nu_lp,
-                            pres_mod_lp, kf_lp, kr_lp, conc_lp,
-                            pmod_mask_lp, rev_mask_lp])
+    kernel_data.extend([rxn_to_spec_offsets_lp, net_specs_lp, net_nu_lp,
+                        pres_mod_lp, kf_lp, kr_lp, conc_lp,
+                        pmod_mask_lp, rev_mask_lp])
 
-        # now start creating the instructions
+    # now start creating the instructions
 
-        extra_inames = [
-            (net_ind_k,
-             'net_offset <= {} < net_offset_next'.format(net_ind_k))]
-        for ind in inner_inds:
-            extra_inames.append(
-                (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
+    extra_inames = [
+        (net_ind_k,
+         'net_offset <= {} < net_offset_next'.format(net_ind_k))]
+    for ind in inner_inds:
+        extra_inames.append(
+            (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
-        if not do_ns:
-            jac_update_insn = (
-                "${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev)"
-                "* ci * nu_k {id=jac, dep=${deps}}")
-            # and finally the jacobian
-            jac_lp, jac_update_insn = jac_create(
-                mapstore, namestore.jac, global_ind, *jac_map,
-                affine={x: 2 for x in jac_map},
-                deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k', insn=jac_update_insn
-            )
-            inner = ("""
-                for ${net_ind_j}
-                    <> ${spec_j} = ${spec_j_str} {id=spec_j}
-                    if ${spec_j} != ${ns}
-                        <> Sj_fwd = ${spec_j_reac_nu_str} {id=Sj_fwd_init}
-                        <> Sj_rev = ${spec_j_prod_nu_str} {id=Sj_rev_init}
-                        for ${net_ind_inner}
-                            <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
-                            <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
-                            <> ${spec_inner} = ${spec_inner_str}
-                            # handle nu
-                            if ${spec_inner} == ${spec_j}
-                                nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
-                            end
-                            if ${spec_inner} == ${spec_j}
-                                nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
-                            end
-                            Sj_fwd = Sj_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
-                                {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
-                            Sj_rev = Sj_rev * fast_powi(${conc_inner_str}, nu_rev) \
-                                {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
+    if not do_ns:
+        jac_update_insn = (
+            "${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev)"
+            "* ci * nu_k {id=jac, dep=${deps}}")
+        # and finally the jacobian
+        jac_lp, jac_update_insn = jac_create(
+            mapstore, namestore.jac, global_ind, *jac_map,
+            affine={x: 2 for x in jac_map},
+            deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k', insn=jac_update_insn
+        )
+        inner = ("""
+            for ${net_ind_j}
+                <> ${spec_j} = ${spec_j_str} {id=spec_j}
+                if ${spec_j} != ${ns}
+                    <> Sj_fwd = ${spec_j_reac_nu_str} {id=Sj_fwd_init}
+                    <> Sj_rev = ${spec_j_prod_nu_str} {id=Sj_rev_init}
+                    for ${net_ind_inner}
+                        <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
+                        <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
+                        <> ${spec_inner} = ${spec_inner_str}
+                        # handle nu
+                        if ${spec_inner} == ${spec_j}
+                            nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
                         end
-                        # and update Jacobian
-                        ${jac_update_insn}
+                        if ${spec_inner} == ${spec_j}
+                            nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                        end
+                        Sj_fwd = Sj_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                            {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
+                        Sj_rev = Sj_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                            {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
                     end
-                end
-            """)
-        else:
-            jac_update_insn = ("${jac_str} = ${jac_str} + jac_updater "
-                               "{id=jac, dep=${deps}}")
-            # and finally the jacobian
-            jac_lp, jac_update_insn = jac_create(
-                mapstore, namestore.jac, global_ind, *jac_map,
-                affine={x: 2 for x in jac_map}, insn=jac_update_insn
-            )
-            extra_inames.append((spec_j, '0 <= {} < {}'.format(
-                spec_j, namestore.num_specs[-1])))
-            inner = ("""
-                <> Sns_fwd = 1.0d {id=Sns_fwd_init}
-                <> Sns_rev = 1.0d {id=Sns_rev_init}
-                for ${net_ind_inner}
-                    <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
-                    <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
-                    <> ${spec_inner} = ${spec_inner_str}
-                    # handle nu
-                    if ${spec_inner} == ${ns}
-                        Sns_fwd = Sns_fwd * nu_fwd {id=Sns_fwd_up, dep=Sns_fwd_init}
-                        nu_fwd = nu_fwd - 1 \
-                            {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
-                    end
-                    Sns_fwd = Sns_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
-                        {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
-                    if ${spec_inner} == ${ns}
-                        Sns_rev = Sns_rev * nu_rev {id=Sns_rev_up, dep=Sns_rev_init}
-                        nu_rev = nu_rev - 1 \
-                            {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
-                    end
-                    Sns_rev = Sns_rev * fast_powi(${conc_inner_str}, nu_rev) \
-                        {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
-                end
-                # and update Jacobian for all species in this row
-                <> jac_updater =  (kr_i * Sns_rev - kf_i * Sns_fwd) * ci * nu_k \
-                    {id=jac_up, dep=Sns_fwd_up*:Sns_rev_up*:ci_up:nu_k:spec_k:kf:kr*}
-                for ${spec_j}
+                    # and update Jacobian
                     ${jac_update_insn}
                 end
-            """)
-
-        kernel_data.append(jac_lp)
-        instructions = Template("""
-            # loop over all species in reaction
-            <> ci = 1.0d {id=ci_set}
-            if ${pmod_mask_str} >= 0
-                ci = ${pres_mod_str} {id=ci_up, dep=ci_set}
             end
-            <> kf_i = ${kf_str} {id=kf}
-            <> kr_i = 0.0d {id=kr}
-            if ${rev_mask_str} >= 0
-                kr_i = ${kr_str} {id=kr2, dep=kr}
-            end
-
-            <> net_offset = ${rxn_to_spec_offsets_str}
-            <> net_offset_next = ${rxn_to_spec_offsets_next_str}
-            <> inner_offset = ${rxn_to_spec_offsets_str}
-            <> inner_offset_next = ${rxn_to_spec_offsets_next_str}
-            # loop over net species
-            for ${net_ind_k}
-                # get species and nu k
-                <> ${spec_k} = ${net_spec_k_str} {id=spec_k}
-                if ${spec_k} != ${ns}
-                    <> nu_k = ${prod_nu_k_str} - ${reac_nu_k_str} {id=nu_k}
-                    # put in inner
-                    ${inner}
-                end
-            end
-        """).safe_substitute(inner=inner)
-        instructions = Template(instructions).substitute(
-            ns=namestore.num_specs[-1],
-            **locals()
+        """)
+    else:
+        jac_update_insn = ("${jac_str} = ${jac_str} + jac_updater "
+                           "{id=jac, dep=${deps}}")
+        # and finally the jacobian
+        jac_lp, jac_update_insn = jac_create(
+            mapstore, namestore.jac, global_ind, *jac_map,
+            affine={x: 2 for x in jac_map}, insn=jac_update_insn
         )
+        extra_inames.append((spec_j, '0 <= {} < {}'.format(
+            spec_j, namestore.num_specs[-1])))
+        inner = ("""
+            <> Sns_fwd = 1.0d {id=Sns_fwd_init}
+            <> Sns_rev = 1.0d {id=Sns_rev_init}
+            for ${net_ind_inner}
+                <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
+                <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
+                <> ${spec_inner} = ${spec_inner_str}
+                # handle nu
+                if ${spec_inner} == ${ns}
+                    Sns_fwd = Sns_fwd * nu_fwd {id=Sns_fwd_up, dep=Sns_fwd_init}
+                    nu_fwd = nu_fwd - 1 \
+                        {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
+                end
+                Sns_fwd = Sns_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                    {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
+                if ${spec_inner} == ${ns}
+                    Sns_rev = Sns_rev * nu_rev {id=Sns_rev_up, dep=Sns_rev_init}
+                    nu_rev = nu_rev - 1 \
+                        {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
+                end
+                Sns_rev = Sns_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                    {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
+            end
+            # and update Jacobian for all species in this row
+            <> jac_updater =  (kr_i * Sns_rev - kf_i * Sns_fwd) * ci * nu_k \
+                {id=jac_up, dep=Sns_fwd_up*:Sns_rev_up*:ci_up:nu_k:spec_k:kf:kr*}
+            for ${spec_j}
+                ${jac_update_insn}
+            end
+        """)
 
-        inames, ranges = zip(*extra_inames)
-        # join inames
-        extra_inames = [
-            (','.join(inames), ' and '.join(ranges))]
+    kernel_data.append(jac_lp)
+    instructions = Template("""
+        # loop over all species in reaction
+        <> ci = 1.0d {id=ci_set}
+        if ${pmod_mask_str} >= 0
+            ci = ${pres_mod_str} {id=ci_up, dep=ci_set}
+        end
+        <> kf_i = ${kf_str} {id=kf}
+        <> kr_i = 0.0d {id=kr}
+        if ${rev_mask_str} >= 0
+            kr_i = ${kr_str} {id=kr2, dep=kr}
+        end
 
-        can_vectorize, vec_spec = ic.get_deep_specializer(
-            loopy_opts, atomic_ids=['jac'])
-        return k_gen.knl_info(name='dRopidnj{}'.format('_ns' if do_ns else ''),
-                              instructions=instructions,
-                              var_name=var_name,
-                              kernel_data=kernel_data,
-                              extra_inames=extra_inames,
-                              mapstore=mapstore,
-                              preambles=[
-                                   lp_pregen.fastpowi_PreambleGen(),
-                                   lp_pregen.fastpowf_PreambleGen()],
-                              can_vectorize=can_vectorize,
-                              vectorization_specializer=vec_spec
-                              )
+        <> net_offset = ${rxn_to_spec_offsets_str}
+        <> net_offset_next = ${rxn_to_spec_offsets_next_str}
+        <> inner_offset = ${rxn_to_spec_offsets_str}
+        <> inner_offset_next = ${rxn_to_spec_offsets_next_str}
+        # loop over net species
+        for ${net_ind_k}
+            # get species and nu k
+            <> ${spec_k} = ${net_spec_k_str} {id=spec_k}
+            if ${spec_k} != ${ns}
+                <> nu_k = ${prod_nu_k_str} - ${reac_nu_k_str} {id=nu_k}
+                # put in inner
+                ${inner}
+            end
+        end
+    """).safe_substitute(inner=inner)
+    instructions = Template(instructions).substitute(
+        ns=namestore.num_specs[-1],
+        **locals()
+    )
 
-    return [x for x in [__dropidnj(False), __dropidnj(True)] if x is not None]
+    inames, ranges = zip(*extra_inames)
+    # join inames
+    extra_inames = [
+        (','.join(inames), ' and '.join(ranges))]
+
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
+    return k_gen.knl_info(name='dRopidnj{}'.format('_ns' if do_ns else ''),
+                          instructions=instructions,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          extra_inames=extra_inames,
+                          mapstore=mapstore,
+                          preambles=[
+                               lp_pregen.fastpowi_PreambleGen(),
+                               lp_pregen.fastpowf_PreambleGen()],
+                          can_vectorize=can_vectorize,
+                          vectorization_specializer=vec_spec
+                          )
+
+
+def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
+    """
+    Simple wrapper for :func:`__dropidnj` that populates both the Ns and non-Ns
+    derivatives
+
+    See :func:`__dropidnj` for full details
+
+    Parameters
+    ----------
+    eqs : dict
+        Sympy equations / variables for constant pressure / constant volume
+        systems
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    namestore : :class:`array_creator.NameStore`
+        The namestore / creator for this method
+    allint : dict
+        Contains keys 'fwd', 'rev' and 'net', with booleans corresponding to
+        whether all nu values for that direction are integers.
+        If True, powers of concentrations will be evaluated using
+        multiplications
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    return [x for x in [
+        __dropidnj(eqs, loopy_opts, namestore, allint, test_size, do_ns=False),
+        __dropidnj(eqs, loopy_opts, namestore, allint, test_size, do_ns=True)]
+        if x is not None]
 
 
 def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
