@@ -436,7 +436,7 @@ def with_conditional_jacobian(func):
                 existing = sorted(_conditional_jacobian.id_namer.existing_names)
                 if not existing:
                     existing = ['*']
-                name = _conditional_jacobian.id_namer('ind')
+                name = _conditional_jacobian.id_namer('sparse_jac_index')
                 index_insn = Template(
                     '${creation}jac_index = ${index_str} {id=${name}, dep=${dep}}'
                     ).substitute(
@@ -472,7 +472,7 @@ def with_conditional_jacobian(func):
 
         # find return value
         if insn:
-            retv = Template(insn).safe_substitute(
+            retv = Template(insn).substitute(
                 jac_str=jac_str, deps=':'.join(deps))
             if index_insn:
                 retv = Template("""${index}
