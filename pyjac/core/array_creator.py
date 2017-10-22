@@ -1215,7 +1215,7 @@ class jac_creator(creator):
             # if we're in the first two rows, they are full
             can_skip = self.order == 'C' and __lt(lookup)
             # or if our match is less than two in any column
-            can_skip = can_skip or __lt(match)
+            can_skip = can_skip or self.order == 'F' and __lt(match)
             if can_skip:
                 # this is a temperature or extra variable derivative
                 # hence, we don't need to do an actual lookup (as all entries
