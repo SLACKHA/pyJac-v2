@@ -453,7 +453,8 @@ class get_comparable(object):
                     new_mask = np.vstack((row_mask.T, col_mask.T)).T
                 mask.append(inNd(new_mask, inds))
                 # and the new axis
-                axis = axis + (1,)
+                if self.compare_axis != -1:
+                    axis = axis + (1,)
                 # and indicate that we've lost a dimension
                 ndim -= 1
 
