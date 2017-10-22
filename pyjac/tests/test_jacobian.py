@@ -1970,6 +1970,11 @@ class SubTest(TestClass):
 
         rtol = 1e-5
         atol = 1e-8
+        if test_variable and rxn_type == falloff_form.sri:
+            # this tends to be a bit more finicky
+            rtol = 5e-4
+            atol = 1e-5
+
         kc = [kernel_call('dci_dT',
                           comp.ref_answer, compare_mask=[comp],
                           compare_axis=comp.compare_axis,
