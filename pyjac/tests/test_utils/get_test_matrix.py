@@ -6,11 +6,12 @@ from collections import OrderedDict
 from optionloop import OptionLoop
 from .. import get_test_platforms
 from . import platform_is_gpu
+from ...libgen import build_type
 from nose.tools import nottest
 
 
 @nottest
-def get_test_matrix(work_dir):
+def get_test_matrix(work_dir, test_type=build_type.jacobian):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -59,6 +60,7 @@ def get_test_matrix(work_dir):
                         mechanism_list[name]['thermo'] = thermo
 
     rate_spec = ['fixed', 'hybrid']  # , 'full']
+    sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
     vec_widths = [4, 8, 16]
     gpu_width = [64, 128]
     split_kernels = [False]
@@ -118,7 +120,8 @@ def get_test_matrix(work_dir):
                          ('rate_spec', rate_spec),
                          ('split_kernels', split_kernels),
                          ('num_cores', cores),
-                         ('conp', [True, False])]
+                         ('conp', [True, False]),
+                         ('sparse', sparse)]
             params[i] = platform[:]
         return params
 
