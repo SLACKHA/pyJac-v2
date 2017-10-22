@@ -1103,6 +1103,7 @@ def _run_mechanism_tests(work_dir, run):
         from collections import defaultdict
         done_parallel = defaultdict(lambda: False)
         op = oploop.copy()
+        bad_platforms = set()
         for i, state in enumerate(op):
             # remove any old builds
             __cleanup()
@@ -1116,6 +1117,8 @@ def _run_mechanism_tests(work_dir, run):
             split_kernels = state['split_kernels']
             conp = state['conp']
             par_check = tuple(state[x] for x in state if x != 'vecsize')
+            if platform in bad_platforms:
+                continue
             if not (deep or wide) and done_parallel[par_check]:
                 # this is simple parallelization, don't need to repeat for
                 # different vector sizes, simply choose one and go
@@ -1156,6 +1159,10 @@ def _run_mechanism_tests(work_dir, run):
                                 output_full_rop=rtype == build_type.species_rates,
                                 conp=conp,
                                 use_atomics=state['use_atomics'])
+            except MissingPlatformError:
+                # can't run on this platform
+                bad_platforms.add([platform])
+                continue
             except Exception as e:
                 logging.exception(e)
                 logging.warn('generation failed...')
