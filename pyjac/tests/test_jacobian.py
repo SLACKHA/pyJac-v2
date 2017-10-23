@@ -559,7 +559,7 @@ class SubTest(TestClass):
                     list(rxn.products.keys()) + list(rxn.reactants.keys()))
                 nonzero_specs = set()
                 for spec in specs:
-                    if spec == self.store.gas.n_species - 1:
+                    if spec == self.store.gas.species_names[-1]:
                         # ns derivative -> no jacobian entry
                         continue
                     nu = 0
