@@ -3343,23 +3343,22 @@ def write_chem_utils(eqs, reacs, specs, loopy_opts, conp=True,
 if __name__ == "__main__":
     args = utils.get_parser()
 
-    from .core.create_jacobian import create_jacobian
+    from .create_jacobian import create_jacobian
     create_jacobian(lang=args.lang,
                     mech_name=args.input,
                     therm_name=args.thermo,
                     vector_size=args.vector_size,
                     wide=args.wide,
                     deep=args.deep,
-                    ilp=args.ilp,
-                    unr=args.unr,
+                    unr=args.unroll,
                     build_path=args.build_path,
-                    last_spec=args.last_spec,
+                    last_spec=args.last_species,
                     platform=args.platform,
                     data_order=args.data_order,
                     rate_specialization=args.rate_specialization,
                     split_rate_kernels=args.split_rate_kernels,
                     split_rop_net_kernels=args.split_rop_net_kernels,
                     conp=args.conp,
-                    data_filename=args.data_filename,
+                    use_atomics=args.use_atomics,
                     skip_jac=True
                     )

@@ -7,17 +7,27 @@ from .core.create_jacobian import create_jacobian
 def main(args=None):
     if args is None:
         args = utils.get_parser()
-        create_jacobian(
-                    lang=args.lang,
-                    mech_name=args.input,
-                    therm_name=args.thermo,
-                    num_blocks=args.num_blocks,
-                    num_threads=args.num_threads,
-                    build_path=args.build_path,
-                    skip_jac=args.skip_jac,
-                    last_spec=args.last_species,
-                    auto_diff=args.auto_diff
-                    )
+        create_jacobian(lang=args.lang,
+                        mech_name=args.input,
+                        therm_name=args.thermo,
+                        vector_size=args.vector_size,
+                        wide=args.wide,
+                        deep=args.deep,
+                        unr=args.unroll,
+                        build_path=args.build_path,
+                        last_spec=args.last_species,
+                        platform=args.platform,
+                        data_order=args.data_order,
+                        rate_specialization=args.rate_specialization,
+                        split_rate_kernels=args.split_rate_kernels,
+                        split_rop_net_kernels=args.split_rop_net_kernels,
+                        conp=args.conp,
+                        use_atomics=args.use_atomics,
+                        jac_type=args.jac_type,
+                        jac_format=args.jac_format,
+                        skip_jac=True
+                        )
+
 
 if __name__ == '__main__':
     sys.exit(main())
