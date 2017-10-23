@@ -1510,7 +1510,7 @@ class NameStore(object):
                              fixed_indicies=[(1, 1)],
                              is_input_or_output=True)
 
-        if self.jac_format == JacobianFormat.sparse:
+        if self.jac_format == JacobianFormat.sparse and 'jac_inds' in rate_info:
             self.jac = jac_creator('jac',
                                    shape=(test_size, self.num_nonzero_jac_inds.size),
                                    order=self.order,
