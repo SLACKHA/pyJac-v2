@@ -112,8 +112,10 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     has_ns = val['reac_has_ns']
     thd_has_ns = val['thd']['has_ns']
     thd_spec = val['thd']['spec']
+    thd_eff = val['thd']['eff']
     thd_map = val['thd']['map']
     num_specs_in_thd = __offset(val['thd']['spec_num'])
+    ns = val['Ns'] - 1
 
     assert np.unique(non_zero_specs).size == non_zero_specs.size
     for spec in non_zero_specs:
@@ -152,9 +154,21 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
                 num_specs_in_rxn[rxn]:num_specs_in_rxn[rxn + 1]])
 
             if thd_ind is not None:
-                # update third body species in the reaction
-                __add_specs(thd_spec[
-                    num_specs_in_thd[thd_ind]:num_specs_in_thd[thd_ind + 1]])
+                # update third body species in the reaction where the efficiency
+                # is not equal to that of the last species
+                last_spec_eff = 1.0
+                # get species
+                third_body_inds = np.arange(num_specs_in_thd[
+                    thd_ind], num_specs_in_thd[thd_ind + 1])
+                third_body_species = thd_spec[third_body_inds]
+                # and efficiencies
+                third_body_eff = thd_eff[third_body_inds]
+                # check for ns in third body to get right efficiency
+                if ns in third_body_species:
+                    last_spec_eff = third_body_eff[third_body_species.index(ns)]
+                # now filter based on efficiencies
+                __add_specs([x for i, x in enumerate(third_body_species)
+                             if third_body_eff[i] != last_spec_eff])
 
         # finally add the non-zero derivatives
         if len(nonzero_derivs):
