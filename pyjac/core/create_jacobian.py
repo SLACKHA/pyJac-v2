@@ -4793,6 +4793,15 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         width = vector_size
     elif deep:
         depth = vector_size
+    if wide and deep:
+        logging.error('Cannot apply both a wide and deep vectorization at the same '
+                      'time')
+        sys.exit(-1)
+    if vector_size is None and (wide or deep):
+        logging.error('Cannot apply {} vectorization without a vector-size, use'
+                      'the -v arguement to supply one'.format(
+                        'wide' if wide else 'deep'))
+        sys.exit(-1)
 
     # convert enums
     rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(
