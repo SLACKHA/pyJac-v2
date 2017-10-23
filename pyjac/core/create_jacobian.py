@@ -263,8 +263,10 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
         jac_lp, jac_str = mapstore.apply_maps(
             namestore.jac, global_ind, k_ind, j_ind)
         # and row / col inds
-        row_lp, row_str = mapstore.apply_maps(namestore.flat_jac_row_inds, var_name)
-        col_lp, col_str = mapstore.apply_maps(namestore.flat_jac_col_inds, var_name)
+        row_lp, row_str = mapstore.apply_maps(
+            namestore.flat_jac_row_inds, var_name)
+        col_lp, col_str = mapstore.apply_maps(
+            namestore.flat_jac_col_inds, var_name)
 
         instructions = Template(
             """
@@ -1695,7 +1697,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
         mapstore, namestore.jac, global_ind, var_name, 1, affine={var_name: 2},
         deps='index*', insn=instructions,
         entry_exists=True,  # as we're looping over non-zero
-        )
+    )
 
     kernel_data.append(jac_lp)
 
@@ -3161,7 +3163,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     # dnk/dnj jacobian set
     dnkdnj_insn = Template(
         "sum = sum + (1 - ${mw_str}) * ${jac_str} {id=sum, dep=${deps}}"
-        ).safe_substitute(**locals())
+    ).safe_substitute(**locals())
     jac_lp, dnkdnj_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
@@ -3206,7 +3208,8 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     ${dedotdnj_insn}
     """).safe_substitute(**locals())).safe_substitute(**locals())
 
-    can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, atomic_ids=['jac'])
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, atomic_ids=['jac'])
 
     return k_gen.knl_info(name='d{}dot_dnj'.format('V' if conp else 'P'),
                           extra_inames=extra_inames,
@@ -3320,7 +3323,8 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
     ${tdot_jac_insn}
     """).safe_substitute(**locals())).safe_substitute(**locals())
 
-    can_vectorize, vec_spec = ic.get_deep_specializer(loopy_opts, init_ids=['jac'])
+    can_vectorize, vec_spec = ic.get_deep_specializer(
+        loopy_opts, init_ids=['jac'])
 
     return k_gen.knl_info(name='dTdot_dnj',
                           extra_inames=extra_inames,
@@ -4483,7 +4487,8 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
             nstore.db.name, eqs, loopy_opts, nstore, test_size=test_size))
 
     # next, the temperature derivative w.r.t. species
-    __add_knl(dTdot_dnj(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(dTdot_dnj(eqs, loopy_opts, nstore,
+                        conp=conp, test_size=test_size))
     # (depends on total_specific_energy)
     __insert_at(kernels[-1].name)
 
@@ -4863,15 +4868,20 @@ if __name__ == "__main__":
     create_jacobian(lang=args.lang,
                     mech_name=args.input,
                     therm_name=args.thermo,
-                    optimize_cache=args.cache_optimizer,
-                    initial_state=args.initial_conditions,
-                    num_blocks=args.num_blocks,
-                    num_threads=args.num_threads,
-                    no_shared=args.no_shared,
-                    L1_preferred=args.L1_preferred,
-                    multi_thread=args.multi_thread,
-                    force_optimize=args.force_optimize,
+                    vector_size=args.vector_size,
+                    wide=args.wide,
+                    deep=args.deep,
+                    unr=args.unroll,
                     build_path=args.build_path,
                     last_spec=args.last_species,
-                    auto_diff=args.auto_diff,
+                    platform=args.platform,
+                    data_order=args.data_order,
+                    rate_specialization=args.rate_specialization,
+                    split_rate_kernels=args.split_rate_kernels,
+                    split_rop_net_kernels=args.split_rop_net_kernels,
+                    conp=args.conp,
+                    use_atomics=args.use_atomics,
+                    jac_type=args.jac_type,
+                    jac_format=args.jac_format,
+                    skip_jac=True
                     )

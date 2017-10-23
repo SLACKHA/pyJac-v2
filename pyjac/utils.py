@@ -302,12 +302,9 @@ def get_parser():
 
     """
 
-    import multiprocessing
     # command line arguments
-    parser = ArgumentParser(description='pyJac: Generates source code '
-                                        'for analytical chemical '
-                                        'Jacobians.'
-                            )
+    parser = argparse.ArgumentParser(description='pyJac: Generates source code '
+                                     'for analytical chemical Jacobians.')
     parser.add_argument('-l', '--lang',
                         type=str,
                         choices=langs,
@@ -325,71 +322,38 @@ def get_parser():
                         help='Thermodynamic database filename (e.g., '
                              'therm.dat), or nothing if in mechanism.'
                         )
-    parser.add_argument('-ic', '--initial-conditions',
-                        type=str,
-                        dest='initial_conditions',
-                        default='',
-                        required=False,
-                        help='A comma separated list of initial initial '
-                             'conditions to set in the '
-                             'set_same_initial_conditions method.\n'
-                             '   Expected Form: T,P,Species1=...,Species2=...,...\n'
-                             '   Temperature in K\n'
-                             '   Pressure in Atm\n'
-                             '   Species in moles'
-                        )
-    # cuda specific
-    parser.add_argument('-co', '--cache-optimizer',
-                        dest='cache_optimizer',
-                        action='store_true',
-                        default=False,
-                        help='Attempt to optimize cache store/loading '
-                             'via use of a greedy selection algorithm. (Experimental)'
-                        )
-    parser.add_argument('-nosmem', '--no-shared-memory',
-                        dest='no_shared',
-                        action='store_true',
-                        default=False,
-                        help='Use this option to turn off attempted shared '
-                             'memory acceleration for CUDA.'
-                        )
-    parser.add_argument('-pshare', '--prefer-shared',
-                        dest='L1_preferred',
-                        action='store_false',
-                        default=True,
-                        help='Use this option to allocate more space for '
-                             'shared memory than the L1 cache for CUDA '
-                             '(not recommended).'
-                        )
-    parser.add_argument('-nb', '--num-blocks',
+    parser.add_argument('-v', '--vector_size',
                         type=int,
-                        dest='num_blocks',
-                        default=8,
+                        default=0,
                         required=False,
-                        help='The target number of blocks / sm for CUDA.'
-                        )
-    parser.add_argument('-nt', '--num-threads',
-                        type=int,
-                        dest='num_threads',
-                        default=64,
+                        help='The SIMD/SIMT vector width to use in code-generation.'
+                             '  This corresponds to the "blocksize" in CUDA'
+                             'terminology.')
+    parser.add_argument('-w', '--wide',
                         required=False,
-                        help='The target number of threads / block for CUDA.'
-                        )
-    parser.add_argument('-mt', '--multi-threaded',
-                        type=int,
-                        dest='multi_thread',
-                        default=multiprocessing.cpu_count(),
-                        required=False,
-                        help='The number of threads to use during the '
-                             'optimization process.'
-                        )
-    parser.add_argument('-fopt', '--force-optimize',
-                        dest='force_optimize',
-                        action='store_true',
                         default=False,
-                        help='Use this option to force a reoptimization of '
-                             'the mechanism (usually only happens when '
-                             'generating for a different mechanism).'
+                        action='store_true',
+                        help='Use a "wide" vectorization, where the calculation '
+                        'of Jacobian / species rates is vectorized over the '
+                        'set of thermo-chemical state.  That is, each '
+                        'work-item (CUDA thread) operates independently.')
+    parser.add_argument('-d', '--deep',
+                        required=False,
+                        default=False,
+                        action='store_true',
+                        help='Use a "deep" vectorization, where the calculation '
+                        'of Jacobian / species rates is vectorized within each '
+                        'thermo-chemical state.  That is, all the work-items '
+                        '(CUDA threads) operates cooperate to evaluate a single '
+                        'state.')
+    parser.add_argument('-u', '--unroll',
+                        type=int,
+                        default=None,
+                        required=False,
+                        help='If supplied, a length to unroll the inner loops (e.g. '
+                        'evaluation of the species rates for a single '
+                        'thermo-chemical state) in the generated code. Turned off '
+                        'by default.'
                         )
     parser.add_argument('-b', '--build_path',
                         required=False,
@@ -405,17 +369,88 @@ def get_parser():
                              'the mechanism. If not specifed, defaults to '
                              'the first of N2, AR, and HE in the mechanism.'
                         )
-    parser.add_argument('-ad', '--auto_diff',
-                        default=False,
-                        action='store_true',
-                        help='Use this option to generate file for use with the '
-                             'Adept autodifferentiation library.')
     parser.add_argument('-sj', '--skip_jac',
                         required=False,
                         default=False,
                         action='store_true',
-                        help='If specified, this option turns off Jacobian generation '
-                             '(only rate subs are generated)')
+                        help='If specified, this option turns off Jacobian '
+                             'generation i.e. only the rate subs are generated')
+    parser.add_argument('-p', '--platform',
+                        required=False,
+                        default='',
+                        type=str,
+                        help='The name (or subset thereof) of the OpenCL platform '
+                             'to run on, e.g. "Intel", "nvidia", "pocl". '
+                             'Must be supplied to properly generate the compilation '
+                             'wrapper for OpenCL code, but may be ignored if not '
+                             'using the OpenCL target.')
+    parser.add_argument('-o', '--data_order',
+                        default='C',
+                        type=str,
+                        choices=['C', 'F'],
+                        help="The data ordering, 'C' (row-major, recommended for "
+                        "CPUs) or 'F' (column-major, recommended for GPUs)")
+    parser.add_argument('-rs', '--rate_specialization',
+                        type=str,
+                        default='hybrid',
+                        choices=['fixed', 'hybrid', 'full'],
+                        help="The level of specialization in evaluating reaction "
+                        "rates. 'Full' is the full form suggested by Lu et al. "
+                        "(citation) 'Hybrid' turns off specializations in the "
+                        "exponential term (Ta = 0, b = 0) 'Fixed' is a fixed"
+                        " expression exp(logA + b logT + Ta / T)")
+    parser.add_argument('-rk', '--split_rate_kernels',
+                        type=bool,
+                        default=True,
+                        help="If True, and the :param`rate_specialization` is not "
+                        "'Fixed', split different rate evaluation types into "
+                        "different kernels")
+    parser.add_argument('-rn', '--split_rop_net_kernels',
+                        type=bool,
+                        default=False,
+                        help="If True, break evaluation of different rate of "
+                        "progress values (fwd / back / pdep) into different "
+                        "kernels. Note that for a deep vectorization this will "
+                        "introduce additional synchronization requirements.")
+    parser.add_argument('-conv', '--constant_volume',
+                        required=False,
+                        dest='conp',
+                        action='store_false',
+                        help='If supplied, use the constant volume assumption in '
+                        'generation of the rate subs / Jacobian code. Otherwise, '
+                        'use the constant pressure assumption [default].')
+    parser.add_argument('-n', '--no_atomics',
+                        dest='use_atomics',
+                        action='store_false',
+                        required=False,
+                        help='If supplied, the targeted language / platform is not'
+                        'capable of using atomic instructions.  This affects how'
+                        'deep vectorization code is generated, and will force any'
+                        'potential data-races to be run in serial/sequential form, '
+                        'resulting in suboptimal deep vectorizations.'
+                        )
+    parser.add_argument('-jt', '--jac_type',
+                        choices=['exact', 'approximate'],
+                        required=False,
+                        default='exact',
+                        help='The type of Jacobian kernel to generate.  An '
+                        'approximate Jacobian ignores derivatives of the last '
+                        'species with respect to other species in the mechanism.'
+                        'This can significantly increase sparsity for mechanisms '
+                        'containing reactions that include the last species '
+                        'directly, or as a third-body species with a non-unity '
+                        'efficiency, but gives results in an approxmiate Jacobian, '
+                        'and thus is more suitable to use with implicit integration '
+                        'techniques.'
+                        )
+    parser.add_argument('-f', '--jac_format',
+                        choices=['sparse', 'full'],
+                        required=False,
+                        default='sparse',
+                        help='If "sparse", the Jacobian will be encoded using a '
+                        'compressed row or column storage format (for a data order '
+                        'of "C" and "F" respectively).'
+                        )
 
     args = parser.parse_args()
     return args
