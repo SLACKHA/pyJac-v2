@@ -34,14 +34,14 @@ problem_size : size_t
     The number of conditions to execute for
 ${knl_args_doc}
 */
-void execute_kernel(size_t problem_size, ${knl_args})
+void execute_kernel(cl_uint problem_size, ${knl_args})
 {
 
     size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
 
     for (size_t offset = 0; offset < problem_size; offset += per_run)
     {
-        cl_int this_run = problem_size - offset < per_run ? problem_size - offset : per_run;
+        size_t this_run = problem_size - offset < per_run ? problem_size - offset : per_run;
         size_t global_work_size = this_run;
         size_t local_work_size = ${vec_width};
         #ifdef DEEP
@@ -65,11 +65,14 @@ Initialize memory & assign kernel args for the kernel
 
 Parameters
 ----------
-problem_size : size_t
+problem_size : cl_uint
     The number of conditions to execute for
 */
-void mem_init(size_t problem_size)
+void mem_init(cl_uint psize)
 {
+    //cast to size_t to ensure we don't get overflow
+    size_t problem_size = (size_t)psize;
+
     #if CL_LEVEL >= 120
         // with CL 1.2, we have access to clEnqueueFillBuffer
         double zero = 0;
@@ -107,13 +110,13 @@ Create opencl kernel
 
 Parameters
 ----------
-problem_size : size_t
+problem_size : cl_uint
     The number of conditions to execute for
 num_devices : uint
     The number of devices to use.  If for GPUs/accelerators, this is the # of GPUs to use
     If for CPUs, this is the number of logical cores to use
 */
-void init(size_t problem_size, cl_uint num_devices)
+void init(cl_uint problem_size, cl_uint num_devices)
 {
     cl_platform_id platform_id[NUM_PLATFORMS];
     cl_device_id device_ids[MAX_DEVICE];
@@ -295,7 +298,7 @@ void finalize()
 bool ${knl_name}_init = false;
 size_t per_run_store = 0;
 cl_uint num_devices_store = 0;
-void ${knl_name}_call(size_t problem_size, cl_uint num_devices,
+void ${knl_name}_call(cl_uint problem_size, cl_uint num_devices,
                     ${knl_args})
 {
     size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
@@ -335,7 +338,7 @@ int main(int argc, char* argv[])
     //#2 - the number of cores [CPU only] or number of GPUs / accelerators [GPU only]
     //#3 - whether to compile
 
-    size_t problem_size = atoi(argv[1]);
+    cl_uint problem_size = atoi(argv[1]);
     cl_uint num_devices = atoi(argv[2]);
     int compile = 1;
     if (argc >= 4)
