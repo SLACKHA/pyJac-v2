@@ -117,6 +117,9 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
 
     assert np.unique(non_zero_specs).size == non_zero_specs.size
     for spec in non_zero_specs:
+        if spec == len(specs) - 1:
+            # ignore last species derivatives
+            continue
         row = spec + species_offset
         nonzero_derivs = set([0, 1])
 
