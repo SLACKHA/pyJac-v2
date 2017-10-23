@@ -204,7 +204,7 @@ H+H+(+M)<=>H2+(+M)                   2.800E+18    -.860        .00
      TROE/   .7346   94.00  1756.00  5182.00 /
 !Troe unity -- added to test dE derivative (ch2cho not shared by any other falloff
 !rxn), so it'll be included in the test
-ch2cho(+m)<=>ch2co+h(+m) 1.43e+15 -1.50e-01 4.56e+04
+ch2cho(+m)<=>ch2co+H(+m) 1.43e+15 -1.50e-01 4.56e+04
 low/ 6.00e+29 -3.8 43423.898/
 troe/ 9.85e-01 3.93e+02 9.80e+09 5.00e+09/
 !troe
@@ -254,30 +254,38 @@ PLOG/ 0.01 3.64e65 -21.87 1.902e4/
 PLOG/ 0.10 3.64e58 -19.0 1.909e4/
 PLOG/ 1.0 6.65e48 -15.55 1.746e4/
 PLOG/ 10.0 4.8e38 -12.14 1.496e4/
+!cheb w/ different limits and coeff size
 C8H6+C2H(+m)=C6H5+C4H2(+m)  1.0E0 0.0 0.0   !NetReaction from PDepNetwork #7 (C10H7)    deltaHrxn(T=298K) = -19.317280861892925 kcal/mol
-TCHEB / 290.0 3000.0 /  PCHEB / 0.009869232667160128 98.69232667160128 /
-CHEB / 5    3 /
-CHEB / 1.3109000e+01 -1.9370000e-01 -9.4573000e-02 /
-CHEB / -6.4157000e-01 2.8516000e-01 1.3790000e-01 /
-CHEB / -2.4741000e-01 -9.1641000e-02 -4.3948000e-02 /
-CHEB / -2.8405000e-02 -1.9150000e-02 -5.2557000e-03 /
-CHEB / 2.4252000e-02 2.5921000e-02 6.7084000e-03 /
-!this should be last to test non-zero last efficiency (N2)
+TCHEB / 290.0 3000.0 /  PCHEB / 0.001 100.0 /
+CHEB / 4    2 /
+CHEB / 1.3109000e+01 -1.9370000e-01 /
+CHEB / -6.4157000e-01 2.8516000e-01 /
+CHEB / -2.4741000e-01 -9.1641000e-02 /
+CHEB / -2.8405000e-02 -1.9150000e-02 /
+!test non-zero last efficiency (N2)
 H+O2+M<=>HO2+M                           2.800E+18    -.860        .00
 O2/ .00/ H2O/ .00/ CO/ .75/ CO2/1.50/ C2H6/1.50/ N2/ 3.00/ AR/ .00/
 !September 8, 2010
 !Following C3H5 PES from J.A. Miller et al.; J.Phys.Chem.A
 H+aC3H4=aC3H5 1.0   0.0 0.0
-DUPLICATE
 PLOG / 0.001316 2.21e+61    -15.25  20076 /
 PLOG / 0.039474 1.24e+52    -12.02  17839 /
 PLOG / 1        4.67e+51    -11.45  21340 /
 PLOG / 10       3.75e+48    -10.27  22511 /
 PLOG / 100      4.23e+43    -8.61   22522 /
-! plog with under range
+! plog with pressures under range
 C5H5+CH3=C5H4CH3+H  1.0 0.0 0.0
+DUPLICATE
 PLOG / 55 1.2124e+16  -0.5779     10872.7 /
 PLOG / 100    4.9108e+31  -4.8507     24772.8 /
+! plog with pressures over range
+C5H5+CH3=C5H4CH3+H  1.0 0.0 0.0
+DUPLICATE
+PLOG / 1e-6 1.2124e+16  -0.5779     10872.7 /
+PLOG / 1e-5    4.9108e+31  -4.8507     24772.8 /
 ! and this one should test the last species (Ns) present in a reaction
 H+O2+N2<=>HO2+N2                         2.800E+18    -.860        .00
+! add a reaction to test the last species with non-zero net nu
+! as this needs to be excluded during Jacobian calculation
+N2O+O<=>N2+O2                            1.400E+12     .000   10810.00
 END
