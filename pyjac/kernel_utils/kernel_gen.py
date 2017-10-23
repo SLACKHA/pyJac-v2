@@ -303,14 +303,14 @@ class kernel_generator(object):
         # to functions, in the meantime use a Template
 
         # now create the kernels!
-        target = lp_utils.get_target(self.lang, self.loopy_opts.device,
-                                     self.compiler)
+        self.target = lp_utils.get_target(self.lang, self.loopy_opts.device,
+                                          self.compiler)
         for i, info in enumerate(self.kernels):
             # if external, or already built
             if isinstance(info, lp.LoopKernel):
                 continue
             # create kernel from k_gen.knl_info
-            self.kernels[i] = self.make_kernel(info, target, self.test_size)
+            self.kernels[i] = self.make_kernel(info, self.target, self.test_size)
             # apply vectorization
             self.kernels[i] = self.apply_specialization(
                 self.loopy_opts,
@@ -754,7 +754,8 @@ ${name} : ${type}
 
                 # check that all other properties are the same
                 if other != atomic and other.copy(
-                        dtype=to_loopy_type(other.dtype, for_atomic=True)) != atomic:
+                        dtype=to_loopy_type(other.dtype, for_atomic=True,
+                                            target=self.target)) != atomic:
                     __raise()
 
                 # otherwise, they're the same and the only difference is the
@@ -885,9 +886,7 @@ ${name} : ${type}
                                        for arr in kernel_data),
                              kernel_data[:],
                              name=self.name,
-                             target=lp_utils.get_target(
-                                 self.lang, self.loopy_opts.device)
-                             )
+                             target=self.target)
         # force vector width
         if self.vec_width != 0:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
