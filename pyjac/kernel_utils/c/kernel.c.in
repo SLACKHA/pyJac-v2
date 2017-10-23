@@ -24,7 +24,7 @@ problem_size : int
     The number of conditions to execute for
 ${knl_args_doc}
 */
-void execute_kernel(int problem_size, ${knl_args})
+void execute_kernel(long unsigned int problem_size, ${knl_args})
 {
     /* Memory Transfers into the kernel, if any */
     ${mem_transfers_in}

@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as np
 
 cdef extern from "${knl}_kernel_main.h":
-    void ${knl}_kernel_call(np.int_t problem_size, np.int_t num_threads, double* phi, double* P, double* dphi)
+    void ${knl}_kernel_call(np.uint_t problem_size, np.int_t num_threads, double* phi, double* P, double* dphi)
     void finalize()
 
 @cython.boundscheck(False)
