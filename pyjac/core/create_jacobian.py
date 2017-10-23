@@ -3147,15 +3147,12 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                             namestore.num_specs_no_ns,
                             namestore.num_specs_no_ns)
 
-    # k loop is _only_ over non-zero dnk/dnj deriviatives
     ns = namestore.num_specs[-1]
-    num_nonzero_specs = namestore.num_net_nonzero_spec.size
-    if ns in namestore.num_net_nonzero_spec.initializer:
-        num_nonzero_specs -= 1
-    # k loop
+    # k loop is _only_ over non-zero dnk/dnj deriviatives
+    # note that net_notzero_specs does not include NS by rule
     i_spec_k = 'i_spec_k'
     extra_inames = [(i_spec_k, '0 <= i_spec_k < {}'.format(
-        num_nonzero_specs))]
+        namestore.net_nonzero_spec.size))]
     nonzero_lp, spec_k = mapstore.apply_maps(
         namestore.net_nonzero_spec, i_spec_k)
 
@@ -3262,15 +3259,12 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                             namestore.num_specs_no_ns,
                             namestore.num_specs_no_ns)
 
-    # k loop is _only_ over non-zero dnk/dnj deriviatives
     ns = namestore.num_specs[-1]
-    num_nonzero_specs = namestore.num_net_nonzero_spec.size
-    if ns in namestore.num_net_nonzero_spec.initializer:
-        num_nonzero_specs -= 1
-    # k loop
+    # k loop is _only_ over non-zero dnk/dnj deriviatives
+    # note that net_notzero_specs does not include NS by rule
     i_spec_k = 'i_spec_k'
     extra_inames = [(i_spec_k, '0 <= i_spec_k < {}'.format(
-        num_nonzero_specs))]
+        namestore.net_nonzero_spec.size))]
     nonzero_lp, spec_k = mapstore.apply_maps(
         namestore.net_nonzero_spec, i_spec_k)
     spec_heat_lp, spec_heat_k_str = mapstore.apply_maps(

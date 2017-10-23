@@ -1582,38 +1582,19 @@ class NameStore(object):
                                       order=self.order)
 
         # per species
-        self.num_net_nonzero_spec = creator('num_net_nonzero_spec',
-                                            dtype=np.int32,
-                                            shape=rate_info['net_per_spec'][
-                                                'map'].shape,
-                                            initializer=np.arange(
-                                                rate_info['net_per_spec'][
-                                                    'map'].size,
-                                                dtype=np.int32),
-                                            order=self.order)
-        self.num_net_nonzero_phi = creator('num_net_nonzero_phi',
-                                           dtype=np.int32,
-                                           shape=(rate_info['net_per_spec'][
-                                                'map'].shape[0] + 2,),
-                                           initializer=np.arange(
-                                                rate_info['net_per_spec'][
-                                                    'map'].size + 2,
-                                                dtype=np.int32),
-                                           order=self.order)
-        self.net_nonzero_spec = creator('net_nonzero_spec', dtype=np.int32,
-                                        shape=rate_info['net_per_spec'][
-                                            'map'].shape,
-                                        initializer=rate_info[
-                                            'net_per_spec']['map'],
-                                        order=self.order)
-        self.net_nonzero_phi = creator('net_nonzero_phi', dtype=np.int32,
-                                       shape=(rate_info['net_per_spec'][
-                                           'map'].shape[0] + 2,),
-                                       initializer=np.asarray(
-                                            np.hstack(([0, 1], rate_info[
-                                                'net_per_spec']['map'] + 2)),
-                                            dtype=np.int32),
-                                       order=self.order)
+        net_nonzero_spec = rate_info['net_per_spec']['map'][np.where(
+            rate_info['net_per_spec']['map'] != rate_info['Ns'] - 1)]
+        self.net_nonzero_spec = creator(
+            'net_nonzero_spec_no_ns', dtype=np.int32,
+            shape=net_nonzero_spec.shape,
+            initializer=net_nonzero_spec,
+            order=self.order)
+        self.net_nonzero_phi = creator(
+            'net_nonzero_phi', dtype=np.int32,
+            shape=(net_nonzero_spec.shape[0] + 2,),
+            initializer=np.asarray(np.hstack(([0, 1], net_nonzero_spec + 2)),
+                                   dtype=np.int32),
+            order=self.order)
 
         self.spec_to_rxn = creator('spec_to_rxn', dtype=np.int32,
                                    shape=rate_info['net_per_spec'][
