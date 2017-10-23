@@ -896,11 +896,13 @@ ${name} : ${type}
         preambles = []
         inits = []
         instructions = []
+        local_decls = []
+        from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
         for i, k, in enumerate(self.kernels):
             if k in sub_instructions:
                 # avoid regeneration if possible
-                inst, pre, init = sub_instructions[k]
+                inst, pre, init, ldecls = sub_instructions[k]
                 instructions.append(inst)
                 if pre and pre not in preambles:
                     preambles.extend(pre)
@@ -908,6 +910,9 @@ ${name} : ${type}
                     # filter out any host constants in sub inits
                     init = [x for x in init if not any(n in x for n in read_only)]
                     inits.extend(init)
+                if ldecls:
+                    ldecls = [x for x in ldecls if str(x) not in local_decls]
+                    local_decls.extend(ldecls)
                 continue
 
             cgr = lp.generate_code_v2(k)
@@ -948,6 +953,15 @@ ${name} : ${type}
             # and add to inits
             inits.extend(init_list)
 
+            # need to strip out any declaration of a __local variable as these
+            # must be in the kernel scope
+            def partition(l, p):
+                return reduce(lambda x, y: x[not p(y)].append(y) or x, l, ([], []))
+            ldecls, body = partition(cgr.body_ast.contents,
+                                     lambda x: isinstance(x, CLLocal))
+            ldecls = [str(x) for x in ldecls]
+            local_decls.extend([x for x in ldecls if x not in local_decls])
+            cgr.body_ast = cgr.body_ast.__class__(contents=body)
             # leave a comment to distinguish the name
             # and put the body in
             instructions.append('// {name}\n{body}\n'.format(
@@ -955,13 +969,16 @@ ${name} : ${type}
 
             if instruction_store is not None:
                 instruction_store[k] = (instructions[-1][:],
-                                        preamble_list, init_list)
+                                        preamble_list, init_list, ldecls)
 
         # insert barriers if any
         instructions = self.apply_barriers(instructions)
 
         # get defn
         defn_str = lp_utils.get_header(knl)
+
+        # add local declaration to beginning of instructions
+        instructions[0:0] = local_decls
 
         # join to str
         instructions = '\n'.join(instructions)
