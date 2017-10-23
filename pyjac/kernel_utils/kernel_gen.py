@@ -471,7 +471,7 @@ class kernel_generator(object):
 
         self.header_name = os.path.join(path, self.file_prefix + self.name + '_main'
                                         + utils.header_ext[self.lang])
-        with filew.get_file(os.path.join(path, self.header_name), self.lang,
+        with filew.get_file(os.path.join(self.header_name), self.lang,
                             use_filter=False) as file:
             file.add_lines(file_src.safe_substitute(
                 input_args=', '.join([self._get_pass(next(
