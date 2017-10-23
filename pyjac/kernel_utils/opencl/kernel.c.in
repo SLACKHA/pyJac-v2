@@ -20,7 +20,7 @@ cl_program program = NULL;
 cl_context context = NULL;
 cl_command_queue queue = NULL;
 // maximum # of IC's per run, based on memory limits
-cl_uint max_per_run = ${max_per_run};
+size_t max_per_run = ${max_per_run};
 
 /* declare host/cl buffers */
 ${mem_declares}
@@ -30,14 +30,14 @@ Execute the built opencl kernel
 
 Parameters
 ----------
-problem_size : cl_uint
+problem_size : size_t
     The number of conditions to execute for
 ${knl_args_doc}
 */
-void execute_kernel(cl_uint problem_size, ${knl_args})
+void execute_kernel(size_t problem_size, ${knl_args})
 {
 
-    cl_uint per_run = max_per_run < problem_size ? max_per_run : problem_size;
+    size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
 
     for (size_t offset = 0; offset < problem_size; offset += per_run)
     {
@@ -65,10 +65,10 @@ Initialize memory & assign kernel args for the kernel
 
 Parameters
 ----------
-problem_size : cl_uint
+problem_size : size_t
     The number of conditions to execute for
 */
-void mem_init(cl_uint problem_size)
+void mem_init(size_t problem_size)
 {
     #if CL_LEVEL >= 120
         // with CL 1.2, we have access to clEnqueueFillBuffer
@@ -107,13 +107,13 @@ Create opencl kernel
 
 Parameters
 ----------
-problem_size : cl_uint
+problem_size : size_t
     The number of conditions to execute for
 num_devices : uint
     The number of devices to use.  If for GPUs/accelerators, this is the # of GPUs to use
     If for CPUs, this is the number of logical cores to use
 */
-void init(cl_uint problem_size, cl_uint num_devices)
+void init(size_t problem_size, cl_uint num_devices)
 {
     cl_platform_id platform_id[NUM_PLATFORMS];
     cl_device_id device_ids[MAX_DEVICE];
@@ -293,12 +293,12 @@ void finalize()
 
 //knl specific vars
 bool ${knl_name}_init = false;
-cl_uint per_run_store = 0;
+size_t per_run_store = 0;
 cl_uint num_devices_store = 0;
-void ${knl_name}_call(cl_uint problem_size, cl_uint num_devices,
+void ${knl_name}_call(size_t problem_size, cl_uint num_devices,
                     ${knl_args})
 {
-    cl_uint per_run = max_per_run < problem_size ? max_per_run : problem_size;
+    size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
     if (num_devices != num_devices_store && ${knl_name}_init)
     {
         //check to see if we need to completely reset (i.e. on device change)
@@ -335,7 +335,7 @@ int main(int argc, char* argv[])
     //#2 - the number of cores [CPU only] or number of GPUs / accelerators [GPU only]
     //#3 - whether to compile
 
-    cl_uint problem_size = atoi(argv[1]);
+    size_t problem_size = atoi(argv[1]);
     cl_uint num_devices = atoi(argv[2]);
     int compile = 1;
     if (argc >= 4)
@@ -354,7 +354,7 @@ int main(int argc, char* argv[])
 
     //init memory & program
     StartTimer();
-    cl_uint per_run = max_per_run < problem_size ? max_per_run : problem_size;
+    size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
     init(per_run, num_devices);
     double setup_time = GetTimer();
     //read input data
