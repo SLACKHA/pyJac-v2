@@ -669,7 +669,7 @@ class jacobian_eval(eval):
                 err[non_zero] / denom[non_zero])
             err_dict['jac_zero'] = np.linalg.norm(
                 err[zero])
-            assert np.isclose(err_dict['jac_zero'], 0)
+            assert np.allclose(err_dict['jac_zero'], 0)
             # norm suggested by lapack
             err_dict['jac_lapack'] = np.linalg.norm(err) / np.linalg.norm(
                 denom)
@@ -686,10 +686,13 @@ class jacobian_eval(eval):
             # largest relative errors
             for mul in [1, 10, 100]:
                 atol = self.atol * mul
-                rtol = self.rtol * mul
-                err_weighted = err / (atol + rtol * denom)
-                err_dict['jac_weighted_{}'.format(mul)] = np.linalg.norm(
+                err_weighted = err / (atol + self.rtol * denom)
+                err_dict['jac_weighted_{}'.format(atol)] = np.linalg.norm(
                     err_weighted)
+
+            # info values for lookup
+            err_dict['jac_max_value'] = np.amax(out)
+            err_dict['jac_threshold_value'] = np.linalg.norm(out)
 
         del out_check
         return err_dict
@@ -725,8 +728,11 @@ class jacobian_eval(eval):
             # check that we have all expected keys, and there is no nan's, etc.
             self._check_file(err, names, mods)
             # check that we have the stored errors / values
-            names = ['jac_weighted']
-            mods = ['_1', '_10', '_100']
+            names = ['jac_weighted_1e+']
+            mods = ['1', '2', '3']
+            self._check_file(err, names, mods)
+            names = ['jac_']
+            mods = ['max_value', 'threshold_value']
             self._check_file(err, names, mods)
             return True
         except:
