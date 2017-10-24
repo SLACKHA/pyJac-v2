@@ -92,13 +92,13 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
                     device_types = [cl.device_type.CPU, cl.device_type.GPU,
                                     cl.device_type.ACCELERATOR]
                     platforms = cl.get_platforms()
-                    dev_list = []
+                    platform_list = []
                     for p in platforms:
                         for dev_type in device_types:
                             devices = p.get_devices(dev_type)
                             if devices:
-                                dev_list.append(devices[0])
-                    inner_loop += [('devices', dev_list)]
+                                platform_list.append(p.vendor)
+                    inner_loop += [('platform', platform_list)]
 
                 # create option loop and add
                 oploop += [inner_loop]
