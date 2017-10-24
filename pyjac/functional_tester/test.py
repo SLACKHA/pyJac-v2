@@ -708,6 +708,10 @@ class jacobian_eval(eval):
             err_dict['jac_max_value'] = np.amax(out)
             err_dict['jac_threshold_value'] = np.linalg.norm(out)
 
+            # info values for lookup
+            err_dict['jac_max_value'] = np.amax(out)
+            err_dict['jac_threshold_value'] = np.linalg.norm(out)
+
         del out_check
         return err_dict
 
