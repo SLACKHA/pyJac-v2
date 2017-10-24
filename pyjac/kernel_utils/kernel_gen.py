@@ -399,7 +399,8 @@ class kernel_generator(object):
         self._make_kernels()
         max_per_run = self._generate_wrapping_kernel(path)
         self._generate_compiling_program(path)
-        self._generate_calling_program(path, data_filename, max_per_run)
+        self._generate_calling_program(path, data_filename, max_per_run,
+                                       for_validation=for_validation)
         self._generate_calling_header(path)
         self._generate_common(path)
 
@@ -644,10 +645,11 @@ ${name} : ${type}
             num_outputs = len(self.mem.out_arrays)
             output_paths = ', '.join(['"{}"'.format(x + '.bin')
                                       for x in self.mem.out_arrays])
-            outputs = ', '.join(self.mem.out_arrays[:])
+            outputs = ', '.join(['h_{}_local'.format(x)
+                                 for x in self.mem.out_arrays])
             # get lp array map
             out_arrays = [next(x for x in self.mem.arrays if x.name == y)
-                          for y in outputs]
+                          for y in self.mem.out_arrays]
             output_sizes = ', '.join([str(self.mem._get_size(
                 x, include_item_size=False)) for x in out_arrays])
         else:

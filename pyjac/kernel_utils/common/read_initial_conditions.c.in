@@ -34,8 +34,8 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
         int count = fread(buffer, sizeof(double), BUFF_SIZE, fp);
         if (count != (BUFF_SIZE))
         {
-            fprintf(stderr, "File (%s) is incorrectly formatted, %d '\
-                'doubles were expected but only %d were read.\\n",
+            fprintf(stderr, "File (%s) is incorrectly formatted, %d "
+                "doubles were expected but only %d were read.\\n",
                 filename, BUFF_SIZE, count);
             exit(-1);
         }

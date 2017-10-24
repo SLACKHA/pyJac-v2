@@ -108,12 +108,13 @@ class validation_runner(runner):
         """
 
         self.gas = gas
+        self.gas.basis = 'molar'
         self.T = data['T']
         self.P = data['P']
         self.V = data['V']
         self.moles = data['moles']
-        self.phi_cp = self.get_phi(self.T, self.V, self.moles)
-        self.phi_cv = self.get_phi(self.T, self.P, self.moles)
+        self.phi_cp = self.get_phi(self.T, self.P, self.V, self.moles)
+        self.phi_cv = self.get_phi(self.T, self.V, self.P, self.moles)
         self.num_conditions = num_conditions
         self.max_vec_width = max_vec_width
 
@@ -192,11 +193,9 @@ class validation_runner(runner):
                     for name in out_names]
 
             # call
-            subprocess.check_call(['python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1]),
-                os.path.join(my_test, lib),
-                this_run, state['num_cores']
-                ])
+            subprocess.check_call([os.path.join(my_test, lib),
+                                   str(this_run), str(state['num_cores'])],
+                                  cwd=my_test)
 
             # get error
             err_dict = self.helper.eval_error(
@@ -295,23 +294,30 @@ class spec_rate_eval(eval):
             ns_range = np.arange(self.gas.n_species)
 
             T = phi[:, 0]
+            P = phi[:, 1] if state['conp'] else phi[:, 2]
+            V = phi[:, 2] if state['conp'] else phi[:, 1]
             # it's actually more accurate to set the density
             # (total concentration) due to the cantera internals
             D = P / (ct.gas_constant * T)
 
             # get the last species's concentrations as D - sum(other species)
-            last_spec = np.expand_dims(D - np.sum(phi[:, 2:], axis=1), 1)
-            moles = np.concatenate((phi[:, 2:], last_spec), axis=1)
+            concs = phi[:, 3:] / V[:, np.newaxis]
+            last_spec = np.expand_dims(D - np.sum(concs, axis=1), 1)
+            concs = np.concatenate((concs, last_spec), axis=1)
 
             self.gas.basis = 'molar'
             with np.errstate(divide='ignore', invalid='ignore'):
                 for i in range(self.num_conditions):
                     if not i % 10000:
                         print(i)
-                    self.gas.TDX = T[i], D[i], moles[i]
-                    # now, since cantera normalizes these concentrations
-                    # let's read them back
-                    concs = self.gas.concentrations[:]
+                    # first, set T / D
+                    self.gas.TD = T[i], D[i]
+                    # now set concentrations
+                    self.gas.concentrations = concs[i]
+                    # assert allclose
+                    assert np.allclose(self.gas.T, T[i], atol=1e-12)
+                    assert np.allclose(self.gas.density, D[i], atol=1e-12)
+                    assert np.allclose(self.gas.concentrations, concs[i], atol=1e-12)
                     # get molar species rates
                     spec_rates = self.gas.net_production_rates[:]
                     self.molar_rates[i, :] = spec_rates[:-1] * V[i]
@@ -326,9 +332,9 @@ class spec_rate_eval(eval):
                     h = eval_h(ns_range, T[i])
                     cv = cp - ct.gas_constant
                     u = h - T[i] * ct.gas_constant
-                    np.divide(-np.dot(h, spec_rates), np.dot(cp, concs),
+                    np.divide(-np.dot(h, spec_rates), np.dot(cp, concs[i]),
                               out=self.conp_temperature_rates[i, :])
-                    np.divide(-np.dot(u, spec_rates), np.dot(cv, concs),
+                    np.divide(-np.dot(u, spec_rates), np.dot(cv, concs[i]),
                               out=self.conv_temperature_rates[i, :])
 
                     # finally find extra variable rates
@@ -342,7 +348,6 @@ class spec_rate_eval(eval):
                             self.mw_frac * spec_rates[:-1])
 
             self.evaled = True
-            del moles
 
     def get_outputs(self, state, offset, this_run, asplit):
         conp = state['conp']
@@ -370,7 +375,7 @@ class spec_rate_eval(eval):
         out_check = out_files[:]
         # load output arrays
         for i in range(len(out_files)):
-            out_check[i] = np.load(out_files[i])
+            out_check[i] = np.fromfile(out_files[i], dtype=np.float64)
             # check finite
             assert np.all(np.isfinite(out_check[i]))
             # and reshape to match test array
