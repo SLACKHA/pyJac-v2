@@ -11,6 +11,7 @@ import logging
 from collections import defaultdict
 
 import six
+from six.moves import reduce
 import loopy as lp
 import pyopencl as cl
 import numpy as np
