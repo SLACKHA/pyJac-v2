@@ -8,7 +8,8 @@ from __future__ import division
 # Standard libraries
 import math
 import numpy as np
-from .reaction_types import *
+from .reaction_types import reaction_type, thd_body_type, falloff_form, \
+    reversible_type
 
 __all__ = ['RU', 'RUC', 'RU_JOUL', 'PA', 'get_elem_wt',
            'ReacInfo', 'SpecInfo', 'calc_spec_smh']
@@ -28,21 +29,23 @@ PA = 101325.0
 class CommonEqualityMixin(object):
     """Base class for `ReacInfo` and `SpecInfo` classes for equality comparison
     """
+
     def __eq__(self, other):
         try:
             for key, value in self.__dict__.items():
-                if not key in other.__dict__:
+                if key not in other.__dict__:
                     return False
                 if isinstance(value, np.ndarray):
                     if not np.allclose(value, other.__dict__[key]):
                         return False
                 elif isinstance(value, list):
-                    if not all([any(x == y for y in other.__dict__[key]) for x in value]):
+                    if not all([any(x == y for y in other.__dict__[key])
+                                for x in value]):
                         return False
                 elif value != other.__dict__[key]:
                     return False
             return True
-        except Exception as e:
+        except Exception:
             return False
 
     def __ne__(self, other):
@@ -164,7 +167,7 @@ class ReacInfo(CommonEqualityMixin):
         self.prod = products
         self.prod_nu = prod_nu
 
-        ## Arrhenius coefficients
+        # Arrhenius coefficients
         # pre-exponential factor [m, kmol, s]
         self.A = A
         # Temperature exponent [-]
@@ -216,14 +219,14 @@ class ReacInfo(CommonEqualityMixin):
         # List of arrays with [pressure [Pa], A, b, E]
         self.plog_par = None
 
-        #enums
+        # enums
         self.type = []
 
     def finalize(self, num_species):
         """
 
-        Takes all the various options of the reaction, and turns it into `reaction_types` enums
-        for use with the SymPy equation databases
+        Takes all the various options of the reaction, and turns it into
+        :class:`reaction_types` enums
 
         Parameters
         ----------
@@ -233,8 +236,8 @@ class ReacInfo(CommonEqualityMixin):
         """
 
         if self.rev:
-            self.type.append(reversible_type.explicit if self.rev_par\
-                else reversible_type.non_explicit)
+            self.type.append(reversible_type.explicit if self.rev_par
+                             else reversible_type.non_explicit)
         else:
             self.type.append(reversible_type.non_reversible)
 
@@ -252,21 +255,21 @@ class ReacInfo(CommonEqualityMixin):
             self.type.append(reaction_type.elementary)
 
         if reaction_type.fall in self.type or \
-            reaction_type.chem in self.type or\
-            reaction_type.thd in self.type:
+                reaction_type.chem in self.type or\
+                reaction_type.thd in self.type:
 
-            #figure out the third body type
-            if self.pdep_sp: #single species
+            # figure out the third body type
+            if self.pdep_sp:  # single species
                 self.type.append(thd_body_type.species)
             elif not self.thd_body_eff or \
-                (len(self.thd_body_eff) == num_species \
-                and all(thd[1] == 1.0 for thd in self.thd_body_eff)): #check for all = 1
+                (len(self.thd_body_eff) == num_species  # check for all = 1
+                 and all(thd[1] == 1.0 for thd in self.thd_body_eff)):
                 self.type.append(thd_body_type.unity)
-            else: #mixture as third body
+            else:  # mixture as third body
                 self.type.append(thd_body_type.mix)
 
         if reaction_type.fall in self.type or \
-            reaction_type.chem in self.type:
+                reaction_type.chem in self.type:
             if self.troe:
                 self.type.append(falloff_form.troe)
             elif self.sri:
@@ -303,10 +306,10 @@ class ReacInfo(CommonEqualityMixin):
             except:
                 reac_types = (reac_types,)
 
-        #get the types to a more managable form
+        # get the types to a more managable form
         enum_types = set([type(rtype) for rtype in reac_types])
-        enum_types = {etype : [x for x in reac_types if type(x) == etype]
-                        for etype in enum_types}
+        enum_types = {etype: [x for x in reac_types if type(x) == etype]
+                      for etype in enum_types}
 
         for rtype, enum in enum_types.items():
             if not any(x in self.type for x in enum):

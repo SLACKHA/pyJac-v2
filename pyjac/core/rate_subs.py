@@ -15,7 +15,6 @@ from string import Template
 from collections import OrderedDict
 
 # Non-standard librarys
-import sympy as sp
 import loopy as lp
 import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
@@ -476,24 +475,21 @@ def assign_rates(reacs, specs, rate_spec):
                 'a_lo': a_lo,
                 'a_hi': a_hi,
                 'T_mid': T_mid
-            },
-            'mws': mws,
-            'mw_post': mw_post,
-            'reac_has_ns': reac_has_ns,
-            'ns_nu': ns_nu
-            }
+    },
+        'mws': mws,
+        'mw_post': mw_post,
+        'reac_has_ns': reac_has_ns,
+        'ns_nu': ns_nu
+    }
 
 
-def reset_arrays(eqs, loopy_opts, namestore, test_size=None):
+def reset_arrays(loopy_opts, namestore, test_size=None):
     """Resets the dphi and wdot arrays for use in the rate evaluations
 
     kernel
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -546,7 +542,7 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None):
             __create(namestore.spec_rates, namestore.num_specs, 'wdot_reset')]
 
 
-def get_concentrations(eqs, loopy_opts, namestore, conp=True,
+def get_concentrations(loopy_opts, namestore, conp=True,
                        test_size=None):
     """Determines concentrations from moles and state variables depending
     on constant pressure vs constant volue assumption
@@ -555,9 +551,6 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -659,7 +652,7 @@ def get_concentrations(eqs, loopy_opts, namestore, conp=True,
                           parameters={'R_u': np.float64(chem.RU)})
 
 
-def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
+def get_molar_rates(loopy_opts, namestore, conp=True,
                     test_size=None):
     """Generates instructions, kernel arguements, and data for the
        molar derivatives
@@ -667,9 +660,6 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -750,7 +740,7 @@ def get_molar_rates(eqs, loopy_opts, namestore, conp=True,
                           vectorization_specializer=vec_spec)
 
 
-def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
+def get_extra_var_rates(loopy_opts, namestore, conp=True,
                         test_size=None):
     """Generates instructions, kernel arguements, and data for the
        derivative of the "extra" variable -- P or V depending on conV/conP
@@ -759,9 +749,6 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -854,7 +841,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum {id=final, dep=lb2, atomic, nosync=temp_init}
                 """
-                ).safe_substitute(**locals())]
+            ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
                                                     scope=scopes.LOCAL))
         else:
@@ -879,7 +866,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum {id=final, dep=lb2, atomic, nosync=temp_init}
                 """
-                ).safe_substitute(**locals())]
+            ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
                                                     scope=scopes.LOCAL))
         else:
@@ -910,7 +897,7 @@ def get_extra_var_rates(eqs, loopy_opts, namestore, conp=True,
                           vectorization_specializer=vec_spec)
 
 
-def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
+def get_temperature_rate(loopy_opts, namestore, conp=True,
                          test_size=None):
     """Generates instructions, kernel arguements, and data for the
        temperature derivative
@@ -918,9 +905,6 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -943,16 +927,6 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
                             namestore.num_specs,
                             namestore.num_specs)
     fixed_inds = (global_ind,)
-
-    # here, the equation form _does_ matter
-    if conp:
-        term = next(x for x in eqs['conp'] if
-                    str(x) == 'frac{text{d} T }{text{d} t }')
-        term = eqs['conp'][term]
-    else:
-        term = next(x for x in eqs['conv'] if
-                    str(x) == 'frac{text{d} T }{text{d} t }')
-        term = eqs['conv'][term]
 
     # first, create all arrays
     kernel_data = []
@@ -1020,7 +994,7 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
             ... lbarrier {id=lb2, dep=temp_sum}
             ${Tdot_str} = ${Tdot_str} - upper / temp_sum {id=final, dep=lb2, atomic}
             """
-            ).safe_substitute(**locals())]
+        ).safe_substitute(**locals())]
         kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
                                                 scope=scopes.LOCAL))
 
@@ -1039,7 +1013,7 @@ def get_temperature_rate(eqs, loopy_opts, namestore, conp=True,
                           vectorization_specializer=vec_spec)
 
 
-def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
+def get_spec_rates(loopy_opts, namestore, conp=True,
                    test_size=None):
     """Generates instructions, kernel arguements, and data for the
        temperature derivative
@@ -1047,9 +1021,6 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1134,15 +1105,12 @@ def get_spec_rates(eqs, loopy_opts, namestore, conp=True,
                           vectorization_specializer=vec_spec)
 
 
-def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
+def get_rop_net(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the net
     Rate of Progress kernels
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1335,15 +1303,12 @@ def get_rop_net(eqs, loopy_opts, namestore, test_size=None):
         return infos
 
 
-def get_rop(eqs, loopy_opts, namestore, allint={'net': False}, test_size=None):
+def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
     """Generates instructions, kernel arguements, and data for the Rate of Progress
     kernels
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems.
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1462,7 +1427,8 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': False}, test_size=None):
     end
     """).safe_substitute(nu_str=nu_str,
                          concs_str=concs_str)
-        fractional_eval = k_gen.subs_at_indent(fractional_eval, allint=allint_eval)
+        fractional_eval = k_gen.subs_at_indent(
+            fractional_eval, allint=allint_eval)
 
         if not allint['net']:
             rop_instructions = k_gen.subs_at_indent(rop_instructions,
@@ -1492,15 +1458,12 @@ def get_rop(eqs, loopy_opts, namestore, allint={'net': False}, test_size=None):
     return infos
 
 
-def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
+def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for pressure
     modification term of the forward reaction rates.
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1611,15 +1574,12 @@ def get_rxn_pres_mod(eqs, loopy_opts, namestore, test_size=None):
     return info_list
 
 
-def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
+def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     """Generates instructions, kernel arguements, and data for reverse reaction
     rates
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1784,15 +1744,12 @@ def get_rev_rates(eqs, loopy_opts, namestore, allint, test_size=None):
                                      lp_pregen.fastpowf_PreambleGen()])
 
 
-def get_thd_body_concs(eqs, loopy_opts, namestore, test_size=None):
+def get_thd_body_concs(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for third body
     concentrations
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1901,15 +1858,12 @@ ${thd_str} = thd_temp {dep=thd*}
                           mapstore=mapstore)
 
 
-def get_cheb_arrhenius_rates(eqs, loopy_opts, namestore, maxP, maxT,
+def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
                              test_size=None):
     """Generates instructions, kernel arguements, and data for cheb rate constants
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2077,14 +2031,11 @@ ${kf_str} = ${exp10fun} {id=set, dep=kf}
                           vectorization_specializer=vec_spec)
 
 
-def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
+def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
     """Generates instructions, kernel arguements, and data for p-log rate constants
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2235,15 +2186,12 @@ def get_plog_arrhenius_rates(eqs, loopy_opts, namestore, maxP, test_size=None):
                            vectorization_specializer=vec_spec)]
 
 
-def get_reduced_pressure_kernel(eqs, loopy_opts, namestore, test_size=None):
+def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the reduced
     pressure evaluation kernel
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2337,15 +2285,12 @@ ${Pr_str} = ${thd_conc_str} * k0 / kinf {id=set, dep=k*}
                            vectorization_specializer=vec_spec)]
 
 
-def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
+def get_troe_kernel(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the Troe
     falloff evaluation kernel
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2364,9 +2309,6 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
     # check for empty
     if namestore.troe_map is None:
         return None
-
-    # set of equations is irrelevant for non-derivatives
-    conp_eqs = eqs['conp']
 
     # rate info and reac ind
     kernel_data = []
@@ -2434,7 +2376,7 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
 
     return [k_gen.knl_info('fall_troe',
                            pre_instructions=[ic.default_pre_instructs(
-                                'T', T_str, 'VAL')],
+                               'T', T_str, 'VAL')],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
@@ -2443,15 +2385,12 @@ def get_troe_kernel(eqs, loopy_opts, namestore, test_size=None):
                            manglers=[lp_pregen.fmax()])]
 
 
-def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
+def get_sri_kernel(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the SRI
     falloff evaluation kernel
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2471,8 +2410,6 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
     if namestore.sri_map is None:
         return None
 
-    # set of equations is irrelevant for non-derivatives
-    conp_eqs = eqs['conp']
     kernel_data = []
 
     # create mapper
@@ -2537,15 +2474,12 @@ def get_sri_kernel(eqs, loopy_opts, namestore, test_size=None):
                            manglers=[lp_pregen.fmax()])]
 
 
-def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
+def get_lind_kernel(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for the Lindeman
     falloff evaluation kernel
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2592,16 +2526,13 @@ def get_lind_kernel(eqs, loopy_opts, namestore, test_size=None):
                            mapstore=mapstore)]
 
 
-def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
+def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                                falloff=False):
     """Generates instructions, kernel arguements, and data for specialized forms
     of simple (non-pressure dependent) rate constants
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2915,15 +2846,13 @@ def get_simple_arrhenius_rates(eqs, loopy_opts, namestore, test_size=None,
     return list(out_specs.values())
 
 
-def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=None,
+def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                          auto_diff=False, output_full_rop=False):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
     reacs : list of :class:`ReacInfo`
         List of species in the mechanism.
     specs : list of :class:`SpecInfo`
@@ -2978,27 +2907,26 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
     # hence, any data dependencies should be expressed in the order added here
 
     # reset kernels
-    __add_knl(reset_arrays(eqs, loopy_opts, nstore, test_size=test_size))
+    __add_knl(reset_arrays(loopy_opts, nstore, test_size=test_size))
 
     # first, add the concentration kernel
-    __add_knl(get_concentrations(eqs, loopy_opts, nstore, conp=conp,
+    __add_knl(get_concentrations(loopy_opts, nstore, conp=conp,
                                  test_size=test_size))
 
     # get the simple arrhenius k_gen.knl_info's
-    __add_knl(get_simple_arrhenius_rates(eqs, loopy_opts,
+    __add_knl(get_simple_arrhenius_rates(loopy_opts,
                                          nstore, test_size=test_size))
 
     # check for plog
     if rate_info['plog']['num']:
         # generate the plog kernel
-        __add_knl(get_plog_arrhenius_rates(eqs, loopy_opts,
+        __add_knl(get_plog_arrhenius_rates(loopy_opts,
                                            nstore, rate_info['plog']['max_P'],
                                            test_size=test_size))
 
     # check for chebyshev
     if rate_info['cheb']['num']:
-        __add_knl(get_cheb_arrhenius_rates(eqs,
-                                           loopy_opts,
+        __add_knl(get_cheb_arrhenius_rates(loopy_opts,
                                            nstore,
                                            np.max(rate_info['cheb']['num_P']),
                                            np.max(rate_info['cheb']['num_T']),
@@ -3007,27 +2935,27 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
     # check for third body terms
     if rate_info['thd']['num']:
         # add the initial third body conc eval kernel
-        __add_knl(get_thd_body_concs(eqs, loopy_opts,
+        __add_knl(get_thd_body_concs(loopy_opts,
                                      nstore, test_size))
 
     # check for falloff
     if rate_info['fall']['num']:
         # get the falloff rates
-        __add_knl(get_simple_arrhenius_rates(eqs, loopy_opts,
+        __add_knl(get_simple_arrhenius_rates(loopy_opts,
                                              nstore, test_size=test_size,
                                              falloff=True))
         # and the reduced pressure
-        __add_knl(get_reduced_pressure_kernel(eqs, loopy_opts,
+        __add_knl(get_reduced_pressure_kernel(loopy_opts,
                                               nstore, test_size=test_size))
         # and finally any blending functions (depend on reduced pressure)
         if rate_info['fall']['lind']['num']:
-            __add_knl(get_lind_kernel(eqs, loopy_opts,
+            __add_knl(get_lind_kernel(loopy_opts,
                                       nstore, test_size=test_size))
         if rate_info['fall']['troe']['num']:
-            __add_knl(get_troe_kernel(eqs, loopy_opts,
+            __add_knl(get_troe_kernel(loopy_opts,
                                       nstore, test_size=test_size))
         if rate_info['fall']['sri']['num']:
-            __add_knl(get_sri_kernel(eqs, loopy_opts,
+            __add_knl(get_sri_kernel(loopy_opts,
                                      nstore, test_size=test_size))
 
     # thermo polynomial dimension
@@ -3035,12 +2963,12 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
     # check for reverse rates
     if rate_info['rev']['num']:
         # add the 'b' eval
-        __add_knl(polyfit_kernel_gen('b', eqs['conp'], loopy_opts,
+        __add_knl(polyfit_kernel_gen('b', loopy_opts,
                                      nstore, test_size))
         # addd the 'b' eval to depnediencies
         depends_on.append(kernels[-1])
         # add Kc / rev rates
-        __add_knl(get_rev_rates(eqs, loopy_opts,
+        __add_knl(get_rev_rates(loopy_opts,
                                 nstore,
                                 allint={'net': rate_info['net']['allint']},
                                 test_size=test_size))
@@ -3048,43 +2976,43 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
     # check for falloff
     if rate_info['fall']['num']:
         # and the Pr evals
-        __add_knl(get_rxn_pres_mod(eqs, loopy_opts,
+        __add_knl(get_rxn_pres_mod(loopy_opts,
                                    nstore, test_size))
 
     # add ROP
-    __add_knl(get_rop(eqs, loopy_opts,
+    __add_knl(get_rop(loopy_opts,
                       nstore, allint={'net': rate_info['net']['allint']},
                       test_size=test_size))
     # add ROP net
-    __add_knl(get_rop_net(eqs, loopy_opts,
+    __add_knl(get_rop_net(loopy_opts,
                           nstore, test_size))
     # add spec rates
-    __add_knl(get_spec_rates(eqs, loopy_opts,
+    __add_knl(get_spec_rates(loopy_opts,
                              nstore, test_size))
 
     # add molar rates
-    __add_knl(get_molar_rates(eqs, loopy_opts, nstore, conp=conp,
+    __add_knl(get_molar_rates(loopy_opts, nstore, conp=conp,
                               test_size=test_size))
 
     if conp:
         # get h / cp evals
-        __add_knl(polyfit_kernel_gen('h', eqs['conp'], loopy_opts, nstore,
+        __add_knl(polyfit_kernel_gen('h', loopy_opts, nstore,
                                      test_size))
-        __add_knl(polyfit_kernel_gen('cp', eqs['conp'], loopy_opts, nstore,
+        __add_knl(polyfit_kernel_gen('cp', loopy_opts, nstore,
                                      test_size))
     else:
         # and u / cv
-        __add_knl(polyfit_kernel_gen('u', eqs['conv'], loopy_opts, nstore,
+        __add_knl(polyfit_kernel_gen('u', loopy_opts, nstore,
                                      test_size))
-        __add_knl(polyfit_kernel_gen('cv', eqs['conv'], loopy_opts, nstore,
+        __add_knl(polyfit_kernel_gen('cv', loopy_opts, nstore,
                                      test_size))
     # add the thermo kernels to our dependencies
     depends_on.extend(kernels[-2:])
     # and temperature rates
-    __add_knl(get_temperature_rate(eqs, loopy_opts,
+    __add_knl(get_temperature_rate(loopy_opts,
                                    nstore, test_size=test_size, conp=conp))
     # and finally the extra variable rates
-    __add_knl(get_extra_var_rates(eqs, loopy_opts, nstore, conp=conp,
+    __add_knl(get_extra_var_rates(loopy_opts, nstore, conp=conp,
                                   test_size=None))
 
     # get a wrapper for the dependecies
@@ -3167,7 +3095,7 @@ def get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=True, test_size=Non
         barriers=barriers)
 
 
-def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
+def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     """Helper function that generates kernels for
        evaluation of various thermodynamic species properties
 
@@ -3175,8 +3103,6 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
     ----------
     nicename : str
         The variable name to use in generated code
-    eqs : dict of `sympy.Symbol`
-        Dictionary defining conditional equations for the variables (keys)
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3223,73 +3149,68 @@ def polyfit_kernel_gen(nicename, eqs, loopy_opts, namestore, test_size=None):
 
     knl_data.extend([a_lo_lp, a_hi_lp, T_mid_lp, T_lp, out_lp])
 
-    # mapping of nicename -> varname
-    var_maps = {'cp': '{C_p}[k]',
-                'dcp': 'frac{text{d} {C_p} }{text{d} T }[k]',
-                'h': 'H[k]',
-                'cv': '{C_v}[k]',
-                'dcv': 'frac{text{d} {C_v} }{text{d} T }[k]',
-                'u': 'U[k]',
-                'b': 'B[k]',
-                'db': 'frac{text{d} B }{text{d} T }[k]'}
-    varname = var_maps[nicename]
-
-    # get variable and equation
-    var = next(v for v in eqs.keys() if str(v) == varname)
-    eq = eqs[var]
-
     # create string indexes for a_lo/a_hi
     a_lo_strs = [mapstore.apply_maps(namestore.a_lo, loop_index, str(i))[1]
                  for i in range(poly_dim)]
     a_hi_strs = [mapstore.apply_maps(namestore.a_hi, loop_index, str(i))[1]
                  for i in range(poly_dim)]
-    # use to create lo / hi equation
-    from ..sympy_utils import sympy_addons as sp_add
-    from collections import defaultdict
-    a_list = defaultdict(
-        str,
-        [(x.args[-1], x) for x in eq.free_symbols
-         if isinstance(x, sp_add.MyIndexed)])
+    # mapping of nicename -> eqn
+    eqn_maps = {'cp': Template(
+        "Ru * (T * (T * (T * (T * ${a4} + ${a3}) + ${a2}) + ${a1}) + ${a0})"),
+        'dcp': Template(
+        "Ru * (T * (T *(4 * T * ${a4} + 3 * ${a3} ) + 2 * ${a2}) + ${a1})"),
+        'h': Template(
+        "Ru * (T * (T * (T * (T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + "
+        "${a1} / 2) + ${a0}) + ${a5})"),
+        'cv': Template(
+        "Ru * (T * (T * (T * (T * ${a4} + ${a3}) + ${a2}) + ${a1}) + ${a0} − 1)"),
+        'dcv': Template(
+        "Ru * (T * (T *(4 * T * ${a4} + 3 * ${a3} ) + 2 * ${a2}) + ${a1})"),
+        'u': Template(
+        "Ru * (T * (T * (T * T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3 + "
+        "${a1} / 2) + ${a0}) - T + ${a5})"),
+        'b': Template(
+        "T * (T * (T * (T * ${a4} / 20} + ${a3} / 12) + ${a2} / 6 + ${a1} / 2) + "
+        "(${a0} - 1) * logT - ${a0} + ${a6} - ${a5} * Tinv"),
+        'db': Template(
+        "T * T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + ${a1} / 2 + "
+        "Tinv * (${a0} - 1 + ${a5} * Tinv)")}
+    # create lo / hi equation
+    lo_eq = eqn_maps[nicename].safe_substitute(
+        {'a' + i: a_lo_strs[i] for i in range(len(a_lo_strs))})
+    hi_eq = eqn_maps[nicename].safe_substitute(
+        {'a' + i: a_lo_strs[i] for i in range(len(a_hi_strs))})
 
-    lo_eq_str = str(eq.subs([(a_list[i], a_lo_strs[i])
-                             for i in range(poly_dim)]))
-    hi_eq_str = str(eq.subs([(a_list[i], a_hi_strs[i])
-                             for i in range(poly_dim)]))
-
-    T_val = 'T'
-    preinstructs = [ic.default_pre_instructs(T_val, T_str, 'VAL')]
+    Tval = 'T'
+    preinstructs = [ic.default_pre_instructs(T, T_str, 'VAL')]
+    if nicename in ['db', 'b']:
+        preinstructs.append(ic.default_pre_instructs('Tinv', T_str, 'INV'))
+        preinstructs.append(ic.default_pre_instructs('logT', T_str, 'LOG'))
 
     return k_gen.knl_info(instructions=Template("""
         for k
-            if ${T_val} < ${T_mid_str}
+            if ${Tval} < ${T_mid_str}
                 ${out_str} = ${lo_eq}
             else
                 ${out_str} = ${hi_eq}
             end
         end
-        """).safe_substitute(
-        out_str=out_str,
-        lo_eq=lo_eq_str,
-        hi_eq=hi_eq_str,
-        T_mid_str=T_mid_str,
-        T_val=T_val),
-        kernel_data=knl_data,
-        pre_instructions=preinstructs,
-        name='eval_{}'.format(nicename),
-        parameters={'R_u': chem.RU},
-        var_name=loop_index,
-        mapstore=mapstore)
+        """).safe_substitute(**locals()),
+                          kernel_data=knl_data,
+                          pre_instructions=preinstructs,
+                          name='eval_{}'.format(nicename),
+                          parameters={'Ru': chem.RU},
+                          var_name=loop_index,
+                          mapstore=mapstore)
 
 
-def write_chem_utils(eqs, reacs, specs, loopy_opts, conp=True,
+def write_chem_utils(reacs, specs, loopy_opts, conp=True,
                      test_size=None, auto_diff=False):
     """Helper function that generates kernels for
        evaluation of species thermodynamic quantities
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
     reacs : list of :class:`ReacInfo`
         List of species in the mechanism.
     specs : list of :class:`SpecInfo`
@@ -3322,7 +3243,6 @@ def write_chem_utils(eqs, reacs, specs, loopy_opts, conp=True,
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
 
     # generate the kernels
-    eq = eqs['conp'] if conp else eqs['conv']
     output = ['cp', 'h', 'b'] if conp else ['cv', 'u', 'b']
     kernels = []
     for nicename in output:

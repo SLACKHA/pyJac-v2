@@ -51,7 +51,7 @@ class kf_wrapper(object):
         self.kwargs['kf_fall'] = lambda x: np.array(
             np.array(self.kf_fall_val[0], order=x, copy=True))
 
-    def __call__(self, eqs, loopy_opts, namestore, test_size):
+    def __call__(self, loopy_opts, namestore, test_size):
         # check if we've found the kf / kf_fall values yet
         if not self.kf_val:
             # ensure the loopy opts don't have a split in them, otherwise the
@@ -71,7 +71,7 @@ class kf_wrapper(object):
                 {'falloff': True})
 
             self.kf_fall_val.append(
-                runner(eqs, opts, namestore, test_size)['kf_fall'])
+                runner(opts, namestore, test_size)['kf_fall'])
 
             # next with regular parameters
             runner = test_utils.kernel_runner(
@@ -80,11 +80,10 @@ class kf_wrapper(object):
                 {'phi': self.kwargs['phi']})
 
             self.kf_val.append(
-                runner(eqs, opts, namestore, test_size)['kf'])
+                runner(opts, namestore, test_size)['kf'])
 
         # finally we can call the function
-        return self.func(
-            eqs, loopy_opts, namestore, test_size)
+        return self.func(loopy_opts, namestore, test_size)
 
 
 class SubTest(TestClass):

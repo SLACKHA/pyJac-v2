@@ -92,10 +92,10 @@ class kernel_runner(object):
         self.kwargs = kwargs
         self.test_size = test_size
 
-    def __call__(self, eqs, loopy_opts, namestore, test_size):
+    def __call__(self, loopy_opts, namestore, test_size):
         device = get_device_list()[0]
 
-        infos = self.func(eqs, loopy_opts, namestore, test_size=test_size,
+        infos = self.func(loopy_opts, namestore, test_size=test_size,
                           **self.kwargs)
 
         try:
@@ -542,13 +542,11 @@ class get_comparable(object):
         return outv[masking]
 
 
-def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
+def _get_oploop(owner, do_ratespec=False, do_ropsplit=False,
                         do_conp=True, langs=['opencl'], do_vector=True,
                         do_sparse=False, do_approximate=False):
 
     platforms = get_test_platforms(do_vector=do_vector, langs=langs)
-    eqs = {'conp': owner.store.conp_eqs,
-           'conv': owner.store.conv_eqs}
     oploop = [('order', ['C', 'F']),
               ('auto_diff', [False])
               ]
@@ -578,7 +576,7 @@ def _get_eqs_and_oploop(owner, do_ratespec=False, do_ropsplit=False,
         else:
             out = out + val
 
-    return eqs, out
+    return out
 
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
@@ -617,9 +615,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         Any additional arguements to pass to the :param:`func`
     """
 
-    eqs, oploop = _get_eqs_and_oploop(owner, do_ratespec=do_ratespec,
-                                      do_ropsplit=do_ropsplit, do_conp=do_conp,
-                                      do_sparse=do_sparse)
+    oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
+                         do_conp=do_conp, do_sparse=do_sparse)
 
     reacs = owner.store.reacs
     specs = owner.store.specs
@@ -659,7 +656,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         namestore = arc.NameStore(opt, rate_info, conp,
                                   owner.store.test_size)
         # create the kernel info
-        infos = func(eqs, opt, namestore,
+        infos = func(opt, namestore,
                      test_size=owner.store.test_size, **kw_args)
 
         if not isinstance(infos, list):
@@ -696,9 +693,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                       btype, call_name, **oploop_kwds):
-    eqs, oploop = _get_eqs_and_oploop(
-            self, do_conp=True, do_vector=lang != 'c', langs=[lang],
-            **oploop_kwds)
+    oploop = _get_oploop(self, do_conp=True, do_vector=lang != 'c', langs=[lang],
+                         **oploop_kwds)
 
     package_lang = {'opencl': 'ocl',
                     'c': 'c'}
@@ -760,7 +756,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         conp = state['conp']
 
         # generate kernel
-        kgen = kernel_gen(eqs, self.store.reacs, self.store.specs, opts, conp=conp)
+        kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp)
 
         # generate
         kgen.generate(

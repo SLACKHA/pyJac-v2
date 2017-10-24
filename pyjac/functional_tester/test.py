@@ -602,19 +602,12 @@ class jacobian_eval(eval):
         if jac is not None:
             return jac
 
-        # need the sympy equations
-        from ..sympy_utils.sympy_interpreter import load_equations
-        _, conp_eqs = load_equations(True)
-        _, conv_eqs = load_equations(False)
-
         # create the "store" for the AD-jacobian eval
         # mask phi to get rid of parameter stored in there for data input
         phi_mask = np.array([0] + list(range(2, phi.shape[1])))
         self.store = type('', (object,), {
             'reacs': self.reacs,
             'specs': self.specs,
-            'conp_eqs': conp_eqs,
-            'conv_eqs': conv_eqs,
             'phi_cp': phi[:, phi_mask].copy() if state['conp'] else None,
             'phi_cv': phi[:, phi_mask].copy() if not state['conp'] else None,
             'P': P,

@@ -99,7 +99,6 @@ setup(
     # installed, specify them here.  If using Python 2.6 or less, then these
     # have to be included in MANIFEST.in as well.
     package_data={
-        'pyjac.sympy' : ['*.sympy'],
         'pyjac.pywrap': ['*.pyx', '*.c', '*.h', '*.cu', '*.cuh', '*.in'],
         'pyjac.functional_tester' : ['*.yaml'],
         'pyjac.performance_tester' : ['*.pyx', '*.c', '*.h', '*.cu',
