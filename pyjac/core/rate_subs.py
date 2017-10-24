@@ -3246,7 +3246,7 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
     output = ['cp', 'h', 'b'] if conp else ['cv', 'u', 'b']
     kernels = []
     for nicename in output:
-        kernels.append(polyfit_kernel_gen(nicename, eq, loopy_opts,
+        kernels.append(polyfit_kernel_gen(nicename, loopy_opts,
                                           nstore, test_size))
 
     return k_gen.make_kernel_generator(
