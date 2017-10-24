@@ -7,12 +7,12 @@ from __future__ import print_function
 
 # Standard libraries
 import os
-import sys
 import subprocess
 
 
 # Related modules
 import numpy as np
+import numpy.ma as ma
 
 try:
     import cantera as ct
@@ -563,19 +563,19 @@ class jacobian_eval(eval):
         self.gas = gas
         self.evaled = False
         self.name = 'jac'
+        self.inds = determine_jac_inds(self.reacs, self.specs,
+                                       RateSpecialization.fixed)[
+            'jac_inds']
 
     def __sparsify(self, jac, order, check=True):
         # get the sparse indicies
-        inds = determine_jac_inds(self.reacs, self.specs,
-                                  RateSpecialization.fixed,
-                                  jacobian_type=JacobianFormat.sparse)[
-            'jac_inds']
-        inds = inds['flat_' + order]
+        inds = self.inds['flat_' + order]
         if check:
             # check that our sparse indicies make sense
             mask = np.zeros(jac.shape, dtype=np.bool)
             # create a masked jacobian that only looks at our indicies
             mask[:, inds[:, 0], inds[:, 1]] = True
+            mask = ma.array(jac, mask=mask)
             # check that no entry not in the mask is non-zero
             assert not np.any(jac[~mask.mask])
             del mask
@@ -607,13 +607,15 @@ class jacobian_eval(eval):
         _, conv_eqs = load_equations(False)
 
         # create the "store" for the AD-jacobian eval
+        # mask phi to get rid of parameter stored in there for data input
+        phi_mask = np.array([0] + list(range(2, phi.shape[1])))
         self.store = type('', (object,), {
             'reacs': self.reacs,
             'specs': self.specs,
             'conp_eqs': conp_eqs,
             'conv_eqs': conv_eqs,
-            'phi_cp': phi.copy() if state['conp'] else None,
-            'phi_cv': phi.copy() if not state['conp'] else None,
+            'phi_cp': phi[:, phi_mask].copy() if state['conp'] else None,
+            'phi_cv': phi[:, phi_mask].copy() if not state['conp'] else None,
             'P': P,
             'V': V,
             'test_size': self.num_conditions
