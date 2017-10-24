@@ -22,12 +22,11 @@ except ImportError:
 
 # Local imports
 from ..core.mech_interpret import read_mech_ct
-from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner
 from ..tests import test_utils
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
-from ..libgen import build_type
+from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
 
 # turn off cache
@@ -132,7 +131,7 @@ class validation_runner(runner):
     def max_per_run(self):
         return 100000 if self.rtype == build_type.species_rates else None
 
-    def run(self, state, asplit, dirs, data_output):
+    def run(self, state, asplit, dirs, phi_path, data_output):
         """
         Run the validation test for the given state
 
@@ -146,6 +145,9 @@ class validation_runner(runner):
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
             Has the keys "build", "test", "obj" and "run"
+        phi_path: str
+            The path expected by the generated kernel for the state vector
+            phi to be saved in (as a binary file)
         data_output: str
             The file to output the results to
 
@@ -156,25 +158,16 @@ class validation_runner(runner):
 
         # get the answer
         phi = self.phi_cp if state['conp'] else self.phi_cv
-        param = self.P if state['conp'] else self.V
         self.helper.eval_answer(phi, self.P, self.V, state)
 
         my_test = dirs['test']
         my_build = dirs['build']
         my_obj = dirs['obj']
 
-        # save args to dir
-        def __saver(arr, name, namelist=None):
-            myname = os.path.join(my_test, name + '.npy')
-            np.save(myname, arr)
-            if namelist is not None:
-                namelist.append(myname)
-
-        # generate wrapper
-        generate_wrapper(state['lang'], my_build, build_dir=my_obj,
-                         out_dir=my_test, platform=str(state['platform']),
-                         output_full_rop=self.rtype == build_type.species_rates,
-                         btype=self.rtype)
+        # compile library as executable
+        lib = generate_library(state['lang'], my_build, obj_dir=my_obj,
+                               out_dir=my_test, btype=self.rtype, shared=True,
+                               as_executable=True)
 
         # now generate the per run data
         offset = 0
@@ -184,65 +177,34 @@ class validation_runner(runner):
             this_run = int(
                 np.floor(np.minimum(self.cond_per_run, self.num_conditions - offset)
                          / self.max_vec_width) * self.max_vec_width)
-            # get arrays
-            # make sure to remove the last species in order to conform
-            # to expected data
-            myphi = np.array(phi[offset:offset + this_run, :],
-                             order=state['order'], copy=True)
 
-            myphi, = asplit.split_numpy_arrays(myphi)
-            myphi = myphi.flatten(order=state['order'])
-
-            args = []
-            __saver(myphi, 'phi', args)
-            __saver(param[offset:offset + this_run], 'param', args)
-            del myphi
+            # get phi array
+            phi = np.array(phi[offset:offset + this_run], order='C', copy=True)
+            # save to file for input
+            phi.flatten('C').tofile(phi_path)
 
             # get reference outputs
             out_names, ref_ans = self.helper.get_outputs(
                 state, offset, this_run, asplit)
 
             # save for comparison
-            testfiles = []
-            for i in range(len(ref_ans)):
-                out = ref_ans[i]
-                # and flatten in correct order
-                out = out.flatten(order=state['order'])
-                __saver(out, out_names[i], testfiles)
-                del out
-            outf = [os.path.join(my_test, '{}_rate.npy'.format(name))
+            outf = [os.path.join(my_test, '{}.bin'.format(name))
                     for name in out_names]
-
-            # write the module tester
-            with open(os.path.join(my_test, 'test.py'), 'w') as file:
-                file.write(self.mod_test.safe_substitute(
-                    package='pyjac_{}'.format(self.package_lang[state['lang']]),
-                    input_args=', '.join('"{}"'.format(x) for x in args),
-                    test_arrays=', '.join('\'{}\''.format(x) for x in testfiles),
-                    non_array_args='{}, {}'.format(this_run, state['num_cores']),
-                    call_name=str(self.rtype)[str(self.rtype).index('.') + 1:],
-                    output_files=', '.join('\'{}\''.format(x) for x in outf),
-                    looser_tols=','.join('[]' for x in testfiles),
-                    rtol=1e-5,
-                    atol=1e-8)
-                )
 
             # call
             subprocess.check_call(['python{}.{}'.format(
                 sys.version_info[0], sys.version_info[1]),
-                os.path.join(my_test, 'test.py'),
-                '1' if offset != 0 else '0'])
+                os.path.join(my_test, lib),
+                this_run, state['num_cores']
+                ])
 
             # get error
             err_dict = self.helper.eval_error(
                 this_run, state['order'], outf, out_names, ref_ans, err_dict)
 
             # cleanup
-            for x in args + outf:
+            for x in outf:
                 os.remove(x)
-            for x in testfiles:
-                os.remove(x)
-            os.remove(os.path.join(my_test, 'test.py'))
 
             # finally update the offset
             offset += self.cond_per_run
