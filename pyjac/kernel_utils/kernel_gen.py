@@ -99,7 +99,8 @@ class kernel_generator(object):
                  array_props={},
                  barriers=[],
                  extra_kernel_data=[],
-                 extra_preambles=[]):
+                 extra_preambles=[],
+                 is_validation=False):
         """
         Parameters
         ----------
@@ -137,6 +138,9 @@ class kernel_generator(object):
             Extra kernel arguements to add to this kernel
         extra_preambles: list of :class:`PreambleGen`
             Preambles to add to subkernels
+        is_validation: bool [False]
+            If true, this kernel generator is being used to validate pyJac
+            Hence we need to save our output data to a file
         """
 
         self.compiler = None
@@ -367,7 +371,8 @@ class kernel_generator(object):
             shutil.copyfile(os.path.join(scan_path, dep),
                             os.path.join(out_path, dep_dest))
 
-    def generate(self, path, data_order=None, data_filename='data.bin'):
+    def generate(self, path, data_order=None, data_filename='data.bin',
+                 for_validation=False):
         """
         Generates wrapping kernel, compiling program (if necessary) and
         calling / executing program for this kernel
@@ -382,6 +387,9 @@ class kernel_generator(object):
         data_filename : Optional[str]
             If specified, the path to the data file for reading / execution
             via the command line
+        for_validation: bool [False]
+            If True, this kernel is being generated to validate pyJac, hence we need
+            to save output data to a file
 
         Returns
         -------
@@ -522,7 +530,8 @@ class kernel_generator(object):
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
 
-    def _generate_calling_program(self, path, data_filename, max_per_run):
+    def _generate_calling_program(self, path, data_filename, max_per_run,
+                                  for_validation=False):
         """
         Needed for all languages, this generates a simple C file that
         reads in data, sets up the kernel call, executes, etc.
@@ -536,6 +545,9 @@ class kernel_generator(object):
         max_per_run: int
             The maximum # of initial conditions that can be evaluated per kernel
             call based on memory limits
+        for_validation: bool [False]
+            If True, this kernel is being generated to validate pyJac, hence we need
+            to save output data to a file
 
         Returns
         -------
@@ -627,6 +639,23 @@ ${name} : ${type}
         # specialize for language
         file_src = self._special_kernel_subs(file_src)
 
+        # get data output
+        if for_validation:
+            num_outputs = len(self.mem.out_arrays)
+            output_paths = ', '.join(['"{}"'.format(x + '.bin')
+                                      for x in self.mem.out_arrays])
+            outputs = ', '.join(self.mem.out_arrays[:])
+            # get lp array map
+            out_arrays = [next(x for x in self.mem.arrays if x.name == y)
+                          for y in outputs]
+            output_sizes = ', '.join([str(self.mem._get_size(
+                x, include_item_size=False)) for x in out_arrays])
+        else:
+            num_outputs = 0
+            output_paths = ""
+            outputs = ''
+            output_sizes = ''
+
         with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[
                 self.lang]), self.lang, use_filter=False) as file:
             file.add_lines(subs_at_indent(
@@ -646,7 +675,11 @@ ${name} : ${type}
                 data_filename=data_filename,
                 local_allocs=local_allocs,
                 local_frees=local_frees,
-                max_per_run=max_per_run
+                max_per_run=max_per_run,
+                num_outputs=num_outputs,
+                output_paths=output_paths,
+                outputs=outputs,
+                output_sizes=output_sizes
             ))
 
     def _generate_compiling_program(self, path):
