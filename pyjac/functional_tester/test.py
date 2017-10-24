@@ -646,7 +646,7 @@ class jacobian_eval(eval):
         out_check = out_files[:]
         # load output arrays
         for i in range(len(out_files)):
-            out_check[i] = np.load(out_files[i])
+            out_check[i] = np.fromfile(out_files[i], dtype=np.float64)
             # check finite
             assert np.all(np.isfinite(out_check[i]))
             # and reshape to match test array
