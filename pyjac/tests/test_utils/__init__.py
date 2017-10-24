@@ -1175,11 +1175,6 @@ def _run_mechanism_tests(work_dir, run):
                 # can't run on this platform
                 bad_platforms.update([platform])
                 continue
-            except Exception as e:
-                logging.exception(e)
-                logging.warn('generation failed...')
-                logging.warn(i, state)
-                continue
 
             # get an array splitter
             width = state['vecsize'] if state['wide'] else None
