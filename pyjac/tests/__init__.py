@@ -9,7 +9,6 @@ import yaml
 import os
 
 # local imports
-from ..sympy_utils.sympy_interpreter import load_equations
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
@@ -108,12 +107,7 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
 
 class storage(object):
 
-    def __init__(self, conp_vars, conp_eqs, conv_vars,
-                 conv_eqs, gas, specs, reacs):
-        self.conp_vars = conp_vars
-        self.conp_eqs = conp_eqs
-        self.conv_vars = conv_vars
-        self.conv_eqs = conv_eqs
+    def __init__(self, gas, specs, reacs):
         self.gas = gas
         self.specs = specs
         self.reacs = reacs
@@ -356,8 +350,6 @@ class TestClass(unittest.TestCase):
         lp.set_caching_enabled(False)
         if not self.is_setup:
             # load equations
-            conp_vars, conp_eqs = load_equations(True)
-            conv_vars, conv_eqs = load_equations(False)
             self.dirpath = os.path.dirname(os.path.realpath(__file__))
             gasname = os.path.join(self.dirpath, 'test.cti')
             if 'GAS' in os.environ:
@@ -366,6 +358,5 @@ class TestClass(unittest.TestCase):
             gas = ct.Solution(gasname)
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
-            self.store = storage(conp_vars, conp_eqs, conv_vars,
-                                 conv_eqs, gas, specs, reacs)
+            self.store = storage(gas, specs, reacs)
             self.is_setup = True

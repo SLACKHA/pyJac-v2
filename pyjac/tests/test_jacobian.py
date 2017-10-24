@@ -69,25 +69,25 @@ class editor(object):
 
 # various convenience wrappers
 def _get_fall_call_wrapper():
-    def fall_wrapper(eqs, loopy_opts, namestore, test_size):
-        return get_simple_arrhenius_rates(eqs, loopy_opts, namestore,
+    def fall_wrapper(loopy_opts, namestore, test_size):
+        return get_simple_arrhenius_rates(loopy_opts, namestore,
                                           test_size, falloff=True)
     return fall_wrapper
 
 
 def _get_plog_call_wrapper(rate_info):
-    def plog_wrapper(eqs, loopy_opts, namestore, test_size):
+    def plog_wrapper(loopy_opts, namestore, test_size):
         if rate_info['plog']['num']:
-            return get_plog_arrhenius_rates(eqs, loopy_opts, namestore,
+            return get_plog_arrhenius_rates(loopy_opts, namestore,
                                             rate_info['plog']['max_P'],
                                             test_size)
     return plog_wrapper
 
 
 def _get_cheb_call_wrapper(rate_info):
-    def cheb_wrapper(eqs, loopy_opts, namestore, test_size):
+    def cheb_wrapper(loopy_opts, namestore, test_size):
         if rate_info['cheb']['num']:
-            return get_cheb_arrhenius_rates(eqs, loopy_opts, namestore,
+            return get_cheb_arrhenius_rates(loopy_opts, namestore,
                                             np.max(rate_info['cheb']['num_P']),
                                             np.max(rate_info['cheb']['num_T']),
                                             test_size)
@@ -95,10 +95,8 @@ def _get_cheb_call_wrapper(rate_info):
 
 
 def _get_poly_wrapper(name, conp):
-    def poly_wrapper(eqs, loopy_opts, namestore, test_size):
-        desc = 'conp' if conp else 'conv'
-        return polyfit_kernel_gen(name, eqs[desc],
-                                  loopy_opts, namestore, test_size)
+    def poly_wrapper(loopy_opts, namestore, test_size):
+        return polyfit_kernel_gen(name, loopy_opts, namestore, test_size)
     return poly_wrapper
 
 
@@ -193,12 +191,12 @@ def _get_fd_jacobian(self, test_size, conp=True):
 
     __u_call_wrapper = _get_poly_wrapper('u', conp)
 
-    def __extra_call_wrapper(eqs, loopy_opts, namestore, test_size):
-        return get_extra_var_rates(eqs, loopy_opts, namestore,
+    def __extra_call_wrapper(loopy_opts, namestore, test_size):
+        return get_extra_var_rates(loopy_opts, namestore,
                                    conp=conp, test_size=test_size)
 
-    def __temperature_wrapper(eqs, loopy_opts, namestore, test_size):
-        return get_temperature_rate(eqs, loopy_opts, namestore,
+    def __temperature_wrapper(loopy_opts, namestore, test_size):
+        return get_temperature_rate(loopy_opts, namestore,
                                     conp=conp, test_size=test_size)
 
     return _get_jacobian(
@@ -273,8 +271,6 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         The resulting autodifferentiated jacobian.  The shape of which depends on
         the values specified in the editor
     """
-    eqs = {'conp': self.store.conp_eqs,
-           'conv': self.store.conv_eqs}
     # find rate info
     rate_info = determine_jac_inds(
         self.store.reacs,
@@ -301,7 +297,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
 
     # create the kernel info
     infos = []
-    info = func(eqs, ad_opts, namestore,
+    info = func(ad_opts, namestore,
                 test_size=self.store.test_size,
                 **__get_arg_dict(func, **kw_args))
     try:
@@ -339,7 +335,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     # generate dependencies with full test size to get extra args
     infos = []
     for f in extra_funcs:
-        info = f(eqs, ad_opts, namestore,
+        info = f(ad_opts, namestore,
                  test_size=self.store.test_size,
                  **__get_arg_dict(f, **kw_args))
         try:
@@ -363,7 +359,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     single_name = arc.NameStore(ad_opts, rate_info, conp, 1)
     single_info = []
     for f in extra_funcs + [func]:
-        info = f(eqs, ad_opts, single_name,
+        info = f(ad_opts, single_name,
                  test_size=1,
                  **__get_arg_dict(f, **kw_args))
         try:
@@ -770,15 +766,13 @@ class SubTest(TestClass):
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
                 'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
                                               order=x)}
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
 
         # get kf
         runner = kernel_runner(get_simple_arrhenius_rates,
                                self.store.test_size, args)
-        kf = runner(eqs, opts, namestore, self.store.test_size)['kf']
+        kf = runner(opts, namestore, self.store.test_size)['kf']
 
         if self.store.ref_Pr.size:
             args = {'phi': lambda x: np.array(phi, order=x, copy=True),
@@ -787,7 +781,7 @@ class SubTest(TestClass):
             runner = kernel_runner(get_simple_arrhenius_rates,
                                    self.store.test_size, args,
                                    {'falloff': True})
-            kf_fall = runner(eqs, opts, namestore, self.store.test_size)['kf_fall']
+            kf_fall = runner(opts, namestore, self.store.test_size)['kf_fall']
         else:
             kf_fall = None
 
@@ -800,7 +794,7 @@ class SubTest(TestClass):
             # get plog
             runner = kernel_runner(_get_plog_call_wrapper(rate_info),
                                    self.store.test_size, args)
-            kf = runner(eqs, opts, namestore, self.store.test_size)['kf']
+            kf = runner(opts, namestore, self.store.test_size)['kf']
 
         if namestore.num_cheb is not None:
             args = {'phi': lambda x: np.array(phi, order=x, copy=True),
@@ -811,7 +805,7 @@ class SubTest(TestClass):
             # get plog
             runner = kernel_runner(_get_cheb_call_wrapper(rate_info),
                                    self.store.test_size, args)
-            kf = runner(eqs, opts, namestore, self.store.test_size)['kf']
+            kf = runner(opts, namestore, self.store.test_size)['kf']
 
         return kf, kf_fall
 
@@ -824,8 +818,6 @@ class SubTest(TestClass):
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'b': lambda x: np.array(
                 self.store.ref_B_rev, order=x, copy=True)}
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         allint = {'net': rate_info['net']['allint']}
@@ -833,15 +825,13 @@ class SubTest(TestClass):
         # get kf
         runner = kernel_runner(get_rev_rates,
                                self.store.test_size, args, {'allint': allint})
-        kr = runner(eqs, opts, namestore, self.store.test_size)['kr']
+        kr = runner(opts, namestore, self.store.test_size)['kr']
         return kr
 
     def __get_db(self):
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         # need dBk/dT
@@ -850,14 +840,14 @@ class SubTest(TestClass):
                 self.store.phi_cp, order=x, copy=True),
         }
 
-        def __call_wrapper(eqs, loopy_opts, namestore, test_size):
+        def __call_wrapper(loopy_opts, namestore, test_size):
             return thermo_temperature_derivative(
-                'db', eqs,
+                'db',
                 loopy_opts, namestore,
                 test_size)
         # get db
         runner = kernel_runner(__call_wrapper, self.store.test_size, args)
-        return runner(eqs, opts, namestore, self.store.test_size)['db']
+        return runner(opts, namestore, self.store.test_size)['db']
 
     @attr('long')
     @with_check_inds(check_inds={
@@ -959,10 +949,8 @@ class SubTest(TestClass):
             'phi': lambda x: np.array(
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
-        X = runner(eqs, opts, namestore, self.store.test_size)['X']
+        X = runner(opts, namestore, self.store.test_size)['X']
         return X
 
     @attr('long')
@@ -1075,11 +1063,9 @@ class SubTest(TestClass):
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(
             get_troe_kernel, self.store.test_size, troe_args)
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
         Fcent, Atroe, Btroe = [runner(
-            eqs, opts, namestore, self.store.test_size)[x] for x in
+            opts, namestore, self.store.test_size)[x] for x in
             ['Fcent', 'Atroe', 'Btroe']]
         return Fcent, Atroe, Btroe
 
@@ -1407,9 +1393,9 @@ class SubTest(TestClass):
             # obtain the finite difference jacobian
             kc = kernel_call(myname, [None], **args)
 
-            def __call_wrapper(eqs, loopy_opts, namestore, test_size):
+            def __call_wrapper(loopy_opts, namestore, test_size):
                 return thermo_temperature_derivative(
-                    name, eqs,
+                    name,
                     loopy_opts, namestore,
                     test_size)
             name = myname
@@ -1696,12 +1682,10 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        eqs = {'conp': self.store.conp_eqs,
-               'conv': self.store.conv_eqs}
         opts = loopy_options(order='C', knl_type='map', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, conp, self.store.test_size)
 
-        return namestore, rate_info, opts, eqs
+        return namestore, rate_info, opts
 
     @with_check_inds(check_inds={
         1: np.array([0]),
@@ -1718,7 +1702,7 @@ class SubTest(TestClass):
         fd_jac = self.__get_full_jac(conp)
 
         spec_heat = self.store.spec_cp if conp else self.store.spec_cv
-        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        namestore, rate_info, opts = self.__get_non_ad_params(conp)
         phi = self.store.phi_cp if conp else self.store.phi_cv
         dphi = self.store.dphi_cp if conp else self.store.dphi_cv
 
@@ -1735,7 +1719,7 @@ class SubTest(TestClass):
         dc_name = 'dcp' if conp else 'dcv'
         dc = kernel_runner(_get_poly_wrapper(dc_name, conp),
                            self.store.test_size, args)(
-                           eqs, opts, namestore, self.store.test_size)[dc_name]
+                           opts, namestore, self.store.test_size)[dc_name]
 
         args = {'conc': lambda x: np.array(
             self.store.concs, order=x, copy=True),
@@ -2120,7 +2104,7 @@ class SubTest(TestClass):
         # conp
         fd_jac = self.__get_full_jac(conp)
 
-        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        namestore, rate_info, opts = self.__get_non_ad_params(conp)
         phi = self.store.phi_cp if conp else self.store.phi_cv
         dphi = self.store.dphi_cp if conp else self.store.dphi_cv
 
@@ -2173,7 +2157,7 @@ class SubTest(TestClass):
         # get the full jacobian
         fd_jac = self.__get_full_jac(conp)
 
-        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        namestore, rate_info, opts = self.__get_non_ad_params(conp)
         phi = self.store.phi_cp if conp else self.store.phi_cv
         dphi = self.store.dphi_cp if conp else self.store.dphi_cv
         spec_heat = self.store.spec_cp if conp else self.store.spec_cv
@@ -2242,7 +2226,7 @@ class SubTest(TestClass):
         # get the full jacobian
         fd_jac = self.__get_full_jac(conp)
 
-        namestore, rate_info, opts, eqs = self.__get_non_ad_params(conp)
+        namestore, rate_info, opts = self.__get_non_ad_params(conp)
         phi = self.store.phi_cp if conp else self.store.phi_cv
         dphi = self.store.dphi_cp if conp else self.store.dphi_cv
         jac = fd_jac.copy()

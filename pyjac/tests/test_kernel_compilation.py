@@ -31,10 +31,10 @@ class SubTest(TestClass):
         # clean sources
         test_utils.clean_dir(self.store.build_dir, remove_dirs)
 
-    def __get_spec_lib(self, state, eqs, opts):
+    def __get_spec_lib(self, state, opts):
         build_dir = self.store.build_dir
         conp = state['conp']
-        kgen = get_specrates_kernel(eqs, self.store.reacs, self.store.specs, opts,
+        kgen = get_specrates_kernel(self.store.reacs, self.store.specs, opts,
                                     conp=conp)
         # generate
         kgen.generate(build_dir)
@@ -45,16 +45,15 @@ class SubTest(TestClass):
         opts = loopy_options(lang=lang,
                              width=None, depth=None, ilp=False,
                              unr=None, order='C', platform='CPU')
-        eqs = {'conp': self.store.conp_eqs, 'conv': self.store.conv_eqs}
 
         oploop = OptionLoop(OrderedDict([
             ('conp', [True]),
             ('shared', [True, False])]))
-        return opts, eqs, oploop
+        return opts, oploop
 
     @parameterized.expand([('opencl',), ('c',)])
     def test_compile_specrates_knl(self, lang):
-        opts, eqs, oploop = self.__get_objs(lang=lang)
+        opts, oploop = self.__get_objs(lang=lang)
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
@@ -62,7 +61,7 @@ class SubTest(TestClass):
             # clean old
             self.__cleanup()
             # create / write files
-            self.__get_spec_lib(state, eqs, opts)
+            self.__get_spec_lib(state, opts)
             # compile
             generate_library(opts.lang, build_dir, obj_dir=obj_dir,
                              out_dir=lib_dir, shared=state['shared'],
@@ -70,7 +69,7 @@ class SubTest(TestClass):
 
     @parameterized.expand([('opencl',), ('c',)])
     def test_specrates_pywrap(self, lang):
-        opts, eqs, oploop = self.__get_objs(lang=lang)
+        opts, oploop = self.__get_objs(lang=lang)
         build_dir = self.store.build_dir
         obj_dir = self.store.obj_dir
         lib_dir = self.store.lib_dir
@@ -79,7 +78,7 @@ class SubTest(TestClass):
             # clean old
             self.__cleanup()
             # create / write files
-            self.__get_spec_lib(state, eqs, opts)
+            self.__get_spec_lib(state, opts)
             # test wrapper generation
             generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
                              btype=build_type.species_rates)
