@@ -3173,7 +3173,7 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
         "T * (T * (T * (T * ${a4} / 20 + ${a3} / 12) + ${a2} / 6) + ${a1} / 2) + "
         "(${a0} - 1) * logT - ${a0} + ${a6} - ${a5} * Tinv"),
         'db': Template(
-        "T * T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + ${a1} / 2 + "
+        "T * (T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + ${a1} / 2 + "
         "Tinv * (${a0} - 1 + ${a5} * Tinv)")}
     # create lo / hi equation
     lo_eq = eqn_maps[nicename].safe_substitute(
