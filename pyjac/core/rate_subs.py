@@ -77,6 +77,7 @@ def assign_rates(reacs, specs, rate_spec):
         offset, maps, etc.
     """
 
+    assert rate_spec in lp_utils.RateSpecialization
     # determine specialization
     full = rate_spec == lp_utils.RateSpecialization.full
     # hybrid = rate_spec == lp_utils.RateSpecialization.hybrid

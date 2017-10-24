@@ -70,6 +70,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
         :meth:`pyjac.core.assign_rates`
     """
 
+    assert jacobian_type in JacobianType
     val = assign_rates(reacs, specs, rate_spec)
 
     inds = []
@@ -144,7 +145,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
             # if the last species directly participates in the reaction, and we're
             # looking for a full Jacobian, this entire row has non-zero
             # derivatives
-            if rxn in has_ns or thd_ind in thd_has_ns and \
+            if (rxn in has_ns or thd_ind in thd_has_ns) and \
                     jacobian_type == JacobianType.exact:
                 __add_specs(range(row_size))
                 break
