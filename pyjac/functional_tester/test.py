@@ -633,9 +633,7 @@ class jacobian_eval(eval):
 
     def get_outputs(self, state, offset, this_run, asplit):
         output_names = ['jac']
-        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'],
-                              check=False)
-        jac = np.zeros_like(jac)
+        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
         return output_names, asplit.split_numpy_arrays([jac])
 
     def eval_error(self, this_run, order, out_files, out_names, reference_answers,
