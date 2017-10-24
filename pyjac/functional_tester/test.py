@@ -550,7 +550,7 @@ class jacobian_eval(eval):
     """
     Helper class for the Jacobian tester
     """
-    def __init__(self, gas, num_conditions, atol=1e0, rtol=1e-8):
+    def __init__(self, gas, num_conditions, atol=1e-2, rtol=1e-6):
         self.atol = atol
         self.rtol = rtol
         self.evaled = False
@@ -693,15 +693,16 @@ class jacobian_eval(eval):
             del threshold
 
             # largest relative errors for different absolute toleratnces
-            for mul in [1, 10, 100]:
+            for mul in [1, 10, 100, 1000]:
                 atol = self.atol * mul
                 err_weighted = err / (atol + self.rtol * denom)
                 amax = np.argmax(err_weighted)
                 err_dict['jac_weighted_{}'.format(atol)] = np.linalg.norm(
                     err_weighted)
                 del err_weighted
-                err_dict['jac_weighted_{}_PJ_amax'.format(atol)] = out[amax]
-                err_dict['jac_weighted_{}_AD_amax'.format(atol)] = check_arr[amax]
+                err_dict['jac_weighted_{}_PJ_amax'.format(atol)] = out.flat[amax]
+                err_dict['jac_weighted_{}_AD_amax'.format(atol)] = check_arr.flat[
+                    amax]
 
             # info values for lookup
             err_dict['jac_max_value'] = np.amax(out)
@@ -750,7 +751,7 @@ class jacobian_eval(eval):
             # check that we have all expected keys, and there is no nan's, etc.
             self._check_file(err, names, mods)
             # check that we have the weighted jacobian error
-            names = ['jac_weighted_1' + x for x in ['.0', '0.0', '00.0']]
+            names = ['jac_weighted_' + x for x in ['0.01', '0.1', '1.0', '10.0']]
             mods = ['', 'PJ_amax', 'AD_amax']
             self._check_file(err, names, mods)
             # check for max / threshold value
