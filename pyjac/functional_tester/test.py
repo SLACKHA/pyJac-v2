@@ -28,6 +28,7 @@ from ..tests import test_utils
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
+from ..utils import EnumType
 
 # turn off cache
 import loopy as lp
@@ -80,8 +81,8 @@ class validation_runner(runner):
         self.current_vecwidth = state['vecsize']
         desc = self.descriptor
         if self.rtype == build_type.jacobian:
-            desc += '_sparse' if state['jac_format'] == JacobianFormat.sparse else \
-                '_full'
+            desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
+                 == JacobianFormat.sparse else '_full'
         return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
                 desc, state['lang'], state['vecsize'], state['order'],
                 'w' if state['wide'] else 'd' if state['deep'] else 'par',
