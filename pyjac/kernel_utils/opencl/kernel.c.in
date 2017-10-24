@@ -11,6 +11,7 @@ Nicholas Curtis - 2017
 
 #include "${knl_name}_main.oclh"
 #include "read_initial_conditions.oclh"
+#include "write_data.oclh"
 
 #define CL_LEVEL ${CL_LEVEL}
 
@@ -371,6 +372,15 @@ int main(int argc, char* argv[])
 
     printf("%d,%.15le,%.15le,%.15le\n", problem_size, compilation_time,
                 setup_time, runtime);
+
+    // write output to file if supplied
+    char* output_files[${num_outputs}] = {${output_paths}};
+    size_t output_sizes[${num_outputs}] = {${output_sizes}};
+    double* outputs[${num_outputs}] = {${outputs}};
+    for(int i = 0; i < ${num_outputs}; ++i)
+    {
+        write_data(output_files[i], outputs[i], output_sizes[i]);
+    }
 
     ${local_frees}
 
