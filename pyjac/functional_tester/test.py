@@ -26,8 +26,9 @@ from ..pywrap.pywrap_gen import generate_wrapper
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner
 from ..tests import test_utils
-from ..loopy_utils.loopy_utils import JacobianFormat
+from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type
+from ..core.create_jacobian import determine_jac_inds
 
 # turn off cache
 import loopy as lp
@@ -596,15 +597,40 @@ class jacobian_eval(eval):
         self.evaled = False
         self.name = 'jac'
 
-    def __fast_jac(self, conp):
+    def __sparsify(self, jac, order, check=True):
+        # get the sparse indicies
+        inds = determine_jac_inds(self.reacs, self.specs,
+                                  RateSpecialization.fixed,
+                                  jacobian_type=JacobianFormat.sparse)[
+            'jac_inds']
+        inds = inds['flat_' + order]
+        if check:
+            # check that our sparse indicies make sense
+            mask = np.zeros(jac.shape, dtype=np.bool)
+            # create a masked jacobian that only looks at our indicies
+            mask[:, inds[:, 0], inds[:, 1]] = True
+            # check that no entry not in the mask is non-zero
+            assert not np.any(jac[~mask.mask])
+            del mask
+            # and finally return the sparse array
+        return np.asarray(jac[:, inds[:, 0], inds[:, 1]], order=order)
+
+    def __fast_jac(self, conp, sparse, order, check=True):
+        jac = None
         if conp and hasattr(self, 'fd_jac_cp'):
-            return self.fd_jac_cp
+            jac = self.fd_jac_cp
         elif not conp and hasattr(self, 'fd_jac_cv'):
-            return self.fd_jac_cv
-        return None
+            jac = self.fd_jac_cv
+
+        if jac is None:
+            return None
+
+        if sparse == 'sparse':
+            return self.__sparsify(jac, order, check=check)
+        return jac
 
     def eval_answer(self, phi, P, V, state):
-        jac = self.__fast_jac(state['conp'])
+        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
         if jac is not None:
             return jac
 
@@ -629,16 +655,21 @@ class jacobian_eval(eval):
         from ..tests.test_jacobian import _get_fd_jacobian
         jac = _get_fd_jacobian(self, self.num_conditions, state['conp'])
         if state['conp']:
-            self.fd_jac_cp = jac
+            self.fd_jac_cp = jac.copy()
         else:
-            self.fd_jac_cv = jac
+            self.fd_jac_cv = jac.copy()
+
+        if state['sparse'] == 'sparse':
+            jac = self.__sparsify(jac, state['order'])
 
         return jac
 
     def get_outputs(self, state, offset, this_run, asplit):
         output_names = ['jac']
-        out_arrays = [self.__fast_jac(state['conp'])]
-        return output_names, asplit.split_numpy_arrays(out_arrays)
+        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'],
+                              check=False)
+        jac = np.zeros_like(jac)
+        return output_names, asplit.split_numpy_arrays([jac])
 
     def eval_error(self, this_run, order, out_files, out_names, reference_answers,
                    err_dict):
