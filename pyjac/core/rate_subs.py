@@ -3163,29 +3163,30 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
         "Ru * (T * (T * (T * (T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + "
         "${a1} / 2) + ${a0}) + ${a5})"),
         'cv': Template(
-        "Ru * (T * (T * (T * (T * ${a4} + ${a3}) + ${a2}) + ${a1}) + ${a0} − 1)"),
+        "Ru * (T * (T * (T * (T * ${a4} + ${a3}) + ${a2}) + ${a1}) + ${a0} - 1)"),
         'dcv': Template(
-        "Ru * (T * (T *(4 * T * ${a4} + 3 * ${a3} ) + 2 * ${a2}) + ${a1})"),
+        "Ru * (T * (T * (4 * T * ${a4} + 3 * ${a3} ) + 2 * ${a2}) + ${a1})"),
         'u': Template(
-        "Ru * (T * (T * (T * T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3 + "
+        "Ru * (T * (T * (T * (T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + "
         "${a1} / 2) + ${a0}) - T + ${a5})"),
         'b': Template(
-        "T * (T * (T * (T * ${a4} / 20} + ${a3} / 12) + ${a2} / 6 + ${a1} / 2) + "
+        "T * (T * (T * (T * ${a4} / 20 + ${a3} / 12) + ${a2} / 6) + ${a1} / 2) + "
         "(${a0} - 1) * logT - ${a0} + ${a6} - ${a5} * Tinv"),
         'db': Template(
         "T * T * (T * ${a4} / 5 + ${a3} / 4) + ${a2} / 3) + ${a1} / 2 + "
         "Tinv * (${a0} - 1 + ${a5} * Tinv)")}
     # create lo / hi equation
     lo_eq = eqn_maps[nicename].safe_substitute(
-        {'a' + i: a_lo_strs[i] for i in range(len(a_lo_strs))})
+        {'a' + str(i): a_lo for i, a_lo in enumerate(a_lo_strs)})
     hi_eq = eqn_maps[nicename].safe_substitute(
-        {'a' + i: a_lo_strs[i] for i in range(len(a_hi_strs))})
+        {'a' + str(i): a_hi for i, a_hi in enumerate(a_hi_strs)})
 
     Tval = 'T'
-    preinstructs = [ic.default_pre_instructs(T, T_str, 'VAL')]
+    preinstructs = [ic.default_pre_instructs(Tval, T_str, 'VAL')]
     if nicename in ['db', 'b']:
         preinstructs.append(ic.default_pre_instructs('Tinv', T_str, 'INV'))
-        preinstructs.append(ic.default_pre_instructs('logT', T_str, 'LOG'))
+        if nicename == 'b':
+            preinstructs.append(ic.default_pre_instructs('logT', T_str, 'LOG'))
 
     return k_gen.knl_info(instructions=Template("""
         for k
