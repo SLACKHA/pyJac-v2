@@ -10,22 +10,24 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 void write_data(char* filename, double* arr, size_t var_size)
 {
-	fp = fopen(filename, "wb");
-	if (fp != NULL)
+	FILE* fp = fopen(filename, "wb");
+	if (fp == NULL)
 	{
 		char* err = "Error opening file for data output: ";
 		size_t buffsize = strlen(filename) + strlen(err) * sizeof(char);
 		char* buff = (char*)malloc(buffsize);
-		snprintf(buf, buffsize, "%s%s", err, filename);
-		cassert(0, buff);
+		snprintf(buff, buffsize, "%s%s", err, filename);
+		printf("%s\n", buff);
 		free(buff);
+		exit(-1);
 	}
-    cassert(fwrite(arr, sizeof(double), var_size, fp) == sizeof(double) * var_size,
-        "Wrong filesize written.");
-    assert(!fclose(fp), "Error writing to file");
+    assert(fwrite(arr, sizeof(double), var_size, fp) == var_size
+        && "Wrong filesize written.");
+    assert(!fclose(fp) && "Error writing to file");
 }
 
 #endif

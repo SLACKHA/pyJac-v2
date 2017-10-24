@@ -978,9 +978,11 @@ class runner(object):
     def max_per_run(self):
         return None
 
-    def get_phi(self, T, extra, moles):
+    def get_phi(self, T, param, extra, moles):
         return np.concatenate((np.reshape(T, (-1, 1)),
-                               np.reshape(extra, (-1, 1)), moles[:, :-1]), axis=1)
+                               np.reshape(param, (-1, 1)),
+                               np.reshape(extra, (-1, 1)),
+                               moles[:, :-1]), axis=1)
 
 
 def _run_mechanism_tests(work_dir, run):
