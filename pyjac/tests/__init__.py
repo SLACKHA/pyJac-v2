@@ -27,11 +27,11 @@ utils.create_dir(build_dir)
 
 def get_test_platforms(do_vector=True, langs=['opencl']):
     try:
+        oploop = []
         # try to load user specified platforms
         with open(os.path.join(script_dir, 'test_platforms.yaml'), 'r') as file:
             platforms = yaml.load(file.read())
 
-        oploop = []
         # put into oploop form, and make repeatable
         for platform in sorted(platforms):
             p = platforms[platform]
