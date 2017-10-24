@@ -1431,11 +1431,11 @@ class opencl_kernel_generator(kernel_generator):
 
         # opencl specific items
         self.set_knl_arg_array_template = Template(
-            self.mem.get_check_err_call('clSetKernelArg(kernel,'
+            self.mem.get_check_err_call('clSetKernelArg(kernel, '
                                         '${arg_index}, ${arg_size}, '
                                         '${arg_value})'))
         self.set_knl_arg_value_template = Template(
-            self.mem.get_check_err_call('clSetKernelArg(kernel,'
+            self.mem.get_check_err_call('clSetKernelArg(kernel, '
                                         '${arg_index}, ${arg_size}, '
                                         '${arg_value})'))
         self.barrier_templates = {
@@ -1533,10 +1533,11 @@ class opencl_kernel_generator(kernel_generator):
                         arg_value='&d_' + arg.name)
                 )
             else:
+                # workaround for integer overflow of cl_uint
                 kernel_arg_sets.append(
                     self.set_knl_arg_value_template.safe_substitute(
                         arg_index=i,
-                        arg_size='sizeof({})'.format(arg.name),
+                        arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
                         arg_value='&' + arg.name))
 
         return '\n'.join([
