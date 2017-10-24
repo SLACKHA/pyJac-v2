@@ -1006,6 +1006,10 @@ def _run_mechanism_tests(work_dir, run):
     build_dir = 'out'
     test_dir = 'test'
 
+    # check if validation
+    from ...functional_tester.test import validation_runner
+    for_validation = isinstance(run, validation_runner)
+
     # imports needed only for this tester
     from . import get_test_matrix as tm
     from . import data_bin_writer as dbw
@@ -1143,6 +1147,9 @@ def _run_mechanism_tests(work_dir, run):
             if run.check_file(data_output):
                 continue
 
+            # store phi path
+            phi_path = os.path.join(this_dir, 'data.bin')
+
             try:
                 create_jacobian(lang,
                                 gas=gas,
@@ -1153,14 +1160,15 @@ def _run_mechanism_tests(work_dir, run):
                                 build_path=my_build,
                                 skip_jac=rtype == build_type.species_rates,
                                 platform=platform,
-                                data_filename=os.path.join(this_dir, 'data.bin'),
+                                data_filename=phi_path,
                                 split_rate_kernels=split_kernels,
                                 rate_specialization=rate_spec,
                                 split_rop_net_kernels=split_kernels,
                                 output_full_rop=rtype == build_type.species_rates,
                                 conp=conp,
                                 use_atomics=state['use_atomics'],
-                                jac_format=sparse)
+                                jac_format=sparse,
+                                for_validation=for_validation)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])
@@ -1178,7 +1186,7 @@ def _run_mechanism_tests(work_dir, run):
             asplit = array_splitter(type('', (object,), {
                 'width': width, 'depth': depth, 'order': order}))
 
-            run.run(state.copy(), asplit, dirs, data_output)
+            run.run(state.copy(), asplit, dirs, phi_path, data_output)
 
     del run
 

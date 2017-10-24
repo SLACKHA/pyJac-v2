@@ -4705,7 +4705,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     data_order='C', rate_specialization='full',
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
-                    use_atomics=True, jac_type='exact', jac_format='full'):
+                    use_atomics=True, jac_type='exact', jac_format='full',
+                    for_validation=False):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4785,6 +4786,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     jac_format: ['full', 'sparse']
         If 'sparse', the Jacobian will be encoded using a compressed row or column
         storage format (for a data order of 'C' and 'F' respectively).
+    for_validation: bool [False]
+        If True, this kernel is being generated to validate pyJac, hence we need
+        to save output data to a file
     Returns
     -------
     None
@@ -4885,7 +4889,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         conp=conp, output_full_rop=output_full_rop)
 
     # write the kernel
-    gen.generate(build_path, data_filename=data_filename)
+    gen.generate(build_path, data_filename=data_filename,
+                 for_validation=for_validation)
     return 0
 
 
