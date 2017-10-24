@@ -165,7 +165,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
                 third_body_eff = thd_eff[third_body_inds]
                 # check for ns in third body to get right efficiency
                 if ns in third_body_species:
-                    last_spec_eff = third_body_eff[third_body_species.index(ns)]
+                    last_spec_eff = third_body_eff[np.where(
+                        third_body_species == ns)]
                 # now filter based on efficiencies
                 __add_specs([x for i, x in enumerate(third_body_species)
                              if third_body_eff[i] != last_spec_eff])
