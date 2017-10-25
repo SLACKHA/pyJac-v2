@@ -552,13 +552,15 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
 
                         do_warn = False
                         if par2 == 0:
-                            do_warn=True
+                            do_warn = True
                             par2 = 1e-30
                         if par3 == 0:
-                            do_warn=True
+                            do_warn = True
                             par3 = 1e-30
                         if do_warn:
-                            logging.warn('Troe parameters in reaction {} modified to avoid'
+                            logger = logging.getLogger(__name__)
+                            logger.warn(
+                                'Troe parameters in reaction {} modified to avoid'
                                 ' division by zero!.'.format(len(reacs)))
 
                         reacs[-1].troe_par.append(par1)
@@ -1048,8 +1050,14 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
                     reac.troe_par[2] = 1e-30
                     do_warn = True
                 if do_warn:
+<<<<<<< HEAD
                     logging.warn('Troe parameters in reaction {} modified to avoid'
                                  ' division by zero!.'.format(len(reacs)))
+=======
+                    logger = logging.getLogger(__name__)
+                    logger.warn('Troe parameters in reaction {} modified to avoid'
+                                ' division by zero!.'.format(len(reacs)))
+>>>>>>> incorporate upstream changes in interpreter
             elif rxn.falloff.type == 'SRI':
                 reac.sri = True
                 reac.sri_par = rxn.falloff.parameters.tolist()
