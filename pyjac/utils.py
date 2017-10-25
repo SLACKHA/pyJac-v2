@@ -6,17 +6,12 @@
 import os
 import errno
 import argparse
+import logging.config
+import yaml
 
-__all__ = ['line_start', 'comment', 'langs', 'file_ext',
-           'header_ext', 'line_end', 'exp_10_fun', 'array_chars',
+__all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
            'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
-
-line_start = '  '
-comment = dict(c='//', cuda='//',
-               fortran='!', matlab='%'
-               )
-"""dict: comment characters for each language"""
 
 langs = ['c', 'opencl', 'ispc']  # , 'cuda'
 """list(`str`): list of supported languages"""
@@ -33,11 +28,6 @@ line_end = dict(c=';', cuda=';',
                 )
 """dict: line endings dependent on language"""
 
-decl_map = {'opencl': '__global',
-            'cuda': '__device__',
-            'c': ''}
-"""dict: declaration modification string for global memory"""
-
 can_vectorize_lang = {'c': False,
                       'cuda': True,
                       'opencl': True,
@@ -49,10 +39,28 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
                   )
 """dict: exp10 functions for various languages"""
 
-array_chars = dict(c="[{}]", cuda="[INDEX({})]",
-                   fortran="({})", matlab="({})"
-                   )
-"""dict: the characters to format an index into an array per language"""
+
+# https://fangpenlin.com/posts/2012/08/26/good-logging-practice-in-python/
+def setup_logging(
+    default_path='logging.yaml',
+    default_level=logging.INFO,
+    env_key='LOG_CFG'
+):
+    """Setup logging configuration"""
+    this_dir = os.path.abspath(os.path.dirname(__file__))
+    path = os.path.join(this_dir, default_path)
+    value = os.getenv(env_key, None)
+    if value:
+        path = value
+    if os.path.exists(path):
+        with open(path, 'rt') as f:
+            config = yaml.safe_load(f.read())
+        logging.config.dictConfig(config)
+    else:
+        logging.basicConfig(level=default_level)
+
+    # make loopy's logging less verbose
+    logging.getLogger('loopy').setLevel(logging.WARNING)
 
 
 class EnumType(object):

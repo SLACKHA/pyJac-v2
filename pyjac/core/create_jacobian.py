@@ -4580,6 +4580,7 @@ def find_last_species(specs, last_spec=None, return_map=False):
         Depending on value of :param:`return_map`, returns an updated species list
         or mapping to achieve the same
     """
+    logger = logging.getLogger(__name__)
     # check to see if the last_spec is specified
     if last_spec is not None:
         # find the index if possible
@@ -4588,14 +4589,14 @@ def find_last_species(specs, last_spec=None, return_map=False):
                    None
                    )
         if isp is None:
-            logging.warn('User specified last species {} not found in mechanism.'
-                         '  Attempting to find a default species.'.format(last_spec))
+            logger.warn('User specified last species {} not found in mechanism.'
+                        '  Attempting to find a default species.'.format(last_spec))
             last_spec = None
         else:
             last_spec = isp
     else:
-        logging.warn('User specified last species not found or not specified.  '
-                     'Attempting to find a default species')
+        logger.warn('User specified last species not found or not specified.  '
+                    'Attempting to find a default species')
     if last_spec is None:
         wt = chem.get_elem_wt()
         # check for N2, Ar, He, etc.
@@ -4609,12 +4610,12 @@ def find_last_species(specs, last_spec=None, return_map=False):
                 last_spec = match
                 break
         if last_spec is not None:
-            logging.info('Default last species {} found.'.format(
+            logger.info('Default last species {} found.'.format(
                 specs[last_spec].name))
     if last_spec is None:
-        logging.warn('Neither a user specified or default last species '
-                     'could be found. Proceeding using the last species in the '
-                     'base mechanism: {}'.format(specs[-1].name))
+        logger.warn('Neither a user specified or default last species '
+                    'could be found. Proceeding using the last species in the '
+                    'base mechanism: {}'.format(specs[-1].name))
         last_spec = len(specs) - 1
 
     if return_map:
@@ -4745,12 +4746,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     elif deep:
         depth = vector_size
     if wide and deep:
-        logging.error('Cannot apply both a wide and deep vectorization at the same '
-                      'time')
+        logger.error('Cannot apply both a wide and deep vectorization at the same '
+                     'time')
         sys.exit(-1)
     if vector_size is None and (wide or deep):
-        logging.error('Cannot apply {} vectorization without a vector-size, use'
-                      'the -v arguement to supply one'.format(
+        logger.error('Cannot apply {} vectorization without a vector-size, use'
+                     'the -v arguement to supply one'.format(
                         'wide' if wide else 'deep'))
         sys.exit(-1)
 
@@ -4790,11 +4791,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         elems, specs, reacs = mech.read_mech(mech_name, therm_name)
 
     if not specs:
-        logging.error('No species found in file: {}'.format(mech_name))
+        logger.error('No species found in file: {}'.format(mech_name))
         sys.exit(3)
 
     if not reacs:
-        logging.error('No reactions found in file: {}'.format(mech_name))
+        logger.error('No reactions found in file: {}'.format(mech_name))
         sys.exit(3)
 
     # find and move last species to end
@@ -4820,6 +4821,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 
 if __name__ == "__main__":
+    utils.setup_logging()
     args = utils.get_parser()
 
     create_jacobian(lang=args.lang,

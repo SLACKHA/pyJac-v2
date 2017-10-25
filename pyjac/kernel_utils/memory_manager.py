@@ -111,6 +111,7 @@ class memory_limits(object):
                 static += size
 
             # also need to check the maximum allocation size for opencl
+            logger = logging.getLogger(__name__)
             if self.lang == 'opencl':
                 if is_ic_dep:
                     per_alloc_ic_limit = np.minimum(
@@ -118,7 +119,7 @@ class memory_limits(object):
                         np.floor(self.limits[memory_type.m_alloc] / per_ic))
                 else:
                     if static >= self.limits[memory_type.m_alloc]:
-                        logging.warn(
+                        logger.warn(
                             'Allocation of constant memory array {}'
                             ' exceeds maximum allocation size, this will likely'
                             ' cause OpenCL to fail on execution.'

@@ -349,6 +349,7 @@ class TestClass(unittest.TestCase):
     def setUp(self):
         lp.set_caching_enabled(False)
         if not self.is_setup:
+            utils.setup_logging()
             # load equations
             self.dirpath = os.path.dirname(os.path.realpath(__file__))
             gasname = os.path.join(self.dirpath, 'test.cti')

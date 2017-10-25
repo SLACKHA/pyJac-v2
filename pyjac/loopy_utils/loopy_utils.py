@@ -21,11 +21,7 @@ import six
 from ..utils import check_lang
 from .loopy_edit_script import substitute as codefix
 from ..core.exceptions import MissingPlatformError, MissingDeviceError
-
-# make loopy's logging less verbose
-import logging
 from string import Template
-logging.getLogger('loopy').setLevel(logging.WARNING)
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                            'loopy_edit_script.py')

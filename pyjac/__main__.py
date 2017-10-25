@@ -6,6 +6,7 @@ from .core.create_jacobian import create_jacobian
 
 def main(args=None):
     if args is None:
+        utils.setup_logging()
         args = utils.get_parser()
         create_jacobian(lang=args.lang,
                         mech_name=args.input,
