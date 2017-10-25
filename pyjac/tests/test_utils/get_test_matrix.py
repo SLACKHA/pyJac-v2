@@ -7,10 +7,9 @@ from optionloop import OptionLoop
 from .. import get_test_platforms
 from . import platform_is_gpu
 from ...libgen import build_type
-from nose.tools import nottest
+import logging
 
 
-@nottest
 def get_test_matrix(work_dir, test_type=build_type.jacobian):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
@@ -39,8 +38,9 @@ def get_test_matrix(work_dir, test_type=build_type.jacobian):
     # find the mechanisms to test
     mechanism_list = {}
     if not os.path.exists(work_dir):
-        print('Error: work directory {} for '.format(work_dir) +
-              'testing not found, exiting...')
+        logger = logging.getLogger(__name__)
+        logger.error('Work directory {} for '.format(work_dir) +
+                     'testing not found, exiting...')
         sys.exit(-1)
     for name in os.listdir(work_dir):
         if os.path.isdir(os.path.join(work_dir, name)):

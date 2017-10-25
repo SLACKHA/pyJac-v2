@@ -4732,10 +4732,10 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     lp.set_caching_enabled(False)
 
     lang = lang.lower()
+    logger = logging.getLogger(__name__)
     if lang not in utils.langs:
-        print('Error: language needs to be one of: ')
-        for l in utils.langs:
-            print(l)
+        logging.error('Language needs to be one of: {}'.format(', '.join(
+            utils.langs)))
         sys.exit(2)
 
     # configure options
