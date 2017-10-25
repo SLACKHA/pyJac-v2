@@ -31,6 +31,6 @@ Completely cleanup the opencl kernel
 */
 void finalize(void);
 
-void ${knl_name}_call(long unsigned int problem_size, int num_threads, ${input_args});
+void ${knl_name}_call(size_t problem_size, int num_threads, ${input_args});
 
 #endif

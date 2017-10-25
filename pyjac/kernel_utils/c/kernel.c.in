@@ -21,11 +21,11 @@ Execute the kernel
 
 Parameters
 ----------
-problem_size : int
+problem_size : size_t
     The number of conditions to execute for
 ${knl_args_doc}
 */
-void execute_kernel(long unsigned int problem_size, ${knl_args})
+void execute_kernel(size_t problem_size, ${knl_args})
 {
     /* Memory Transfers into the kernel, if any */
     ${mem_transfers_in}
@@ -41,10 +41,10 @@ Initialize memory & assign kernel args for the kernel
 
 Parameters
 ----------
-problem_size : int
+problem_size : size_t
     The number of conditions to execute for
 */
-void mem_init(int problem_size)
+void mem_init(size_t problem_size)
 {
     /* Alloc buffers */
     ${mem_allocs}
@@ -69,12 +69,12 @@ Initialize the C (OpenMP) kernel
 
 Parameters
 ----------
-problem_size : int
+problem_size : size_t
     The number of conditions to execute for
 num_threads : int
     The number of OpenMP threads to use
 */
-void init(int problem_size, int num_threads)
+void init(size_t problem_size, int num_threads)
 {
     threadset(num_threads);
     mem_init(problem_size);
@@ -91,9 +91,9 @@ void finalize()
 
 //knl specific vars
 bool ${knl_name}_init = false;
-int problem_size_store = 0;
+size_t problem_size_store = 0;
 int num_threads_store = 0;
-void ${knl_name}_call(int problem_size, int num_threads,
+void ${knl_name}_call(size_t problem_size, int num_threads,
                     ${knl_args})
 {
     if (num_threads != num_threads_store && ${knl_name}_init)
@@ -130,7 +130,7 @@ int main(int argc, char* argv[])
     //#1 - the problem size
     //#2 - the number of OpenMP threads [CPU only]
 
-    int problem_size = atoi(argv[1]);
+    size_t problem_size = atoi(argv[1]);
     int num_threads = atoi(argv[2]);
 
     ${local_allocs}
