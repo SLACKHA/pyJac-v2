@@ -1,6 +1,7 @@
 v2 tasks:
   ☐ Figure out how to properly emit fast_powi / fast_powf automagically depending
     on data type
+  ☐ Setup TravisCI / tester
 Improvements:
   ☐ Make libgen use codepy, since we depend on it already
   ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.)
