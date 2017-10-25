@@ -181,9 +181,9 @@ class validation_runner(runner):
                          / self.max_vec_width) * self.max_vec_width)
 
             # get phi array
-            phi = np.array(phi[offset:offset + this_run], order='C', copy=True)
+            sphi = np.array(phi[offset:offset + this_run], order='C', copy=True)
             # save to file for input
-            phi.flatten('C').tofile(phi_path)
+            sphi.flatten('C').tofile(phi_path)
 
             # get reference outputs
             out_names, ref_ans = self.helper.get_outputs(
