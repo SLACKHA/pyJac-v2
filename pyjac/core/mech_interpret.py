@@ -150,14 +150,13 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
                     elif unit.lower() in act_energy_units:
                         units_E = unit.lower()
                     else:
-                        print('Error: unsupported units on REACTION line.')
-                        print('For pre-exponential factor, choose from: ' +
-                              pre_units
-                              )
-                        print('For activation energy, choose from: ' +
-                              act_energy_units
-                              )
-                        print('Otherwise leave blank for moles and cal/mole.')
+                        logger = logging.getLogger(__name__)
+                        logger.error('Unsupported units on REACTION line. For '
+                                     'pre-exponential factor, choose from: ' +
+                                     ', '.join(pre_units) + '\nFor activation energy'
+                                     ', choose from: ' + ', '.join(act_energy_units)
+                                     + '\nOtherwise leave blank for moles and '
+                                     'cal/mole.')
                         sys.exit(1)
 
                 if units_A == 'molecules':
@@ -685,9 +684,9 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
             n = reac.cheb_n_temp
             m = reac.cheb_n_pres
             if len(reac.cheb_par) != n * m:
-                print('Error: incorrect number of CHEB coefficients in '
-                      'reaction ' + repr(idx)
-                      )
+                logger = logging.getLogger(__name__)
+                logging.error('Incorrect number of CHEB coefficients in reaction '
+                              + repr(idx))
                 sys.exit(1)
             else:
                 # Convert units of first Chebyshev parameter
@@ -731,20 +730,22 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
             reacs.insert(idx + 1, new_reac)
 
     # Read seperate thermo file if present and needed
-    if any([not sp.mw for sp in specs]):
+    if any([not spec.mw for spec in specs]):
         if therm_filename:
             read_thermo(therm_filename, elems, specs)
         else:
-            print('Error: no thermo file specified, but species missing \n'
-                  'data. Either specify file, or ensure complete data in\n'
-                  'mechanism file with THERMO option.'
-                  )
+            logger = logging.getLogger(__name__)
+            logger.error(
+                'Error: no thermo file specified, but species missing \n'
+                'data. Either specify file, or ensure complete data in\n'
+                'mechanism file with THERMO option.')
             sys.exit(1)
 
     # Check for missing thermo data again
-    missing_mw = [sp.name for sp in specs if not sp.mw]
+    missing_mw = [spec.name for spec in specs if not spec.mw]
     if missing_mw:
-        print('Error: missing thermo data for ' + ', '.join(missing_mw))
+        logger = logging.getLogger(__name__)
+        logger.error('Missing thermo data for ' + ', '.join(missing_mw))
         sys.exit(1)
 
     if sort_type:
@@ -943,14 +944,16 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
     """
 
     if not CANTERA_FLAG:
-        print('Error: Cantera not installed. Cannot interpret '
-              'Cantera-format mechanism.')
+        logger = logging.getLogger(__name__)
+        logger.error('Cantera not installed. Cannot interpret Cantera-format'
+                     ' mechanism.')
         sys.exit(1)
 
     if filename:
         gas = ct.Solution(filename)
     elif not gas:
-        print('Error: need either filename or Cantera Solution object.')
+        logger = logging.getLogger(__name__)
+        logger.error('Need either filename or Cantera Solution object.')
         sys.exit(1)
 
     # Elements
@@ -982,7 +985,8 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
             spec.hi = coeffs[1:8]
             spec.lo = coeffs[8:15]
         else:
-            print('Error: unsupported thermo form for species ' + sp)
+            logger = logging.getLogger(__name__)
+            logger.error('Unsupported thermo form for species ' + sp)
             sys.exit(1)
 
         specs.append(spec)
@@ -1167,7 +1171,8 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
                                  )
 
         else:
-            print('Error: unsupported reaction.')
+            logger = logging.getLogger(__name__)
+            logger.error('Unsupported reaction.')
             sys.exit(1)
 
         reac.dup = rxn.duplicate
