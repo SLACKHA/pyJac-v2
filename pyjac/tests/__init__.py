@@ -108,7 +108,7 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
                         # create option loop and add
                         oploop += [inner_loop + p]
                 else:
-                    oploop += inner_loop
+                    oploop += [inner_loop]
     return oploop
 
 
