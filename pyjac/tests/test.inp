@@ -195,11 +195,11 @@ O+H2+M<=>H2O+M                           5.000E+17   -1.000        .00
 O+CO+M<=>CO2+M                           5.000E+17   -1.000        .00
 H2/2.00/ H2O/6.00/ AR/ .70/ N2/ 5.0/
 !falloff single
-H+O2+(+AR)<=>HO2+(+AR)                   2.800E+18    -.860        .00
+H+O2(+AR)<=>HO2(+AR)                   2.800E+18    -.860        .00
      LOW  /  2.300E+18    -.900  -1700.00/
      TROE/   .7346   94.00  1756.00  5182.00 /
 !falloff unity
-H+H+(+M)<=>H2+(+M)                   2.800E+18    -.860        .00
+H+H(+M)<=>H2(+M)                   2.800E+18    -.860        .00
      LOW  /  2.300E+18    -.900  -1700.00/
      TROE/   .7346   94.00  1756.00  5182.00 /
 !Troe unity -- added to test dE derivative (ch2cho not shared by any other falloff
