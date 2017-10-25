@@ -796,7 +796,8 @@ class MapStore(object):
                         domain.name,
                         variable.name))
             else:
-                logging.warn(
+                logger = logging.getLogger(__name__)
+                logger.warn(
                     'Adding domain {} for variable {} to tree after'
                     ' finalization, this should not be used outside of unit'
                     ' testing'.format(domain.name, variable.name))

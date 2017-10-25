@@ -9,7 +9,6 @@ import yaml
 import os
 
 # local imports
-from ..sympy_utils.sympy_interpreter import load_equations
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
@@ -28,11 +27,11 @@ utils.create_dir(build_dir)
 
 def get_test_platforms(do_vector=True, langs=['opencl']):
     try:
+        oploop = []
         # try to load user specified platforms
         with open(os.path.join(script_dir, 'test_platforms.yaml'), 'r') as file:
             platforms = yaml.load(file.read())
 
-        oploop = []
         # put into oploop form, and make repeatable
         for platform in sorted(platforms):
             p = platforms[platform]
@@ -93,27 +92,29 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
                     device_types = [cl.device_type.CPU, cl.device_type.GPU,
                                     cl.device_type.ACCELERATOR]
                     platforms = cl.get_platforms()
-                    dev_list = []
+                    platform_list = []
                     for p in platforms:
                         for dev_type in device_types:
-                            devices = p.get_devices(dev_type=dev_type)
+                            devices = p.get_devices(dev_type)
                             if devices:
-                                dev_list.append(devices[0])
-                    inner_loop += [('devices', dev_list)]
-
-                # create option loop and add
-                oploop += [inner_loop]
+                                plist = [('platform', p.name)]
+                                use_atomics = False
+                                if 'cl_khr_int64_base_atomics' in \
+                                        devices[0].extensions:
+                                    use_atomics = True
+                                plist.append(('use_atomics', use_atomics))
+                                platform_list.append(plist)
+                    for p in platform_list:
+                        # create option loop and add
+                        oploop += [inner_loop + p]
+                else:
+                    oploop += [inner_loop]
     return oploop
 
 
 class storage(object):
 
-    def __init__(self, conp_vars, conp_eqs, conv_vars,
-                 conv_eqs, gas, specs, reacs):
-        self.conp_vars = conp_vars
-        self.conp_eqs = conp_eqs
-        self.conv_vars = conv_vars
-        self.conv_eqs = conv_eqs
+    def __init__(self, gas, specs, reacs):
         self.gas = gas
         self.specs = specs
         self.reacs = reacs
@@ -355,9 +356,8 @@ class TestClass(unittest.TestCase):
     def setUp(self):
         lp.set_caching_enabled(False)
         if not self.is_setup:
+            utils.setup_logging()
             # load equations
-            conp_vars, conp_eqs = load_equations(True)
-            conv_vars, conv_eqs = load_equations(False)
             self.dirpath = os.path.dirname(os.path.realpath(__file__))
             gasname = os.path.join(self.dirpath, 'test.cti')
             if 'GAS' in os.environ:
@@ -366,6 +366,5 @@ class TestClass(unittest.TestCase):
             gas = ct.Solution(gasname)
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
-            self.store = storage(conp_vars, conp_eqs, conv_vars,
-                                 conv_eqs, gas, specs, reacs)
+            self.store = storage(gas, specs, reacs)
             self.is_setup = True

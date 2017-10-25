@@ -11,7 +11,7 @@ This function is designed to be called as subprocess
 import numpy as np
 import importlib
 import sys
-import logging
+import warnings
 
 if __name__ == '__main__':
     # load package
@@ -75,7 +75,7 @@ if __name__ == '__main__':
 
                     if not np.all(np.in1d(misses, lt)):
                         # log the missed values for debugging purposes
-                        logging.debug('Missed indicies: {}'.format(
+                        warnings.warn('Missed indicies: {}'.format(
                             ', '.join(str(x) for x in misses[np.where(
                                 np.logical_not(np.in1d(misses, lt)))])))
                         sys.exit(1)
@@ -95,7 +95,7 @@ if __name__ == '__main__':
                         test_arrays[i][misses][check],
                         rtol=${rtol}, atol=${atol})))
                     misses = misses[check][missed_checks]
-                    logging.debug(
+                    warnings.warn(
                         'Out of tolerance for indicies:\n({})\n'
                         'error:\n({})'.format(
                             ', '.join(misses),

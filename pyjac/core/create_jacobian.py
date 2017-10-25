@@ -17,7 +17,6 @@ from .. import utils
 from . import mech_interpret as mech
 from . import rate_subs as rate
 from . import mech_auxiliary as aux
-from ..sympy_utils import sympy_interpreter as sp_interp
 from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen
 from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat
@@ -226,16 +225,14 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     return val
 
 
-def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
+def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     """Resets the Jacobian array for use in the evaluations
 
     kernel
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -310,7 +307,7 @@ def reset_arrays(eqs, loopy_opts, namestore, test_size=None, conp=True):
 
 
 @ic.with_conditional_jacobian
-def __dcidE(eqs, loopy_opts, namestore, test_size=None,
+def __dcidE(loopy_opts, namestore, test_size=None,
             rxn_type=reaction_type.thd, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term for all third body /
@@ -320,9 +317,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -670,7 +665,7 @@ def __dcidE(eqs, loopy_opts, namestore, test_size=None,
     )
 
 
-def dci_thd_dE(eqs, loopy_opts, namestore, test_size=None,
+def dci_thd_dE(loopy_opts, namestore, test_size=None,
                conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term of third body reactions
@@ -683,9 +678,7 @@ def dci_thd_dE(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -703,12 +696,12 @@ def dci_thd_dE(eqs, loopy_opts, namestore, test_size=None,
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidE(loopy_opts, namestore, test_size,
                                 reaction_type.thd, conp=conp)]
             if x is not None]
 
 
-def dci_lind_dE(eqs, loopy_opts, namestore, test_size=None,
+def dci_lind_dE(loopy_opts, namestore, test_size=None,
                 conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term of Lindemann falloff
@@ -721,9 +714,7 @@ def dci_lind_dE(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -741,12 +732,12 @@ def dci_lind_dE(eqs, loopy_opts, namestore, test_size=None,
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidE(loopy_opts, namestore, test_size,
                                 falloff_form.lind, conp=conp)]
             if x is not None]
 
 
-def dci_troe_dE(eqs, loopy_opts, namestore, test_size=None,
+def dci_troe_dE(loopy_opts, namestore, test_size=None,
                 conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term of Troe falloff
@@ -759,9 +750,7 @@ def dci_troe_dE(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -779,12 +768,12 @@ def dci_troe_dE(eqs, loopy_opts, namestore, test_size=None,
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidE(loopy_opts, namestore, test_size,
                                 falloff_form.troe, conp=conp)]
             if x is not None]
 
 
-def dci_sri_dE(eqs, loopy_opts, namestore, test_size=None,
+def dci_sri_dE(loopy_opts, namestore, test_size=None,
                conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term of SRI falloff
@@ -797,9 +786,7 @@ def dci_sri_dE(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -817,13 +804,13 @@ def dci_sri_dE(eqs, loopy_opts, namestore, test_size=None,
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidE(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidE(loopy_opts, namestore, test_size,
                                 falloff_form.sri, conp=conp)]
             if x is not None]
 
 
 @ic.with_conditional_jacobian
-def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
+def __dRopidE(loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
               maxT=None, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
@@ -834,9 +821,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1355,7 +1340,7 @@ def __dRopidE(eqs, loopy_opts, namestore, test_size=None,
     )
 
 
-def dRopidE(eqs, loopy_opts, namestore, test_size=None, conp=True):
+def dRopidE(loopy_opts, namestore, test_size=None, conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for non-pressure dependent reaction
     types) with respect to the extra variable -- volume/pressure for constant
@@ -1367,9 +1352,7 @@ def dRopidE(eqs, loopy_opts, namestore, test_size=None, conp=True):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1387,16 +1370,16 @@ def dRopidE(eqs, loopy_opts, namestore, test_size=None, conp=True):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dRopidE(eqs, loopy_opts, namestore,
+    return [x for x in [__dRopidE(loopy_opts, namestore,
                                   test_size=test_size, do_ns=False,
                                   conp=conp),
-                        __dRopidE(eqs, loopy_opts, namestore,
+                        __dRopidE(loopy_opts, namestore,
                                   test_size=test_size, do_ns=True,
                                   conp=conp)]
             if x is not None]
 
 
-def dRopi_plog_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
+def dRopi_plog_dE(loopy_opts, namestore, test_size=None, conp=True,
                   maxP=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for PLOG reactions)
@@ -1409,9 +1392,7 @@ def dRopi_plog_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1432,20 +1413,20 @@ def dRopi_plog_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
         The generated infos for feeding into the kernel generator
     """
 
-    ret = [__dRopidE(eqs, loopy_opts, namestore,
+    ret = [__dRopidE(loopy_opts, namestore,
                      test_size=test_size, do_ns=False,
                      rxn_type=reaction_type.plog, conp=conp,
                      maxP=maxP)]
     if test_size == 'problem_size':
         # include the ns version for convenience in testing
-        ret.append(__dRopidE(eqs, loopy_opts, namestore,
+        ret.append(__dRopidE(loopy_opts, namestore,
                              test_size=test_size, do_ns=True,
                              rxn_type=reaction_type.plog, conp=conp,
                              maxP=maxP))
     return [x for x in ret if x is not None]
 
 
-def dRopi_cheb_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
+def dRopi_cheb_dE(loopy_opts, namestore, test_size=None, conp=True,
                   maxP=None, maxT=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for CHEB reactions)
@@ -1458,9 +1439,7 @@ def dRopi_cheb_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1484,13 +1463,13 @@ def dRopi_cheb_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
         The generated infos for feeding into the kernel generator
     """
 
-    ret = [__dRopidE(eqs, loopy_opts, namestore,
+    ret = [__dRopidE(loopy_opts, namestore,
                      test_size=test_size, do_ns=False,
                      rxn_type=reaction_type.cheb, conp=conp,
                      maxP=maxP, maxT=maxT)]
     if test_size == 'problem_size':
         # include the ns version for convenience in testing
-        ret.append(__dRopidE(eqs, loopy_opts, namestore,
+        ret.append(__dRopidE(loopy_opts, namestore,
                              test_size=test_size, do_ns=True,
                              rxn_type=reaction_type.cheb, conp=conp,
                              maxP=maxP, maxT=maxT))
@@ -1498,7 +1477,7 @@ def dRopi_cheb_dE(eqs, loopy_opts, namestore, test_size=None, conp=True,
 
 
 @ic.with_conditional_jacobian
-def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
+def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of temperature with respect to
     the extra variable (volume/pressure for const. pressure / volume
@@ -1507,9 +1486,7 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1642,7 +1619,7 @@ def dTdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
 
 @ic.with_conditional_jacobian
-def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
+def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of volume / pressure
     with respect to the extra variable (volume/pressure for const. pressure /
@@ -1650,9 +1627,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1752,7 +1727,7 @@ def dEdotdE(eqs, loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
 
 @ic.with_conditional_jacobian
-def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
+def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of temprature with respect to
     temperature
@@ -1760,9 +1735,7 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True, jac_create=No
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -1903,7 +1876,7 @@ def dTdotdT(eqs, loopy_opts, namestore, test_size=None, conp=True, jac_create=No
 
 
 @ic.with_conditional_jacobian
-def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
+def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of change of the extra variable (volume/pressure
     for constant pressure/volume respectively) with respect to temperature
@@ -1911,9 +1884,7 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False, jac_create=N
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2014,7 +1985,7 @@ def dEdotdT(eqs, loopy_opts, namestore, test_size=None, conp=False, jac_create=N
 
 
 @ic.with_conditional_jacobian
-def __dcidT(eqs, loopy_opts, namestore, test_size=None,
+def __dcidT(loopy_opts, namestore, test_size=None,
             rxn_type=reaction_type.thd, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term for all third body /
@@ -2023,9 +1994,7 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2366,16 +2335,14 @@ def __dcidT(eqs, loopy_opts, namestore, test_size=None,
     )
 
 
-def dci_thd_dT(eqs, loopy_opts, namestore, test_size=None):
+def dci_thd_dT(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term w.r.t. Temperature
     for third body reactions
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2390,20 +2357,18 @@ def dci_thd_dT(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidT(loopy_opts, namestore, test_size,
                                 reaction_type.thd)] if x is not None]
 
 
-def dci_lind_dT(eqs, loopy_opts, namestore, test_size=None):
+def dci_lind_dT(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term w.r.t. Temperature
     for Lindemann falloff reactions
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2418,20 +2383,18 @@ def dci_lind_dT(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidT(loopy_opts, namestore, test_size,
                                 falloff_form.lind)] if x is not None]
 
 
-def dci_troe_dT(eqs, loopy_opts, namestore, test_size=None):
+def dci_troe_dT(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term w.r.t. Temperature
     for Troe falloff reactions
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2446,20 +2409,18 @@ def dci_troe_dT(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidT(loopy_opts, namestore, test_size,
                                 falloff_form.troe)] if x is not None]
 
 
-def dci_sri_dT(eqs, loopy_opts, namestore, test_size=None):
+def dci_sri_dT(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the pressure modification term w.r.t. Temperature
     for SRI falloff reactions
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2474,12 +2435,12 @@ def dci_sri_dT(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dcidT(eqs, loopy_opts, namestore, test_size,
+    return [x for x in [__dcidT(loopy_opts, namestore, test_size,
                                 falloff_form.sri)] if x is not None]
 
 
 @ic.with_conditional_jacobian
-def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
+def __dRopidT(loopy_opts, namestore, test_size=None,
               do_ns=False, rxn_type=reaction_type.elementary, maxP=None,
               maxT=None, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
@@ -2489,9 +2450,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2960,7 +2919,7 @@ def __dRopidT(eqs, loopy_opts, namestore, test_size=None,
     )
 
 
-def dRopidT(eqs, loopy_opts, namestore, test_size=None):
+def dRopidT(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress (for non-pressure dependent reaction
     types) with respect to temperature
@@ -2971,9 +2930,7 @@ def dRopidT(eqs, loopy_opts, namestore, test_size=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -2994,14 +2951,14 @@ def dRopidT(eqs, loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dRopidT(eqs, loopy_opts, namestore,
+    return [x for x in [__dRopidT(loopy_opts, namestore,
                                   test_size=test_size, do_ns=False),
-                        __dRopidT(eqs, loopy_opts, namestore,
+                        __dRopidT(loopy_opts, namestore,
                                   test_size=test_size, do_ns=True)]
             if x is not None]
 
 
-def dRopi_plog_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None):
+def dRopi_plog_dT(loopy_opts, namestore, test_size=None, maxP=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress for PLOG reactions
     with respect to temperature
@@ -3014,9 +2971,7 @@ def dRopi_plog_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3037,14 +2992,14 @@ def dRopi_plog_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None):
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dRopidT(eqs, loopy_opts, namestore,
+    return [x for x in [__dRopidT(loopy_opts, namestore,
                                   rxn_type=reaction_type.plog,
                                   test_size=test_size, do_ns=False,
                                   maxP=maxP)]
             if x is not None]
 
 
-def dRopi_cheb_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None,
+def dRopi_cheb_dT(loopy_opts, namestore, test_size=None, maxP=None,
                   maxT=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the rate of progress for Chebyshev reactions
@@ -3058,9 +3013,7 @@ def dRopi_cheb_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3084,14 +3037,14 @@ def dRopi_cheb_dT(eqs, loopy_opts, namestore, test_size=None, maxP=None,
         The generated infos for feeding into the kernel generator
     """
 
-    return [x for x in [__dRopidT(eqs, loopy_opts, namestore,
+    return [x for x in [__dRopidT(loopy_opts, namestore,
                                   rxn_type=reaction_type.cheb,
                                   test_size=test_size, do_ns=False,
                                   maxP=maxP, maxT=maxT)]
             if x is not None]
 
 
-def thermo_temperature_derivative(nicename, eqs, loopy_opts, namestore,
+def thermo_temperature_derivative(nicename, loopy_opts, namestore,
                                   test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     the concentration weighted specific energy sum.
@@ -3101,9 +3054,7 @@ def thermo_temperature_derivative(nicename, eqs, loopy_opts, namestore,
     ----------
     nicename : ['dcp', 'dcv', 'db']
         The polynomial derivative to calculate
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3121,13 +3072,12 @@ def thermo_temperature_derivative(nicename, eqs, loopy_opts, namestore,
         The generated infos for feeding into the kernel generator
     """
 
-    eq = eqs['conp'] if nicename in ['dcp'] else eqs['conv']
     return rate.polyfit_kernel_gen(
-        nicename, eq, loopy_opts, namestore, test_size)
+        nicename, loopy_opts, namestore, test_size)
 
 
 @ic.with_conditional_jacobian
-def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
+def dEdot_dnj(loopy_opts, namestore, test_size=None,
               conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the derivative of the extra variable (i.e. V or P depending on conp/conv)
@@ -3136,9 +3086,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3240,7 +3188,7 @@ def dEdot_dnj(eqs, loopy_opts, namestore, test_size=None,
 
 
 @ic.with_conditional_jacobian
-def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
+def dTdot_dnj(loopy_opts, namestore, test_size=None,
               conp=True, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     the partial derivatives of dT/dt with respect to the molar species
@@ -3248,9 +3196,7 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3350,16 +3296,14 @@ def dTdot_dnj(eqs, loopy_opts, namestore, test_size=None,
                           )
 
 
-def total_specific_energy(eqs, loopy_opts, namestore, test_size=None,
+def total_specific_energy(loopy_opts, namestore, test_size=None,
                           conp=True):
     """Generates instructions, kernel arguements, and data for calculating
     the concentration weighted specific energy sum.
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3466,9 +3410,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3876,7 +3818,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
                           )
 
 
-def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
+def dci_thd_dnj(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the pressure modification term of third body reactions
     with respect to the molar quantity of a species
@@ -3888,9 +3830,7 @@ def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3917,7 +3857,7 @@ def dci_thd_dnj(eqs, loopy_opts, namestore, test_size=None):
     return infos
 
 
-def dci_lind_dnj(eqs, loopy_opts, namestore, test_size=None):
+def dci_lind_dnj(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the pressure modification term of Lindemann falloff
     reactions with respect to the molar quantity of a species
@@ -3929,9 +3869,7 @@ def dci_lind_dnj(eqs, loopy_opts, namestore, test_size=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3958,7 +3896,7 @@ def dci_lind_dnj(eqs, loopy_opts, namestore, test_size=None):
     return infos
 
 
-def dci_sri_dnj(eqs, loopy_opts, namestore, test_size=None):
+def dci_sri_dnj(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the pressure modification term of SRI falloff
     reactions with respect to the molar quantity of a species
@@ -3970,9 +3908,7 @@ def dci_sri_dnj(eqs, loopy_opts, namestore, test_size=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -3999,7 +3935,7 @@ def dci_sri_dnj(eqs, loopy_opts, namestore, test_size=None):
     return infos
 
 
-def dci_troe_dnj(eqs, loopy_opts, namestore, test_size=None):
+def dci_troe_dnj(loopy_opts, namestore, test_size=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the pressure modification term of Troe falloff
     reactions with respect to the molar quantity of a species
@@ -4011,9 +3947,7 @@ def dci_troe_dnj(eqs, loopy_opts, namestore, test_size=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -4041,7 +3975,7 @@ def dci_troe_dnj(eqs, loopy_opts, namestore, test_size=None):
 
 
 @ic.with_conditional_jacobian
-def __dropidnj(eqs, loopy_opts, namestore, allint, test_size=None,
+def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                do_ns=False, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the Rate of Progress with respect to the molar quantity of
@@ -4067,9 +4001,7 @@ def __dropidnj(eqs, loopy_opts, namestore, allint, test_size=None,
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -4352,7 +4284,7 @@ def __dropidnj(eqs, loopy_opts, namestore, allint, test_size=None,
                           )
 
 
-def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
+def dRopi_dnj(loopy_opts, namestore, allint, test_size=None):
     """
     Simple wrapper for :func:`__dropidnj` that populates both the Ns and non-Ns
     derivatives
@@ -4361,9 +4293,7 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume
-        systems
+
     loopy_opts : `loopy_options` object
         A object containing all the loopy options to execute
     namestore : :class:`array_creator.NameStore`
@@ -4384,20 +4314,18 @@ def dRopi_dnj(eqs, loopy_opts, namestore, allint, test_size=None):
     """
 
     return [x for x in [
-        __dropidnj(eqs, loopy_opts, namestore, allint, test_size, do_ns=False),
-        __dropidnj(eqs, loopy_opts, namestore, allint, test_size, do_ns=True)]
+        __dropidnj(loopy_opts, namestore, allint, test_size, do_ns=False),
+        __dropidnj(loopy_opts, namestore, allint, test_size, do_ns=True)]
         if x is not None]
 
 
-def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
+def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True,
                         test_size=None, auto_diff=False):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
     Parameters
     ----------
-    eqs : dict
-        Sympy equations / variables for constant pressure / constant volume systems
     reacs : list of :class:`ReacInfo`
         List of species in the mechanism.
     specs : list of :class:`SpecInfo`
@@ -4459,7 +4387,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     # hence, any data dependencies should be expressed in the order added here
 
     # reset kernels
-    __add_knl(reset_arrays(eqs, loopy_opts, nstore, test_size=test_size))
+    __add_knl(reset_arrays(loopy_opts, nstore, test_size=test_size))
 
     # first, add the species derivatives
 
@@ -4469,102 +4397,102 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     # and b) wait for the end of the jacobian reset
     __insert_at(kernels[-1].name, before=False)
     # rate of progress derivatives
-    __add_knl(dRopi_dnj(eqs, loopy_opts, nstore, allint, test_size=test_size))
+    __add_knl(dRopi_dnj(loopy_opts, nstore, allint, test_size=test_size))
 
     # and the third body / falloff derivatives
     if rate_info['thd']['num']:
-        __add_knl(dci_thd_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+        __add_knl(dci_thd_dnj(loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['lind']['num']:
             __add_knl(
-                dci_lind_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_lind_dnj(loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
             __add_knl(
-                dci_sri_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_sri_dnj(loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
             __add_knl(
-                dci_troe_dnj(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_troe_dnj(loopy_opts, nstore, test_size=test_size))
 
     # total spec heats
     __add_knl(total_specific_energy(
-        eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+        loopy_opts, nstore, conp=conp, test_size=test_size))
 
     # and thermo derivatives
     __add_knl(thermo_temperature_derivative(
-        nstore.dspec_heat.name, eqs, loopy_opts, nstore, test_size=test_size))
+        nstore.dspec_heat.name, loopy_opts, nstore, test_size=test_size))
 
     if rate_info['rev']['num']:
         __add_knl(thermo_temperature_derivative(
-            nstore.db.name, eqs, loopy_opts, nstore, test_size=test_size))
+            nstore.db.name, loopy_opts, nstore, test_size=test_size))
 
     # next, the temperature derivative w.r.t. species
-    __add_knl(dTdot_dnj(eqs, loopy_opts, nstore,
+    __add_knl(dTdot_dnj(loopy_opts, nstore,
                         conp=conp, test_size=test_size))
     # (depends on total_specific_energy)
     __insert_at(kernels[-1].name)
 
     # and the extra var deriv
     __add_knl(
-        dEdot_dnj(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+        dEdot_dnj(loopy_opts, nstore, conp=conp, test_size=test_size))
     # (depends on dTdot_dnj)
     __insert_at(kernels[-1].name)
 
     # temperature derivatives
-    __add_knl(dRopidT(eqs, loopy_opts, nstore, test_size=test_size))
+    __add_knl(dRopidT(loopy_opts, nstore, test_size=test_size))
 
     # check for plog
     if rate_info['plog']['num']:
-        __add_knl(dRopi_plog_dT(eqs, loopy_opts, nstore,
+        __add_knl(dRopi_plog_dT(loopy_opts, nstore,
                                 maxP=rate_info['plog']['max_P'],
                                 test_size=test_size))
 
     # check for chebyshev
     if rate_info['cheb']['num']:
-        __add_knl(dRopi_cheb_dT(eqs, loopy_opts, nstore,
+        __add_knl(dRopi_cheb_dT(loopy_opts, nstore,
                                 maxP=np.max(rate_info['cheb']['num_P']),
                                 maxT=np.max(rate_info['cheb']['num_T']),
                                 test_size=test_size))
 
     # check for third body terms
     if rate_info['thd']['num']:
-        __add_knl(dci_thd_dT(eqs, loopy_opts, nstore, test_size=test_size))
+        __add_knl(dci_thd_dT(loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['lind']['num']:
             __add_knl(
-                dci_lind_dT(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_lind_dT(loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
-            __add_knl(dci_sri_dT(eqs, loopy_opts, nstore, test_size=test_size))
+            __add_knl(dci_sri_dT(loopy_opts, nstore, test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
             __add_knl(
-                dci_troe_dT(eqs, loopy_opts, nstore, test_size=test_size))
+                dci_troe_dT(loopy_opts, nstore, test_size=test_size))
 
     # total tempertature derivative
-    __add_knl(dTdotdT(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(dTdotdT(loopy_opts, nstore, conp=conp, test_size=test_size))
     # barrier for dnj / dT
     __insert_at(kernels[-1].name)
 
     # total extra var derivative w.r.t T
-    __add_knl(dEdotdT(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(dEdotdT(loopy_opts, nstore, conp=conp, test_size=test_size))
     # barrier for dependency on dTdotdT
     __insert_at(kernels[-1].name)
 
     # finally, do extra var derivatives
-    __add_knl(dRopidE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(dRopidE(loopy_opts, nstore, conp=conp, test_size=test_size))
 
     # check for plog
     if rate_info['plog']['num']:
         __add_knl(dRopi_plog_dE(
-            eqs, loopy_opts, nstore, maxP=rate_info['plog']['max_P'],
+            loopy_opts, nstore, maxP=rate_info['plog']['max_P'],
             conp=conp, test_size=test_size))
 
     # check for cheb
     if rate_info['cheb']['num']:
         __add_knl(dRopi_cheb_dE(
-            eqs, loopy_opts, nstore,
+            loopy_opts, nstore,
             maxP=np.max(rate_info['cheb']['num_P']),
             maxT=np.max(rate_info['cheb']['num_T']),
             conp=conp, test_size=test_size))
@@ -4572,27 +4500,27 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     # and the third body / falloff derivativatives
     if rate_info['thd']['num']:
         __add_knl(dci_thd_dE(
-            eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+            loopy_opts, nstore, conp=conp, test_size=test_size))
 
         if rate_info['fall']['lind']['num']:
             __add_knl(
-                dci_lind_dE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+                dci_lind_dE(loopy_opts, nstore, conp=conp, test_size=test_size))
 
         if rate_info['fall']['sri']['num']:
-            __add_knl(dci_sri_dE(eqs, loopy_opts, nstore, conp=conp,
+            __add_knl(dci_sri_dE(loopy_opts, nstore, conp=conp,
                                  test_size=test_size))
 
         if rate_info['fall']['troe']['num']:
             __add_knl(
-                dci_troe_dE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+                dci_troe_dE(loopy_opts, nstore, conp=conp, test_size=test_size))
 
     # and the temperature derivative w.r.t. the extra var
-    __add_knl(dTdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(dTdotdE(loopy_opts, nstore, conp=conp, test_size=test_size))
     # inser barrier for dnj / dE from the previous kernels
     __insert_at(kernels[-1].name)
 
     # total extra var derivative w.r.t the extra var
-    __add_knl(dEdotdE(eqs, loopy_opts, nstore, conp=conp, test_size=test_size))
+    __add_knl(dEdotdE(loopy_opts, nstore, conp=conp, test_size=test_size))
     # barrier for dependency on dEdotdE
     __insert_at(kernels[-1].name)
 
@@ -4600,7 +4528,7 @@ def get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=True,
     output_arrays = ['jac']
 
     # create the specrates subkernel
-    sgen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts, conp=conp)
+    sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp)
     sub_kernels = sgen.kernels[:]
     # and finally fix the barriers to account for the sub kernels
     offset = len(sub_kernels)
@@ -4652,6 +4580,7 @@ def find_last_species(specs, last_spec=None, return_map=False):
         Depending on value of :param:`return_map`, returns an updated species list
         or mapping to achieve the same
     """
+    logger = logging.getLogger(__name__)
     # check to see if the last_spec is specified
     if last_spec is not None:
         # find the index if possible
@@ -4660,14 +4589,14 @@ def find_last_species(specs, last_spec=None, return_map=False):
                    None
                    )
         if isp is None:
-            logging.warn('User specified last species {} not found in mechanism.'
-                         '  Attempting to find a default species.'.format(last_spec))
+            logger.warn('User specified last species {} not found in mechanism.'
+                        '  Attempting to find a default species.'.format(last_spec))
             last_spec = None
         else:
             last_spec = isp
     else:
-        logging.warn('User specified last species not found or not specified.  '
-                     'Attempting to find a default species')
+        logger.warn('User specified last species not found or not specified.  '
+                    'Attempting to find a default species')
     if last_spec is None:
         wt = chem.get_elem_wt()
         # check for N2, Ar, He, etc.
@@ -4681,12 +4610,12 @@ def find_last_species(specs, last_spec=None, return_map=False):
                 last_spec = match
                 break
         if last_spec is not None:
-            logging.info('Default last species {} found.'.format(
+            logger.info('Default last species {} found.'.format(
                 specs[last_spec].name))
     if last_spec is None:
-        logging.warn('Neither a user specified or default last species '
-                     'could be found. Proceeding using the last species in the '
-                     'base mechanism: {}'.format(specs[-1].name))
+        logger.warn('Neither a user specified or default last species '
+                    'could be found. Proceeding using the last species in the '
+                    'base mechanism: {}'.format(specs[-1].name))
         last_spec = len(specs) - 1
 
     if return_map:
@@ -4817,12 +4746,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     elif deep:
         depth = vector_size
     if wide and deep:
-        logging.error('Cannot apply both a wide and deep vectorization at the same '
-                      'time')
+        logger.error('Cannot apply both a wide and deep vectorization at the same '
+                     'time')
         sys.exit(-1)
     if vector_size is None and (wide or deep):
-        logging.error('Cannot apply {} vectorization without a vector-size, use'
-                      'the -v arguement to supply one'.format(
+        logger.error('Cannot apply {} vectorization without a vector-size, use'
+                     'the -v arguement to supply one'.format(
                         'wide' if wide else 'deep'))
         sys.exit(-1)
 
@@ -4862,11 +4791,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         elems, specs, reacs = mech.read_mech(mech_name, therm_name)
 
     if not specs:
-        logging.error('No species found in file: {}'.format(mech_name))
+        logger.error('No species found in file: {}'.format(mech_name))
         sys.exit(3)
 
     if not reacs:
-        logging.error('No reactions found in file: {}'.format(mech_name))
+        logger.error('No reactions found in file: {}'.format(mech_name))
         sys.exit(3)
 
     # find and move last species to end
@@ -4875,18 +4804,14 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # write headers
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
-    eqs = {}
-    eqs['conp'] = sp_interp.load_equations(conp)[1]
-    eqs['conv'] = sp_interp.load_equations(not conp)[1]
-
     # now begin writing subroutines
     if not skip_jac:
         # get Jacobian subroutines
-        gen = get_jacobian_kernel(eqs, reacs, specs, loopy_opts, conp=conp)
+        gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
     else:
         # just specrates
-        gen = rate.get_specrates_kernel(eqs, reacs, specs, loopy_opts,
+        gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop)
 
     # write the kernel
@@ -4896,6 +4821,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 
 if __name__ == "__main__":
+    utils.setup_logging()
     args = utils.get_parser()
 
     create_jacobian(lang=args.lang,

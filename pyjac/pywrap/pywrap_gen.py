@@ -166,7 +166,8 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
         setupfile = 'pyocl_setup.py.in'
         pyxfile = 'pyocl_wrapper.pyx.in'
     else:
-        logging.error('Language {} not recognized'.format(lang))
+        logger = logging.getLogger(__name__)
+        logger.error('Language {} not recognized'.format(lang))
         sys.exit(-1)
 
     if output_full_rop:

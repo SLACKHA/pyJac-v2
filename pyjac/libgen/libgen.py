@@ -91,8 +91,9 @@ def get_cuda_path():
 
     """
     cuda_path = which('nvcc')
+    logger = logging.getLogger(__name__)
     if cuda_path is None:
-        logging.warn('nvcc not found!')
+        logger.warn('nvcc not found!')
         return []
 
     sixtyfourbit = platform.architecture()[0] == '64bit'
@@ -104,10 +105,10 @@ def get_cuda_path():
 
 
 lib_dirs = dict(c=[],
-                cuda=get_cuda_path(),
+                # cuda=get_cuda_path(),
                 opencl=site.CL_LIB_DIR)
 run_dirs = dict(c=[],
-                cuda=get_cuda_path(),
+                # cuda=get_cuda_path(),
                 opencl=site.CL_LIB_DIR)
 
 
@@ -160,12 +161,14 @@ def compiler(fstruct):
         print(' '.join(args))
         subprocess.check_call(args)
     except OSError:
-        logging.error(
+        logger = logging.getLogger(__name__)
+        logger.error(
             'Compiler {} not found, generation of pyjac library failed.'.format(
                 args[0]))
         return -1
     except subprocess.CalledProcessError as exc:
-        logging.error('Error: compilation failed for file {} with error:{}'.format(
+        logger = logging.getLogger(__name__)
+        logger.error('Error: compilation failed for file {} with error:{}'.format(
             fstruct.filename + utils.file_ext[fstruct.build_lang],
             exc.output))
         return exc.returncode
@@ -234,12 +237,14 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
         print(' '.join(command))
         subprocess.check_call(command)
     except OSError:
+        logger = logging.getLogger(__name__)
         logging.error(
             'Compiler {} not found, generation of pyjac library failed.'.format(
                 command[0]))
         sys.exit(-1)
     except subprocess.CalledProcessError as exc:
-        logging.error('Generation of pyjac library failed with error: {}'.format(
+        logger = logging.getLogger(__name__)
+        logger.error('Generation of pyjac library failed with error: {}'.format(
             exc.output))
         sys.exit(exc.returncode)
 
@@ -374,18 +379,19 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
 
     """
     # check lang
+    logger = logging.getLogger(__name__)
     if lang not in flags.keys():
-        logging.error('Cannot generate library for unknown language {}'.format(lang))
+        logger.error('Cannot generate library for unknown language {}'.format(lang))
         sys.exit(-1)
 
     shared = shared and lang != 'cuda'
 
     if lang == 'cuda' and shared:
-        logging.error('CUDA does not support linking of shared device libraries.')
+        logger.error('CUDA does not support linking of shared device libraries.')
         sys.exit(-1)
 
     if not shared and as_executable:
-        logging.error('Can only make an executable out of a shared library')
+        logger.error('Can only make an executable out of a shared library')
         sys.exit(-1)
 
     build_lang = lang if lang != 'icc' else 'c'

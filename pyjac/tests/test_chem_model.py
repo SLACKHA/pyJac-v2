@@ -1,46 +1,27 @@
-from ..core.reaction_types import *
+from ..core.reaction_types import falloff_form, reaction_type, reversible_type, \
+    thd_body_type
 from . import TestClass
 
+
 class SubTest(TestClass):
-    def test_match(self):
-        conp_eqs, conp_vars = self.store.conp_eqs, self.store.conp_vars
-        reacs = self.store.reacs
-        #get the kf equations
-        kf = next(x for x in conp_vars if str(x) == '{k_f}[i]')
-        kf_eqs = [x for x in conp_eqs if x.has(kf)]
-        kf_eqs = {key: (x, conp_eqs[x][key]) for x in kf_eqs for key in conp_eqs[x]}
-        for i, reac in enumerate(reacs):
-            #test that it matches
-            key = next(x for x in kf_eqs if reac.match(x))
-            #test that the match is correct
-            if reac.pdep:
-                assert reaction_type.fall in key or reaction_type.chem in key
-            elif reac.thd_body:
-                assert reaction_type.thd in key
-            elif reac.plog:
-                assert reaction_type.plog in key
-            elif reac.cheb:
-                assert reaction_type.cheb in key
-            else:
-                assert reaction_type.elementary in key
 
     def test_finalize(self):
         reacs = self.store.reacs
         for i, reac in enumerate(reacs):
-            #for each reaction, test that we have the correct enums
+            # for each reaction, test that we have the correct enums
 
-            #test the reaction type
+            # test the reaction type
             if reac.pdep:
-                #for falloff/chemically activated
-                #also test the falloff form
+                # for falloff/chemically activated
+                # also test the falloff form
                 if reac.low:
                     assert reaction_type.fall in reac.type
                     assert all(x not in reac.type for x in reaction_type
-                        if x != reaction_type.fall)
+                               if x != reaction_type.fall)
                 else:
                     assert reaction_type.chem in reac.type
                     assert all(x not in reac.type for x in reaction_type
-                        if x != reaction_type.chem)
+                               if x != reaction_type.chem)
                 if reac.sri:
                     assert falloff_form.sri in reac.type
                 elif reac.troe:
@@ -50,46 +31,46 @@ class SubTest(TestClass):
             elif reac.thd_body:
                 assert reaction_type.thd in reac.type
                 assert all(x not in reac.type for x in reaction_type
-                        if x != reaction_type.thd)
+                           if x != reaction_type.thd)
             elif reac.plog:
                 assert reaction_type.plog in reac.type
                 assert all(x not in reac.type for x in reaction_type
-                        if x != reaction_type.plog)
+                           if x != reaction_type.plog)
             elif reac.cheb:
                 assert reaction_type.cheb in reac.type
                 assert all(x not in reac.type for x in reaction_type
-                        if x != reaction_type.cheb)
+                           if x != reaction_type.cheb)
             else:
                 assert reaction_type.elementary in reac.type
                 assert all(x not in reac.type for x in reaction_type
-                        if x != reaction_type.elementary)
+                           if x != reaction_type.elementary)
 
-            #test the reversible type
+            # test the reversible type
             if reac.rev:
                 if reac.rev_par:
                     assert reversible_type.explicit in reac.type
                     assert all(x not in reac.type for x in reversible_type
-                        if x != reversible_type.explicit)
+                               if x != reversible_type.explicit)
                 else:
                     assert reversible_type.non_explicit in reac.type
                     assert all(x not in reac.type for x in reversible_type
-                        if x != reversible_type.non_explicit)
+                               if x != reversible_type.non_explicit)
             else:
                 assert reversible_type.non_reversible in reac.type
                 assert all(x not in reac.type for x in reversible_type
-                    if x != reversible_type.non_reversible)
+                           if x != reversible_type.non_reversible)
 
-            #finally test the third body types
+            # finally test the third body types
             if reac.pdep or reac.thd_body:
                 if reac.pdep_sp:
                     assert thd_body_type.species in reac.type
                     assert all(x not in reac.type for x in thd_body_type
-                        if x != thd_body_type.species)
+                               if x != thd_body_type.species)
                 elif not reac.thd_body_eff:
                     assert thd_body_type.unity in reac.type
                     assert all(x not in reac.type for x in thd_body_type
-                        if x != thd_body_type.unity)
+                               if x != thd_body_type.unity)
                 else:
                     assert thd_body_type.mix in reac.type
                     assert all(x not in reac.type for x in thd_body_type
-                        if x != thd_body_type.mix)
+                               if x != thd_body_type.mix)

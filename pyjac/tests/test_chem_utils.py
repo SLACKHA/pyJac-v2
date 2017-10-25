@@ -11,9 +11,8 @@ import numpy as np
 
 class SubTest(TestClass):
     def __subtest(self, ref_ans, nicename):
-        def __wrapper(eqs, opt, namestore, test_size=None, **kw_args):
-            eq = eqs['conp'] if nicename in ['cp', 'h', 'b'] else eqs['conv']
-            return polyfit_kernel_gen(nicename, eq, opt, namestore,
+        def __wrapper(opt, namestore, test_size=None, **kw_args):
+            return polyfit_kernel_gen(nicename, opt, namestore,
                                       test_size=test_size)
 
         # create args

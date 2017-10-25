@@ -284,10 +284,11 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
         required
     """
 
+    logger = logging.getLogger(__name__)
     if not mapstore.is_finalized:
         _, _, line_number, function_name, _, _ = inspect.stack()[1]
-        logging.warn('Call to get_update_instruction() from {0}:{1}'
-                     ' used non-finalized mapstore, finalizing now...'.format(
+        logger.warn('Call to get_update_instruction() from {0}:{1}'
+                    ' used non-finalized mapstore, finalizing now...'.format(
                          function_name, line_number))
 
         mapstore.finalize()
@@ -416,15 +417,16 @@ def with_conditional_jacobian(func):
         created_index = _conditional_jacobian.created_index
 
         # check jacobian type
+        logger = logging.getLogger(__name__)
         is_sparse = False
         if isinstance(jac, jac_creator):
             is_sparse = True
             if not index_insn:
-                logging.warn('Using a sparse jacobian without precomputing the index'
-                             ' will result in extra indirect lookups.')
+                logger.warn('Using a sparse jacobian without precomputing the index'
+                            ' will result in extra indirect lookups.')
         elif index_insn:
-            logging.info('Precomputed non-sparse Jacobian indicies not currently'
-                         'supported.')
+            logger.info('Precomputed non-sparse Jacobian indicies not currently'
+                        'supported.')
             index_insn = False
 
         # if we want to precompute the index, do so
