@@ -796,6 +796,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             test = np.array(test_arr(conp), copy=True, order=opts.order)
         else:
             test = np.array(test_arr, copy=True, order=opts.order)
+        ref_ndim = test.ndim
         __saver(test, test_arr_name, tests)
 
         # find where the reduced pressure term for non-Lindemann falloff / chemically
@@ -810,7 +811,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # turn into updated form
         if kgen.array_split._have_split():
             ravel_ind = parse_split_index(test, (last_zeros,), opts.order,
-                                          ref_ndim=3, axis=(0,))
+                                          ref_ndim=ref_ndim, axis=(0,))
             # and list
             ravel_ind = np.array(ravel_ind)
 
