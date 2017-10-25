@@ -30,19 +30,32 @@ class CommonEqualityMixin(object):
     """Base class for `ReacInfo` and `SpecInfo` classes for equality comparison
     """
 
+    def __list_compare(self, a, b):
+        try:
+            a = np.array(a)
+            b = np.array(b)
+            return np.allclose(a, b)
+        except:
+            # can't convert to numpy data -> string
+            return np.array_equal(a, b)
+
     def __eq__(self, other):
         try:
             for key, value in self.__dict__.items():
+                if value is None:
+                    continue
                 if key not in other.__dict__:
                     return False
                 if isinstance(value, np.ndarray):
                     if not np.allclose(value, other.__dict__[key]):
                         return False
                 elif isinstance(value, list):
-                    if not all([any(x == y for y in other.__dict__[key])
-                                for x in value]):
-                        return False
-                elif value != other.__dict__[key]:
+                    for i in range(len(value)):
+                        if not self.__list_compare(value[i], other.__dict__[key][i]):
+                            return False
+                elif isinstance(value, str):
+                    return value == other.__dict__[key]
+                elif not np.allclose(value, other.__dict__[key]):
                     return False
             return True
         except Exception:
@@ -277,6 +290,13 @@ class ReacInfo(CommonEqualityMixin):
             else:
                 self.type.append(falloff_form.lind)
 
+        # cleanup Chemkin mechanisms that require PLOG / Chebysheb to have rate
+        # parameters
+        if self.plog or self.cheb:
+            self.A = 0
+            self.b = 0
+            self.E = 0
+
     def match(self, reac_types):
         """
         Given a tuple of `reaction_types` enums, for conditional equations
@@ -354,6 +374,14 @@ class SpecInfo(CommonEqualityMixin):
         self.lo = np.zeros(7)
         # temperature [K] range for thermodynamic coefficients
         self.Trange = [300.0, 1000.0, 5000.0]
+
+    def finalize(self):
+        """
+        Cleans up the :class:`SpecInfo`, removing any unnecessary elements
+        """
+
+        # remove any zero elements
+        self.elem = [x for x in self.elem if x[1] != 0]
 
 
 def calc_spec_smh(T, specs):

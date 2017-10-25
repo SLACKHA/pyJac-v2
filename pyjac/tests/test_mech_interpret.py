@@ -30,8 +30,8 @@ def test_ck_is_cti():
 def test_mech_interpret_runs():
     """ test mechanism intpreter for both cantera and chemkin, and that results
         match"""
-    _, reacs_ck, specs_ck = read_mech(ck_file, None)
-    _, reacs_cti, specs_cti = read_mech_ct(cti_file)
+    _, specs_ck, reacs_ck = read_mech(ck_file, None)
+    _, specs_cti, reacs_cti = read_mech_ct(cti_file)
 
     assert len(reacs_ck) == len(reacs_cti)
     for i in range(len(reacs_ck)):
