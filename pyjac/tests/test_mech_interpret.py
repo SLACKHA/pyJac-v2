@@ -36,7 +36,6 @@ def test_mech_interpret_runs():
     assert len(reacs_ck) == len(reacs_cti)
     for i in range(len(reacs_ck)):
         assert reacs_ck[i] == reacs_cti[i]
-
     assert len(specs_ck) == len(specs_cti)
     for i in range(len(specs_ck)):
-        assert specs_ck[i] == specs_cti[i]
+        specs_ck[i] == specs_cti[i]
