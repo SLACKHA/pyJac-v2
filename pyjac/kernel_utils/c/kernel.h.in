@@ -15,7 +15,7 @@ Nicholas Curtis - 2017
 #include "read_initial_conditions.h"
 #include "error_check.h"
 #include "memcpy_2d.h"
-#inclide "write_data.h"
+#include "write_data.h"
 #include <string.h>
 #include <stdio.h>
 #include <string.h>
