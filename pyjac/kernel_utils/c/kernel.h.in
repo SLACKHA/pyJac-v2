@@ -12,6 +12,11 @@ Nicholas Curtis - 2017
 
 #include "timer.h"
 #include "mechanism.h"
+#include "read_initial_conditions.h"
+#include "error_check.h"
+#include "memcpy_2d.h"
+#inclide "write_data.h"
+#include <string.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
