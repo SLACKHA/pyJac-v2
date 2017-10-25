@@ -1,4 +1,4 @@
-from ..core.reaction_types import falloff_form, reaction_type, reversible_type \
+from ..core.reaction_types import falloff_form, reaction_type, reversible_type, \
     thd_body_type
 from . import TestClass
 
