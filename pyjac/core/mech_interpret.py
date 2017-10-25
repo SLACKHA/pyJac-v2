@@ -10,6 +10,7 @@ import sys
 import math
 import re
 from copy import deepcopy
+import logging
 
 import numpy as np
 
@@ -21,7 +22,11 @@ from . import chem_model as chem
 CANTERA_FLAG = False
 try:
     import cantera as ct
-
+    version = ct.__version__.split('.')
+    if int(version[0]) < 2 or int(version[1]) < 3:
+        print('Parsing of Cantera mechanisms requires at least version 2.3.0 in order to access species thermo properties...')
+        print('Detected version is only {}'.format(ct.__version__))
+        sys.exit(1)
     CANTERA_FLAG = True
 except ImportError:
     CANTERA_FLAG = False
@@ -105,6 +110,9 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
             # don't convert to lowercase, since thermo
             # needs to match (for Chemkin)
 
+            # Remove trailing and leading whitespace, tabs, newline
+            line = line.strip()
+
             # remove any comments from end of line
             ind = line.find('!')
             if ind > 0: line = line[0:ind]
@@ -168,8 +176,6 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
             elif line[0:3].lower() == 'end':
                 key = ''
                 continue
-
-            line = line.strip()
 
             if key == 'elem':
                 # if any atomic weight declarations, replace / with spaces
@@ -552,6 +558,20 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
                         par1 = float(line_split[1])
                         par2 = float(line_split[2])
                         par3 = float(line_split[3])
+
+                        do_warn = False
+                        if par2 == 0:
+                            do_warn = True
+                            par2 = 1e-30
+                        if par3 == 0:
+                            do_warn = True
+                            par3 = 1e-30
+                        if do_warn:
+                            logger = logging.getLogger(__name__)
+                            logger.warn(
+                                'Troe parameters in reaction {} modified to avoid'
+                                ' division by zero!.'.format(len(reacs)))
+
                         reacs[-1].troe_par.append(par1)
                         reacs[-1].troe_par.append(par2)
                         reacs[-1].troe_par.append(par3)
@@ -997,6 +1017,17 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
             if rxn.falloff.type == 'Troe':
                 reac.troe = True
                 reac.troe_par = rxn.falloff.parameters.tolist()
+                do_warn = False
+                if reac.troe_par[1] == 0:
+                    reac.troe_par[1] = 1e-30
+                    do_warn = True
+                if reac.troe_par[2] == 0:
+                    reac.troe_par[2] = 1e-30
+                    do_warn = True
+                if do_warn:
+                    logger = logging.getLogger(__name__)
+                    logger.warn('Troe parameters in reaction {} modified to avoid'
+                                ' division by zero!.'.format(len(reacs)))
             elif rxn.falloff.type == 'SRI':
                 reac.sri = True
                 reac.sri_par = rxn.falloff.parameters.tolist()
