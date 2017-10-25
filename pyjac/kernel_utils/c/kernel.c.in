@@ -8,10 +8,6 @@ Nicholas Curtis - 2017
 
 #include "${knl_name}_main.h"
 #include "${knl_name}.h"
-#include "read_initial_conditions.h"
-#include "error_check.h"
-#include "memcpy_2d.h"
-#include <string.h>
 
 /* declare memory buffers */
 ${mem_declares}
