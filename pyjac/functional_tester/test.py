@@ -740,13 +740,13 @@ class jacobian_eval(eval):
             # check that we have all expected keys, and there is no nan's, etc.
             allclear = self._check_file(err, names, mods)
             # check thresholded error
-            names = ['jac_threshold_15', 'jac_thresholded_20']
-            mods = ['', 'PJ_amax', 'AD_amax']
+            names = ['jac_thresholded_15', 'jac_thresholded_20']
+            mods = ['', '_PJ_amax', '_AD_amax']
             # check that we have all expected keys, and there is no nan's, etc.
             allclear = allclear and self._check_file(err, names, mods)
             # check that we have the weighted jacobian error
             names = ['jac_weighted_' + x for x in ['0.01', '0.1', '1.0', '10.0']]
-            mods = ['', 'PJ_amax', 'AD_amax']
+            mods = ['', '_PJ_amax', '_AD_amax']
             allclear = allclear and self._check_file(err, names, mods)
             # check for max / threshold value
             names = ['jac_']
