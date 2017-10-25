@@ -1,4 +1,2 @@
-__version_info__ = (1, 0, 6)
+__version_info__ = (2, 0, 0, 'beta')
 __version__ = '.'.join(map(str, __version_info__[:3]))
-if len(__version_info__) == 4:
-    __version__ += __version_info__[-1]
