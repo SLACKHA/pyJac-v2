@@ -85,7 +85,6 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
                 vectypes = [4, None] if do_vector else [None]
                 inner_loop = [('lang', langs[:])]
                 if lang == 'opencl':
-                    use_atomics = False
                     import pyopencl as cl
                     inner_loop += [('width', vectypes[:]),
                                    ('depth', vectypes[:])]
@@ -98,15 +97,16 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
                         for dev_type in device_types:
                             devices = p.get_devices(dev_type)
                             if devices:
-                                platform_list.append(p.vendor)
+                                plist = [('platform', p.name)]
+                                use_atomics = False
                                 if 'cl_khr_int64_base_atomics' in \
                                         devices[0].extensions:
                                     use_atomics = True
-                    inner_loop += [('platform', platform_list),
-                                   ('use_atomics', use_atomics)]
-
-                # create option loop and add
-                oploop += [inner_loop]
+                                plist.append(('use_atomics', use_atomics))
+                                platform_list.append(plist)
+                    for p in platform_list:
+                        # create option loop and add
+                        oploop += [inner_loop + p]
     return oploop
 
 
