@@ -194,8 +194,10 @@ class validation_runner(runner):
                     for name in out_names]
 
             # call
+            do_compilation = offset == 0
             subprocess.check_call([os.path.join(my_test, lib),
-                                   str(this_run), str(state['num_cores'])],
+                                   str(this_run), str(state['num_cores']),
+                                   str(do_compilation)],
                                   cwd=my_test)
 
             # get error
