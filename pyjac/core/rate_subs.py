@@ -2597,10 +2597,11 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     hybrid = loopy_opts.rate_spec == lp_utils.RateSpecialization.hybrid
     fixed = loopy_opts.rate_spec == lp_utils.RateSpecialization.fixed
     separated_kernels = loopy_opts.rate_spec_kernels
+    logger = logging.getLogger(__name__)
     if fixed and separated_kernels:
         separated_kernels = False
-        logging.warn('Cannot use separated kernels with a fixed '
-                     'RateSpecialization, disabling...')
+        logger.warn('Cannot use separated kernels with a fixed '
+                    'RateSpecialization, disabling...')
 
     base_kernel_data = []
     if test_size == 'problem_size':
@@ -3263,6 +3264,7 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
 
 if __name__ == "__main__":
+    utils.setup_logging()
     args = utils.get_parser()
 
     from .create_jacobian import create_jacobian

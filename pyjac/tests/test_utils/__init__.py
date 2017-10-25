@@ -639,7 +639,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                                 if x not in exceptions})
         except MissingPlatformError:
             # warn and skip future tests
-            logging.warn('Platform {} not found'.format(state['platform']))
+            logger = logging.getLogger(__name__)
+            logger.warn('Platform {} not found'.format(state['platform']))
             bad_platforms.update([state['platform']])
             continue
 
@@ -744,7 +745,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                                  if x not in exceptions})
         except MissingPlatformError:
             # warn and skip future tests
-            logging.warn('Platform {} not found'.format(state['platform']))
+            logger = logging.getLogger(__name__)
+            logger.warn('Platform {} not found'.format(state['platform']))
             bad_platforms.update([state['platform']])
             continue
 
@@ -892,7 +894,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 os.remove(x)
             os.remove(os.path.join(lib_dir, 'test.py'))
         except subprocess.CalledProcessError:
-            logging.debug(state)
+            logger = logging.getLogger(__name__)
+            logger.debug(state)
             assert False, '{} error'.format(kgen.name)
 
 
@@ -1020,7 +1023,8 @@ def _run_mechanism_tests(work_dir, run):
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir, run.rtype)
 
     if len(mechanism_list) == 0:
-        logging.error('No mechanisms found for testing in directory:{}, '
+        logger = logging.getLogger(__name__)
+        logger.error('No mechanisms found for testing in directory:{}, '
                       'exiting...'.format(work_dir))
         sys.exit(-1)
 

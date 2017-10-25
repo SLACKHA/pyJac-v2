@@ -588,6 +588,7 @@ class kernel_generator(object):
 ${name} : ${type}
     ${desc}
 """)
+        logger = logging.getLogger(__name__)
         for x in [y for y in self.mem.in_arrays if not any(
                 z.name == y for z in self.mem.host_constants)]:
             if x == 'phi':
@@ -612,8 +613,7 @@ ${name} : ${type}
                         ' in {}-order').format(
                         self.loopy_opts.order)))
             else:
-                logging.warn(
-                    'Argument documentation not found for arg {}'.format(x))
+                logger.warn('Argument documentation not found for arg {}'.format(x))
 
         knl_args_doc = '\n'.join(knl_args_doc)
         # memory transfers in
@@ -871,6 +871,7 @@ ${name} : ${type}
         mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
         data_size = len(kernel_data)
         read_size = len(read_only)
+        logger = logging.getLogger(__name__)
         if not mem_limits.can_fit():
             # we need to convert our __constant temporary variables to
             # __global kernel args until we can fit
@@ -884,7 +885,7 @@ ${name} : ${type}
             gtemps = gtemps[1:]
             while not mem_limits.can_fit(with_type_changes=type_changes):
                 if not gtemps:
-                    logging.exception('Cannot fit kernel {} in memory'.format(
+                    logger.exception('Cannot fit kernel {} in memory'.format(
                         self.name))
                 type_changes[memory_type.m_global].append(gtemps[0])
                 gtemps = gtemps[1:]
