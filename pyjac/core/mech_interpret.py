@@ -736,7 +736,7 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
         else:
             logger = logging.getLogger(__name__)
             logger.error(
-                'Error: no thermo file specified, but species missing \n'
+                'No thermo file specified, but species missing \n'
                 'data. Either specify file, or ensure complete data in\n'
                 'mechanism file with THERMO option.')
             sys.exit(1)
