@@ -758,6 +758,8 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
     # determine reaction type enums
     for reac in reacs:
         reac.finalize(len(specs))
+    for spec in specs:
+        spec.finalize()
     return (elems, specs, reacs)
 
 
@@ -782,6 +784,9 @@ def read_thermo(filename, elems, specs):
     None
 
     """
+
+    # choose our element names to enable comparison between Chemkin & Cantera
+    elem_name_map = {e.lower(): e for e in elem_wt}
 
     with open(filename, 'r') as file:
 
@@ -869,7 +874,7 @@ def read_thermo(filename, elems, specs):
                 e_num = float(e_str[2:].strip())
                 e_num = int(e_num)
 
-                spec.elem.append([e, e_num])
+                spec.elem.append([elem_name_map[e.lower()], e_num])
 
                 # calculate molecular weight
                 spec.mw += e_num * elem_wt[e.lower()]
@@ -962,6 +967,9 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
         if e.lower() not in elem_wt:
             elem_wt[e.lower()] = wt
 
+    # choose our element names to enable comparison between Chemkin & Cantera
+    elem_name_map = {e.lower(): e for e in elem_wt}
+
     # Species
     specs = []
     for i, sp in enumerate(gas.species_names):
@@ -974,7 +982,7 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
 
         # Species elemental composition
         for e in species.composition:
-            spec.elem.append([e, species.composition[e]])
+            spec.elem.append([elem_name_map[e.lower()], int(species.composition[e])])
 
         # Species thermodynamic properties
         coeffs = species.thermo.coeffs
@@ -1158,4 +1166,6 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
     # determine reaction type enums
     for reac in reacs:
         reac.finalize(len(specs))
+    for spec in specs:
+        spec.finalize()
     return (elems, specs, reacs)
