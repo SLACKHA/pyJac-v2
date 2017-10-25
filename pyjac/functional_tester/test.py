@@ -207,7 +207,7 @@ class validation_runner(runner):
                 os.remove(x)
 
             # finally update the offset
-            offset += self.cond_per_run
+            offset += this_run
 
         # and write to file
         np.savez(data_output, **err_dict)
