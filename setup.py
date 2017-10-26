@@ -9,7 +9,7 @@ from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
 from os import path
-from .setup_helper import get_config, ConfigSchema, get_config_schema
+from setup_helper import get_config, ConfigSchema, get_config_schema
 
 with open('pyjac/_version.py') as version_file:
     exec(version_file.read())
@@ -23,7 +23,8 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 # get user's siteconf.py from CMD/file, and write to pyjac's siteconf.py
 schema = get_config_schema()
 conf = get_config(schema, warn_about_no_config=False)
-ConfigSchema(schema, conf_dir=path.join(here, 'pyjac')).write_config(conf)
+schema.set_conf_dir(path.join(here, 'pyjac'))
+schema.write_config(conf)
 
 setup(
     name='pyJac',
@@ -91,7 +92,7 @@ setup(
     # install_requires=['peppercorn'],
     install_requires=[
         'numpy',
-        'loopy',
+        'loo.py>=2016.2',
         'six',
         'pyyaml',
         'cgen',
