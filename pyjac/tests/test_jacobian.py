@@ -2326,8 +2326,11 @@ class SubTest(TestClass):
         return self._generic_jac_tester(reset_arrays, kc)
 
     def test_sparse_indexing(self):
+        from ..core import instruction_creator as ic
         # a simple test to ensure our sparse indexing is working correctly
-        def __kernel_creator(_, loopy_opts, namestore, test_size=None):
+
+        @ic.with_conditional_jacobian
+        def __kernel_creator(loopy_opts, namestore, test_size=None, jac_create=None):
             from ..loopy_utils.loopy_utils import JacobianFormat
             if loopy_opts.jac_format != JacobianFormat.sparse:
                 raise SkipTest('Not relevant')
@@ -2348,6 +2351,7 @@ class SubTest(TestClass):
             mapstore.finalize()
             base_index = mapstore.tree.parent.iname
             var_name = mapstore.tree.iname
+            global_ind = arc.global_ind
 
             kernel_data = []
 
@@ -2357,13 +2361,31 @@ class SubTest(TestClass):
             _, indptr_next_str = mapstore.apply_maps(indptr, var_name,
                                                      affine=1)
             kernel_data.extend([inds_arr, indptr_arr])
-            # and lookup function
-            lookup = jac_indirect_lookup(indptr_arr)
+            # and create set instructions
+            jac_lp, set1_insn = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 0,
+                insn='${jac_str} = jac_index {id=set1, nosync=set*, dep=${deps}}')
+            _, set2_insn = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 1,
+                insn='${jac_str} = jac_index {id=set2, nosync=set*, dep=${deps}}')
+            _, set3_insn = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 'spec + 2',
+                insn='${jac_str} = jac_index {id=set3, nosync=set*, dep=${deps}}')
+            _, set4_insn = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 'spec + 2',
+                insn='${jac_str} = jac_index {id=set4, nosync=set*, dep=${deps}}')
+            _, set5_insn = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 'spec + 2',
+                insn='${jac_str} = jac_index {id=set5, nosync=set*, dep=${deps}}')
+            _, set6_insn = jac_create(
+                mapstore, namestore.jac, global_ind, var_name, 'spec + 2',
+                insn='${jac_str} = jac_index {id=set6, nosync=set*, dep=${deps}}')
 
-            # create jacobian and bypass lookup insertion
-            jac_arr, jac_str = namestore.jac(arc.global_ind, 'index',
-                                             ignore_lookups=True)
-            kernel_data.append(jac_arr)
+            lookup = jac_indirect_lookup(
+                namestore.jac_col_inds if loopy_opts.order == 'C'
+                else namestore.jac_row_inds)
+
+            kernel_data.append(jac_lp)
             # create get species -> rxn offsets & rxns
             offsets, s_t_r_offset_str = mapstore.apply_maps(
                 namestore.spec_to_rxn_offsets, 'ind')
@@ -2397,16 +2419,22 @@ class SubTest(TestClass):
             # add all species for temperature / variable loop
 
             numspec, specloop2_str = mapstore.apply_maps(
-                namestore.num_specs, 'is2')
+                namestore.num_specs_no_ns, 'is2')
             numspec, specloop3_str = mapstore.apply_maps(
-                namestore.num_specs, 'is3')
+                namestore.num_specs_no_ns, 'is3')
             kernel_data.append(numspec)
 
-            # create a custom has_ns mask
-            has_ns_mask = np.full(namestore.num_reacs.size, -1, dtype=np.int32)
+            # create a custom has_ns mask over all reaction types
+            has_ns_mask = np.full(namestore.num_reacs.size, 0, dtype=np.int32)
             has_ns_mask[namestore.rxn_has_ns.initializer] = 1
             has_ns_mask[namestore.thd_map[
                 namestore.thd_only_ns_inds.initializer]] = 1
+            has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
+                namestore.sri_has_ns.initializer]]] = 1
+            has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
+                namestore.troe_has_ns.initializer]]] = 1
+            has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
+                namestore.lind_has_ns.initializer]]] = 1
             has_ns_mask = arc.creator('has_ns', initializer=has_ns_mask,
                                       dtype=np.int32, shape=has_ns_mask.shape,
                                       order=loopy_opts.order)
@@ -2416,8 +2444,8 @@ class SubTest(TestClass):
 
             extra_inames = [('i_rxn', 'roffset <= i_rxn < roffset_next'),
                             ('is1', 'soffset <= is1 < soffset_next'),
-                            ('is2,is3', '0 <= is2,is3 < {} - 1'.format(
-                                namestore.num_specs.size)),
+                            ('is2,is3', '0 <= is2,is3 < {}'.format(
+                                namestore.num_specs_no_ns.size)),
                             ('i_thd', 'toffset <= i_thd <= toffset_next')]
             # subs
             subs = locals().copy()
@@ -2426,15 +2454,12 @@ class SubTest(TestClass):
                         'indptr': indptr_str})
 
             # make kernel
-            instructions = Template("""
+            instructions = Template(Template("""
                 # for each phi entry in the jacobian
-                <> index = ${indptr} + ${lookup}(${indptr}, ${indptr_next_str}, 0)
-                # and store
-                ${jac_str} = index {id=set1}
+                # temperature
+                ${set1_insn}
                 # extra variable
-                index = ${indptr} + ${lookup}(${indptr}, ${indptr_next_str}, 1)
-                # and store
-                ${jac_str} = index {id=set2, nosync=set1}
+                ${set2_insn}
                 if ${var_name} >= 2
                     # and then go through the reactions for this species
                     <> ind = i - 2
@@ -2448,9 +2473,7 @@ class SubTest(TestClass):
                             <> spec = ${spec_str}
                             if spec != ${ns}
                                 # do lookup
-                                index = ${indptr} + ${lookup}(${indptr}, \
-                                    ${indptr_next_str}, spec + 2)
-                                ${jac_str} = index {id=set3, nosync=set*}
+                                ${set3_insn}
                             end
                         end
                         # and species in third body (if present)
@@ -2460,9 +2483,7 @@ class SubTest(TestClass):
                             for i_thd
                                 spec = ${thd_spec_str}
                                 if spec != ${ns}
-                                    index = ${indptr} + ${lookup}(${indptr}, \
-                                            ${indptr_next_str}, spec + 2)
-                                    ${jac_str} = index {id=set4, nosync=set*}
+                                    ${set4_insn}
                                 end
                             end
                         end
@@ -2471,9 +2492,7 @@ class SubTest(TestClass):
                             for is2
                                 spec = ${specloop2_str}
                                 # do lookup
-                                index = ${indptr} + ${lookup}(${indptr},
-                                    ${indptr_next_str}, spec + 2)
-                                ${jac_str} = index {id=set5, nosync=set*}
+                                ${set5_insn}
                             end
                         end
                     end
@@ -2481,12 +2500,10 @@ class SubTest(TestClass):
                     for is3
                         spec = ${specloop3_str}
                         # do lookup
-                        index = ${indptr} + ${lookup}(${indptr},
-                            ${indptr_next_str}, spec + 2)
-                        ${jac_str} = index {id=set6, nosync=set*}
+                        ${set6_insn}
                     end
                 end
-            """).safe_substitute(**subs)
+            """).safe_substitute(**subs)).safe_substitute(**subs)
 
             return knl_info(instructions=instructions,
                             mapstore=mapstore,
