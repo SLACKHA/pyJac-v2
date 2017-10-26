@@ -7,7 +7,7 @@ https://github.com/pypa/sampleproject
 from setuptools import setup
 from codecs import open
 from os import path
-from .setup_helper import get_config, ConfigSchema, get_config_schema
+from setup_helper import get_config, ConfigSchema, get_config_schema
 
 here = path.abspath(path.dirname(__file__))
 
@@ -24,7 +24,8 @@ with open(path.join(here, 'CHANGELOG.md')) as changelog_file:
 # get user's siteconf.py from CMD/file, and write to pyjac's siteconf.py
 schema = get_config_schema()
 conf = get_config(schema, warn_about_no_config=False)
-ConfigSchema(schema, conf_dir=path.join(here, 'pyjac')).write_config(conf)
+schema.set_conf_dir(path.join(here, 'pyjac'))
+schema.write_config(conf)
 
 setup(
     name='pyJac',
@@ -82,7 +83,7 @@ except (ImportError, OSError, IOError):
     # install_requires=['peppercorn'],
     install_requires=[
         'numpy',
-        'loopy',
+        'loo.py>=2016.2',
         'six',
         'pyyaml',
         'cgen',

@@ -337,9 +337,6 @@ def humanize(sym_str):
 
 
 def get_config_schema():
-    from aksetup_helper import ConfigSchema, Option, \
-            IncludeDir, LibraryDir, Libraries, StringListOption
-
     default_cxxflags = ['-std=gnu++11']
 
     if 'darwin' in sys.platform:
