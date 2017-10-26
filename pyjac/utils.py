@@ -59,8 +59,11 @@ def setup_logging(
     else:
         logging.basicConfig(level=default_level)
 
-    # make loopy's logging less verbose
+    # make set depenendencies logging levels to be less verbose
     logging.getLogger('loopy').setLevel(logging.WARNING)
+    logging.getLogger('pyopencl').setLevel(logging.WARNING)
+    logging.getLogger('pytools').setLevel(logging.WARNING)
+    logging.getLogger('codepy').setLevel(logging.WARNING)
 
 
 class EnumType(object):
