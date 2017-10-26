@@ -7,7 +7,7 @@ from string import Template
 import logging
 
 from ..libgen import generate_library, build_type
-from .. import site_conf as site
+from .. import siteconf as site
 
 
 def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,

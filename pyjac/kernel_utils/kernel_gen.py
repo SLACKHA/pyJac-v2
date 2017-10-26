@@ -19,7 +19,7 @@ import cgen
 
 from . import file_writers as filew
 from .memory_manager import memory_manager, memory_limits, memory_type
-from .. import site_conf as site
+from .. import siteconf as site
 from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen

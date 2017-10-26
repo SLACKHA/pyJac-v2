@@ -1,4 +1,8 @@
-matplotlib >= 1.4.3
-Cython >= 0.23.1
-PyYAML >= 3.11
-parameterized >= 0.6
+nose
+nose-exclude
+Cython
+PyYAML
+parameterized
+optionloop >= 1.0.7
+cantera >= 2.3.0
+scipy

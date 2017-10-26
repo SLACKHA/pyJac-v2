@@ -1,4 +1,6 @@
-numpy >= 1.9.0
+numpy
 loopy >= 2016.2
-enum34 >= 1.1.6
-optionloop >= 1.0.4
+enum34 >= 1.1.6;python_version=='2.7'
+six
+pyyaml
+cgen

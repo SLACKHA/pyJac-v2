@@ -7,7 +7,7 @@ https://github.com/pypa/sampleproject
 from setuptools import setup
 from codecs import open
 from os import path
-import sys
+from .setup_helper import get_config, ConfigSchema, get_config_schema
 
 here = path.abspath(path.dirname(__file__))
 
@@ -21,8 +21,13 @@ with open(path.join(here, 'README.md')) as readme_file:
 with open(path.join(here, 'CHANGELOG.md')) as changelog_file:
     changelog = changelog_file.read()
 
-with open(path.join(here, 'CITATION.md')) as citation_file:
-    citation = citation_file.read()
+# get user's siteconf.py from CMD/file, and write to pyjac's siteconf.py
+schema = get_config_schema()
+conf = get_config(schema, warn_about_no_config=False)
+ConfigSchema(schema, conf_dir=path.join(here, 'pyjac')).write_config(conf)
+
+setup(
+    name='pyJac',
 
 desc = readme + '\n\n' + changelog + '\n\n' + citation
 try:
@@ -32,30 +37,18 @@ try:
         rst_readme.write(long_description)
 except (ImportError, OSError, IOError):
     long_description = desc
-
-install_requires = [
-    'numpy>=1.12.0',
-    'bitarray>=0.8.1',
-    'optionloop>1.0.3',
-    'Cython>=0.23.1',
-    'pyyaml>=3.11',
-]
-
-tests_require = [
-    'pytest>=3.0.1',
-]
-
-needs_pytest = {'pytest', 'test', 'ptr'}.intersection(sys.argv)
-setup_requires = ['pytest-runner'] if needs_pytest else []
-
-setup(
-    name='pyjac',
-    version=__version__,
-    description='Create analytical Jacobian matrix source code for chemical kinetics',
+    description=('Create analytical Jacobian matrix source code for chemical '
+                 'kinetics'),
     long_description=long_description,
-    url='https://github.com/slackha/pyJac',
-    author='Kyle E. Niemeyer',
-    author_email='kyle.niemeyer@gmail.com',
+
+    # The project's main homepage.
+    url='https://github.com/SLACKHA/pyJac',
+
+    # Author details
+    author='Nick Curtis, Kyle E. Niemeyer',
+    author_email='nicholas.curtis@uconn.edu, kyle.niemeyer@gmail.com',
+
+    # Choose your license
     license='MIT License',
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
@@ -78,18 +71,54 @@ setup(
     ],
     keywords='chemical_kinetics analytical_Jacobian',
 
-    packages=['pyjac', 'pyjac.core', 'pyjac.functional_tester', 'pyjac.libgen',
-              'pyjac.performance_tester', 'pyjac.pywrap', 'pyjac.tests',
-              ],
-    package_dir={'pyjac': 'pyjac'},
-    install_requires=install_requires,
+    # You can just specify the packages manually here if your project is
+    # simple. Or you can use find_packages().
+    packages=find_packages(exclude=['docs']),
+
+    # List run-time dependencies here.  These will be installed by pip when
+    # your project is installed. For an analysis of "install_requires" vs pip's
+    # requirements files see:
+    # https://packaging.python.org/en/latest/requirements.html
+    # install_requires=['peppercorn'],
+    install_requires=[
+        'numpy',
+        'loopy',
+        'six',
+        'pyyaml',
+        'cgen',
+        'enum34;python_version<"3.4"'],
+
+    tests_require=[
+          'pyopencl>=2015.2',
+          'nose'],
+
+    # use nose for tests
+    test_suite='nose.collector',
+
+    # List additional groups of dependencies here (e.g. development
+    # dependencies). You can install these using the following syntax,
+    # for example:
+    # $ pip install -e .[dev,test]
+    # extras_require={
+    #     'dev': ['check-manifest'],
+    #     'test': ['coverage'],
+    # },
+
+    # If there are data files included in your packages that need to be
+    # installed, specify them here.  If using Python 2.6 or less, then these
+    # have to be included in MANIFEST.in as well.
     package_data={
-        'pyjac.pywrap': ['*.pyx', '*.c', '*.h', '*.cu', '*.cuh', '*.in'],
-        'pyjac.functional_tester' : ['*.yaml'],
-        'pyjac.performance_tester' : ['*.pyx', '*.c', '*.h', '*.cu',
-                                      '*.cuh', '*.in'
-                                      ],
-        },
+        'pyjac': ['*.yaml'],
+        'pyjac.pywrap': ['*.in'],
+        'pyjac.functional_tester': ['*.yaml'],
+        'pyjac.kernel_utils.c': ['*.c', '*.h', '*.in'],
+        'pyjac.kernel_utils.common': ['*.c', '*.h', '*.in'],
+        'pyjac.kernel_utils.opencl': ['*.ocl', '*.oclh', '*.in'],
+        'pyjac.loopy_utils': ['*.in'],
+        'pyjac.tests': ['*.cti', '*.inp', 'test_platforms_example.yaml'],
+        'pyjac.tests.test_utils': ['*.in', '*.pyx'],
+
+    },
     include_package_data=True,
     tests_require=tests_require,
     setup_requires=setup_requires,
