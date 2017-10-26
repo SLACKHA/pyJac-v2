@@ -63,7 +63,7 @@ def clean_dir(dirname, remove_dir=True):
         if os.path.isfile(os.path.join(dirname, file)):
             os.remove(os.path.join(dirname, file))
     if remove_dir:
-        os.rmdir(dirname)
+        shutil.rmtree(dirname, ignore_errors=True)
 
 
 class kernel_runner(object):
