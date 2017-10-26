@@ -741,15 +741,16 @@ class SubTest(TestClass):
         fwd_removed = self.store.fwd_rxn_rate.copy()
         rev_removed = self.store.rev_rxn_rate.copy()
         if self.store.thd_inds.size:
-            fwd_removed[:, self.store.thd_inds] = fwd_removed[
-                :, self.store.thd_inds] / self.store.ref_pres_mod
-            thd_in_rev = np.where(
-                np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
-            rev_update_map = np.where(
-                np.in1d(
-                    self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
-            rev_removed[:, rev_update_map] = rev_removed[
-                :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
+            with np.errstate(divide='ignore', invalid='ignore'):
+                fwd_removed[:, self.store.thd_inds] = fwd_removed[
+                    :, self.store.thd_inds] / self.store.ref_pres_mod
+                thd_in_rev = np.where(
+                    np.in1d(self.store.thd_inds, self.store.rev_inds))[0]
+                rev_update_map = np.where(
+                    np.in1d(
+                        self.store.rev_inds, self.store.thd_inds[thd_in_rev]))[0]
+                rev_removed[:, rev_update_map] = rev_removed[
+                    :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
             # remove ref pres mod = 0 (this is a 0 rate)
             fwd_removed[np.where(np.isnan(fwd_removed))] = 0
             rev_removed[np.where(np.isnan(rev_removed))] = 0
