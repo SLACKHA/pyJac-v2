@@ -9,6 +9,7 @@ from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
 from os import path
+from .setup_helper import get_config, ConfigSchema, get_config_schema
 
 with open('pyjac/_version.py') as version_file:
     exec(version_file.read())
@@ -19,6 +20,11 @@ here = path.abspath(path.dirname(__file__))
 with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
+# get user's siteconf.py from CMD/file, and write to pyjac's siteconf.py
+schema = get_config_schema()
+conf = get_config(schema, warn_about_no_config=False)
+ConfigSchema(schema, conf_dir=path.join(here, 'pyjac')).write_config(conf)
+
 setup(
     name='pyJac',
 
@@ -27,15 +33,16 @@ setup(
     # https://packaging.python.org/en/latest/single_source_version.html
     version=__version__,
 
-    description='Create analytical Jacobian matrix source code for chemical kinetics',
+    description=('Create analytical Jacobian matrix source code for chemical '
+                 'kinetics'),
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/kyleniemeyer/pyJac',
+    url='https://github.com/SLACKHA/pyJac',
 
     # Author details
-    author='Kyle E. Niemeyer',
-    author_email='kyle.niemeyer@gmail.com',
+    author='Nick Curtis, Kyle E. Niemeyer',
+    author_email='nicholas.curtis@uconn.edu, kyle.niemeyer@gmail.com',
 
     # Choose your license
     license='MIT License',
@@ -82,9 +89,20 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     # install_requires=['peppercorn'],
-    install_requires=['numpy',
-                      'bitarray',
-                      'optionloop'],
+    install_requires=[
+        'numpy',
+        'loopy',
+        'six',
+        'pyyaml',
+        'cgen',
+        'enum34;python_version<"3.4"'],
+
+    tests_require=[
+          'pyopencl>=2015.2',
+          'nose'],
+
+    # use nose for tests
+    test_suite='nose.collector',
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
@@ -99,11 +117,16 @@ setup(
     # installed, specify them here.  If using Python 2.6 or less, then these
     # have to be included in MANIFEST.in as well.
     package_data={
-        'pyjac.pywrap': ['*.pyx', '*.c', '*.h', '*.cu', '*.cuh', '*.in'],
-        'pyjac.functional_tester' : ['*.yaml'],
-        'pyjac.performance_tester' : ['*.pyx', '*.c', '*.h', '*.cu',
-                                      '*.cuh', '*.in'
-                                      ],
+        'pyjac': ['*.yaml'],
+        'pyjac.pywrap': ['*.in'],
+        'pyjac.functional_tester': ['*.yaml'],
+        'pyjac.kernel_utils.c': ['*.c', '*.h', '*.in'],
+        'pyjac.kernel_utils.common': ['*.c', '*.h', '*.in'],
+        'pyjac.kernel_utils.opencl': ['*.ocl', '*.oclh', '*.in'],
+        'pyjac.loopy_utils': ['*.in'],
+        'pyjac.tests': ['*.cti', '*.inp', 'test_platforms_example.yaml'],
+        'pyjac.tests.test_utils': ['*.in', '*.pyx'],
+
     },
     include_package_data=True,
 

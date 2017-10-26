@@ -76,5 +76,5 @@ pyjacob_wrapper.c
 pytchem_wrapper.c
 
 # configuration files
-pyjac/site_conf.py
+pyjac/siteconf.py
 pyjac/tests/test_platforms.yaml

@@ -12,11 +12,18 @@ include pyjac/utils.py
 include pyjac/__init__.py
 include pyjac/__main__.py
 include pyjac/_version.py
+include pyjac/siteconf.py
+include pyjac/logging.yaml
 recursive-include pyjac/core *.py
 recursive-include pyjac/functional_tester *.py *.yaml
-recursive-include pyjac/performance_tester *.c *.cu *.in *.h *.py
-recursive-include pyjac/pywrap *.py *.pyx *.c *.h *.cu *.cuh *.in
+recursive-include pyjac/loopy_utils *.py *.in
 recursive-include pyjac/libgen *.py
+recursive-include pyjac/kernel_utils *.py *.in *.h *.c *.oclh *.ocl
+recursive-include pyjac/performance_tester *.py
+recursive-include pyjac/pywrap *.py *.in
+recursive-include pyjac/tests *.py *.inp * .cti *.in *.yaml
+include pyjac/tests/test_platforms_example.py
+include pyjac/site_conf_example.py
 recursive-include data/ *.npy *.cti *.inp *.yaml
 
 global-exclude *.so

@@ -10,7 +10,7 @@ import platform
 import logging
 
 from .. import utils
-from .. import site_conf as site
+from .. import siteconf as site
 from enum import Enum
 from ..core.exceptions import CompilationError
 
