@@ -1001,7 +1001,8 @@ class SubTest(TestClass):
             order=ad_opts.order, skip_on_missing=get_sri_kernel)
 
         if not rate_info['fall']['sri']['num']:
-            raise SkipTest('No SRI reactions in mechanism {}'.format(self.gas.name))
+            raise SkipTest('No SRI reactions in mechanism {}'.format(
+                self.store.gas.name))
 
         # get kf / kf_fall
         kf, kf_fall = self.__get_kf_and_fall()
@@ -1120,7 +1121,8 @@ class SubTest(TestClass):
             order=ad_opts.order, skip_on_missing=get_troe_kernel)
 
         if not rate_info['fall']['troe']['num']:
-            raise SkipTest('No Troe reactions in mechanism {}'.format(self.gas.name))
+            raise SkipTest('No Troe reactions in mechanism {}'.format(
+                self.store.gas.name))
 
         # get kf / kf_fall
         kf, kf_fall = self.__get_kf_and_fall()
