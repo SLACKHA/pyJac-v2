@@ -35,7 +35,8 @@ from parameterized import parameterized
 class editor(object):
 
     def __init__(self, independent, dependent,
-                 problem_size, order, do_not_set=[]):
+                 problem_size, order, do_not_set=[],
+                 skip_on_missing=None):
 
         self.independent = independent
         indep_size = next(x for x in independent.shape if x != problem_size)
@@ -52,6 +53,7 @@ class editor(object):
             self.do_not_set = do_not_set[:]
         except:
             self.do_not_set = [do_not_set]
+        self.skip_on_missing = skip_on_missing
 
     def set_single_kernel(self, single_kernel):
         """
@@ -60,6 +62,13 @@ class editor(object):
         size of 1, to work with Adept indexing in the AD kernel
         """
         self.single_kernel = single_kernel
+
+    def set_skip_on_missing(self, func):
+        """
+            If set, skip if the :class:`kernel_info` returned by this function
+            is None
+        """
+        self.skip_on_missing = func
 
     def __call__(self, knl):
         return set_adept_editor(knl, self.single_kernel, self.problem_size,
@@ -333,16 +342,25 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     knl = new_kernels[:]
 
     # generate dependencies with full test size to get extra args
+    def __raise(f):
+        raise SkipTest('Mechanism {} does not contain derivatives corresponding to '
+                       '{}'.format(self.store.gas.name, f.__name__))
     infos = []
     for f in extra_funcs:
         info = f(ad_opts, namestore,
                  test_size=self.store.test_size,
                  **__get_arg_dict(f, **kw_args))
+        is_skip = editor.skip_on_missing is not None and \
+            f == editor.skip_on_missing
         try:
+            if is_skip and any(x is None for x in info):
+                __raise(f)
             infos.extend([x for x in info if x is not None])
         except:
             if info is None:
                 # empty map (e.g. no PLOG)
+                if is_skip:
+                    __raise(f)
                 continue
             infos.append(info)
 
@@ -630,7 +648,7 @@ class SubTest(TestClass):
         # create the editor
         edit = editor(
             namestore.n_arr, namestore.n_dot, self.store.test_size,
-            order=ad_opts.order)
+            order=ad_opts.order, skip_on_missing=get_thd_body_concs)
 
         args = {'rop_fwd': lambda x: np.array(
             self.store.fwd_rxn_rate, order=x, copy=True),
@@ -871,7 +889,7 @@ class SubTest(TestClass):
         # create the editor
         edit = editor(
             namestore.n_arr, namestore.n_dot, self.store.test_size,
-            order=ad_opts.order)
+            order=ad_opts.order, skip_on_missing=get_lind_kernel)
 
         kf, kf_fall = self.__get_kf_and_fall()
 
@@ -980,7 +998,7 @@ class SubTest(TestClass):
         # create the editor
         edit = editor(
             namestore.n_arr, namestore.n_dot, self.store.test_size,
-            order=ad_opts.order)
+            order=ad_opts.order, skip_on_missing=get_sri_kernel)
 
         # get kf / kf_fall
         kf, kf_fall = self.__get_kf_and_fall()
@@ -1096,7 +1114,7 @@ class SubTest(TestClass):
         # create the editor
         edit = editor(
             namestore.n_arr, namestore.n_dot, self.store.test_size,
-            order=ad_opts.order)
+            order=ad_opts.order, skip_on_missing=get_troe_kernel)
 
         # get kf / kf_fall
         kf, kf_fall = self.__get_kf_and_fall()
@@ -1487,6 +1505,8 @@ class SubTest(TestClass):
             rate_sub = _get_plog_call_wrapper(rate_info)
         elif rxn_type == reaction_type.cheb:
             rate_sub = _get_cheb_call_wrapper(rate_info)
+
+        edit.set_skip_on_missing(rate_sub)
         rate_sub = [rate_sub] + [_get_poly_wrapper('b', conp), get_rev_rates]
 
         if test_variable and (rxn_type == reaction_type.elementary or conp):
@@ -1843,6 +1863,9 @@ class SubTest(TestClass):
             rate_sub = get_sri_kernel
         elif rxn_type == falloff_form.troe:
             rate_sub = get_troe_kernel
+        # tell the editor to raise a skip test if we don't have this type of falloff
+        # / rxn
+        edit.set_skip_on_missing(rate_sub)
         fd_jac = self._get_jacobian(
             get_molar_rates, kc, edit, ad_opts, conp,
             extra_funcs=[x for x in [get_concentrations, get_thd_body_concs,
