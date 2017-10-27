@@ -120,14 +120,12 @@ class validation_runner(runner):
         self.max_vec_width = max_vec_width
 
         self.helper = self.eval_class(gas, num_conditions)
-        if self.rtype != build_type.jacobian:
-            # find the number of conditions per run (needed to avoid memory
-            # issues with i-pentanol model)
-            max_per_run = 100000
-            self.cond_per_run = int(
-                np.floor(max_per_run / max_vec_width) * max_vec_width)
-        else:
-            self.cond_per_run = num_conditions
+        # find the number of conditions per run
+        # this is to avoid memory overflows for IPentanol for species rates
+        # and to avoid breaking Intel w/ segfaults for GRI+ jacobian
+        max_per_run = 100000
+        self.cond_per_run = int(
+            np.floor(max_per_run / max_vec_width) * max_vec_width)
 
     @property
     def max_per_run(self):
