@@ -123,13 +123,12 @@ class validation_runner(runner):
         # find the number of conditions per run
         # this is to avoid memory overflows for IPentanol for species rates
         # and to avoid breaking Intel w/ segfaults for GRI+ jacobian
-        max_per_run = 100000
         self.cond_per_run = int(
-            np.floor(max_per_run / max_vec_width) * max_vec_width)
+            np.floor(self.max_per_run / max_vec_width) * max_vec_width)
 
     @property
     def max_per_run(self):
-        return 100000 if self.rtype == build_type.species_rates else None
+        return 100000
 
     def run(self, state, asplit, dirs, phi_path, data_output):
         """
