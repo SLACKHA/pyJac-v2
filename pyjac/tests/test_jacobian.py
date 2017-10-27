@@ -1502,8 +1502,14 @@ class SubTest(TestClass):
         allint = {'net': rate_info['net']['allint']}
         rate_sub = get_simple_arrhenius_rates
         if rxn_type == reaction_type.plog:
+            if not rate_info['plog']['num']:
+                raise SkipTest('No PLOG reactions in mechanism {}'.format(
+                    self.store.gas.name))
             rate_sub = _get_plog_call_wrapper(rate_info)
         elif rxn_type == reaction_type.cheb:
+            if not rate_info['cheb']['num']:
+                raise SkipTest('No Chebyshev reactions in mechanism {}'.format(
+                    self.store.gas.name))
             rate_sub = _get_cheb_call_wrapper(rate_info)
 
         edit.set_skip_on_missing(rate_sub)
