@@ -7,6 +7,7 @@ from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
 try:
     import pyopencl as cl
+    import warnings
 except:
     cl = None
     pass
@@ -994,7 +995,9 @@ def populate(knl, kernel_calls, device='0',
 
     if ctx is not None:
         with cl.CommandQueue(ctx) as queue:
-            output = __inner(queue)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=cl.CompilerWarning)
+                output = __inner(queue)
             queue.flush()
         # release context
         clear_first_arg_caches()
