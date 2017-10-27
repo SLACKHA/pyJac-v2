@@ -23,7 +23,7 @@ except ImportError:
 # Local imports
 from ..core.mech_interpret import read_mech_ct
 
-from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner
+from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
 from ..tests import test_utils
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
@@ -574,14 +574,14 @@ class jacobian_eval(eval):
         # get the sparse indicies
         inds = self.inds['flat_' + order]
         if check:
-            # check that our sparse indicies make sense
-            mask = np.zeros(jac.shape, dtype=np.bool)
-            # create a masked jacobian that only looks at our indicies
-            mask[:, inds[:, 0], inds[:, 1]] = True
-            mask = ma.array(jac, mask=mask)
-            # check that no entry not in the mask is non-zero
-            assert not np.any(jac[~mask.mask])
+            # get check array as max(|jac|) down the IC axis
+            check = np.amax(jac, axis=0)
+            # get masked where > 0
+            mask = np.asarray(np.where(ma.masked_where(check != 0, check).mask)).T
+            # and check that all our non-zero entries are in the sparse indicies
+            assert inNd(mask, inds).size == mask.shape[0]
             del mask
+            del check
             # and finally return the sparse array
         return np.asarray(jac[:, inds[:, 0], inds[:, 1]], order=order)
 

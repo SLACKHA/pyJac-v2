@@ -320,6 +320,66 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None,
     return tuple(masking)
 
 
+# https://stackoverflow.com/a/41234399
+def inNd(a, b):
+    """
+    Helper method that works like in1d, but for N-Dimensional arrays
+
+    Paramaters
+    ----------
+    a: :class:`numpy.ndarray`
+        A M x N array
+    b: :class:`numpy.ndarray`
+        A K x N array
+    Returns
+    -------
+    a_in_b: :class:`numpy.ndarray`
+        An array of Lx1 (L<=K) indicies indicating which indicies in B
+        correspond to indicies in A
+    """
+    return np.where((a[:, None] == b).all(-1).any(0))[0]
+
+
+# https://stackoverflow.com/a/25655090
+def combination(*arrays, **kwargs):
+    """
+    Helper method that combines the given 1-D arrays in the "ordering" given
+    Used to get all combinations of sparse indicies in the array
+
+    Parameters
+    ----------
+    arrays: list or tuple of :class:`numpy.ndarray`
+        The arrays to combine.  Note that all arrays must have the same size
+    order: str ['C', 'F']
+        The combination order, corresponding to row/column major combination
+
+    Returns
+    -------
+    combined: :class:`numpy.ndarray`
+        The combined array of shape N x :param:`arrays`[0].size
+    """
+
+    assert np.all([np.array_equal(x.shape, arrays[0].shape) for x in arrays[1:]])
+
+    order = kwargs.pop('order')
+    if order == 'F':
+        # need to have the columns incrementing slower, easier to
+        # put the col mask first and then...
+        arrays = list(reversed(arrays))
+    shape = (len(x) for x in arrays)
+
+    ix = np.indices(shape, dtype=int)
+    ix = ix.reshape(len(arrays), -1).T
+
+    for n, arr in enumerate(arrays):
+        ix[:, n] = arrays[n][ix[:, n]]
+
+    if order == 'F':
+        # ...flop rows and columns
+        ix = ix[:, [1, 0]]
+    return ix
+
+
 class get_comparable(object):
     """
     A wrapper for the kernel_call's _get_comparable function that fixes
@@ -393,30 +453,6 @@ class get_comparable(object):
                            if ind == 2)
             col_mask = mask[col_ind]
             return row_ind, row_mask, col_ind, col_mask
-
-        # https://stackoverflow.com/a/41234399
-        def inNd(a, b):
-            return np.where((a[:, None] == b).all(-1).any(0))[0]
-
-        # https://stackoverflow.com/a/25655090
-        def combination(*arrays, **kwargs):
-            order = kwargs.pop('order')
-            if order == 'F':
-                # need to have the columns incrementing slower, easier to
-                # put the col mask first and then...
-                arrays = list(reversed(arrays))
-            shape = (len(x) for x in arrays)
-
-            ix = np.indices(shape, dtype=int)
-            ix = ix.reshape(len(arrays), -1).T
-
-            for n, arr in enumerate(arrays):
-                ix[:, n] = arrays[n][ix[:, n]]
-
-            if order == 'F':
-                # ...flop rows and columns
-                ix = ix[:, [1, 0]]
-            return ix
 
         # check for sparse (ignore answers, which do not get transformed into
         # sparse and should be dealt with as usual)
@@ -1028,7 +1064,7 @@ def _run_mechanism_tests(work_dir, run):
     if len(mechanism_list) == 0:
         logger = logging.getLogger(__name__)
         logger.error('No mechanisms found for testing in directory:{}, '
-                      'exiting...'.format(work_dir))
+                     'exiting...'.format(work_dir))
         sys.exit(-1)
 
     for mech_name, mech_info in sorted(mechanism_list.items(),
