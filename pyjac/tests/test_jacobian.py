@@ -2463,15 +2463,20 @@ class SubTest(TestClass):
 
             # create a custom has_ns mask over all reaction types
             has_ns_mask = np.full(namestore.num_reacs.size, 0, dtype=np.int32)
-            has_ns_mask[namestore.rxn_has_ns.initializer] = 1
-            has_ns_mask[namestore.thd_map[
-                namestore.thd_only_ns_inds.initializer]] = 1
-            has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
-                namestore.sri_has_ns.initializer]]] = 1
-            has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
-                namestore.troe_has_ns.initializer]]] = 1
-            has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
-                namestore.lind_has_ns.initializer]]] = 1
+            if namestore.rxn_has_ns is not None:
+                has_ns_mask[namestore.rxn_has_ns.initializer] = 1
+            if namestore.thd_only_ns_inds is not None:
+                has_ns_mask[namestore.thd_map[
+                    namestore.thd_only_ns_inds.initializer]] = 1
+            if namestore.sri_has_ns is not None:
+                has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
+                    namestore.sri_has_ns.initializer]]] = 1
+            if namestore.troe_has_ns is not None:
+                has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
+                    namestore.troe_has_ns.initializer]]] = 1
+            if namestore.lind_has_ns is not None:
+                has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
+                    namestore.lind_has_ns.initializer]]] = 1
             has_ns_mask = arc.creator('has_ns', initializer=has_ns_mask,
                                       dtype=np.int32, shape=has_ns_mask.shape,
                                       order=loopy_opts.order)
