@@ -623,13 +623,14 @@ class jacobian_eval(eval):
 
         from ..tests.test_jacobian import _get_fd_jacobian
         jac = _get_fd_jacobian(self, self.num_conditions, state['conp'])
-        if state['conp']:
-            self.fd_jac_cp = jac.copy()
-        else:
-            self.fd_jac_cv = jac.copy()
+        name = 'fd_jac_' + 'cp' if state['conp'] else 'cv'
+        setattr(self, name, jac.copy())
+        self.threshold = np.linalg.norm(jac)
 
         if state['sparse'] == 'sparse':
             jac = self.__sparsify(jac, state['order'])
+            name += '_sp'
+            setattr(self, name, jac.copy())
 
         return jac
 
@@ -654,42 +655,62 @@ class jacobian_eval(eval):
             out_check[i] = np.reshape(out_check[i], __get_test(out_names[i]).shape,
                                       order=order)
 
+        def __update_key(key, value, op='norm'):
+            if key in err_dict:
+                if op == 'norm':
+                    # update sqrt in correct way
+                    # i.e. sqrt(sqrt(a^2)^2 + sqrt(b^2)^2) == sqrt(a^2 + b^2)
+                    value = np.sqrt(
+                        err_dict[key] * err_dict[key] + value * value)
+                elif op == 'max':
+                    value = np.max(err_dict[key], value)
+                else:
+                    raise NotImplementedError(op)
+            err_dict[key] = value
         err_dict = {}
         # load output
         for name, out in zip(*(out_names, out_check)):
             check_arr = __get_test(name)
             # get err
             err = np.abs(out - check_arr)
+            # do these once
+            out = np.abs(out)
             denom = np.abs(check_arr)
-            non_zero = np.where(np.abs(check_arr) > 0)
-            zero = np.where(np.abs(check_arr) == 0)
             # regular frobenieus norm, have to filter out zero entries for our
             # norm here
-            err_dict['jac'] = np.linalg.norm(
-                err[non_zero] / denom[non_zero])
-            err_dict['jac_zero'] = np.linalg.norm(
-                err[zero])
+            zero = np.where(denom == 0)
+            non_zero = np.where(denom > 0)
+            __update_key('jac', np.linalg.norm(
+                err[non_zero] / denom[non_zero]))
+            __update_key('jac_zero', np.linalg.norm(
+                err[zero]))
+            del non_zero
+            del zero
             assert np.allclose(err_dict['jac_zero'], 0)
             # norm suggested by lapack
-            err_dict['jac_lapack'] = np.linalg.norm(err) / np.linalg.norm(
-                denom)
+            __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
+                denom))
 
             # thresholded error
-            threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e20)
+            threshold = np.where(out > self.threshold / 1.e20)
             thresholded_err = err[threshold] / denom[threshold]
             amax = np.argmax(thresholded_err)
-            err_dict['jac_thresholded_20'] = np.linalg.norm(thresholded_err)
+            __update_key('jac_thresholded_20', np.linalg.norm(thresholded_err))
             del thresholded_err
-            err_dict['jac_thresholded_20_PJ_amax'] = out[threshold][amax]
-            err_dict['jac_thresholded_20_AD_amax'] = check_arr[threshold][amax]
+            __update_key('jac_thresholded_20_PJ_amax', out[threshold][amax],
+                         op='max')
+            __update_key('jac_thresholded_20_AD_amax', check_arr[threshold][amax],
+                         op='max')
 
-            threshold = np.where(np.abs(out) > np.linalg.norm(out) / 1.e15)
+            threshold = np.where(out > self.threshold / 1.e15)
             thresholded_err = err[threshold] / denom[threshold]
             amax = np.argmax(thresholded_err)
-            err_dict['jac_thresholded_15'] = np.linalg.norm(thresholded_err)
+            __update_key('jac_thresholded_15', np.linalg.norm(thresholded_err))
             del thresholded_err
-            err_dict['jac_thresholded_15_PJ_amax'] = out[threshold][amax]
-            err_dict['jac_thresholded_15_AD_amax'] = check_arr[threshold][amax]
+            __update_key('jac_thresholded_15_PJ_amax', out[threshold][amax],
+                         op='max')
+            __update_key('jac_thresholded_15_AD_amax', check_arr[threshold][amax],
+                         op='max')
             del threshold
 
             # largest relative errors for different absolute toleratnces
@@ -697,20 +718,17 @@ class jacobian_eval(eval):
                 atol = self.atol * mul
                 err_weighted = err / (atol + self.rtol * denom)
                 amax = np.argmax(err_weighted)
-                err_dict['jac_weighted_{}'.format(atol)] = np.linalg.norm(
-                    err_weighted)
+                __update_key('jac_weighted_{}'.format(atol), np.linalg.norm(
+                             err_weighted))
                 del err_weighted
-                err_dict['jac_weighted_{}_PJ_amax'.format(atol)] = out.flat[amax]
-                err_dict['jac_weighted_{}_AD_amax'.format(atol)] = check_arr.flat[
-                    amax]
+                __update_key('jac_weighted_{}_PJ_amax'.format(atol), out.flat[amax],
+                             op='max')
+                __update_key('jac_weighted_{}_AD_amax'.format(atol), check_arr.flat[
+                             amax], op='max')
 
             # info values for lookup
-            err_dict['jac_max_value'] = np.amax(out)
-            err_dict['jac_threshold_value'] = np.linalg.norm(out)
-
-            # info values for lookup
-            err_dict['jac_max_value'] = np.amax(out)
-            err_dict['jac_threshold_value'] = np.linalg.norm(out)
+            __update_key('jac_max_value', np.amax(out), op='max')
+            __update_key('jac_threshold_value', self.threshold, op='max')
 
         del out_check
         return err_dict
