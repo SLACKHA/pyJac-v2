@@ -714,9 +714,10 @@ class jacobian_eval(eval):
             del threshold
 
             # largest relative errors for different absolute toleratnces
+            denom = self.rtol * denom
             for mul in [1, 10, 100, 1000]:
                 atol = self.atol * mul
-                err_weighted = err / (atol + self.rtol * denom)
+                err_weighted = err / (atol + denom)
                 amax = np.argmax(err_weighted)
                 __update_key('jac_weighted_{}'.format(atol), np.linalg.norm(
                              err_weighted))
