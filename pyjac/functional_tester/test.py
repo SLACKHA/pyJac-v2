@@ -582,25 +582,17 @@ class jacobian_eval(eval):
             # and finally return the sparse array
         return np.asarray(jac[:, inds[:, 0], inds[:, 1]], order=order)
 
-    def __fast_jac(self, conp, sparse, order, check=True):
+    def __fast_jac(self, conp, sparse, order):
         jac = None
         name = 'fd_jac_' + 'cp' if conp else 'cv'
         if hasattr(self, name):
             jac = getattr(self, name)
 
-        # check if we have the conv and not the conp (etc.) to clear memory
-        other_name = 'fd_jac_' + 'cv' if conp else 'cp'
-        if hasattr(self, other_name):
-            delattr(self, other_name)
-            if hasattr(self, other_name + '_sp'):
-                delattr(self, other_name + '_sp')
-
         if jac is None:
             return None
 
         if sparse == 'sparse':
-            if hasattr(self, name + '_sp'):
-                return getattr(self, name + '_sp')
+            return self.__sparsify(jac, order=order, check=False)
         return jac
 
     def eval_answer(self, phi, P, V, state):
@@ -628,7 +620,7 @@ class jacobian_eval(eval):
         self.threshold = np.linalg.norm(jac)
 
         if state['sparse'] == 'sparse':
-            jac = self.__sparsify(jac, state['order'])
+            jac = self.__sparsify(jac, state['order'], check=True)
             name += '_sp'
             setattr(self, name, jac.copy())
 
