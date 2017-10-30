@@ -4,6 +4,8 @@
 ${defines}
 ${preamble}
 
+${extra_kernels}
+
 ${func_define}
 {
     #pragma omp parallel for

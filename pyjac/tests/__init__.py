@@ -73,6 +73,12 @@ def get_test_platforms(do_vector=True, langs=['opencl']):
             inner_loop.append((
                 'platform', None if 'type' not in p else p['type']))
 
+            # finally check for seperate_kernels
+            sep_knl = True
+            if 'seperate_kernels' in p and not p['seperate_kernels']:
+                sep_knl = False
+            inner_loop.append(('seperate_kernels', sep_knl))
+
             # create option loop and add
             oploop += [inner_loop]
     except IOError:

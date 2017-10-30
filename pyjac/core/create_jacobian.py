@@ -4636,7 +4636,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
                     use_atomics=True, jac_type='exact', jac_format='full',
-                    for_validation=False):
+                    for_validation=False, seperate_kernels=True):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -4719,6 +4719,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     for_validation: bool [False]
         If True, this kernel is being generated to validate pyJac, hence we need
         to save output data to a file
+    seperate_kernels: bool [True]
+        If True, separate evaluation into different functions in the generated kernel
+        in order to improve compiler vectorization / optimization.
+        However, on some platforms (POCL w/ atomics
+        https://github.com/pocl/pocl/issues/520) this breaks during compilation,
+        hence we provide a method to turn if off if necessary.
     Returns
     -------
     None
@@ -4776,7 +4782,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         platform=platform,
                                         use_atomics=use_atomics,
                                         jac_format=jac_format,
-                                        jac_type=jac_type)
+                                        jac_type=jac_type,
+                                        seperate_kernels=seperate_kernels)
 
     # create output directory if none exists
     utils.create_dir(build_path)

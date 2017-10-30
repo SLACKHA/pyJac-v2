@@ -1209,7 +1209,8 @@ def _run_mechanism_tests(work_dir, run):
                                 conp=conp,
                                 use_atomics=state['use_atomics'],
                                 jac_format=sparse,
-                                for_validation=for_validation)
+                                for_validation=for_validation,
+                                seperate_kernels=state['seperate_kernels'])
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])

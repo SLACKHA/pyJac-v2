@@ -153,6 +153,7 @@ class kernel_generator(object):
         self.kernels = kernels
         self.namestore = namestore
         self.external_kernels = external_kernels
+        self.seperate_kernels = loopy_opts.seperate_kernels
         self.test_size = test_size
         self.auto_diff = auto_diff
 
@@ -932,15 +933,27 @@ ${name} : ${type}
 
         # and finally, generate the kernel code
         preambles = []
+        extra_kernels = []
         inits = []
         instructions = []
         local_decls = []
+
+        def _get_call(k):
+            """
+            Returns a function call for the given kernel :param:`k` to be used
+            as an instruction
+            """
+            return Template("${name}(${args});\n").substitute(
+                name=k.name,
+                args=','.join([x.name for x in k.args])
+                )
+
         from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
         for i, k, in enumerate(self.kernels):
             if k in sub_instructions:
                 # avoid regeneration if possible
-                inst, pre, init, ldecls = sub_instructions[k]
+                inst, pre, extra, init, ldecls = sub_instructions[k]
                 instructions.append(inst)
                 if pre and pre not in preambles:
                     preambles.extend(pre)
@@ -951,6 +964,9 @@ ${name} : ${type}
                 if ldecls:
                     ldecls = [x for x in ldecls if str(x) not in local_decls]
                     local_decls.extend(ldecls)
+                if extra:
+                    extra = [x for x in extra if x not in extra_kernels]
+                    extra_kernels.extend(extra)
                 continue
 
             cgr = lp.generate_code_v2(k)
@@ -991,23 +1007,32 @@ ${name} : ${type}
             # and add to inits
             inits.extend(init_list)
 
-            # need to strip out any declaration of a __local variable as these
-            # must be in the kernel scope
-            def partition(l, p):
-                return reduce(lambda x, y: x[not p(y)].append(y) or x, l, ([], []))
-            ldecls, body = partition(cgr.body_ast.contents,
-                                     lambda x: isinstance(x, CLLocal))
-            ldecls = [str(x) for x in ldecls]
-            local_decls.extend([x for x in ldecls if x not in local_decls])
-            cgr.body_ast = cgr.body_ast.__class__(contents=body)
-            # leave a comment to distinguish the name
-            # and put the body in
-            instructions.append('// {name}\n{body}\n'.format(
-                name=k.name, body=str(cgr.body_ast)))
+            if not self.seperate_kernels:
+                # need to strip out any declaration of a __local variable as these
+                # must be in the kernel scope
+                def partition(l, p):
+                    return reduce(lambda x, y: x[
+                        not p(y)].append(y) or x, l, ([], []))
+                ldecls, body = partition(cgr.body_ast.contents,
+                                         lambda x: isinstance(x, CLLocal))
+                ldecls = [str(x) for x in ldecls]
+                local_decls.extend([x for x in ldecls if x not in local_decls])
+                cgr.body_ast = cgr.body_ast.__class__(contents=body)
+                # leave a comment to distinguish the name
+                # and put the body in
+                import pdb; pdb.set_trace()
+                instructions.append('// {name}\n{body}\n'.format(
+                    name=k.name, body=str(cgr.body_ast)))
+            else:
+                # we need to place the call in the instructions and the extra kernels
+                # in their own array
+                import pdb; pdb.set_trace()
+                extra_kernels.append(str(cgr.ast))
+                instructions.append(_get_call(k))
 
             if instruction_store is not None:
-                instruction_store[k] = (instructions[-1][:],
-                                        preamble_list, init_list, ldecls)
+                instruction_store[k] = (instructions[1:], preamble_list,
+                                        extra_kernels, init_list, ldecls)
 
         # insert barriers if any
         instructions = self.apply_barriers(instructions)
@@ -1036,7 +1061,8 @@ ${name} : ${type}
                 defines='',
                 preamble=preamble,
                 func_define=defn_str[:defn_str.index(';')],
-                body=instructions).split('\n')
+                body=instructions,
+                extra_kernels=extra_kernels).split('\n')
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
