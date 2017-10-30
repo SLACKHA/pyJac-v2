@@ -945,28 +945,28 @@ ${name} : ${type}
             """
             return Template("${name}(${args});\n").substitute(
                 name=k.name,
-                args=','.join([x.name for x in k.args])
+                args=', '.join([x.name for x in k.args])
                 )
 
         from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
         for i, k, in enumerate(self.kernels):
-            if k in sub_instructions:
+            if k.name in sub_instructions:
                 # avoid regeneration if possible
-                inst, pre, extra, init, ldecls = sub_instructions[k]
-                instructions.append(inst)
+                pre, init, extra, ldecls, insns = sub_instructions[k.name]
+                instructions.append(insns)
                 if pre and pre not in preambles:
                     preambles.extend(pre)
-                if init and init not in inits:
+                if init:
                     # filter out any host constants in sub inits
                     init = [x for x in init if not any(n in x for n in read_only)]
                     inits.extend(init)
+                if extra and extra not in extra_kernels:
+                    # filter out any known extras
+                    extra_kernels.append(extra)
                 if ldecls:
                     ldecls = [x for x in ldecls if str(x) not in local_decls]
                     local_decls.extend(ldecls)
-                if extra:
-                    extra = [x for x in extra if x not in extra_kernels]
-                    extra_kernels.extend(extra)
                 continue
 
             cgr = lp.generate_code_v2(k)
@@ -1020,19 +1020,23 @@ ${name} : ${type}
                 cgr.body_ast = cgr.body_ast.__class__(contents=body)
                 # leave a comment to distinguish the name
                 # and put the body in
-                import pdb; pdb.set_trace()
                 instructions.append('// {name}\n{body}\n'.format(
                     name=k.name, body=str(cgr.body_ast)))
             else:
+                ldecls = []
                 # we need to place the call in the instructions and the extra kernels
                 # in their own array
-                import pdb; pdb.set_trace()
-                extra_kernels.append(str(cgr.ast))
+                if isinstance(cgr.ast, cgen.FunctionBody):
+                    extra_kernels.append(str(cgr.ast))
+                else:
+                    extra_kernels.append(str(cgr.ast.contents[-1]))
                 instructions.append(_get_call(k))
 
             if instruction_store is not None:
-                instruction_store[k] = (instructions[1:], preamble_list,
-                                        extra_kernels, init_list, ldecls)
+                assert k.name not in instruction_store
+                instruction_store[k.name] = (preamble_list, init_list,
+                                             extra_kernels[-1][:], ldecls,
+                                             instructions[-1][:])
 
         # insert barriers if any
         instructions = self.apply_barriers(instructions)
@@ -1062,7 +1066,7 @@ ${name} : ${type}
                 preamble=preamble,
                 func_define=defn_str[:defn_str.index(';')],
                 body=instructions,
-                extra_kernels=extra_kernels).split('\n')
+                extra_kernels='\n'.join(extra_kernels)).split('\n')
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
