@@ -1027,9 +1027,10 @@ ${name} : ${type}
                 # we need to place the call in the instructions and the extra kernels
                 # in their own array
                 if isinstance(cgr.ast, cgen.FunctionBody):
-                    extra_kernels.append(str(cgr.ast))
+                    extra_kernels.append(lp_utils.get_code(str(cgr.ast)))
                 else:
-                    extra_kernels.append(str(cgr.ast.contents[-1]))
+                    extra_kernels.append(lp_utils.get_code(str(
+                        cgr.ast.contents[-1])))
                 instructions.append(_get_call(k))
 
             if instruction_store is not None:

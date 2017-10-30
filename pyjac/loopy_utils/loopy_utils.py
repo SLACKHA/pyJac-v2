@@ -504,23 +504,29 @@ def set_adept_editor(knl,
 
 def get_code(knl):
     """
-    Returns the device code for a :class:`loopy.LoopKernel`
+    Returns the device code for a :class:`loopy.LoopKernel` or
+    fixes alreay generated code
 
     Parameters
     ----------
-    knl : :class:`loopy.LoopKernel`
-        The kernel to generate code for
+    knl : :class:`loopy.LoopKernel` or str
+        The kernel to generate code for.  If knl is a string, it is assumed
+        to be pregenerated code, and only the editor script must be callsed
 
     Returns
     -------
-    Generated device code
+    code: str
+        Generated device code
 
     Notes
     -----
     The kernel's Target and name should be set for proper functioning
     """
 
-    code, _ = lp.generate_code(knl)
+    if isinstance(knl, str):
+        code = knl
+    else:
+        code, _ = lp.generate_code(knl)
     return codefix('stdin', text_in=code)
 
 def not_is_close(arr1, arr2, **kwargs):
