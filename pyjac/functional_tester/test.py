@@ -663,7 +663,7 @@ class jacobian_eval(eval):
                     value = np.sqrt(
                         err_dict[key] * err_dict[key] + value * value)
                 elif op == 'max':
-                    value = np.max(err_dict[key], value)
+                    value = np.maximum(err_dict[key], value)
                 else:
                     raise NotImplementedError(op)
             err_dict[key] = value
