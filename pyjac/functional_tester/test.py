@@ -667,7 +667,6 @@ class jacobian_eval(eval):
                 else:
                     raise NotImplementedError(op)
             err_dict[key] = value
-        err_dict = {}
         # load output
         for name, out in zip(*(out_names, out_check)):
             check_arr = __get_test(name)
