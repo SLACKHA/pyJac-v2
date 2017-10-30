@@ -120,6 +120,10 @@ class loopy_options(object):
         The type of Jacobian kernel (full or approximate) to generate
     jac_format: :class:`JacobianFormat` [JacobianFormat.full]
         The format of Jacobian kernel (full or sparse) to generate
+    seperate_kernels: bool [True]
+        If true, break the kernel evaluation into calls to individual kernels.
+        For POCL, this must be false for deep-vectorizations using atomic until:
+        https://github.com/pocl/pocl/issues/520 is fixed
     """
 
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
@@ -127,7 +131,7 @@ class loopy_options(object):
                  rate_spec_kernels=False, rop_net_kernels=False,
                  platform='', knl_type='map', auto_diff=False, use_atomics=True,
                  use_private_memory=False, jac_type=JacobianType.exact,
-                 jac_format=JacobianFormat.full):
+                 jac_format=JacobianFormat.full, seperate_kernels=True):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -155,6 +159,7 @@ class loopy_options(object):
         self.use_private_memory = use_private_memory
         self.jac_format = jac_format
         self.jac_type = jac_type
+        self.seperate_kernels = seperate_kernels
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform and cl is not None:
