@@ -59,7 +59,8 @@ def get_test_matrix(work_dir, test_type=build_type.jacobian):
                     if thermo is not None:
                         mechanism_list[name]['thermo'] = thermo
 
-    rate_spec = ['fixed', 'hybrid']  # , 'full']
+    rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
+        else ['fixed']
     sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
     vec_widths = [4, 8, 16]
     gpu_width = [64, 128]
