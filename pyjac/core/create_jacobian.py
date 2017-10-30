@@ -467,7 +467,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     manglers = []
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
-    factor = 'dci_thd_dE'
+    factor = 'dci_thd_dE_fac'
     # the pressure modification term to use (pres_mod for thd, Pr for falloff)
     fall_instructions = ''
     if rxn_type != reaction_type.thd:
@@ -606,7 +606,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
 
     # set the third body factor for the reactions (thd only)
     thd_factor_set = Template(
-        '<> dci_thd_dE = mod${fac_term} \
+        '<> dci_thd_dE_fac = mod${fac_term} \
         {id=dci_thd_init, dep=mod*:rop_net*}').safe_substitute(
         **locals()) if rxn_type == reaction_type.thd else ''
 
@@ -2145,7 +2145,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     manglers = []
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
-    factor = 'dci_thd_dT'
+    factor = 'dci_thd_dT_fac'
     thd_fac = ' * {} * rop_net '.format(V_str)
     fall_instructions = ''
     if rxn_type != reaction_type.thd:
@@ -2263,7 +2263,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
         <> pmod = ${pres_mod_str}
         <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) \
             {id=theta_Pr, dep=beta*:kf*:Ta*}
-        <> theta_no_Pr = dci_thd_dT * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
+        <> theta_no_Pr = dci_thd_dT_fac * kf_0 / kf_inf {id=theta_No_Pr, dep=kf*}
         ${dFi_instructions}
         <> dci_fall_dT = pmod * (-(${Pr_str} * theta_Pr + theta_no_Pr) / \
             (${Pr_str} + 1) + dFi) {id=dfall_init}
@@ -2304,7 +2304,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     if ${thd_type_str} == ${spec}
         mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
     end
-    <> dci_thd_dT = -${P_str} * mod * Ru_inv * Tinv * Tinv${thd_fac} \
+    <> dci_thd_dT_fac = -${P_str} * mod * Ru_inv * Tinv * Tinv${thd_fac} \
         {dep=mod*:rop_net*}
     ${fall_instructions}
     <> offset = ${offset_str}
