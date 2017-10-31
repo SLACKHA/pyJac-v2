@@ -59,8 +59,8 @@ opt_flags = ['-O3']
 debug_flags = ['-O0', '-g']
 compile_flags = debug_flags if 'PYJAC_DEBUG' in os.environ else opt_flags
 
-flags = dict(c=site.CC_FLAGS + compile_flags + ['-fopenmp', '-std=c99'],
-             opencl=site.CC_FLAGS + compile_flags + ['-xc', '-std=c99'])
+flags = dict(c=site.CC_FLAGS + compile_flags + ['-fopenmp', '-std=c11'],
+             opencl=site.CC_FLAGS + compile_flags + ['-xc', '-std=c11'])
 
 libs = dict(c=['-lm', '-fopenmp'],
             opencl=['-l' + x for x in site.CL_LIBNAME]
@@ -135,7 +135,7 @@ def compiler(fstruct):
         args = ['g++']
     args.extend(flags[fstruct.build_lang])
     if fstruct.auto_diff:
-        args = [x for x in args if 'std=c99' not in x]
+        args = [x for x in args if 'std=' not in x]
 
     # always use fPIC in case we're building wrapper
     args.extend(shared_flags[fstruct.build_lang])

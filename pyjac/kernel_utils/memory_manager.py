@@ -17,6 +17,14 @@ from enum import Enum
 import six
 import logging
 from ..core import array_creator as arc
+import resource
+align_size = resource.getpagesize()
+
+try:
+    from pyopencl import device_type
+    DTYPE_CPU = device_type.CPU
+except:
+    DTYPE_CPU = -1
 
 
 class memory_type(Enum):
@@ -24,6 +32,7 @@ class memory_type(Enum):
     m_local = 1,
     m_global = 2,
     m_alloc = 3
+    m_pagesize = 4
 
     def __int__(self):
         return self.value
@@ -135,7 +144,7 @@ class memory_limits(object):
             np.floor((self.limits[type] - static) / per_ic), per_alloc_ic_limit), 0))
 
     @staticmethod
-    def get_limits(loopy_opts, arrays, input_file=""):
+    def get_limits(loopy_opts, arrays, input_file=''):
         """
         Utility method to load shared / constant memory limits from a file or
         :mod:`pyopencl` as needed
@@ -159,7 +168,7 @@ class memory_limits(object):
             An initialized :class:`memory_limits` that can determine the total
             'global', 'constant' and 'local' memory available on the device
         """
-        limits = {}
+        limits = {memory_type.m_pagesize: align_size}
         if loopy_opts.lang == 'opencl':
             try:
                 limits.update({
@@ -170,22 +179,22 @@ class memory_limits(object):
                     memory_type.m_alloc: loopy_opts.device.max_mem_alloc_size})
             except AttributeError:
                 pass
-            if input_file:
-                with open(input_file, 'r') as file:
-                    # load from file
-                    lims = yaml.load(file.read())
-                    mtype = utils.EnumType(memory_type)
-                    limits = {}
-                    choices = [mt.name.lower()[2:] for mt in memory_type] + ['alloc']
-                    for key, value in six.iteritems(lims):
-                        # check in memory type
-                        if not key.lower() in choices:
-                            msg = ', '.join(choices)
-                            msg = '{0}: use one of {1}'.format(memory_type.name, msg)
-                            raise Exception(msg)
-                        key += 'm_'
-                        # update with enum
-                        limits[mtype(key)] = value
+        if input_file:
+            with open(input_file, 'r') as file:
+                # load from file
+                lims = yaml.load(file.read())
+                mtype = utils.EnumType(memory_type)
+                limits = {}
+                choices = [mt.name.lower()[2:] for mt in memory_type] + ['alloc']
+                for key, value in six.iteritems(lims):
+                    # check in memory type
+                    if not key.lower() in choices:
+                        msg = ', '.join(choices)
+                        msg = '{0}: use one of {1}'.format(memory_type.name, msg)
+                        raise Exception(msg)
+                    key += 'm_'
+                    # update with enum
+                    limits[mtype(key)] = value
 
         return memory_limits(loopy_opts.lang, arrays,
                              {k: v for k, v in six.iteritems(limits)})
@@ -197,7 +206,8 @@ class memory_manager(object):
     Aids in defining & allocating arrays for various languages
     """
 
-    def __init__(self, lang, order, have_split, strided_c_copy=False):
+    def __init__(self, lang, order, have_split, strided_c_copy=False,
+                 dev_type=None, mem_limits_file=''):
         """
         Parameters
         ----------
@@ -210,6 +220,9 @@ class memory_manager(object):
             F-split format (depending on :param:`order`)
         strided_c_copy: bool [False]
             If true, enable strided copies for 'C'
+        dev_type: :class:`pyopencl.device_type` [None]
+            The device type.  If CPU, the host buffers will be used for input /
+            output variables
         """
         self.arrays = []
         self.in_arrays = []
@@ -226,11 +239,28 @@ class memory_manager(object):
                          np.dtype('float64'): 'double'}
         self.host_langs = {'opencl': 'c',
                            'c': 'c'}
+        self.dev_type = dev_type
+        # check if user supplied alignement size
+        self.limits_file = mem_limits_file
+        self.align_size = memory_limits.get_limits(
+            type('', (object,), {'lang': self.lang}), {}, self.limits_file).limits[
+            memory_type.m_pagesize]
+
         self.alloc_templates = {'opencl': Template(
             '${name} = clCreateBuffer(context, ${memflag}, '
-            '${buff_size}, NULL, &return_code)'),
+            '${buff_size}, ${host_ptr}, &return_code)'),
                                 'c': Template(
             '${name} = (double*)malloc(${buff_size})')}
+        self.aligned_alloc_templates = {'c': Template(
+            '${name} = (double*)aligned_alloc(${buff_size}, ${align_size})'
+            )}
+        self.synchronization_templates = {'opencl': """
+        #if CL_LEVEL >= 120
+            check_err(clEnqueueBarrierWithWaitList(queue, 0, NULL, NULL));
+        #else
+            check_err(clEnqueueBarrier(queue));
+        #endif
+        """}
 
         def __get_2d_templates(use_full=False, to_device=False):
             """
@@ -502,16 +532,45 @@ class memory_manager(object):
             name = prefix + dev_arr.name + post_fix
             # if it's opencl, we need to declare the buffer type
             memflag = None
+            host_ptr = 'NULL'
+            align_size = None
+            alloc_template = self.alloc_templates[lang]
+            buff_size = self._get_size(dev_arr)
             if lang == 'opencl':
+                # not that alloc_locals is implicitly not true here
                 memflag = 'CL_MEM_READ_WRITE' if not any(
                     x.name == dev_arr.name for x in self.host_constants
                     ) else 'CL_MEM_READ_ONLY'
+                if dev_arr.name in self.host_arrays and self.dev_type is not None\
+                        and self.dev_type == DTYPE_CPU:
+                    assert not alloc_locals
+                    # use mapped host pointer
+                    memflag += ' | CL_MEM_USE_HOST_PTR'
+                    host_ptr = 'h_' + dev_arr.name
+                elif self.dev_type is not None and self.dev_type == DTYPE_CPU:
+                    # use zero-copy host pointer
+                    memflag += ' | CL_MEM_ALLOC_HOST_PTR'
+            elif self.lang != lang:
+                # we're allocating host locals for a language with a "device"
+                # hence check for alignment
+                if self.dev_type is not None and self.dev_type == DTYPE_CPU:
+                    # use zero-copy host pointer
+                    align_size = self.align_size
+                    alloc_template = self.aligned_alloc_templates[lang]
+                    # force buffer size to be aligned with alignment size
+                    # (extra data alloc'd data will be ignored)
+                    buff_size = Template(
+                        '(${buff_size} + ((${buff_size} + ${align_size} - 1) / '
+                        '${align_size}) * ${align_size})').safe_substitute(
+                        buff_size=buff_size, align_size=align_size)
 
             # generate allocs
-            alloc = self.alloc_templates[lang].safe_substitute(
+            alloc = alloc_template.safe_substitute(
                 name=name,
                 memflag=memflag,
-                buff_size=self._get_size(dev_arr))
+                host_ptr=host_ptr,
+                buff_size=buff_size,
+                align_size=align_size)
 
             if alloc_locals:
                 # add a type
@@ -592,6 +651,12 @@ class memory_manager(object):
 
     def _mem_transfers(self, to_device=True, host_constants=False, host_postfix=''):
         if not host_constants:
+            if self.dev_type is not None and self.dev_type == DTYPE_CPU:
+                # don't need to transfer as we use host pointers
+                # instead we simply need to enqueue a barrier so that we
+                # ensure we have consistent memory
+                return self.synchronization_templates[self.lang]
+
             # get arrays
             arr_list = self.in_arrays if to_device else self.out_arrays
             # filter out host constants

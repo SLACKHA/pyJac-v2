@@ -148,7 +148,8 @@ class kernel_generator(object):
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
-                                  self.array_split._have_split())
+                                  self.array_split._have_split(),
+                                  dev_type=self.loopy_opts.device_type)
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
