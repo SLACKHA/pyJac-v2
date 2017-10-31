@@ -59,6 +59,10 @@ void execute_kernel(cl_uint problem_size, ${knl_args})
         /* Memory Transfers out */
         ${mem_transfers_out}
     }
+
+    /* synchronization, if needed e.g., for a HOST_BUF */
+    ${mem_sync}
+
 }
 
 /*
@@ -384,9 +388,9 @@ int main(int argc, char* argv[])
         write_data(output_files[i], outputs[i], output_sizes[i]);
     }
 
-    ${local_frees}
-
     finalize();
+
+    ${local_frees}
 
     return 0;
 }

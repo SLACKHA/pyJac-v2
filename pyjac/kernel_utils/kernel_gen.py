@@ -1562,8 +1562,10 @@ class opencl_kernel_generator(kernel_generator):
 
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
-
         host_constants_transfers = self.mem.get_host_constants_in()
+
+        # get host memory syncs if necessary
+        mem_sync = self.mem.get_mem_sync()
 
         return subs_at_indent(file_src,
                               vec_width=vec_width,
@@ -1576,7 +1578,8 @@ class opencl_kernel_generator(kernel_generator):
                               CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
                               max_size=max_size,  # max size for CL1.1 mem init
                               host_constants=host_constants,
-                              host_constants_transfers=host_constants_transfers
+                              host_constants_transfers=host_constants_transfers,
+                              mem_sync=mem_sync
                               )
 
     def get_kernel_arg_setting(self):

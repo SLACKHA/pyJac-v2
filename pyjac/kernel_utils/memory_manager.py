@@ -240,6 +240,7 @@ class memory_manager(object):
         self.host_langs = {'opencl': 'c',
                            'c': 'c'}
         self.dev_type = dev_type
+        self.use_host_ptr = self.dev_type is not None and self.dev_type == DTYPE_CPU
         # check if user supplied alignement size
         self.limits_file = mem_limits_file
         self.align_size = memory_limits.get_limits(
@@ -252,15 +253,9 @@ class memory_manager(object):
                                 'c': Template(
             '${name} = (double*)malloc(${buff_size})')}
         self.aligned_alloc_templates = {'c': Template(
-            '${name} = (double*)aligned_alloc(${buff_size}, ${align_size})'
+            '${name} = (double*)aligned_alloc(${align_size}, ${buff_size})'
             )}
-        self.synchronization_templates = {'opencl': """
-        #if CL_LEVEL >= 120
-            check_err(clEnqueueBarrierWithWaitList(queue, 0, NULL, NULL));
-        #else
-            check_err(clEnqueueBarrier(queue));
-        #endif
-        """}
+        self.synchronization_templates = {'opencl': 'clFinish(queue)'}
 
         def __get_2d_templates(use_full=False, to_device=False):
             """
@@ -541,27 +536,26 @@ class memory_manager(object):
                 memflag = 'CL_MEM_READ_WRITE' if not any(
                     x.name == dev_arr.name for x in self.host_constants
                     ) else 'CL_MEM_READ_ONLY'
-                if dev_arr.name in self.host_arrays and self.dev_type is not None\
-                        and self.dev_type == DTYPE_CPU:
+                if dev_arr.name in self.host_arrays and self.use_host_ptr:
                     assert not alloc_locals
                     # use mapped host pointer
                     memflag += ' | CL_MEM_USE_HOST_PTR'
                     host_ptr = 'h_' + dev_arr.name
-                elif self.dev_type is not None and self.dev_type == DTYPE_CPU:
+                elif self.use_host_ptr:
                     # use zero-copy host pointer
                     memflag += ' | CL_MEM_ALLOC_HOST_PTR'
             elif self.lang != lang:
                 # we're allocating host locals for a language with a "device"
                 # hence check for alignment
-                if self.dev_type is not None and self.dev_type == DTYPE_CPU:
+                if self.use_host_ptr:
                     # use zero-copy host pointer
                     align_size = self.align_size
                     alloc_template = self.aligned_alloc_templates[lang]
                     # force buffer size to be aligned with alignment size
                     # (extra data alloc'd data will be ignored)
                     buff_size = Template(
-                        '(${buff_size} + ((${buff_size} + ${align_size} - 1) / '
-                        '${align_size}) * ${align_size})').safe_substitute(
+                        '((${buff_size} + ${align_size} - 1) / '
+                        '${align_size}) * ${align_size}').safe_substitute(
                         buff_size=buff_size, align_size=align_size)
 
             # generate allocs
@@ -649,13 +643,17 @@ class memory_manager(object):
             str_size.append(str(1))
         return ' * '.join([x for x in str_size if x])
 
-    def _mem_transfers(self, to_device=True, host_constants=False, host_postfix=''):
+    def _mem_transfers(self, to_device=True, host_constants=False, host_postfix='',
+                       get_sync=False):
         if not host_constants:
-            if self.dev_type is not None and self.dev_type == DTYPE_CPU:
+            if self.use_host_ptr:
                 # don't need to transfer as we use host pointers
                 # instead we simply need to enqueue a barrier so that we
                 # ensure we have consistent memory
-                return self.synchronization_templates[self.lang]
+                if get_sync:
+                    return self.get_check_err_call(self.synchronization_templates[
+                        self.lang])
+                return ''
 
             # get arrays
             arr_list = self.in_arrays if to_device else self.out_arrays
@@ -724,6 +722,21 @@ class memory_manager(object):
         """
 
         return self._mem_transfers(to_device=False)
+
+    def get_mem_sync(self):
+        """
+        Synchronizes OpenCL (or other) mapped host buffers
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        mem_sync : str
+            The string to perform the host memory synchronization
+        """
+        return self._mem_transfers(get_sync=True)
 
     def get_host_constants_in(self):
         """
