@@ -1036,7 +1036,8 @@ ${name} : ${type}
             if instruction_store is not None:
                 assert k.name not in instruction_store
                 instruction_store[k.name] = (preamble_list, init_list,
-                                             extra_kernels[-1][:], ldecls,
+                                             extra_kernels[-1][:] if extra_kernels
+                                             else [], ldecls,
                                              instructions[-1][:])
 
         # insert barriers if any
