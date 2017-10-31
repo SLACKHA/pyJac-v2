@@ -12,7 +12,7 @@ ext_modules = [Extension("py_readics",
                          sources=sources,
                          include_dirs=includes + [numpy.get_include()],
                          language='c',
-                         extra_compile_args=['-std=c99']
+                         extra_compile_args=['-std=c11']
                          )]
 
 setup(
