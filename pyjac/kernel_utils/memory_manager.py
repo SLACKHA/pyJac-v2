@@ -267,7 +267,7 @@ class memory_strategy(object):
         if self.lang(device) in self.alloc_flags:
             flags = [self.alloc_flags[self.lang(device)][readonly]] \
                 + flags.split(' | ')
-            flags = ' | '.join(flags)
+            flags = ' | '.join([x for x in flags if x])
 
         return self.alloc_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, memflag=flags, host_ptr=host_ptr,
@@ -320,6 +320,7 @@ class memory_strategy(object):
         """
         if self.sync_template:
             return self.sync_template[self.device_lang]
+        return ''
 
     def memset(self, device, name, buff_size, **kwargs):
         """
@@ -489,7 +490,7 @@ class mapped_memory(memory_strategy):
 
         alloc = {'opencl': Template(Template(
                     '${name} = clCreateBuffer(context, ${memflag}, ${buff_size},'
-                    '${host_buff}, &return_code);\n'
+                    '${host_ptr}, &return_code);\n'
                     '${guard}\n').safe_substitute(guard=guarded_call(
                         'opencl', 'return_code'))),
                  'c': Template(Template(
@@ -810,7 +811,8 @@ class memory_manager(object):
                     x.name == dev_arr.name for x in self.host_constants)
             host_ptr = 'NULL'
             # check if buffer is input / output
-            if not alloc_locals and dev_arr.name in self.host_arrays:
+            if not alloc_locals and self.use_pinned\
+                    and dev_arr.name in self.host_arrays:
                 host_ptr = host_prefix + dev_arr.name
             # generate allocs
             alloc = self.mem.alloc(not alloc_locals,

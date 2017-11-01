@@ -1613,8 +1613,7 @@ class opencl_kernel_generator(kernel_generator):
                         arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
                         arg_value='&' + arg.name))
 
-        return '\n'.join([
-            x + utils.line_end[self.lang] for x in kernel_arg_sets])
+        return '\n'.join(kernel_arg_sets)
 
     def _get_cl_level(self):
         """

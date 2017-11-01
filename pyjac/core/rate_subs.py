@@ -3073,7 +3073,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         # and at the extra variable rates for Tdot
         __insert_at('get_extra_var_rates', True)
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr', 'dphi']
+    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
     output_arrays = ['dphi']
     if output_full_rop:
         output_arrays += ['rop_fwd']
