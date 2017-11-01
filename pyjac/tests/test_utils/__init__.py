@@ -1059,6 +1059,17 @@ def _run_mechanism_tests(work_dir, run):
     import cantera as ct
 
     work_dir = os.path.abspath(work_dir)
+    no_regen = set(['num_cores'])
+
+    def __needs_regen(old_state, state):
+        # find different entries
+        keys = set(old_state.keys() + state.keys())
+        diffs = [k for k in keys if k not in old_state or k not in state or
+                 state[k] != old_state[k]]
+        # ensure they're all in the list that doesn't require regeneration
+        if all(x in no_regen for x in diffs):
+            return True
+        return False
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir, run.rtype)
 
     if len(mechanism_list) == 0:
@@ -1149,6 +1160,7 @@ def _run_mechanism_tests(work_dir, run):
         done_parallel = defaultdict(lambda: False)
         op = oploop.copy()
         bad_platforms = set()
+        old_state = None
         for i, state in enumerate(op):
             # remove any old builds
             __cleanup()
@@ -1192,25 +1204,28 @@ def _run_mechanism_tests(work_dir, run):
             phi_path = os.path.join(this_dir, 'data.bin')
 
             try:
-                create_jacobian(lang,
-                                gas=gas,
-                                vector_size=vecsize,
-                                wide=wide,
-                                deep=deep,
-                                data_order=order,
-                                build_path=my_build,
-                                skip_jac=rtype == build_type.species_rates,
-                                platform=platform,
-                                data_filename=phi_path,
-                                split_rate_kernels=split_kernels,
-                                rate_specialization=rate_spec,
-                                split_rop_net_kernels=split_kernels,
-                                output_full_rop=rtype == build_type.species_rates,
-                                conp=conp,
-                                use_atomics=state['use_atomics'],
-                                jac_format=sparse,
-                                for_validation=for_validation,
-                                seperate_kernels=state['seperate_kernels'])
+                if old_state is None or __needs_regen(old_state, state.copy()):
+                    # don't regenerate code if we don't need to
+                    create_jacobian(lang,
+                                    gas=gas,
+                                    vector_size=vecsize,
+                                    wide=wide,
+                                    deep=deep,
+                                    data_order=order,
+                                    build_path=my_build,
+                                    skip_jac=rtype == build_type.species_rates,
+                                    platform=platform,
+                                    data_filename=phi_path,
+                                    split_rate_kernels=split_kernels,
+                                    rate_specialization=rate_spec,
+                                    split_rop_net_kernels=split_kernels,
+                                    output_full_rop=(
+                                        rtype == build_type.species_rates),
+                                    conp=conp,
+                                    use_atomics=state['use_atomics'],
+                                    jac_format=sparse,
+                                    for_validation=for_validation,
+                                    seperate_kernels=state['seperate_kernels'])
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])
@@ -1225,6 +1240,8 @@ def _run_mechanism_tests(work_dir, run):
 
             run.run(state.copy(), asplit, dirs, phi_path, data_output)
 
+            # store the old state
+            old_state = state.copy()
     del run
 
 
