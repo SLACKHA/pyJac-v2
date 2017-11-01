@@ -1562,6 +1562,11 @@ class opencl_kernel_generator(kernel_generator):
         host_constants = self.mem.get_host_constants()
         host_constants_transfers = self.mem.get_host_constants_in()
 
+        # find offset (for host pointers)
+        offset = 'NULL'
+        if self.mem.use_pinned:
+            offset = '&offset'
+
         # get host memory syncs if necessary
         mem_sync = self.mem.get_mem_sync()
         mem_strat = self.mem.get_mem_strategy()
@@ -1579,7 +1584,8 @@ class opencl_kernel_generator(kernel_generator):
                               host_constants=host_constants,
                               host_constants_transfers=host_constants_transfers,
                               mem_sync=mem_sync,
-                              MEM_STRATEGY=mem_strat
+                              MEM_STRATEGY=mem_strat,
+                              offset=offset
                               )
 
     def get_kernel_arg_setting(self):
