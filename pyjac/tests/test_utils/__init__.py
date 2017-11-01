@@ -1078,8 +1078,8 @@ def _run_mechanism_tests(work_dir, run):
                  state[k] != old_state[k]]
         # ensure they're all in the list that doesn't require regeneration
         if all(x in no_regen for x in diffs):
-            return True
-        return False
+            return False
+        return True
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir, run.rtype)
 
     if len(mechanism_list) == 0:
@@ -1173,8 +1173,7 @@ def _run_mechanism_tests(work_dir, run):
         old_state = None
         for i, state in enumerate(op):
             # check for regen
-            regen = old_state is not None and not __needs_regen(
-                old_state, state.copy())
+            regen = old_state is None or __needs_regen(old_state, state.copy())
             # remove any old builds
             if regen:
                 __cleanup()
