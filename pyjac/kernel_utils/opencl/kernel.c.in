@@ -23,6 +23,12 @@ cl_command_queue queue = NULL;
 // maximum # of IC's per run, based on memory limits
 size_t max_per_run = ${max_per_run};
 
+#define ${MEM_STRATEGY}
+#ifdef PINNED
+// temporary pointer to hold mapped address
+double* temp;
+#endif
+
 /* declare host/cl buffers */
 ${mem_declares}
 
@@ -60,7 +66,7 @@ void execute_kernel(cl_uint problem_size, ${knl_args})
         ${mem_transfers_out}
     }
 
-    /* synchronization, if needed e.g., for a HOST_BUF */
+    /* synchronization, if needed e.g., for PINNED memory */
     ${mem_sync}
 
 }
