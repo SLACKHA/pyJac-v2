@@ -117,12 +117,14 @@ def get_test_matrix(work_dir, test_type=build_type.jacobian):
                     platform.append(('deep', [False]))
                 _del_key(platform, 'depth')
 
-            platform += [('order', ['C', 'F']),
-                         ('rate_spec', rate_spec),
-                         ('split_kernels', split_kernels),
-                         ('num_cores', cores),
-                         ('conp', [True, False]),
-                         ('sparse', sparse)]
+            # place cores as first changing thing in oploop so we can avoid
+            # regenerating code if possible
+            platform = [('num_cores', cores)] + platform + \
+                       [('order', ['C', 'F']),
+                        ('rate_spec', rate_spec),
+                        ('split_kernels', split_kernels),
+                        ('conp', [True, False]),
+                        ('sparse', sparse)]
             params[i] = platform[:]
         return params
 
