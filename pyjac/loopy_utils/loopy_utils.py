@@ -5,6 +5,7 @@ from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
+import logging
 try:
     import pyopencl as cl
     import warnings
@@ -21,7 +22,8 @@ import six
 # local imports
 from ..utils import check_lang
 from .loopy_edit_script import substitute as codefix
-from ..core.exceptions import MissingPlatformError, MissingDeviceError
+from ..core.exceptions import (MissingPlatformError, MissingDeviceError,
+                               BrokenPlatformError)
 from string import Template
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
@@ -125,7 +127,6 @@ class loopy_options(object):
         For POCL, this must be false for deep-vectorizations using atomic until:
         https://github.com/pocl/pocl/issues/520 is fixed
     """
-
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False, rop_net_kernels=False,
@@ -193,6 +194,23 @@ class loopy_options(object):
                 raise MissingDeviceError(self.device_type, self.platform)
             self.device = self.device[0]
             self.device_type = self.device.get_info(cl.device_info.TYPE)
+
+        # check for broken vectorizations
+        self.raise_on_broken()
+
+    def raise_on_broken(self):
+        # Currently, NVIDIA w/ neither deep nor wide-vectorizations (
+        #   i.e. a "parallel" implementation) breaks sometimes on OpenCL
+        if self.lang == 'opencl':
+            if 'nvidia' in self.platform.name.lower() and not (
+                    self.width or self.depth):
+                raise BrokenPlatformError(self)
+            elif self.device_type == cl.device_type.GPU:
+                # simply warn
+                logger = logging.getLogger(__name__)
+                logger.warn('Some GPU implementation(s)--NVIDIA--give incorrect'
+                            'values sporadically without either a deep or wide'
+                            'vectorization. Use at your own risk.')
 
 
 def get_device_list():
