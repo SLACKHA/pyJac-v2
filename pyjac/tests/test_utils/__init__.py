@@ -13,7 +13,7 @@ from functools import wraps
 from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
                                         auto_run, RateSpecialization, loopy_options,
                                         JacobianType, JacobianFormat)
-from ...core.exceptions import MissingPlatformError
+from ...core.exceptions import MissingPlatformError, BrokenPlatformError
 from ...kernel_utils import kernel_gen as k_gen
 from ...core import array_creator as arc
 from ...core.mech_auxiliary import write_aux
@@ -679,6 +679,11 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             logger.warn('Platform {} not found'.format(state['platform']))
             bad_platforms.update([state['platform']])
             continue
+        except BrokenPlatformError as e:
+            # expected
+            logger = logging.getLogger(__name__)
+            logger.info('Skipping bad platform: {}'.format(e.message))
+            continue
 
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
@@ -784,6 +789,11 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             logger = logging.getLogger(__name__)
             logger.warn('Platform {} not found'.format(state['platform']))
             bad_platforms.update([state['platform']])
+            continue
+        except BrokenPlatformError as e:
+            # expected
+            logger = logging.getLogger(__name__)
+            logger.info('Skipping bad platform: {}'.format(e.message))
             continue
 
         # check to see if device is CPU
@@ -1214,6 +1224,11 @@ def _run_mechanism_tests(work_dir, run):
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])
+                continue
+            except BrokenPlatformError as e:
+                # expected
+                logger = logging.getLogger(__name__)
+                logger.info('Skipping bad platform: {}'.format(e.message))
                 continue
 
             # get an array splitter
