@@ -60,7 +60,7 @@ void execute_kernel(cl_uint problem_size, ${knl_args})
         ${mem_transfers_in}
 
         /* run kernel */
-        check_err(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
+        check_err(clEnqueueNDRangeKernel(queue, kernel, 1, ${offset}, &global_work_size, &local_work_size, 0, NULL, NULL));
 
         /* Memory Transfers out */
         ${mem_transfers_out}
