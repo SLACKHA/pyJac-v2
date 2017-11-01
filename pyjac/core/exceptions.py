@@ -33,3 +33,17 @@ class CompilationError(Exception):
             files = [files]
         self.message = 'Error compiling file(s): {}.'.format(','.join(files))
         super(CompilationError, self).__init__(self.message)
+
+
+class BrokenPlatformError(Exception):
+    """
+    The combination of platform and vectorization options is broken
+    """
+
+    def __init__(self, loopy_opts):
+        platform = loopy_opts.platform
+        options = 'wide = {}, deep = {}'.format(loopy_opts.width is not None,
+                                                loopy_opts.depth is not None)
+        self.message = ('The platform {} is currently broken for'
+                        ' vectorization options {}'.format(platform, options))
+        super(BrokenPlatformError, self).__init__(self.message)
