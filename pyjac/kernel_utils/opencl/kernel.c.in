@@ -23,6 +23,12 @@ cl_command_queue queue = NULL;
 // maximum # of IC's per run, based on memory limits
 size_t max_per_run = ${max_per_run};
 
+#define ${MEM_STRATEGY}
+#ifdef PINNED
+// temporary pointer to hold mapped address
+double* temp;
+#endif
+
 /* declare host/cl buffers */
 ${mem_declares}
 
@@ -59,6 +65,10 @@ void execute_kernel(cl_uint problem_size, ${knl_args})
         /* Memory Transfers out */
         ${mem_transfers_out}
     }
+
+    /* synchronization, if needed e.g., for PINNED memory */
+    ${mem_sync}
+
 }
 
 /*
@@ -68,8 +78,9 @@ Parameters
 ----------
 problem_size : cl_uint
     The number of conditions to execute for
+${knl_args_doc}
 */
-void mem_init(cl_uint psize)
+void mem_init(cl_uint psize, ${knl_args})
 {
     //cast to size_t to ensure we don't get overflow
     size_t problem_size = (size_t)psize;
@@ -116,8 +127,9 @@ problem_size : cl_uint
 num_devices : uint
     The number of devices to use.  If for GPUs/accelerators, this is the # of GPUs to use
     If for CPUs, this is the number of logical cores to use
+${knl_args_doc}
 */
-void init(cl_uint problem_size, cl_uint num_devices)
+void init(cl_uint problem_size, cl_uint num_devices, ${knl_args})
 {
     cl_platform_id platform_id[NUM_PLATFORMS];
     cl_device_id device_ids[MAX_DEVICE];
@@ -264,7 +276,7 @@ void init(cl_uint problem_size, cl_uint num_devices)
     for(int i = 0; i < ${num_source}; ++i)
         free(source_bins[i]);
 
-    mem_init(problem_size);
+    mem_init(problem_size, ${input_args});
 }
 
 /*
@@ -313,11 +325,11 @@ void ${knl_name}_call(cl_uint problem_size, cl_uint num_devices,
     {
         //check to see if the problem size changed, if so we need to realloc memory
         newsize_finalize();
-        mem_init(per_run);
+        mem_init(per_run, ${input_args});
     }
     if(!${knl_name}_init)
     {
-        init(per_run, num_devices);
+        init(per_run, num_devices, ${input_args});
         ${knl_name}_init = true;
     }
     execute_kernel(problem_size, ${input_args});
@@ -359,7 +371,7 @@ int main(int argc, char* argv[])
     //init memory & program
     StartTimer();
     size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
-    init(per_run, num_devices);
+    init(per_run, num_devices, ${local_input_args});
     double setup_time = GetTimer();
     //read input data
     read_initial_conditions("${data_filename}", problem_size,
@@ -382,9 +394,9 @@ int main(int argc, char* argv[])
         write_data(output_files[i], outputs[i], output_sizes[i]);
     }
 
-    ${local_frees}
-
     finalize();
+
+    ${local_frees}
 
     return 0;
 }

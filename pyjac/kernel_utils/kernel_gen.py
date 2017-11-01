@@ -18,7 +18,7 @@ import numpy as np
 import cgen
 
 from . import file_writers as filew
-from .memory_manager import memory_manager, memory_limits, memory_type
+from .memory_manager import memory_manager, memory_limits, memory_type, guarded_call
 from .. import siteconf as site
 from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
@@ -148,7 +148,8 @@ class kernel_generator(object):
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
-                                  self.array_split._have_split())
+                                  self.array_split._have_split(),
+                                  dev_type=self.loopy_opts.device_type)
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
@@ -1500,13 +1501,11 @@ class opencl_kernel_generator(kernel_generator):
 
         # opencl specific items
         self.set_knl_arg_array_template = Template(
-            self.mem.get_check_err_call('clSetKernelArg(kernel, '
-                                        '${arg_index}, ${arg_size}, '
-                                        '${arg_value})'))
+            guarded_call(self.lang, 'clSetKernelArg(kernel, ${arg_index}, '
+                         '${arg_size}, ${arg_value})'))
         self.set_knl_arg_value_template = Template(
-            self.mem.get_check_err_call('clSetKernelArg(kernel, '
-                                        '${arg_index}, ${arg_size}, '
-                                        '${arg_value})'))
+            guarded_call(self.lang, 'clSetKernelArg(kernel, ${arg_index}, '
+                         '${arg_size}, ${arg_value})'))
         self.barrier_templates = {
             'global': 'barrier(CLK_GLOBAL_MEM_FENCE)',
             'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
@@ -1561,8 +1560,11 @@ class opencl_kernel_generator(kernel_generator):
 
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
-
         host_constants_transfers = self.mem.get_host_constants_in()
+
+        # get host memory syncs if necessary
+        mem_sync = self.mem.get_mem_sync()
+        mem_strat = self.mem.get_mem_strategy()
 
         return subs_at_indent(file_src,
                               vec_width=vec_width,
@@ -1575,7 +1577,9 @@ class opencl_kernel_generator(kernel_generator):
                               CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
                               max_size=max_size,  # max size for CL1.1 mem init
                               host_constants=host_constants,
-                              host_constants_transfers=host_constants_transfers
+                              host_constants_transfers=host_constants_transfers,
+                              mem_sync=mem_sync,
+                              MEM_STRATEGY=mem_strat
                               )
 
     def get_kernel_arg_setting(self):
