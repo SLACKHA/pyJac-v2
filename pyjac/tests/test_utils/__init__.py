@@ -1172,8 +1172,12 @@ def _run_mechanism_tests(work_dir, run):
         bad_platforms = set()
         old_state = None
         for i, state in enumerate(op):
+            # check for regen
+            regen = old_state is not None and not __needs_regen(
+                old_state, state.copy())
             # remove any old builds
-            __cleanup()
+            if regen:
+                __cleanup()
             lang = state['lang']
             vecsize = state['vecsize']
             order = state['order']
@@ -1214,7 +1218,7 @@ def _run_mechanism_tests(work_dir, run):
             phi_path = os.path.join(this_dir, 'data.bin')
 
             try:
-                if old_state is None or __needs_regen(old_state, state.copy()):
+                if regen:
                     # don't regenerate code if we don't need to
                     create_jacobian(lang,
                                     gas=gas,
