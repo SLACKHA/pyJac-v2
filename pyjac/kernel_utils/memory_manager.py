@@ -302,8 +302,8 @@ class memory_strategy(object):
         if not template:
             return ''
 
-        return template[self.device_lang].safe_substitute(
-            host_name=host_name, dev_name=dev_name, buff_size=buff_size, **kwargs)
+        return template.safe_substitute(
+            host_buff=host_name, dev_buff=dev_name, buff_size=buff_size, **kwargs)
 
     def sync(self):
         """
