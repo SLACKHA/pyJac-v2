@@ -59,15 +59,19 @@ void execute_kernel(size_t problem_size, ${knl_args})
         /* Memory Transfers into the kernel, if any */
         ${mem_transfers_in}
 
+        /* set offset (if applicable) */
+        ${offset_arg_set}
+
         /* run kernel */
-        check_err(clEnqueueNDRangeKernel(queue, kernel, 1, ${offset}, &global_work_size, &local_work_size, 0, NULL, NULL));
+        check_err(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
 
         /* Memory Transfers out */
         ${mem_transfers_out}
+
+        /* synchronization, if needed e.g., for PINNED memory */
+        ${mem_sync}
     }
 
-    /* synchronization, if needed e.g., for PINNED memory */
-    ${mem_sync}
 
 }
 
