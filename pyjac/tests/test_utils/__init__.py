@@ -1073,7 +1073,7 @@ def _run_mechanism_tests(work_dir, run):
 
     def __needs_regen(old_state, state):
         # find different entries
-        keys = set(old_state.keys() + state.keys())
+        keys = set(list(old_state.keys()) + list(state.keys()))
         diffs = [k for k in keys if k not in old_state or k not in state or
                  state[k] != old_state[k]]
         # ensure they're all in the list that doesn't require regeneration
