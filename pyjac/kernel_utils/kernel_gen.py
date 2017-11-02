@@ -209,7 +209,7 @@ class kernel_generator(object):
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds))
 
-        self.offset_variable = lp.ValueArg('offset', dtype=np.int32)
+        self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
         """
         Used for pinned memory kernels to enable splitting evaluation over multiple
         kernel calls
