@@ -970,6 +970,23 @@ ${name} : ${type}
                     local_decls.extend(ldecls)
                 continue
 
+            if self.seperate_kernels:
+                # check to see if any of our temporary variables are host constants
+                transferred = set([const.name for const in self.mem.host_constants
+                                   if const.name in k.temporary_variables])
+                # need to transfer these to arguments
+                if transferred:
+                    # filter temporaries
+                    new_temps = {t: v for t, v in six.iteritems(
+                                 k.temporary_variables) if t not in transferred}
+                    # create new args
+                    new_args = [lp.GlobalArg(
+                        t, shape=v.shape, dtype=v.dtype, order=v.order,
+                        dim_tags=v.dim_tags)
+                        for t, v in six.iteritems(k.temporary_variables)
+                        if t in transferred]
+                    k = k.copy(args=k.args + new_args, temporary_variables=new_temps)
+
             cgr = lp.generate_code_v2(k)
             # grab preambles
             preamble_list = []
