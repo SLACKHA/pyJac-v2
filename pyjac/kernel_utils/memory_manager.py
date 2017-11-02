@@ -813,7 +813,12 @@ class memory_manager(object):
             # check if buffer is input / output
             if not alloc_locals and self.use_pinned\
                     and dev_arr.name in self.host_arrays:
-                host_ptr = host_prefix + dev_arr.name
+                # cast to void
+                formatter = '(void*) {}'
+                if in_host_const:
+                    # cast to const void
+                    formatter = '(const void*) {}'
+                host_ptr = formatter.format(host_prefix + dev_arr.name)
             # generate allocs
             alloc = self.mem.alloc(not alloc_locals,
                                    name=name,
