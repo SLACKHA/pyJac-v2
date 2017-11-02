@@ -669,40 +669,35 @@ class jacobian_eval(eval):
             denom = np.abs(check_arr)
             # regular frobenieus norm, have to filter out zero entries for our
             # norm here
-            zero = np.where(denom == 0)
-            non_zero = np.where(denom > 0)
             __update_key('jac', np.linalg.norm(
-                err[non_zero] / denom[non_zero]))
+                err[denom > 0] / denom[denom > 0]))
             __update_key('jac_zero', np.linalg.norm(
-                err[zero]))
-            del non_zero
-            del zero
+                err[denom == 0]))
             assert np.allclose(err_dict['jac_zero'], 0)
             # norm suggested by lapack
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
                 denom))
 
             # thresholded error
-            threshold = np.where(out > self.threshold / 1.e20)
-            thresholded_err = err[threshold] / denom[threshold]
+            thresholded_err = err[out > self.threshold / 1.e20] / denom[
+                out > self.threshold / 1.e20]
             amax = np.argmax(thresholded_err)
             __update_key('jac_thresholded_20', np.linalg.norm(thresholded_err))
             del thresholded_err
-            __update_key('jac_thresholded_20_PJ_amax', out[threshold][amax],
-                         op='max')
-            __update_key('jac_thresholded_20_AD_amax', check_arr[threshold][amax],
-                         op='max')
+            __update_key('jac_thresholded_20_PJ_amax', out[
+                out > self.threshold / 1.e20][amax], op='max')
+            __update_key('jac_thresholded_20_AD_amax', check_arr[
+                out > self.threshold / 1.e20][amax], op='max')
 
-            threshold = np.where(out > self.threshold / 1.e15)
-            thresholded_err = err[threshold] / denom[threshold]
+            thresholded_err = err[out > self.threshold / 1.e15] / denom[
+                out > self.threshold / 1.e15]
             amax = np.argmax(thresholded_err)
             __update_key('jac_thresholded_15', np.linalg.norm(thresholded_err))
             del thresholded_err
-            __update_key('jac_thresholded_15_PJ_amax', out[threshold][amax],
-                         op='max')
-            __update_key('jac_thresholded_15_AD_amax', check_arr[threshold][amax],
-                         op='max')
-            del threshold
+            __update_key('jac_thresholded_15_PJ_amax', out[
+                out > self.threshold / 1.e15][amax], op='max')
+            __update_key('jac_thresholded_15_AD_amax', check_arr[
+                out > self.threshold / 1.e15][amax], op='max')
 
             # largest relative errors for different absolute toleratnces
             denom = self.rtol * denom
