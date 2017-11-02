@@ -84,10 +84,8 @@ problem_size : size_t
     The number of conditions to execute for
 ${knl_args_doc}
 */
-void mem_init(size_t psize, ${knl_args})
+void mem_init(size_t per_run, size_t problem_size, ${knl_args})
 {
-    //cast to size_t to ensure we don't get overflow
-    size_t problem_size = (size_t)psize;
 
     #if CL_LEVEL >= 120
         // with CL 1.2, we have access to clEnqueueFillBuffer
@@ -133,7 +131,7 @@ num_devices : uint
     If for CPUs, this is the number of logical cores to use
 ${knl_args_doc}
 */
-void init(size_t problem_size, cl_uint num_devices, ${knl_args})
+void init(size_t per_run, size_t problem_size, cl_uint num_devices, ${knl_args})
 {
     cl_platform_id platform_id[NUM_PLATFORMS];
     cl_device_id device_ids[MAX_DEVICE];
@@ -280,7 +278,7 @@ void init(size_t problem_size, cl_uint num_devices, ${knl_args})
     for(int i = 0; i < ${num_source}; ++i)
         free(source_bins[i]);
 
-    mem_init(problem_size, ${input_args});
+    mem_init(per_run, problem_size, ${input_args});
 }
 
 /*
@@ -329,11 +327,11 @@ void ${knl_name}_call(size_t problem_size, cl_uint num_devices,
     {
         //check to see if the problem size changed, if so we need to realloc memory
         newsize_finalize();
-        mem_init(per_run, ${input_args});
+        mem_init(per_run, problem_size, ${input_args});
     }
     if(!${knl_name}_init)
     {
-        init(per_run, num_devices, ${input_args});
+        init(per_run, problem_size, num_devices, ${input_args});
         ${knl_name}_init = true;
     }
     execute_kernel(problem_size, ${input_args});
@@ -375,7 +373,7 @@ int main(int argc, char* argv[])
     //init memory & program
     StartTimer();
     size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
-    init(per_run, num_devices, ${local_input_args});
+    init(per_run, problem_size, num_devices, ${local_input_args});
     double setup_time = GetTimer();
     //read input data
     read_initial_conditions("${data_filename}", problem_size,
