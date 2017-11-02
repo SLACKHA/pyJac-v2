@@ -209,6 +209,12 @@ class kernel_generator(object):
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds))
 
+        self.offset_variable = lp.ValueArg('offset', dtype=np.int32)
+        """
+        Used for pinned memory kernels to enable splitting evaluation over multiple
+        kernel calls
+        """
+
     def apply_barriers(self, instructions):
         """
         A method stud that can be overriden to apply synchonization barriers
@@ -828,9 +834,16 @@ ${name} : ${type}
                                         str(x) for x in same_names)))
             temps.append(same_names[0])
 
-        # add problem size arg to front, and save
+        # add problem size arg to front
         kernel_data.insert(0, problem_size)
+        # if we are using pinned memory, we additonally may need an offset variable
+        self.offset_variable = None
+        if self.mem.use_pinned:
+            self.offset_variable = lp.ValueArg('offset', dtype=np.int32)
+            kernel_data.append(self.offset_variable)
+        # and save
         self.kernel_data = kernel_data[:]
+
         # update memory args
         self.mem.add_arrays(kernel_data)
 
@@ -1252,6 +1265,24 @@ ${name} : ${type}
             if k not in kernel_data:
                 kernel_data.append(k)
 
+        if self.mem.use_pinned:
+            # check if the input and output are in this kernel
+            needs_offset = set(self.mem.host_arrays)
+            in_and_out = [i for i, x in enumerate(kernel_data)
+                          if x.name in needs_offset]
+            # change args
+            for i in in_and_out:
+                # offset is 0 in all non-initial condition dimensions
+                offset = [0] * len(kernel_data[i].shape)
+                offset[0] = self.offset_variable.name
+
+                # and copy with offset
+                kernel_data[i] = kernel_data[i].copy(offset=tuple(offset))
+
+            # finally, add the offset to the kernel arg list
+            if in_and_out:
+                kernel_data = [self.offset_variable] + kernel_data
+
         # make the kernel
         knl = lp.make_kernel(iname_arr,
                              kernel_str,
@@ -1259,6 +1290,7 @@ ${name} : ${type}
                              name=info.name,
                              target=target,
                              assumptions=' and '.join(assumptions),
+                             default_offset=0,
                              **info.kwargs
                              )
         # fix parameters
@@ -1563,7 +1595,7 @@ class opencl_kernel_generator(kernel_generator):
         # build options
         build_options = self.build_options
         # kernel arg setting
-        kernel_arg_set = self.get_kernel_arg_setting()
+        kernel_arg_set, offset_arg_set = self.get_kernel_arg_setting()
         # kernel list
         kernel_paths = [self.bin_name]
         kernel_paths = ', '.join('"{}"'.format(x)
@@ -1578,11 +1610,6 @@ class opencl_kernel_generator(kernel_generator):
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
         host_constants_transfers = self.mem.get_host_constants_in()
-
-        # find offset (for host pointers)
-        offset = 'NULL'
-        if self.mem.use_pinned:
-            offset = '&offset'
 
         # get host memory syncs if necessary
         mem_sync = self.mem.get_mem_sync()
@@ -1602,7 +1629,7 @@ class opencl_kernel_generator(kernel_generator):
                               host_constants_transfers=host_constants_transfers,
                               mem_sync=mem_sync,
                               MEM_STRATEGY=mem_strat,
-                              offset=offset
+                              offset_arg_set=offset_arg_set
                               )
 
     def get_kernel_arg_setting(self):
@@ -1617,8 +1644,11 @@ class opencl_kernel_generator(kernel_generator):
         -------
         knl_arg_set_str : str
             The code that sets opencl kernel args
+        offset_arg_set : str
+            Code that sets the offset for pinned host buffer kernels
         """
 
+        offset_arg_set = ''
         kernel_arg_sets = []
         for i, arg in enumerate(self.kernel_data):
             if not isinstance(arg, lp.ValueArg):
@@ -1630,13 +1660,16 @@ class opencl_kernel_generator(kernel_generator):
                 )
             else:
                 # workaround for integer overflow of cl_uint
-                kernel_arg_sets.append(
-                    self.set_knl_arg_value_template.safe_substitute(
+                arg_set = self.set_knl_arg_value_template.safe_substitute(
                         arg_index=i,
                         arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
-                        arg_value='&' + arg.name))
+                        arg_value='&' + arg.name)
+                if arg == self.offset_variable:
+                    offset_arg_set = arg_set
+                else:
+                    kernel_arg_sets.append(arg_set)
 
-        return '\n'.join(kernel_arg_sets)
+        return '\n'.join(kernel_arg_sets), offset_arg_set
 
     def _get_cl_level(self):
         """
