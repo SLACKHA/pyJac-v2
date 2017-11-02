@@ -273,7 +273,8 @@ class memory_strategy(object):
             name=name, buff_size=buff_size, memflag=flags, host_ptr=host_ptr,
             **kwargs)
 
-    def copy(self, to_device, host_name, dev_name, buff_size, dim, **kwargs):
+    def copy(self, to_device, host_name, dev_name, buff_size, dim,
+             host_constant=False, **kwargs):
         """
         Return a copy of a buffer to/from the "device"
 
@@ -287,7 +288,9 @@ class memory_strategy(object):
             The name of device buffer
         dim: int
             If dim == 1, can use a 1-d copy (e.g., a memcpy for C)
-
+        host_constant: bool [False]
+            If True, we are transferring a host constant, hence set any offset
+            in the host buffer to zero
         Returns
         -------
         copy_str: str
@@ -303,7 +306,8 @@ class memory_strategy(object):
             return ''
 
         return template.safe_substitute(
-            host_buff=host_name, dev_buff=dev_name, buff_size=buff_size, **kwargs)
+            host_buff=host_name, dev_buff=dev_name, buff_size=buff_size,
+            host_offset='offset' if not host_constant else '0', **kwargs)
 
     def sync(self):
         """
@@ -411,7 +415,7 @@ class mapped_memory(memory_strategy):
                 # this is a simple opencl-copy
                 return Template(guarded_call(lang, Template("""
             clEnqueue${ctype}Buffer(queue, ${dev_buff}, CL_TRUE, 0,
-                      ${this_run_size}, &${host_buff}[offset * ${non_ic_size}],
+                      ${this_run_size}, &${host_buff}[${host_offset}*${non_ic_size}],
                       0, NULL, NULL)""").safe_substitute(ctype=ctype)))
             elif have_split:
                 # this us a F-split which requires a Rect Read/Write
@@ -922,7 +926,8 @@ class memory_manager(object):
                 itemsize=arr_maps[arr].dtype.itemsize,
                 other_dim_size=np.prod(arr_maps[arr].shape[2:]),
                 non_ic_size=self._get_size(arr_maps[arr], subs_n='',
-                                           include_item_size=False)
+                                           include_item_size=False),
+                host_constant=host_constants
                 ) for arr in arr_list]
         return '\n'.join([x for x in copy_intructions if x])
 
