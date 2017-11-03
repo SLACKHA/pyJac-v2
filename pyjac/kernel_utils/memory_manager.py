@@ -241,8 +241,8 @@ class memory_strategy(object):
     def lang(self, device):
         return self.host_lang if not device else self.device_lang
 
-    def alloc(self, device, name, max_allowed_size='',
-              per_run_size='', readonly=False, host_ptr='NULL', **kwargs):
+    def alloc(self, device, name, buff_size='', per_run_size='', readonly=False,
+              host_ptr='NULL', **kwargs):
         """
         Return an allocation for a buffer in the given :param:`lang`
 
@@ -252,12 +252,12 @@ class memory_strategy(object):
             If true, allocate a device buffer, else a host buffer
         name: str
             The desired name of the buffer
-        max_allowed_size: str ['']
-            If supplied, the maximum allowable size for this buffer
-            Defaults to the kwarg :param:`per_run_size`
+        buff_size: str ['']
+            The actual size of the buffer.  May be overriden by :param:`per_run_size`
+            if suppied
         per_run_size: str ['']
-            The size of this buffer for every kernel call.
-            Default value for :param:`max_allowed_size`
+            The maximum allowable size for device allocation of this buffer
+            If supplied, overrides :param:`buff_size`
         readonly: bool
             Changes memory flags / allocation type (e.g., for OpenCL)
         host_ptr: str ['NULL']
@@ -275,11 +275,14 @@ class memory_strategy(object):
                 + flags.split(' | ')
             flags = ' | '.join([x for x in flags if x])
 
-        if not max_allowed_size:
-            max_allowed_size = per_run_size
+        # override
+        if per_run_size:
+            buff_size = per_run_size
+
+        assert 'buff_size' not in kwargs
 
         return self.alloc_template[self.lang(device)].safe_substitute(
-            name=name, max_allowed_size=max_allowed_size, memflag=flags,
+            name=name, buff_size=buff_size, memflag=flags,
             host_ptr=host_ptr, **kwargs)
 
     def copy(self, to_device, host_name, dev_name, buff_size, dim,
@@ -503,11 +506,11 @@ class mapped_memory(memory_strategy):
 
         alloc = {'opencl': Template(Template(
                     '${name} = clCreateBuffer(context, ${memflag}, '
-                    '${max_allowed_size}, ${host_ptr}, &return_code);\n'
+                    '${buff_size}, ${host_ptr}, &return_code);\n'
                     '${guard}\n').safe_substitute(guard=guarded_call(
                         'opencl', 'return_code'))),
                  'c': Template(Template(
-                    '${name} = (double*)malloc(${max_allowed_size});\n'
+                    '${name} = (double*)malloc(${buff_size});\n'
                     '${guard}').safe_substitute(guard=guarded_call(
                         'c', '${name} != NULL', 'malloc failed')))}
         __update('alloc', alloc)
@@ -630,15 +633,16 @@ class pinned_memory(mapped_memory):
             If true, allocate a device buffer, else a host buffer
         name: str
             The desired name of the buffer
-        buff_size: str [''],
-            The real size of this buffer on the host
+        buff_size: str ['']
+            The actual size of the buffer.  May be overriden by :param:`per_run_size`
+            if supplied, _unless_ :param:`host_ptr` is not 'NULL'
         per_run_size: str ['']
-            The size expected per kernel call for this buffer (if not backed by
-            pinned host buffer)
-        readonly: bool [False]
-            Changes memory flags / allocation type (e.g., for OpenCL)
-        host_buff: str ['']
+            The maximum allowable size for device allocation of this buffer
+            If supplied, overrides :param:`buff_size` unless :param:`host_ptr`
+            is not 'NULL'
+        host_ptr: str ['']
             If supplied, use this as the base buffer for the pinned memory
+            Changes memory flags / allocation type (e.g., for OpenCL)
         per_run_size: str ['']
             The maximum allowable size for this array, per-kernel-call
         Returns
@@ -649,16 +653,15 @@ class pinned_memory(mapped_memory):
 
         # fiddle with the flags
         flags = self.pinned_hostaloc_flags
-        max_allowed_size = per_run_size
+        size = per_run_size
         if host_ptr != 'NULL':
             flags = self.pinned_hostbuff_flags
             # replace the per_run_size with the
-            max_allowed_size = buff_size
+            size = buff_size
 
         return super(pinned_memory, self).alloc(
-            device, name, buff_size, readonly=readonly,
-            flags=flags[self.device_lang], host_ptr=host_ptr,
-            max_allowed_size=max_allowed_size, **kwargs)
+            device, name, buff_size=size, readonly=readonly,
+            flags=flags[self.device_lang], host_ptr=host_ptr, **kwargs)
 
 
 class memory_manager(object):
@@ -832,6 +835,7 @@ class memory_manager(object):
             readonly = not any(
                     x.name == dev_arr.name for x in self.host_constants)
             host_ptr = 'NULL'
+            per_run_size = self._get_size(dev_arr, subs_n='per_run')
             # check if buffer is input / output
             if not alloc_locals and self.use_pinned\
                     and dev_arr.name in self.host_arrays:
@@ -846,7 +850,8 @@ class memory_manager(object):
                                    name=name,
                                    readonly=readonly,
                                    buff_size=buff_size,
-                                   host_ptr=host_ptr)
+                                   host_ptr=host_ptr,
+                                   per_run_size=per_run_size)
 
             if alloc_locals:
                 # add a type
