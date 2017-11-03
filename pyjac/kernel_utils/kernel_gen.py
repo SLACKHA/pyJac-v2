@@ -214,7 +214,8 @@ class kernel_generator(object):
         self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
         self.full_problem_size = lp.ValueArg('full_problem_size', dtype=np.int32)
         self.arg_name_maps = {self.offset_variable: 'offset',
-                              self.full_problem_size: 'problem_size'}
+                              self.full_problem_size: 'problem_size',
+                              p_size: 'per_run'}
 
     def apply_barriers(self, instructions):
         """
