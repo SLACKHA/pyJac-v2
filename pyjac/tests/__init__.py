@@ -4,6 +4,7 @@ import numpy as np
 import unittest
 import loopy as lp
 import yaml
+from testconfig import config
 
 # system
 import os
@@ -12,9 +13,6 @@ import os
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
-
-# setup root logger
-logging.basicConfig(level=logging.DEBUG)
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
@@ -124,7 +122,7 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
 
 class storage(object):
 
-    def __init__(self, gas, specs, reacs):
+    def __init__(self, platform, gas, specs, reacs):
         self.gas = gas
         self.specs = specs
         self.reacs = reacs
@@ -370,11 +368,23 @@ class TestClass(unittest.TestCase):
             # load equations
             self.dirpath = os.path.dirname(os.path.realpath(__file__))
             gasname = os.path.join(self.dirpath, 'test.cti')
+            # first check test config
+            if 'gas' in config:
+                gasname = config['gas']
             if 'GAS' in os.environ:
                 gasname = os.environ['GAS']
             # load the gas
             gas = ct.Solution(gasname)
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
-            self.store = storage(gas, specs, reacs)
+            # and finally check for a test platform
+            if 'test_platform' in config:
+                platform = config
+            if 'TEST_PLATFORM' in os.environ:
+                platform = os.environ['TEST_PLATFORM']
+            if platform is None:
+                logger = logging.getLogger(__name__)
+                logger.warn('Warning: did not find a test platform file, using '
+                            'default OpenCL platforms...')
+            self.store = storage(platform, gas, specs, reacs)
             self.is_setup = True

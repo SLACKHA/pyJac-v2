@@ -582,7 +582,8 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=['opencl'], do_vector=True, do_sparse=False,
                 do_approximate=False):
 
-    platforms = get_test_platforms(do_vector=do_vector, langs=langs)
+    platforms = get_test_platforms(owner.test_platforms,
+                                   do_vector=do_vector, langs=langs)
     oploop = [('order', ['C', 'F']),
               ('auto_diff', [False])
               ]
