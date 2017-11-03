@@ -72,7 +72,7 @@ class array_splitter(object):
         if str(axis_len) == problem_size.name:
             # bake in the assumption that the problem size is divisible by the
             # vector width
-            outer_len = div_ceil(axis_len, count)  # axis_len / count
+            outer_len = div_ceil(axis_len, count)  # todo: fix map_quotient in loopy
         else:
             outer_len = div_ceil(axis_len, count)
         new_shape[split_axis] = outer_len

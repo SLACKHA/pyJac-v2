@@ -147,9 +147,19 @@ class kernel_generator(object):
         self.loopy_opts = loopy_opts
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
+
+        # Used for pinned memory kernels to enable splitting evaluation over multiple
+        # kernel calls
+        self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
+        self.host_buffer_stride = lp.ValueArg('host_buffer_stride', dtype=np.int32)
+        self.arg_name_maps = {self.offset_variable: 'offset',
+                              self.host_buffer_stride: 'problem_size',
+                              p_size: 'per_run'}
+
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
                                   self.array_split._have_split(),
-                                  dev_type=self.loopy_opts.device_type)
+                                  dev_type=self.loopy_opts.device_type,
+                                  host_buffer_stride=self.host_buffer_stride.name)
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
@@ -209,13 +219,6 @@ class kernel_generator(object):
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds))
 
-        # Used for pinned memory kernels to enable splitting evaluation over multiple
-        # kernel calls
-        self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
-        self.host_buffer_stride = lp.ValueArg('host_buffer_stride', dtype=np.int32)
-        self.arg_name_maps = {self.offset_variable: 'offset',
-                              self.host_buffer_stride: 'problem_size',
-                              p_size: 'per_run'}
 
     def apply_barriers(self, instructions):
         """
@@ -890,7 +893,8 @@ ${name} : ${type}
                 mem_types[memory_type.m_constant].append(lookup.array)
 
         # check if we're over our constant memory limit
-        mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
+        mem_limits = memory_limits.get_limits(
+            self.loopy_opts, mem_types, string_strides=self.mem.string_strides)
         data_size = len(kernel_data)
         read_size = len(read_only)
         if not mem_limits.can_fit():
@@ -927,7 +931,8 @@ ${name} : ${type}
                 mem_types[memory_type.m_constant].remove(v)
                 mem_types[memory_type.m_global].append(v)
 
-            mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
+            mem_limits = memory_limits.get_limits(
+                self.loopy_opts, mem_types, string_strides=self.mem.string_strides)
 
         # update the memory manager with new args / input arrays
         if len(kernel_data) != data_size:
