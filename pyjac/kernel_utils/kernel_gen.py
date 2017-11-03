@@ -212,7 +212,7 @@ class kernel_generator(object):
         # Used for pinned memory kernels to enable splitting evaluation over multiple
         # kernel calls
         self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
-        self.full_problem_size = lp.ValueArg('full_problem_size', dtype=np.int32)
+        self.host_buffer_stride = lp.ValueArg('host_buffer_stride', dtype=np.int32)
         self.arg_name_maps = {self.offset_variable: 'offset',
                               self.full_problem_size: 'problem_size',
                               p_size: 'per_run'}

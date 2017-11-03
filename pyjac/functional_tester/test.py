@@ -710,8 +710,8 @@ class jacobian_eval(eval):
                 del err_weighted
                 __update_key('jac_weighted_{}_PJ_amax'.format(atol), out.flat[amax],
                              op='max')
-                __update_key('jac_weighted_{}_AD_amax'.format(atol), check_arr.flat[
-                             amax], op='max')
+                __update_key('jac_weighted_{}_AD_amax'.format(atol), np.abs(
+                    check_arr.flat[amax]), op='max')
 
             # info values for lookup
             __update_key('jac_max_value', np.amax(out), op='max')
