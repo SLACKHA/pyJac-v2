@@ -257,7 +257,7 @@ class memory_strategy(object):
             if suppied
         per_run_size: str ['']
             The maximum allowable size for device allocation of this buffer
-            If supplied, overrides :param:`buff_size`
+            If supplied, and :param:`device` is True, overrides :param:`buff_size`
         readonly: bool
             Changes memory flags / allocation type (e.g., for OpenCL)
         host_ptr: str ['NULL']
@@ -276,7 +276,7 @@ class memory_strategy(object):
             flags = ' | '.join([x for x in flags if x])
 
         # override
-        if per_run_size:
+        if per_run_size and device:
             buff_size = per_run_size
 
         assert 'buff_size' not in kwargs
@@ -638,8 +638,8 @@ class pinned_memory(mapped_memory):
             if supplied, _unless_ :param:`host_ptr` is not 'NULL'
         per_run_size: str ['']
             The maximum allowable size for device allocation of this buffer
-            If supplied, overrides :param:`buff_size` unless :param:`host_ptr`
-            is not 'NULL'
+            If supplied If supplied, and :param:`device` is True,
+            overrides :param:`buff_size` unless :param:`host_ptr` is not 'NULL'
         host_ptr: str ['']
             If supplied, use this as the base buffer for the pinned memory
             Changes memory flags / allocation type (e.g., for OpenCL)
@@ -653,8 +653,9 @@ class pinned_memory(mapped_memory):
 
         # fiddle with the flags
         flags = self.pinned_hostaloc_flags
-        size = per_run_size
+        size = per_run_size if device else buff_size
         if host_ptr != 'NULL':
+            assert device
             flags = self.pinned_hostbuff_flags
             # replace the per_run_size with the
             size = buff_size
