@@ -879,12 +879,13 @@ ${name} : ${type}
                         # for opencl < 2.0, a constant global can only be a
                         # __constant
                         mem_types[memory_type.m_constant].append(v)
+
             # look for jacobian indirect lookup in preambles
-            lookup = next((pre for pre in k.preambles if isinstance(
+            lookup = next((pre for pre in k.preamble_generators if isinstance(
                 pre, lp_pregen.jac_indirect_lookup)), None)
             if lookup and lookup.array not in mem_types[memory_type.m_constant]:
-                    # also need to include the lookup array in consideration
-                    mem_types[memory_type.m_constant].append(lookup.array)
+                # also need to include the lookup array in consideration
+                mem_types[memory_type.m_constant].append(lookup.array)
 
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
@@ -906,6 +907,8 @@ ${name} : ${type}
                     logger = logging.getLogger(__name__)
                     logger.exception('Cannot fit kernel {} in memory'.format(
                         self.name))
+                    break
+
                 type_changes[memory_type.m_global].append(gtemps[0])
                 gtemps = gtemps[1:]
 
@@ -1636,7 +1639,7 @@ class opencl_kernel_generator(kernel_generator):
         max_size = str(max(np.prod(np.fromstring(
             self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
             for a in self.mem.arrays))
-        max_size = str(max_size) + ' * problem_size'
+        max_size = str(max_size) + ' * {}'.format(p_size.name)
 
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
