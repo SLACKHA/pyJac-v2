@@ -1019,7 +1019,7 @@ class runner(object):
     def get_filename(self, state):
         raise NotImplementedError
 
-    def check_file(self, file):
+    def check_file(self, file, state):
         raise NotImplementedError
 
     @property
@@ -1150,7 +1150,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run):
             [], directory=os.path.join(work_dir, mech_name))
 
         # rewrite data to file in 'C' order
-        dbw.write(this_dir)
+        dbw.write(this_dir, num_conditions=num_conditions, data=data)
 
         # figure out the number of conditions to test
         num_conditions = int(
@@ -1221,7 +1221,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run):
 
             # if already run, continue
             data_output = os.path.join(this_dir, data_output)
-            if run.check_file(data_output):
+            if run.check_file(data_output, state.copy()):
                 continue
 
             # store phi path

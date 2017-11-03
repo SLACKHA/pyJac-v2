@@ -26,14 +26,15 @@ def load(npy_files, directory=None):
     return num_conditions, data
 
 
-def write(directory, cut=None):
-    npy_files = get_files(directory)
-    data = None
+def write(directory, cut=None, num_conditions=None, data=None):
+    if not (num_conditions or data):
+        npy_files = get_files(directory)
+        num_conditions, data = load(npy_files)
+
     filename = 'data.bin' if cut is None else 'data_eqremoved.bin'
     with open(os.path.join(directory, filename), 'wb') as file:
         # load PaSR data for different pressures/conditions,
         # and save to binary C file
-        num_conditions, data = load(npy_files)
         if num_conditions == 0:
             print('No data found in folder {}, continuing...'.format(directory))
             return 0

@@ -57,7 +57,7 @@ class validation_runner(runner):
                              'c': 'c'}
         self.mod_test = test_utils.get_run_source()
 
-    def check_file(self, filename):
+    def check_file(self, filename, _):
         """Checks file for existing data, returns number of completed runs
 
         Parameters
