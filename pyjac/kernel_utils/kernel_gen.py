@@ -1661,11 +1661,13 @@ class opencl_kernel_generator(kernel_generator):
                 )
             else:
                 # workaround for integer overflow of cl_uint
+                # TODO: need to put in detection for integer overlflow here
+                # or at least limits for maximum size of kernel before we switch
+                # over to a 64bit integer for index type
                 arg_set = self.set_knl_arg_value_template.safe_substitute(
                         arg_index=i,
                         arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
-                        arg_value='&(({type}){name})'.format(
-                            type=self.type_map[arg.dtype], name=arg.name))
+                        arg_value='&{}'.format(arg.name))
                 if arg == self.offset_variable:
                     offset_arg_set = arg_set
                 else:
