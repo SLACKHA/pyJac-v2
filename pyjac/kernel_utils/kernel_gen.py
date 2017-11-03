@@ -1664,7 +1664,7 @@ class opencl_kernel_generator(kernel_generator):
                 arg_set = self.set_knl_arg_value_template.safe_substitute(
                         arg_index=i,
                         arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
-                        arg_value='&({type}){name}'.format(
+                        arg_value='&(({type}){name})'.format(
                             type=self.type_map[arg.dtype], name=arg.name))
                 if arg == self.offset_variable:
                     offset_arg_set = arg_set
