@@ -16,7 +16,7 @@ import yaml
 from enum import Enum
 import six
 import logging
-from ..core import array_creator as arc
+from ..core.array_creator import problem_size as p_size
 import resource
 align_size = resource.getpagesize()
 
@@ -54,13 +54,15 @@ class memory_limits(object):
         total amount of each memory type available on the device
     """
 
-    def __init__(self, lang, arrays, limits):
+    def __init__(self, lang, arrays, limits, string_strides=[]):
         """
         Initializes a :class:`memory_limits`
         """
         self.lang = lang
         self.arrays = arrays
         self.limits = limits
+        self.string_strides = [re.compile(re.escape(s)) if isinstance(s, str)
+                               else s for s in string_strides]
 
     def can_fit(self, type=memory_type.m_constant, with_type_changes={}):
         """
@@ -99,7 +101,7 @@ class memory_limits(object):
             size = 1
             is_ic_dep = False
             for s in array.shape:
-                if arc.problem_size.name in str(s):
+                if any(x.search(str(s)) for x in self.string_strides):
                     # mark as dependent on # of initial conditions
                     is_ic_dep = True
                     # get the floor div (if any)
@@ -144,7 +146,8 @@ class memory_limits(object):
             np.floor((self.limits[type] - static) / per_ic), per_alloc_ic_limit), 0))
 
     @staticmethod
-    def get_limits(loopy_opts, arrays, input_file=''):
+    def get_limits(loopy_opts, arrays, input_file='',
+                   string_strides=[p_size.name]):
         """
         Utility method to load shared / constant memory limits from a file or
         :mod:`pyopencl` as needed
@@ -161,6 +164,9 @@ class memory_limits(object):
         input_file: str
             The path to a yaml file with specified limits (keys should include
             'local' and 'constant', and 'global')
+        string_strides: str
+            The strides of host & device buffers dependent on user input
+            Need special handling in size determination
 
         Returns
         -------
@@ -197,7 +203,8 @@ class memory_limits(object):
                     limits[mtype(key)] = value
 
         return memory_limits(loopy_opts.lang, arrays,
-                             {k: v for k, v in six.iteritems(limits)})
+                             {k: v for k, v in six.iteritems(limits)},
+                             string_strides)
 
 
 asserts = {'c': Template('cassert(${call}, "${message}");'),
@@ -680,7 +687,7 @@ class memory_manager(object):
     """
 
     def __init__(self, lang, order, have_split, strided_c_copy=False,
-                 dev_type=None, mem_limits_file=''):
+                 dev_type=None, mem_limits_file='', host_buffer_stride=''):
         """
         Parameters
         ----------
@@ -696,6 +703,8 @@ class memory_manager(object):
         dev_type: :class:`pyopencl.device_type` [None]
             The device type.  If CPU, the host buffers will be used for input /
             output variables
+        host_buffer_stride: str
+            The variable name for the host buffer stride for pinned memory
         """
         self.arrays = []
         self.in_arrays = []
@@ -712,6 +721,7 @@ class memory_manager(object):
                          np.dtype('float64'): 'double'}
         self.dev_type = dev_type
         self.use_pinned = self.dev_type is not None and self.dev_type == DTYPE_CPU
+        self.string_strides = [p_size.name]
         if self.use_pinned:
             # check if user supplied alignement size
             # create dummy options
@@ -719,11 +729,25 @@ class memory_manager(object):
             align_size = memory_limits.get_limits(
                 loopy_opts, {}, mem_limits_file).limits[memory_type.m_pagesize]
             self.mem = pinned_memory(lang, order, have_split, align_size)
+            # and add to list of string strides
+            self.string_strides.append(host_buffer_stride)
         else:
             self.mem = mapped_memory(lang, order, have_split)
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
+
+        # convert string strides to regex, and include the div/mod form
+        ss_size = len(self.string_strides)
+        self.div_mod_strides = []
+        for i in range(ss_size):
+            name = self.string_strides[i]
+            div_mod_re = re.compile(
+                r'\(-1\)\*\(\(\(-1\)\*{}\) // (\d+)\)'.format(name))
+            # convert the name to a regex
+            self.string_strides[i] = re.compile(re.escape(name))
+            # and add the divmod
+            self.div_mod_strides.append(div_mod_re)
 
     def add_arrays(self, arrays=[], in_arrays=[], out_arrays=[]):
         """
@@ -897,13 +921,11 @@ class memory_manager(object):
         for i, x in enumerate(size):
             s = str(x)
             # check for non-integer sizes
-            if 'problem_size' in s:
+            if any(x.search(s) for x in self.string_strides):
                 str_size.append(subs_n)
-                if not re.search('(?:full_)?problem_size', s):
+                vsize = next(x.search(s) for x in self.div_mod_strides)
+                if vsize:
                     # it's a floor division thing, need to do some cleanup here
-                    vsize = re.search(
-                        r'\(-1\)\*\(\(\(-1\)\*(?:full_)?problem_size\) // (\d+)\)',
-                        s)
                     # make sure we found the vector width
                     assert vsize is not None and len(vsize.groups()) > 0, (
                         'Unknown size for array {}, :{}'.format(arr.name, s))
