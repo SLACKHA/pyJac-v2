@@ -884,7 +884,6 @@ ${name} : ${type}
         mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
         data_size = len(kernel_data)
         read_size = len(read_only)
-        logger = logging.getLogger(__name__)
         if not mem_limits.can_fit():
             # we need to convert our __constant temporary variables to
             # __global kernel args until we can fit
@@ -898,6 +897,7 @@ ${name} : ${type}
             gtemps = gtemps[1:]
             while not mem_limits.can_fit(with_type_changes=type_changes):
                 if not gtemps:
+                    logger = logging.getLogger(__name__)
                     logger.exception('Cannot fit kernel {} in memory'.format(
                         self.name))
                 type_changes[memory_type.m_global].append(gtemps[0])
