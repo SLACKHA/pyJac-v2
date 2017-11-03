@@ -122,7 +122,8 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
 
 class storage(object):
 
-    def __init__(self, platform, gas, specs, reacs):
+    def __init__(self, test_platforms, gas, specs, reacs):
+        self.test_platforms = test_platforms
         self.gas = gas
         self.specs = specs
         self.reacs = reacs
