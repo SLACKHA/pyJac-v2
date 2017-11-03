@@ -879,6 +879,12 @@ ${name} : ${type}
                         # for opencl < 2.0, a constant global can only be a
                         # __constant
                         mem_types[memory_type.m_constant].append(v)
+            # look for jacobian indirect lookup in preambles
+            lookup = next((pre for pre in k.preambles if isinstance(
+                pre, lp_pregen.jac_indirect_lookup)), None)
+            if lookup and lookup.array not in mem_types[memory_type.m_constant]:
+                    # also need to include the lookup array in consideration
+                    mem_types[memory_type.m_constant].append(lookup.array)
 
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(self.loopy_opts, mem_types)
