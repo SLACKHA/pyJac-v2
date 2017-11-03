@@ -118,6 +118,7 @@ setup(
     # installed, specify them here.  If using Python 2.6 or less, then these
     # have to be included in MANIFEST.in as well.
     package_data={
+        'test_platforms_example.yaml',
         'pyjac': ['*.yaml'],
         'pyjac.pywrap': ['*.in'],
         'pyjac.functional_tester': ['*.yaml'],
@@ -125,7 +126,7 @@ setup(
         'pyjac.kernel_utils.common': ['*.c', '*.h', '*.in'],
         'pyjac.kernel_utils.opencl': ['*.ocl', '*.oclh', '*.in'],
         'pyjac.loopy_utils': ['*.in'],
-        'pyjac.tests': ['*.cti', '*.inp', 'test_platforms_example.yaml'],
+        'pyjac.tests': ['*.cti', '*.inp'],
         'pyjac.tests.test_utils': ['*.in', '*.pyx'],
 
     },

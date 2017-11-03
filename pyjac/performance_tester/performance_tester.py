@@ -191,13 +191,19 @@ class performance_runner(runner):
                                           stdout=file)
 
 
-def species_performance_tester(work_dir='performance'):
+def species_performance_tester(work_dir='performance',
+                               test_platforms='test_platforms.yaml',
+                               prefix=''):
     """Runs performance testing of the species rates kernel for pyJac
 
     Parameters
     ----------
     work_dir : str
         Working directory with mechanisms and for data
+    test_platforms: str
+        The testing platforms file, specifing the configurations to test
+    prefix: str
+        a prefix within the work directory to store the output of this run
 
     Returns
     -------
@@ -205,16 +211,23 @@ def species_performance_tester(work_dir='performance'):
 
     """
 
-    _run_mechanism_tests(work_dir, performance_runner(build_type.species_rates))
+    _run_mechanism_tests(work_dir, test_platforms, prefix,
+                         performance_runner(build_type.species_rates))
 
 
-def jacobian_performance_tester(work_dir='performance'):
+def jacobian_performance_tester(work_dir='performance',
+                                test_platforms='test_platforms.yaml',
+                                prefix=''):
     """Runs performance testing of the jacobian kernel for pyJac
 
     Parameters
     ----------
     work_dir : str
         Working directory with mechanisms and for data
+    test_platforms: str
+        The testing platforms file, specifing the configurations to test
+    prefix: str
+        a prefix within the work directory to store the output of this run
 
     Returns
     -------
@@ -222,4 +235,5 @@ def jacobian_performance_tester(work_dir='performance'):
 
     """
 
-    _run_mechanism_tests(work_dir, performance_runner(build_type.jacobian))
+    _run_mechanism_tests(work_dir, test_platforms, prefix,
+                         performance_runner(build_type.jacobian))

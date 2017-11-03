@@ -77,4 +77,4 @@ pytchem_wrapper.c
 
 # configuration files
 pyjac/siteconf.py
-pyjac/tests/test_platforms.yaml
+test_platforms.yaml

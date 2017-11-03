@@ -10,7 +10,7 @@ from ...libgen import build_type
 import logging
 
 
-def get_test_matrix(work_dir, test_type=build_type.jacobian):
+def get_test_matrix(work_dir, test_type, test_platforms):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -18,6 +18,10 @@ def get_test_matrix(work_dir, test_type=build_type.jacobian):
     ----------
     work_dir : str
         Working directory with mechanisms and for data
+    test_type: :class:`build_type.jacobian`
+        Controls some testing options (e.g., whether to do a sparse matrix or not)
+    test_platforms: str ['']
+        The platforms to test
     Returns
     -------
     mechanisms : dict
@@ -59,6 +63,7 @@ def get_test_matrix(work_dir, test_type=build_type.jacobian):
                     if thermo is not None:
                         mechanism_list[name]['thermo'] = thermo
 
+    assert isinstance(test_type, build_type)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
         else ['fixed']
     sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
@@ -128,8 +133,8 @@ def get_test_matrix(work_dir, test_type=build_type.jacobian):
             params[i] = platform[:]
         return params
 
-    ocl_params = _fix_params(get_test_platforms())
-    c_params = _fix_params(get_test_platforms(langs=['c']))
+    ocl_params = _fix_params(get_test_platforms(test_platforms))
+    c_params = _fix_params(get_test_platforms(test_platforms, langs=['c']))
 
     def reduce(params):
         out = None
