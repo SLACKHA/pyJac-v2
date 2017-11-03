@@ -899,7 +899,7 @@ class memory_manager(object):
             # check for non-integer sizes
             if 'problem_size' in s:
                 str_size.append(subs_n)
-                if s != 'problem_size':
+                if not re.search('(?:full_)?problem_size', s):
                     # it's a floor division thing, need to do some cleanup here
                     vsize = re.search(
                         r'\(-1\)\*\(\(\(-1\)\*(?:full_)?problem_size\) // (\d+)\)',
