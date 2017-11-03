@@ -902,7 +902,8 @@ class memory_manager(object):
                 if s != 'problem_size':
                     # it's a floor division thing, need to do some cleanup here
                     vsize = re.search(
-                        r'\(-1\)\*\(\(\(-1\)\*problem_size\) // (\d+)\)', s)
+                        r'\(-1\)\*\(\(\(-1\)\*(?:full_)?problem_size\) // (\d+)\)',
+                        s)
                     # make sure we found the vector width
                     assert vsize is not None and len(vsize.groups()) > 0, (
                         'Unknown size for array {}, :{}'.format(arr.name, s))
