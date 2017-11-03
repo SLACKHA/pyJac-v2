@@ -338,7 +338,7 @@ class memory_strategy(object):
             return self.sync_template[self.device_lang]
         return ''
 
-    def memset(self, device, name, buff_size, **kwargs):
+    def memset(self, device, name, buff_size='', per_run_size='', **kwargs):
         """
         Set the host / device memory
 
@@ -348,14 +348,22 @@ class memory_strategy(object):
             If true, set a device buffer, else a host buffer
         name: str
             The buffer name
-        buff_size: str
-            The size of the buffer in bytes
+        buff_size: str ['']
+            The actual size of the buffer.  May be overriden by :param:`per_run_size`
+            if suppied
+        per_run_size: str ['']
+            The maximum allowable size for device allocation of this buffer
+            If supplied, and :param:`device` is True, overrides :param:`buff_size`
 
         Returns
         -------
         set_instructions: str
             The instructions to memset the buffer
         """
+
+        # override
+        if per_run_size and device:
+            buff_size = per_run_size
 
         return self.memset_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, **kwargs)
@@ -866,7 +874,8 @@ class memory_manager(object):
             if not in_host_const and host_ptr == 'NULL':
                 # add the memset
                 return_list.append(self.mem.memset(
-                    not alloc_locals, name=name, buff_size=buff_size))
+                    not alloc_locals, name=name, buff_size=buff_size,
+                    per_run_size=per_run_size))
             # return
             return '\n'.join(return_list + ['\n'])
 
