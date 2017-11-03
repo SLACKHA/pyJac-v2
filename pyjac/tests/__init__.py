@@ -380,7 +380,7 @@ class TestClass(unittest.TestCase):
             elems, specs, reacs = read_mech_ct(gasname)
             # and finally check for a test platform
             if 'test_platform' in config:
-                platform = config
+                platform = config['test_platform']
             if 'TEST_PLATFORM' in os.environ:
                 platform = os.environ['TEST_PLATFORM']
             if platform is None:
