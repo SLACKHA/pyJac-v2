@@ -10,7 +10,7 @@ from ...libgen import build_type
 import logging
 
 
-def get_test_matrix(work_dir, test_type, test_platforms):
+def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -22,6 +22,8 @@ def get_test_matrix(work_dir, test_type, test_platforms):
         Controls some testing options (e.g., whether to do a sparse matrix or not)
     test_platforms: str ['']
         The platforms to test
+    raise_on_missing: bool
+        Raise an exception of the specified :param:`test_platforms` file is not found
     Returns
     -------
     mechanisms : dict
@@ -133,8 +135,10 @@ def get_test_matrix(work_dir, test_type, test_platforms):
             params[i] = platform[:]
         return params
 
-    ocl_params = _fix_params(get_test_platforms(test_platforms))
-    c_params = _fix_params(get_test_platforms(test_platforms, langs=['c']))
+    ocl_params = _fix_params(get_test_platforms(test_platforms,
+                                                raise_on_missing=raise_on_missing))
+    c_params = _fix_params(get_test_platforms(test_platforms, langs=['c'],
+                                              raise_on_missing=raise_on_missing))
 
     def reduce(params):
         out = None

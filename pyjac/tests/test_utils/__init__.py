@@ -1033,7 +1033,8 @@ class runner(object):
                                moles[:, :-1]), axis=1)
 
 
-def _run_mechanism_tests(work_dir, test_platforms, prefix, run):
+def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
+                         raise_on_missing=True):
     """
     This method is used to consolidate looping for the :mod:`peformance_tester`
     and :mod:`functional tester, as they have very similar execution patterns
@@ -1048,6 +1049,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run):
         The testing platforms file, specifing the configurations to test
     prefix: str
         a prefix within the work directory to store the output of this run
+    raise_on_missing: bool
+        Raise an exception of the specified :param:`test_platforms` file is not found
 
     Returns
     -------
@@ -1086,7 +1089,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run):
             return False
         return True
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(
-        work_dir, run.rtype, test_platforms)
+        work_dir, run.rtype, test_platforms, raise_on_missing)
 
     if len(mechanism_list) == 0:
         logger = logging.getLogger(__name__)
