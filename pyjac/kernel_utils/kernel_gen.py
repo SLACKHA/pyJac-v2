@@ -966,12 +966,53 @@ ${name} : ${type}
                 args=', '.join([x.name for x in k.args])
                 )
 
+        def _update_for_host_constants(kernel):
+            """
+            Moves temporary variables to global arguments based on the
+            host constants for this kernel
+            """
+            transferred = set([const.name for const in self.mem.host_constants
+                               if const.name in kernel.temporary_variables])
+            # need to transfer these to arguments
+            if transferred:
+                # filter temporaries
+                new_temps = {t: v for t, v in six.iteritems(
+                             kernel.temporary_variables) if t not in transferred}
+                # create new args
+                new_args = [lp.GlobalArg(
+                    t, shape=v.shape, dtype=v.dtype, order=v.order,
+                    dim_tags=v.dim_tags)
+                    for t, v in six.iteritems(kernel.temporary_variables)
+                    if t in transferred]
+                kernel = kernel.copy(
+                    args=kernel.args + new_args, temporary_variables=new_temps)
+            return kernel
+
+        def _get_func_body(cgr):
+            """
+            Returns the function declaration w/o initializers or preambles
+            from a :class:`loopy.GeneratedProgram`
+            """
+            if isinstance(cgr.ast, cgen.FunctionBody):
+                return lp_utils.get_code(str(cgr.ast))
+            else:
+                return lp_utils.get_code(str(cgr.ast.contents[-1]))
+
         from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
         for i, k, in enumerate(self.kernels):
             if k.name in sub_instructions:
                 # avoid regeneration if possible
                 pre, init, extra, ldecls, insns = sub_instructions[k.name]
+                if self.seperate_kernels:
+                    # need to regenerate the call here, in the case that there was
+                    # a difference in the host_constants in the sub kernel
+                    k = _update_for_host_constants(k)
+                    insns = _get_call(k)
+                    cgr = lp.generate_code_v2(k)
+                    assert len(cgr.device_programs) == 1
+                    extra = _get_func_body(cgr.device_programs[0])
+
                 instructions.append(insns)
                 if pre and pre not in preambles:
                     preambles.extend(pre)
@@ -987,22 +1028,9 @@ ${name} : ${type}
                     local_decls.extend(ldecls)
                 continue
 
+            # check to see if any of our temporary variables are host constants
             if self.seperate_kernels:
-                # check to see if any of our temporary variables are host constants
-                transferred = set([const.name for const in self.mem.host_constants
-                                   if const.name in k.temporary_variables])
-                # need to transfer these to arguments
-                if transferred:
-                    # filter temporaries
-                    new_temps = {t: v for t, v in six.iteritems(
-                                 k.temporary_variables) if t not in transferred}
-                    # create new args
-                    new_args = [lp.GlobalArg(
-                        t, shape=v.shape, dtype=v.dtype, order=v.order,
-                        dim_tags=v.dim_tags)
-                        for t, v in six.iteritems(k.temporary_variables)
-                        if t in transferred]
-                    k = k.copy(args=k.args + new_args, temporary_variables=new_temps)
+                k = _update_for_host_constants(k)
 
             cgr = lp.generate_code_v2(k)
             # grab preambles
@@ -1061,11 +1089,7 @@ ${name} : ${type}
                 ldecls = []
                 # we need to place the call in the instructions and the extra kernels
                 # in their own array
-                if isinstance(cgr.ast, cgen.FunctionBody):
-                    extra_kernels.append(lp_utils.get_code(str(cgr.ast)))
-                else:
-                    extra_kernels.append(lp_utils.get_code(str(
-                        cgr.ast.contents[-1])))
+                extra_kernels.append(_get_func_body(cgr))
                 instructions.append(_get_call(k))
 
             if instruction_store is not None:
