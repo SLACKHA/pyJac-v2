@@ -578,9 +578,9 @@ class get_comparable(object):
         return outv[masking]
 
 
-def _get_oploop(owner, do_ratespec=False, do_ropsplit=False,
-                        do_conp=True, langs=['opencl'], do_vector=True,
-                        do_sparse=False, do_approximate=False):
+def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
+                langs=['opencl'], do_vector=True, do_sparse=False,
+                do_approximate=False):
 
     platforms = get_test_platforms(do_vector=do_vector, langs=langs)
     oploop = [('order', ['C', 'F']),
@@ -1033,7 +1033,7 @@ class runner(object):
                                moles[:, :-1]), axis=1)
 
 
-def _run_mechanism_tests(work_dir, run):
+def _run_mechanism_tests(work_dir, test_platforms, prefix, run):
     """
     This method is used to consolidate looping for the :mod:`peformance_tester`
     and :mod:`functional tester, as they have very similar execution patterns
@@ -1044,6 +1044,11 @@ def _run_mechanism_tests(work_dir, run):
         The directory to run / check in
     run: :class:`runner`
         The code / function to be run for each state of the :class:`OptionLoop`
+    test_platforms: str
+        The testing platforms file, specifing the configurations to test
+    prefix: str
+        a prefix within the work directory to store the output of this run
+
     Returns
     -------
     None
@@ -1080,7 +1085,8 @@ def _run_mechanism_tests(work_dir, run):
         if all(x in no_regen for x in diffs):
             return False
         return True
-    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(work_dir, run.rtype)
+    mechanism_list, oploop, max_vec_width = tm.get_test_matrix(
+        work_dir, run.rtype, test_platforms)
 
     if len(mechanism_list) == 0:
         logger = logging.getLogger(__name__)
@@ -1092,6 +1098,11 @@ def _run_mechanism_tests(work_dir, run):
                                        key=lambda x: x[1]['ns']):
         # ensure directory structure is valid
         this_dir = os.path.join(work_dir, mech_name)
+        # take into account the prefix
+        if prefix:
+            this_dir = os.path.join(this_dir, prefix)
+            utils.create_dir(this_dir)
+
         this_dir = os.path.abspath(this_dir)
         my_obj = os.path.join(this_dir, obj_dir)
         my_build = os.path.join(this_dir, build_dir)
