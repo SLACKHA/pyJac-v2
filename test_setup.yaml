@@ -1,0 +1,12 @@
+# a configuration file for nose-testconfig that sets:
+# a) the test platforms file
+# and
+# b) the chemical mechanism to test
+# note that both can be specified on the command line via ENV variables if desired
+# e.g. GAS=mymech.cti TEST_PLATFORMS=my_platform.yaml nosetests ...
+
+test_platform:
+    test_platform.yaml
+
+gas:
+    pyjac/tests/test.cti
