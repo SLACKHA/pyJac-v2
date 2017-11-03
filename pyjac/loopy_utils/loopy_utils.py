@@ -202,11 +202,11 @@ class loopy_options(object):
         # Currently, NVIDIA w/ neither deep nor wide-vectorizations (
         #   i.e. a "parallel" implementation) breaks sometimes on OpenCL
         if self.lang == 'opencl':
-            if 'nvidia' in self.platform.name.lower() and not (
-                    self.width or self.depth):
-                raise BrokenPlatformError(self)
-            elif self.device_type == cl.device_type.GPU:
-                # simply warn
+            if not (self.width or self.depth) \
+                    and self.device_type == cl.device_type.GPU:
+                if 'nvidia' in self.platform.name.lower():
+                    raise BrokenPlatformError(self)
+                # otherwise, simply warn
                 logger = logging.getLogger(__name__)
                 logger.warn('Some GPU implementation(s)--NVIDIA--give incorrect'
                             'values sporadically without either a deep or wide'
