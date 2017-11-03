@@ -11,7 +11,8 @@ import subprocess
 
 # Local imports
 from ..libgen import build_type, generate_library
-
+from ..loopy_utils.loopy_utils import JacobianFormat
+from ..utils import EnumType
 from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
 
 import loopy as lp
@@ -55,6 +56,19 @@ class performance_runner(runner):
         """
         self.num_conditions = num_conditions
 
+    def get_filename(self, state):
+        self.current_vecwidth = state['vecsize']
+        desc = self.descriptor
+        if self.rtype == build_type.jacobian:
+            desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
+                 == JacobianFormat.sparse else '_full'
+        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                desc, state['lang'], state['vecsize'], state['order'],
+                'w' if state['wide'] else 'd' if state['deep'] else 'par',
+                state['platform'], state['rate_spec'],
+                'split' if state['split_kernels'] else 'single',
+                state['num_cores'], 'conp' if state['conp'] else 'conv') + '.txt'
+
     def check_file(self, filename, state):
         """
         Checks file for existing data and determines the number of runs left
@@ -77,7 +91,7 @@ class performance_runner(runner):
         if platform_is_gpu(state['platform']):
             self.todo = self.check_step_file(filename)
         else:
-            num_completed = self.self.check_full_file(filename)
+            num_completed = self.check_full_file(filename)
             self.todo = {self.num_conditions: self.repeats - num_completed}
         return not any(self.todo[x] > 0 for x in self.todo)
 
@@ -154,10 +168,12 @@ class performance_runner(runner):
         except:
             return 0
 
-    def run(self, state, asplit, dirs, data_output):
+    def run(self, state, asplit, dirs, phi_path, data_output):
         """
         Run the validation test for the given state
 
+        Parameters
+        ----------
         Parameters
         ----------
         state: dict
@@ -167,7 +183,9 @@ class performance_runner(runner):
             Not used
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
-            Has the keys "build", "test" and "obj"
+            Has the keys "build", "test", "obj" and "run"
+        phi_path: str
+            Not used
         data_output: str
             The file to output the results to
 
@@ -178,7 +196,7 @@ class performance_runner(runner):
 
         # first create the executable (via libgen)
         tester = generate_library(state['lang'], dirs['build'],
-                                  build_dir=dirs['obj'], out_dir=dirs['test'],
+                                  obj_dir=dirs['obj'], out_dir=dirs['test'],
                                   shared=True, btype=self.rtype, as_executable=True)
 
         # and do runs
