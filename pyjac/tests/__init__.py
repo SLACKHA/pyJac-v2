@@ -25,7 +25,8 @@ lib_dir = os.path.join(script_dir, 'lib')
 utils.create_dir(build_dir)
 
 
-def get_test_platforms(test_platforms, do_vector=True, langs=['opencl']):
+def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
+                       raise_on_missing=False):
     try:
         oploop = []
         # try to load user specified platforms
@@ -82,7 +83,10 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl']):
             # create option loop and add
             oploop += [inner_loop]
     except IOError:
-        pass
+        if raise_on_missing:
+            raise Exception('Test platforms file {} not found'.format(
+                test_platforms))
+
     finally:
         if not oploop:
             # file not found, or no appropriate targets for specified languages
