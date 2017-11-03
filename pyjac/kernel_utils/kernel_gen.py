@@ -209,11 +209,12 @@ class kernel_generator(object):
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds))
 
+        # Used for pinned memory kernels to enable splitting evaluation over multiple
+        # kernel calls
         self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
-        """
-        Used for pinned memory kernels to enable splitting evaluation over multiple
-        kernel calls
-        """
+        self.full_problem_size = lp.ValueArg('full_problem_size', dtype=np.int32)
+        self.arg_name_maps = {self.offset_variable: 'offset',
+                              self.full_problem_size: 'problem_size'}
 
     def apply_barriers(self, instructions):
         """
@@ -838,7 +839,7 @@ ${name} : ${type}
         kernel_data.insert(0, problem_size)
         # if we are using pinned memory, we additonally may need an offset variable
         if self.mem.use_pinned:
-            kernel_data.append(self.offset_variable)
+            kernel_data.extend([self.offset_variable, self.full_problem_size])
         # and save
         self.kernel_data = kernel_data[:]
 
@@ -1310,12 +1311,22 @@ ${name} : ${type}
                 offset = [0] * len(kernel_data[i].shape)
                 offset[0] = self.offset_variable.name
 
-                # and copy with offset
-                kernel_data[i] = kernel_data[i].copy(offset=tuple(offset))
+                # unfortunately we have to add yet _another_ arguement here
+                # to let the kernel know that this array is _full sized_
+
+                # replace in the variable size
+                shape = kernel_data[i].shape
+                shape = [s if str(s) != p_size.name else self.full_problem_size.name
+                         for s in shape]
+
+                # and copy with offset and shape
+                kernel_data[i] = kernel_data[i].copy(offset=tuple(offset),
+                                                     shape=tuple(shape))
 
             # finally, add the offset to the kernel arg list
             if in_and_out:
-                kernel_data = [self.offset_variable] + kernel_data
+                kernel_data = [self.offset_variable, self.full_problem_size]\
+                    + kernel_data
 
         # make the kernel
         knl = lp.make_kernel(iname_arr,
@@ -1697,7 +1708,8 @@ class opencl_kernel_generator(kernel_generator):
                 # TODO: need to put in detection for integer overlflow here
                 # or at least limits for maximum size of kernel before we switch
                 # over to a 64bit integer for index type
-                name = arg.name if arg != self.offset_variable else 'offset'
+                name = arg.name if arg not in self.arg_name_maps else \
+                    self.arg_name_maps[arg]
                 arg_set = self.set_knl_arg_value_template.safe_substitute(
                         arg_index=i,
                         arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
