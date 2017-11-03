@@ -214,7 +214,7 @@ class kernel_generator(object):
         self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
         self.host_buffer_stride = lp.ValueArg('host_buffer_stride', dtype=np.int32)
         self.arg_name_maps = {self.offset_variable: 'offset',
-                              self.full_problem_size: 'problem_size',
+                              self.host_buffer_stride: 'problem_size',
                               p_size: 'per_run'}
 
     def apply_barriers(self, instructions):
@@ -840,7 +840,7 @@ ${name} : ${type}
         kernel_data.insert(0, problem_size)
         # if we are using pinned memory, we additonally may need an offset variable
         if self.mem.use_pinned:
-            kernel_data.extend([self.offset_variable, self.full_problem_size])
+            kernel_data.extend([self.offset_variable, self.host_buffer_stride])
         # and save
         self.kernel_data = kernel_data[:]
 
@@ -1317,7 +1317,7 @@ ${name} : ${type}
 
                 # replace in the variable size
                 shape = kernel_data[i].shape
-                shape = [s if str(s) != p_size.name else self.full_problem_size.name
+                shape = [s if str(s) != p_size.name else self.host_buffer_stride.name
                          for s in shape]
 
                 # and copy with offset and shape
@@ -1326,7 +1326,7 @@ ${name} : ${type}
 
             # finally, add the offset to the kernel arg list
             if in_and_out:
-                kernel_data = [self.offset_variable, self.full_problem_size]\
+                kernel_data = [self.offset_variable, self.host_buffer_stride]\
                     + kernel_data
 
         # make the kernel
