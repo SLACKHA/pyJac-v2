@@ -1089,6 +1089,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
         if all(x in no_regen for x in diffs):
             return False
         return True
+
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(
         work_dir, run.rtype, test_platforms, raise_on_missing)
 

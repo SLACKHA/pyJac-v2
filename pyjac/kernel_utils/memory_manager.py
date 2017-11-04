@@ -729,7 +729,7 @@ class pinned_memory(mapped_memory):
                 to_device, host_name, dev_name, buff_size, dim,
                 host_constant=host_constant, **kwargs)
 
-        return self.host_constant_copy_in[self.lang].safe_substitute(
+        return self.host_constant_copy_in[self.lang(to_device)].safe_substitute(
             name=dev_name,
             dev_buff=dev_name,
             host_buff=host_name,
