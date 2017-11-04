@@ -46,6 +46,9 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
                 # empty
                 continue
 
+            if 'do_not_run' in p and p['do_not_run']:
+                return None
+
             # set lang
             inner_loop.extend([('lang', l) for l in allowed_langs])
 
