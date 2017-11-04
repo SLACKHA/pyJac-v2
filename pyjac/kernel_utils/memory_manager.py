@@ -624,7 +624,8 @@ class pinned_memory(mapped_memory):
             '// and unmap back to device\n'
             '${unmap}\n').safe_substitute(
             map=self.map_template[lang],
-            host_memset=memset[host_langs[lang]].safe_substitute(name='temp'),
+            host_memset=memset[host_langs[lang]].safe_substitute(
+                name='temp_${d_short}'),
             unmap=self.unmap_template[lang]
         ))
 
