@@ -97,6 +97,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
                 return params.pop(i)
 
     def _fix_params(params):
+        if params is None:
+            return []
         for i in range(len(params)):
             platform = params[i][:]
             cores = num_cores
@@ -141,10 +143,10 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
                                               raise_on_missing=raise_on_missing))
 
     def reduce(params):
-        out = None
+        out = []
         for p in params:
             val = OptionLoop(OrderedDict(p), lambda: False)
-            if out is None:
+            if out == []:
                 out = val
             else:
                 out = out + val
