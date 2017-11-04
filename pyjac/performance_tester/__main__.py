@@ -18,7 +18,6 @@ def main(args=None):
                             )
         parser.add_argument('-t', '--test_platforms',
                             type=str,
-                            default='test_platforms.yaml',
                             help='The platforms to test, for an example see'
                                  'the test_platforms_example.yaml included with'
                                  'pyJac'
