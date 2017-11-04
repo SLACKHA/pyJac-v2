@@ -109,7 +109,6 @@ except (ImportError, OSError, IOError):
     # installed, specify them here.  If using Python 2.6 or less, then these
     # have to be included in MANIFEST.in as well.
     package_data={
-        'test_platforms_example.yaml',
         'pyjac': ['*.yaml'],
         'pyjac.pywrap': ['*.in'],
         'pyjac.functional_tester': ['*.yaml'],
@@ -118,8 +117,7 @@ except (ImportError, OSError, IOError):
         'pyjac.kernel_utils.opencl': ['*.ocl', '*.oclh', '*.in'],
         'pyjac.loopy_utils': ['*.in'],
         'pyjac.tests': ['*.cti', '*.inp'],
-        'pyjac.tests.test_utils': ['*.in', '*.pyx'],
-
+        'pyjac.tests.test_utils': ['*.in', '*.pyx']
     },
     include_package_data=True,
     tests_require=tests_require,
