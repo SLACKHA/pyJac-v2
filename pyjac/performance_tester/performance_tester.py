@@ -126,7 +126,7 @@ class performance_runner(runner):
             for line in lines:
                 try:
                     vals = line.split(',')
-                    if len(vals) == 2:
+                    if len(vals) == 4:
                         vals = [float(v) for v in vals]
                         runs[vals[0]] -= 1
                 except:
