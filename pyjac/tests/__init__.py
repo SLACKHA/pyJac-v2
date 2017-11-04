@@ -49,7 +49,8 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
                 continue
 
             if 'do_not_run' in p and p['do_not_run']:
-                return None
+                oploop = None
+                return oploop
 
             # set lang
             inner_loop.extend([('lang', l) for l in allowed_langs])
@@ -91,7 +92,7 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
                 test_platforms))
 
     finally:
-        if not oploop:
+        if not oploop and oploop is not None:
             # file not found, or no appropriate targets for specified languages
             for lang in langs:
                 inner_loop = []
