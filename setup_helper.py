@@ -338,6 +338,8 @@ def humanize(sym_str):
 
 def get_config_schema():
     default_cxxflags = ['-std=gnu++11']
+    default_ccflags = []
+    default_clflags = []
 
     if 'darwin' in sys.platform:
         import platform
@@ -375,13 +377,17 @@ def get_config_schema():
             default_ldflags = []
 
     return ConfigSchema([
-        Option("CL__VERSION", None,
+        Option("CL_VERSION", None,
                "Dotted CL version (e.g. 1.2) which you'd like to use."),
 
         IncludeDir("CL", []),
         LibraryDir("CL", []),
         Libraries("CL", default_libs),
 
+        StringListOption("CC_FLAGS", default_ccflags,
+                         help="Any extra C compiler options to include"),
+        StringListOption("CL_FLAGS", default_clflags,
+                         help="Any extra OpenCL compiler options to include"),
         StringListOption("CXXFLAGS", default_cxxflags,
                          help="Any extra C++ compiler options to include"),
         StringListOption("LDFLAGS", default_ldflags,
