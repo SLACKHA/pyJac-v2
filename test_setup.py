@@ -7,7 +7,7 @@
 # or simply feel free to modify the below...
 
 import os
-home = os.path.dirname(__file__)
+home = os.getcwd()
 global config
 config = {}
 PLATFORM = 'test_platform.yaml'
