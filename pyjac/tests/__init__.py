@@ -41,6 +41,8 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
             if 'lang' in p:
                 # pull from platform languages if possible
                 allowed_langs = [p['lang']] if p['lang'] in allowed_langs else []
+            else:
+                allowed_langs = []
 
             if not allowed_langs:
                 # empty
