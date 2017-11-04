@@ -24,7 +24,7 @@ except ImportError:
 from ..core.mech_interpret import read_mech_ct
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
-from ..tests import test_utils
+from ..tests import test_utils, get_platform_file
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
@@ -768,7 +768,7 @@ class jacobian_eval(eval):
             return False
 
 
-def species_rate_tester(work_dir='error_checking'):
+def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''):
     """Runs validation testing on pyJac's species_rate kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
     a numpy zip file (.npz) with the error of various outputs (rhs vector, ROP, etc.)
@@ -785,11 +785,15 @@ def species_rate_tester(work_dir='error_checking'):
 
     """
 
+    if test_platforms is None:
+        # pull default test platforms if available
+        test_platforms = get_platform_file()
+
     valid = validation_runner(spec_rate_eval, build_type.species_rates)
     _run_mechanism_tests(work_dir, valid)
 
 
-def jacobian_tester(work_dir='error_checking'):
+def jacobian_tester(work_dir='error_checking', test_platform=None, prefix=''):
     """Runs validation testing on pyJac's jacobian kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
     a numpy zip file (.npz) with the error of Jacobian as compared to a
@@ -805,6 +809,10 @@ def jacobian_tester(work_dir='error_checking'):
     None
 
     """
+
+    if test_platforms is None:
+        # pull default test platforms if available
+        test_platforms = get_platform_file()
 
     valid = validation_runner(jacobian_eval, build_type.jacobian)
     _run_mechanism_tests(work_dir, valid)

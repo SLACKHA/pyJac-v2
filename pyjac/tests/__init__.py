@@ -120,6 +120,34 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
     return oploop
 
 
+def _get_test_input(key, default=''):
+    from testconfig import config
+    value = default
+    if key in config:
+        value = config[key.lower()]
+    if key.upper() in os.environ:
+        value = os.environ[key.upper()]
+    return value
+
+
+def get_platform_file():
+    """
+    Returns the user specied or default test platform file.
+    This can be set in :file:`test_setup.py` or via the command line
+
+    For an example of this file format, see :file:`test_platforms_example.py`
+    """
+    return _get_test_input('test_platform', 'test_platforms.yaml')
+
+
+def get_mechanism_file():
+    """
+    Returns the user specied or default Cantera mechanism to test
+    This can be set in :file:`test_setup.py` or via the command line
+    """
+    return _get_test_input('gas', 'test.cti')
+
+
 class storage(object):
 
     def __init__(self, test_platforms, gas, specs, reacs):
@@ -370,19 +398,13 @@ class TestClass(unittest.TestCase):
             self.dirpath = os.path.dirname(os.path.realpath(__file__))
             gasname = os.path.join(self.dirpath, 'test.cti')
             # first check test config
-            if 'gas' in config:
-                gasname = config['gas']
-            if 'GAS' in os.environ:
-                gasname = os.environ['GAS']
+            gasname = get_mechanism_file()
             # load the gas
             gas = ct.Solution(gasname)
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
             # and finally check for a test platform
-            if 'test_platform' in config:
-                platform = config['test_platform']
-            if 'TEST_PLATFORM' in os.environ:
-                platform = os.environ['TEST_PLATFORM']
+            platform = get_platform_file()
             if platform is None:
                 logger = logging.getLogger(__name__)
                 logger.warn('Warning: did not find a test platform file, using '

@@ -14,6 +14,7 @@ from ..libgen import build_type, generate_library
 from ..loopy_utils.loopy_utils import JacobianFormat
 from ..utils import EnumType
 from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
+from ..tests import get_platform_file
 
 import loopy as lp
 lp.set_caching_enabled(False)
@@ -210,7 +211,7 @@ class performance_runner(runner):
 
 
 def species_performance_tester(work_dir='performance',
-                               test_platforms='test_platforms.yaml',
+                               test_platforms=None,
                                prefix=''):
     """Runs performance testing of the species rates kernel for pyJac
 
@@ -229,12 +230,16 @@ def species_performance_tester(work_dir='performance',
 
     """
 
+    if test_platforms is None:
+        # pull default test platforms if available
+        test_platforms = get_platform_file()
+
     _run_mechanism_tests(work_dir, test_platforms, prefix,
                          performance_runner(build_type.species_rates))
 
 
 def jacobian_performance_tester(work_dir='performance',
-                                test_platforms='test_platforms.yaml',
+                                test_platforms=None,
                                 prefix=''):
     """Runs performance testing of the jacobian kernel for pyJac
 
@@ -252,6 +257,10 @@ def jacobian_performance_tester(work_dir='performance',
     None
 
     """
+
+    if test_platforms is None:
+        # pull default test platforms if available
+        test_platforms = get_platform_file()
 
     _run_mechanism_tests(work_dir, test_platforms, prefix,
                          performance_runner(build_type.jacobian))
