@@ -56,6 +56,7 @@ class performance_runner(runner):
             unused
         """
         self.num_conditions = num_conditions
+        self.steplist = []
         # initialize steplist
         step = max_vec_width
         while step <= num_conditions:
