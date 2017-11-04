@@ -602,12 +602,12 @@ class pinned_memory(mapped_memory):
                   'copy_in_2d': {}}
 
         self.map_template = {'opencl': Template(
-            'temp = (double*)clEnqueueMapBuffer(queue, ${name}, CL_TRUE, '
-            'CL_MAP_WRITE, 0, ${buff_size}, 0, NULL, NULL, &return_code);\n'
+            'temp_${d_short} = (${dtype}*)clEnqueueMapBuffer(queue, ${name}, '
+            'CL_TRUE, CL_MAP_WRITE, 0, ${buff_size}, 0, NULL, NULL, &return_code);\n'
             '${check}'
             ).safe_substitute(check=guarded_call(lang, 'return_code'))}
         self.unmap_template = {'opencl': guarded_call(
-            lang, 'clEnqueueUnmapMemObject(queue, ${name}, temp, 0, '
+            lang, 'clEnqueueUnmapMemObject(queue, ${name}, temp_${d_short}, 0, '
                   'NULL, NULL)')}
 
         # finally need to setup memset as a
@@ -627,6 +627,22 @@ class pinned_memory(mapped_memory):
             host_memset=memset[host_langs[lang]].safe_substitute(name='temp'),
             unmap=self.unmap_template[lang]
         ))
+
+        # host copy in
+        self.host_copy_template = {
+            'c': 'memcpy(${dev_buff}, ${host_buff}, ${buff_size});'}
+        # create a host constant copy
+        self.host_constant_copy_in = {lang: Template(Template(
+            '// map to host address space for initialization\n'
+            '${map}\n'
+            '// set memory\n'
+            '${host_copy}\n'
+            '// and unmap back to device\n'
+            '${unmap}\n').safe_substitute(
+            map=self.map_template[lang],
+            host_copy=self.host_copy_template[host_langs[lang]],
+            unmap=self.unmap_template[lang]))
+        }
 
         self.pinned_hostaloc_flags = {'opencl': 'CL_MEM_ALLOC_HOST_PTR'}
         self.pinned_hostbuff_flags = {'opencl': 'CL_MEM_USE_HOST_PTR'}
@@ -678,6 +694,59 @@ class pinned_memory(mapped_memory):
         return super(pinned_memory, self).alloc(
             device, name, buff_size=size, readonly=readonly,
             flags=flags[self.device_lang], host_ptr=host_ptr, **kwargs)
+
+    def copy(self, to_device, host_name, dev_name, buff_size, dim,
+             host_constant=False, dtype='', **kwargs):
+        """
+        An override of the base copy method to steal copies of the host constants
+        and place them in to a map / unmap for pinned memory
+
+        Parameters
+        ----------
+        to_device: bool
+            If True, transfer to the "device"
+        host_name: str
+            The name of the host buffer
+        dev_name: str
+            The name of device buffer
+        dim: int
+            If dim == 1, can use a 1-d copy (e.g., a memcpy for C)
+        host_constant: bool [False]
+            If True, we are transferring a host constant, hence set any offset
+            in the host buffer to zero
+        dtype: str ['']
+            The dtype of this host constant, this is needed to select the correct
+            temporary mapping array
+        Returns
+        -------
+        copy_str: str
+            The resulting copy instructions
+        """
+
+        # defer all non host-constants
+        if not host_constant:
+            return super(pinned_memory, self).copy(
+                to_device, host_name, dev_name, buff_size, dim,
+                host_constant=host_constant, **kwargs)
+
+        return self.host_constant_copy_in[self.lang].safe_substitute(
+            name=dev_name,
+            dev_buff=dev_name,
+            host_buff=host_name,
+            buff_size=buff_size,
+            dtype=dtype,
+            d_short=dtype[0]
+        )
+
+    def memset(self, *args, **kwargs):
+        """
+        A simple wrapper of the parent memset that exists to convert
+        :param:`dtype` to an additional keyword d_short for our templates
+        """
+
+        dtype = kwargs.pop('dtype')
+        return super(pinned_memory, self).memset(
+            *args, dtype=dtype, d_short=dtype[0], **kwargs)
 
 
 class memory_manager(object):
@@ -871,12 +940,14 @@ class memory_manager(object):
             per_run_size = self._get_size(dev_arr, subs_n='per_run')
             # check if buffer is input / output
             if not alloc_locals and self.use_pinned\
-                    and dev_arr.name in self.host_arrays:
+                    and dev_arr.name in self.host_arrays\
+                    and not in_host_const:
+                # don't pass host constants this way, as it breaks some
+                # pinned memory implementations -- should we always use the
+                # HOST_MEM_ALLOC?
+
                 # cast to void
                 formatter = '(void*) {}'
-                if in_host_const:
-                    # cast to const void
-                    formatter = '(const void*) {}'
                 host_ptr = formatter.format(host_prefix + dev_arr.name)
             # generate allocs
             alloc = self.mem.alloc(not alloc_locals,
@@ -899,7 +970,8 @@ class memory_manager(object):
                 # add the memset
                 return_list.append(self.mem.memset(
                     not alloc_locals, name=name, buff_size=buff_size,
-                    per_run_size=per_run_size))
+                    per_run_size=per_run_size,
+                    dtype=self.type_map[self._handle_type(dev_arr)]))
             # return
             return '\n'.join(return_list + ['\n'])
 
@@ -984,7 +1056,8 @@ class memory_manager(object):
                 per_run_size=self._get_size(arr_maps[arr], subs_n='per_run'),
                 non_ic_size=self._get_size(arr_maps[arr], subs_n='',
                                            include_item_size=False),
-                host_constant=host_constants
+                host_constant=host_constants,
+                dtype=self.type_map[self._handle_type(arr_maps[arr])]
                 ) for arr in arr_list]
         return '\n'.join([x for x in copy_intructions if x])
 
