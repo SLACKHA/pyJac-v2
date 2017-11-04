@@ -156,4 +156,6 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
                         if 'vecsize' in dict(p))
     oclloop = reduce(ocl_params)
     cloop = reduce(c_params)
-    return mechanism_list, oclloop + cloop, max_vec_width
+    if cloop:
+        oclloop += cloop
+    return mechanism_list, oclloop, max_vec_width
