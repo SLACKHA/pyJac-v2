@@ -230,12 +230,16 @@ def species_performance_tester(work_dir='performance',
 
     """
 
+    raise_on_missing = True
     if test_platforms is None:
         # pull default test platforms if available
         test_platforms = get_platform_file()
+        # and let the tester know we can pull default opencl values if not found
+        raise_on_missing = False
 
     _run_mechanism_tests(work_dir, test_platforms, prefix,
-                         performance_runner(build_type.species_rates))
+                         performance_runner(build_type.species_rates),
+                         raise_on_missing=raise_on_missing)
 
 
 def jacobian_performance_tester(work_dir='performance',
@@ -258,9 +262,13 @@ def jacobian_performance_tester(work_dir='performance',
 
     """
 
+    raise_on_missing = True
     if test_platforms is None:
         # pull default test platforms if available
         test_platforms = get_platform_file()
+        # and let the tester know we can pull default opencl values if not found
+        raise_on_missing = False
 
     _run_mechanism_tests(work_dir, test_platforms, prefix,
-                         performance_runner(build_type.jacobian))
+                         performance_runner(build_type.jacobian),
+                         raise_on_missing=raise_on_missing)

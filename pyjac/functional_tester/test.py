@@ -785,12 +785,16 @@ def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''
 
     """
 
-    if test_platforms is None:
+    raise_on_missing = True
+    if test_platform is None:
         # pull default test platforms if available
-        test_platforms = get_platform_file()
+        test_platform = get_platform_file()
+        # and let the tester know we can pull default opencl values if not found
+        raise_on_missing = False
 
     valid = validation_runner(spec_rate_eval, build_type.species_rates)
-    _run_mechanism_tests(work_dir, valid)
+    _run_mechanism_tests(work_dir, test_platform, prefix, valid,
+                         raise_on_missing=raise_on_missing)
 
 
 def jacobian_tester(work_dir='error_checking', test_platform=None, prefix=''):
@@ -810,9 +814,13 @@ def jacobian_tester(work_dir='error_checking', test_platform=None, prefix=''):
 
     """
 
-    if test_platforms is None:
+    raise_on_missing = True
+    if test_platform is None:
         # pull default test platforms if available
-        test_platforms = get_platform_file()
+        test_platform = get_platform_file()
+        # and let the tester know we can pull default opencl values if not found
+        raise_on_missing = False
 
     valid = validation_runner(jacobian_eval, build_type.jacobian)
-    _run_mechanism_tests(work_dir, valid)
+    _run_mechanism_tests(work_dir, test_platform, prefix, valid,
+                         raise_on_missing=raise_on_missing)
