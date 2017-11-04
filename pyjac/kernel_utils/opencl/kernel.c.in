@@ -26,7 +26,8 @@ size_t max_per_run = ${max_per_run};
 #define ${MEM_STRATEGY}
 #ifdef PINNED
 // temporary pointer to hold mapped address
-double* temp;
+double* temp_d;
+int* temp_i;
 #endif
 
 /* declare host/cl buffers */
