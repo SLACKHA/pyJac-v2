@@ -56,6 +56,11 @@ class performance_runner(runner):
             unused
         """
         self.num_conditions = num_conditions
+        # initialize steplist
+        step = 1
+        while step <= num_conditions:
+            self.steplist.append(step)
+            step *= 2
 
     def get_filename(self, state):
         self.current_vecwidth = state['vecsize']
@@ -113,7 +118,7 @@ class performance_runner(runner):
 
         runs = {}
         for step in self.steplist:
-            runs[step] = 0
+            runs[step] = self.repeats
 
         try:
             with open(filename, 'r') as file:
@@ -123,7 +128,7 @@ class performance_runner(runner):
                     vals = line.split(',')
                     if len(vals) == 2:
                         vals = [float(v) for v in vals]
-                        runs[vals[0]] += 1
+                        runs[vals[0]] -= 1
                 except:
                     pass
             return runs
