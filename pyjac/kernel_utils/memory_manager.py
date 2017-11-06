@@ -325,7 +325,7 @@ class memory_strategy(object):
             return ''
 
         return template.safe_substitute(
-            host_buff=host_name, dev_buff=dev_name, buff_size=buff_size,
+            host_name=host_name, dev_name=dev_name, buff_size=buff_size,
             host_offset='offset' if not host_constant else '0', **kwargs)
 
     def sync(self):
@@ -393,7 +393,7 @@ class memory_strategy(object):
 
 
 class mapped_memory(memory_strategy):
-    def __get_2d_templates(self, lang, use_full=False, to_device=False):
+    def _get_2d_templates(self, lang, use_full=False, to_device=False):
         """
         Returns a template to copy (part or all) of a 2D array from "host" to
         "device" arrays (note this is simulated on C)
@@ -441,8 +441,8 @@ class mapped_memory(memory_strategy):
             if order == 'C' or use_full:
                 # this is a simple opencl-copy
                 return Template(guarded_call(lang, Template("""
-            clEnqueue${ctype}Buffer(queue, ${dev_buff}, CL_TRUE, 0,
-                      ${this_run_size}, &${host_buff}[${host_offset}*${non_ic_size}],
+            clEnqueue${ctype}Buffer(queue, ${dev_name}, CL_TRUE, 0,
+                      ${this_run_size}, &${host_name}[${host_offset}*${non_ic_size}],
                       0, NULL, NULL)""").safe_substitute(ctype=ctype)))
             elif have_split:
                 # this us a F-split which requires a Rect Read/Write
@@ -451,7 +451,7 @@ class mapped_memory(memory_strategy):
                 # Jacobian, but we can treat all subsequent dimensions 2 and
                 # after as a flat 1-D array (as they are flattened in this order)
                 return Template(guarded_call(lang, Template("""
-            clEnqueue${ctype}BufferRect(queue, ${dev_buff}, CL_TRUE,
+            clEnqueue${ctype}BufferRect(queue, ${dev_name}, CL_TRUE,
                 (size_t[]) {0, 0, 0}, //buffer origin
                 (size_t[]) {0, offset, 0}, //host origin
                 (size_t[]) {VECWIDTH * ${itemsize}, this_run, ${other_dim_size}}\
@@ -460,12 +460,12 @@ class mapped_memory(memory_strategy):
                 VECWIDTH * per_run * ${itemsize}, //buffer slice pitch
                 VECWIDTH * ${itemsize}, //host row pitch,
                 VECWIDTH * problem_size * ${itemsize}, //host slice pitch,
-                ${host_buff}, 0, NULL, NULL)""").safe_substitute(ctype=ctype)))
+                ${host_name}, 0, NULL, NULL)""").safe_substitute(ctype=ctype)))
             else:
                 # this is a regular F-ordered array, which only requires a 2D
                 # copy
                 return Template(guarded_call(lang, Template("""
-            clEnqueue${ctype}BufferRect(queue, ${dev_buff}, CL_TRUE,
+            clEnqueue${ctype}BufferRect(queue, ${dev_name}, CL_TRUE,
                 (size_t[]) {0, 0, 0}, //buffer origin
                 (size_t[]) {offset * ${itemsize}, 0, 0}, //host origin
                 (size_t[]) {this_run * ${itemsize}, ${non_ic_size}, 1}, // region
@@ -473,47 +473,39 @@ class mapped_memory(memory_strategy):
                 0, //buffer slice pitch
                 problem_size * ${itemsize}, //host row pitch,
                 0, //host slice pitch,
-                ${host_buff}, 0, NULL, NULL)""").safe_substitute(
+                ${host_name}, 0, NULL, NULL)""").safe_substitute(
                     ctype=ctype)))
         elif lang == 'c':
             ctype = 'in' if to_device else 'out'
-            host_arrays = ['${host_buff}']
-            dev_arrays = ['${dev_buff}']
+            host_arrays = ['${host_name}']
+            dev_arrays = ['${dev_name}']
 
             def __combine(host, dev):
                 arrays = dev + host if to_device else host + dev
                 arrays = ', '.join(arrays)
                 return arrays
 
-            if use_full:
-                arrays = __combine(host_arrays, dev_arrays)
-                # don't put in the offset
-                return Template(Template(
-                    'memcpy(${arrays}, ${buff_size});').safe_substitute(
-                        arrays=arrays))
             if order == 'C':
-                host_arrays[0] += '&' + host_arrays[0] + \
+                host_arrays[0] = '&' + host_arrays[0] + \
                     '[offset * ${non_ic_size}]'
                 arrays = __combine(host_arrays, dev_arrays)
                 return Template(Template(
-                    'memcpy(${arrays}, this_run * ${non_ic_size} * ${itemsize});'
+                    'memcpy(${arrays}, ${this_run_size});'
                     ).safe_substitute(arrays=arrays))
             elif order == 'F':
                 dev_arrays += ['per_run']
                 host_arrays += ['problem_size']
-                arrays = __combine(host_arrays(dev_arrays))
+                arrays = __combine(host_arrays, dev_arrays)
                 return Template(Template(
                     'memcpy2D_${ctype}(${arrays}, offset, '
                     'this_run * ${itemsize}, ${non_ic_size});'
                                          ).safe_substitute(
                                          ctype=ctype, arrays=arrays))
 
-    def __init__(self, lang, order, have_split, strided_c_copy=False,
-                 **overrides):
+    def __init__(self, lang, order, have_split, **overrides):
 
         self.order = order
         self.have_split = have_split
-        self.strided_c_copy = strided_c_copy
 
         def __update(key, val):
             if key not in overrides:
@@ -536,15 +528,15 @@ class mapped_memory(memory_strategy):
         sync = {}
         __update('sync', sync)
 
-        copy_in_2d = self.__get_2d_templates(
-            lang, to_device=True, use_full=lang == 'c' and not strided_c_copy)
+        copy_in_2d = self._get_2d_templates(
+            lang, to_device=True, use_full=not utils.can_vectorize_lang[lang])
         __update('copy_in_2d', copy_in_2d)
-        copy_out_2d = self.__get_2d_templates(
-            lang, to_device=False, use_full=lang == 'c' and not strided_c_copy)
+        copy_out_2d = self._get_2d_templates(
+            lang, to_device=False, use_full=not utils.can_vectorize_lang[lang])
         __update('copy_out_2d', copy_out_2d)
-        copy_in_1d = self.__get_2d_templates(lang, to_device=True, use_full=True)
+        copy_in_1d = self._get_2d_templates(lang, to_device=True, use_full=True)
         __update('copy_in_1d', copy_in_1d)
-        copy_out_1d = self.__get_2d_templates(lang, to_device=False, use_full=True)
+        copy_out_1d = self._get_2d_templates(lang, to_device=False, use_full=True)
         __update('copy_out_1d', copy_out_1d)
         free = {'opencl': Template(guarded_call(
                          'opencl', 'clReleaseMemObject(${name})')),
@@ -569,46 +561,60 @@ class mapped_memory(memory_strategy):
         __update('memset', memset)
 
         alloc_flags = {'opencl': {
-            True: 'CL_MEM_READ_WRITE',
-            False: 'CL_MEM_READ_ONLY'}}
+            False: 'CL_MEM_READ_WRITE',
+            True: 'CL_MEM_READ_ONLY'}}
         __update('alloc_flags', alloc_flags)
         super(mapped_memory, self).__init__(lang, **overrides)
 
 
 class pinned_memory(mapped_memory):
-    def __init__(self, lang, order, have_split, align_size, strided_c_copy=False,
-                 **kwargs):
+    def __init__(self, lang, order, have_split, align_size, **kwargs):
 
+        self.order = order
+        self.have_split = have_split
         self.align_size = align_size
-        # and modify as necessary
-        alloc = {'c': Template(Template(
-            '${name} = (double*)aligned_alloc(${align_size}, ${buff_size});\n'
-            '${guard}').safe_substitute(guard=guarded_call(
-                'c', '${name} != NULL', 'aligned_alloc failed.'),
-                                        align_size=self.align_size)),
-                 'opencl': Template(Template(
-                    '${name} = clCreateBuffer(context, ${memflag}, '
-                    '${buff_size}, ${host_ptr}, &return_code);\n'
-                    '${guard}').safe_substitute(guard=guarded_call(
-                        'opencl', 'return_code')))}
         # synchronizations
         sync = {'opencl': guarded_call('opencl', 'clFinish(queue)')}
 
         # copies in / out are not needed for pinned memory
         # If the value is an input or output, it will be be supplied as a host buffer
-        copies = {'copy_out_1d': {},
-                  'copy_in_1d': {},
-                  'copy_out_2d': {},
-                  'copy_in_2d': {}}
-
+        copy_in_2d = self._get_2d_templates(
+            host_langs[lang], to_device=True, use_full=False)
+        copy_out_2d = self._get_2d_templates(
+            host_langs[lang], to_device=False, use_full=False)
+        copy_in_1d = self._get_2d_templates(
+            host_langs[lang], to_device=True, use_full=True)
+        copy_out_1d = self._get_2d_templates(
+            host_langs[lang], to_device=True, use_full=True)
+        copies = {
+            'copy_in_2d': copy_in_2d,
+            'copy_out_2d': copy_out_2d,
+            'copy_in_1d': copy_in_1d,
+            'copy_out_1d': copy_out_1d
+        }
         self.map_template = {'opencl': Template(
-            'temp_${d_short} = (${dtype}*)clEnqueueMapBuffer(queue, ${name}, '
-            'CL_TRUE, CL_MAP_WRITE, 0, ${buff_size}, 0, NULL, NULL, &return_code);\n'
+            'temp_${d_short} = (${dtype}*)clEnqueueMapBuffer(queue, ${dev_name}, '
+            'CL_TRUE, CL_MAP_WRITE, 0, ${this_run_size}, 0, NULL, NULL, '
+            '&return_code);\n'
             '${check}'
             ).safe_substitute(check=guarded_call(lang, 'return_code'))}
         self.unmap_template = {'opencl': guarded_call(
-            lang, 'clEnqueueUnmapMemObject(queue, ${name}, temp_${d_short}, 0, '
+            lang, 'clEnqueueUnmapMemObject(queue, ${dev_name}, temp_${d_short}, 0, '
                   'NULL, NULL)')}
+        dev_map_template = Template(Template(
+            '// map to host address space for initialization\n'
+            '${map}\n'
+            '// set memory\n'
+            '${host}\n'
+            '// and unmap back to device\n'
+            '${unmap}\n').safe_substitute(
+            map=self.map_template[lang],
+            unmap=self.unmap_template[lang]
+        ))
+        # now need to place a map around the copies
+        copies = {k: Template(dev_map_template.safe_substitute(
+            host=v.safe_substitute(dev_name='temp_${d_short}')))
+            for k, v in six.iteritems(copies)}
 
         # finally need to setup memset as a
         # map buffer -> write -> unmap combination
@@ -616,42 +622,16 @@ class pinned_memory(mapped_memory):
         memset = {
             'c': Template('memset(${name}, 0, ${buff_size});')
         }
-        memset[lang] = Template(Template(
-            '// map to host address space for initialization\n'
-            '${map}\n'
-            '// set memory\n'
-            '${host_memset}\n'
-            '// and unmap back to device\n'
-            '${unmap}\n').safe_substitute(
-            map=self.map_template[lang],
-            host_memset=memset[host_langs[lang]].safe_substitute(
-                name='temp_${d_short}'),
-            unmap=self.unmap_template[lang]
-        ))
-
-        # host copy in
-        self.host_copy_template = {
-            'c': 'memcpy(${dev_buff}, ${host_buff}, ${buff_size});'}
-        # create a host constant copy
-        self.host_constant_copy_in = {lang: Template(Template(
-            '// map to host address space for initialization\n'
-            '${map}\n'
-            '// set memory\n'
-            '${host_copy}\n'
-            '// and unmap back to device\n'
-            '${unmap}\n').safe_substitute(
-            map=self.map_template[lang],
-            host_copy=self.host_copy_template[host_langs[lang]],
-            unmap=self.unmap_template[lang]))
-        }
+        memset[lang] = Template(dev_map_template.safe_substitute(
+            host=memset[host_langs[lang]].safe_substitute(
+                name='temp_${d_short}')))
 
         self.pinned_hostaloc_flags = {'opencl': 'CL_MEM_ALLOC_HOST_PTR'}
         self.pinned_hostbuff_flags = {'opencl': 'CL_MEM_USE_HOST_PTR'}
 
         # get the defaults from :class:`mapped_memory`
         super(pinned_memory, self).__init__(lang, order, have_split,
-                                            strided_c_copy=strided_c_copy,
-                                            alloc=alloc, sync=sync, memset=memset,
+                                            sync=sync, memset=memset,
                                             **copies)
 
     def alloc(self, device, name, buff_size='', per_run_size='',
@@ -694,55 +674,51 @@ class pinned_memory(mapped_memory):
 
         return super(pinned_memory, self).alloc(
             device, name, buff_size=size, readonly=readonly,
-            flags=flags[self.device_lang], host_ptr=host_ptr, **kwargs)
+            flags=flags[self.device_lang], host_ptr='NULL', **kwargs)
 
-    def copy(self, to_device, host_name, dev_name, buff_size, dim,
-             host_constant=False, dtype='', **kwargs):
+    def copy(self, *args, **kwargs):
         """
-        An override of the base copy method to steal copies of the host constants
-        and place them in to a map / unmap for pinned memory
+        An override of the base :func:`copy` method to steal copies of the host
+        buffer and place them in to a map / unmap for pinned memory
 
         Parameters
         ----------
-        to_device: bool
-            If True, transfer to the "device"
-        host_name: str
-            The name of the host buffer
-        dev_name: str
-            The name of device buffer
-        dim: int
-            If dim == 1, can use a 1-d copy (e.g., a memcpy for C)
-        host_constant: bool [False]
-            If True, we are transferring a host constant, hence set any offset
-            in the host buffer to zero
         dtype: str ['']
             The dtype of this host constant, this is needed to select the correct
             temporary mapping array
+        Note
+        ----
+        All other args and kwargs are passed directly to :func:`mapped_memory.copy`
+
         Returns
         -------
         copy_str: str
             The resulting copy instructions
         """
 
-        # defer all non host-constants
-        if not host_constant:
-            return super(pinned_memory, self).copy(
-                to_device, host_name, dev_name, buff_size, dim,
-                host_constant=host_constant, **kwargs)
-
-        return self.host_constant_copy_in[self.lang(to_device)].safe_substitute(
-            name=dev_name,
-            dev_buff=dev_name,
-            host_buff=host_name,
-            buff_size=buff_size,
-            dtype=dtype,
-            d_short=dtype[0]
-        )
+        dtype = kwargs.pop('dtype')
+        return super(pinned_memory, self).copy(
+            *args, dtype=dtype, d_short=dtype[0], **kwargs)
 
     def memset(self, *args, **kwargs):
         """
-        A simple wrapper of the parent memset that exists to convert
-        :param:`dtype` to an additional keyword d_short for our templates
+        An override of the base :func:`memset` to steal copies of the host buffer
+        and place them in to a map / unmap for pinned memory
+
+        Parameters
+        ----------
+        dtype: str ['']
+            The dtype of this host constant, this is needed to select the correct
+            temporary mapping array
+        Note
+        ----
+        All other args and kwargs are passed directly to :func:`mapped_memory.memset`
+
+        Returns
+        -------
+        copy_str: str
+            The resulting copy instructions
+
         """
 
         dtype = kwargs.pop('dtype')
@@ -756,7 +732,7 @@ class memory_manager(object):
     Aids in defining & allocating arrays for various languages
     """
 
-    def __init__(self, lang, order, have_split, strided_c_copy=False,
+    def __init__(self, lang, order, have_split,
                  dev_type=None, mem_limits_file='', host_buffer_stride=''):
         """
         Parameters
@@ -768,8 +744,6 @@ class memory_manager(object):
         have_split: bool
             If true, the arrays in this manager correspond to a C-split or
             F-split format (depending on :param:`order`)
-        strided_c_copy: bool [False]
-            If true, enable strided copies for 'C'
         dev_type: :class:`pyopencl.device_type` [None]
             The device type.  If CPU, the host buffers will be used for input /
             output variables
@@ -800,7 +774,8 @@ class memory_manager(object):
                 loopy_opts, {}, mem_limits_file).limits[memory_type.m_pagesize]
             self.mem = pinned_memory(lang, order, have_split, align_size)
             # and add to list of string strides
-            self.string_strides.append(host_buffer_stride)
+            if host_buffer_stride:
+                self.string_strides.append(host_buffer_stride)
         else:
             self.mem = mapped_memory(lang, order, have_split)
         self.host_constant_template = Template(
@@ -819,7 +794,8 @@ class memory_manager(object):
             # and add the divmod
             self.div_mod_strides.append(div_mod_re)
 
-    def add_arrays(self, arrays=[], in_arrays=[], out_arrays=[]):
+    def add_arrays(self, arrays=[], in_arrays=[], out_arrays=[],
+                   host_constants=[]):
         """
         Adds arrays to the manager
 
@@ -831,6 +807,8 @@ class memory_manager(object):
             The array names that form the input to this kernel
         out_arrays : list of str
             The array names that form the output of this kernel
+        host_constants: list of :class:`lp.GlobalArg`
+            Host constants to transfer to a device
 
         Returns
         -------
@@ -840,6 +818,7 @@ class memory_manager(object):
             [x for x in arrays if not isinstance(x, lp.ValueArg)])
         self.in_arrays.extend(in_arrays)
         self.out_arrays.extend(out_arrays)
+        self.host_constants.extend(host_constants)
 
     @property
     def host_arrays(self):
@@ -935,8 +914,7 @@ class memory_manager(object):
             name = prefix + dev_arr.name + post_fix
             # if it's opencl, we need to declare the buffer type
             buff_size = self._get_size(dev_arr)
-            readonly = not any(
-                    x.name == dev_arr.name for x in self.host_constants)
+            readonly = any(x.name == dev_arr.name for x in self.host_constants)
             host_ptr = 'NULL'
             per_run_size = self._get_size(dev_arr, subs_n='per_run')
             # check if buffer is input / output
@@ -984,7 +962,8 @@ class memory_manager(object):
 
         return '\n'.join(alloc_list)
 
-    def _get_size(self, arr, subs_n='problem_size', include_item_size=True):
+    def _get_size(self, arr, subs_n='problem_size', include_item_size=True,
+                  return_as_dict=False):
         size = arr.shape
         nsize = []
         str_size = []
@@ -1017,11 +996,17 @@ class memory_manager(object):
             nsize = str(np.cumprod(nsize, dtype=np.int32)[-1])
             str_size.append(nsize)
         # multiply by the item size
+        item_size = ''
         if include_item_size:
-            str_size.append(str(arr.dtype.itemsize))
+            item_size = 'sizeof({})'.format(self.type_map[self._handle_type(arr)])
+            str_size.append(item_size)
+
         if not any(x for x in str_size):
             # if empty, we're multiplying by this anyways...
             str_size.append(str(1))
+        if return_as_dict:
+            return {'item_size': item_size,
+                    'str_size': [x for x in str_size if x != item_size]}
         return ' * '.join([x for x in str_size if x])
 
     def _mem_transfers(self, to_device=True, host_constants=False, host_postfix='',
@@ -1045,21 +1030,40 @@ class memory_manager(object):
             arr_maps = {x.name: x for x in self.host_constants}
             assert to_device
 
-        copy_intructions = [self.mem.copy(
+        copy_intructions = []
+        for arr in arr_list:
+            ret_size = self._get_size(arr_maps[arr], return_as_dict=True)
+            ssize = ret_size['str_size']
+            item_size = ret_size['item_size']
+
+            def __stringify(subs_n=None, do_item_size=True):
+                string_size = ssize[:]
+                if subs_n is not None:
+                    string_size = [x if x != p_size.name else subs_n
+                                   for x in string_size]
+                if do_item_size:
+                    string_size.append(item_size)
+                # filter empty
+                string_size = [x for x in string_size if x]
+                if not string_size:
+                    string_size.append('1')
+                return ' * '.join([x for x in string_size if x])
+
+            copy_intructions.append(self.mem.copy(
                 to_device,
                 host_name=host_prefix + arr + host_postfix,
                 dev_name=device_prefix + arr,
-                buff_size=self._get_size(arr_maps[arr]),
+                buff_size=__stringify(),
                 dim=len(arr_maps[arr].shape),
-                this_run_size=self._get_size(arr_maps[arr], subs_n='this_run'),
-                itemsize=arr_maps[arr].dtype.itemsize,
+                this_run_size=__stringify(subs_n='this_run'),
+                itemsize=item_size,
                 other_dim_size=np.prod(arr_maps[arr].shape[2:]),
-                per_run_size=self._get_size(arr_maps[arr], subs_n='per_run'),
-                non_ic_size=self._get_size(arr_maps[arr], subs_n='',
-                                           include_item_size=False),
+                per_run_size=__stringify(subs_n='per_run'),
+                non_ic_size=__stringify(subs_n='', do_item_size=False),
                 host_constant=host_constants,
                 dtype=self.type_map[self._handle_type(arr_maps[arr])]
-                ) for arr in arr_list]
+                ))
+
         return '\n'.join([x for x in copy_intructions if x])
 
     def get_mem_transfers_in(self):
