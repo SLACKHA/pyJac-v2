@@ -1656,11 +1656,8 @@ class opencl_kernel_generator(kernel_generator):
         -------
         knl_arg_set_str : str
             The code that sets opencl kernel args
-        offset_arg_set : str
-            Code that sets the offset for pinned host buffer kernels
         """
 
-        offset_arg_set = ''
         kernel_arg_sets = []
         for i, arg in enumerate(self.kernel_data):
             if not isinstance(arg, lp.ValueArg):
@@ -1683,7 +1680,7 @@ class opencl_kernel_generator(kernel_generator):
                         arg_value='&{}'.format(name))
                 kernel_arg_sets.append(arg_set)
 
-        return '\n'.join(kernel_arg_sets), offset_arg_set
+        return '\n'.join(kernel_arg_sets)
 
     def _get_cl_level(self):
         """
