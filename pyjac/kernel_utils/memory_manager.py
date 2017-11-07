@@ -684,7 +684,9 @@ class pinned_memory(mapped_memory):
         }
         memset[lang] = Template(dev_map_template.safe_substitute(
             host=memset[host_langs[lang]].safe_substitute(
-                name='temp_${d_short}')))
+                name='temp_${d_short}'),
+            dev_name='${name}',
+            per_run_size='${buff_size}'))
 
         self.pinned_hostaloc_flags = {'opencl': 'CL_MEM_ALLOC_HOST_PTR'}
         self.pinned_hostbuff_flags = {'opencl': 'CL_MEM_USE_HOST_PTR'}
