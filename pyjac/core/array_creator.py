@@ -276,6 +276,39 @@ class array_splitter(object):
 
         return [self._split_numpy_array(a) for a in arrays]
 
+    def split_shape(self, array):
+        """
+        Returns the array shape that would result from splitting the supplied array
+
+        Parameters
+        ----------
+        array: :class:`numpy.ndarray` (or object w/ attribute shape)
+
+        Returns
+        -------
+        shape: tuple of int
+            The resulting split array shape
+        grow_axis: int
+            The integer value of the axis corresponding to the initial conditions
+            Note: for a C-Split, this corresponds to the axis that would grow
+            if _more_ initial conditions were added, not the vector width
+        split_axis: int
+            The integer value of the split axis, if present
+            If there is no split, this will be None
+        """
+
+        grow_axis = 0
+        split_axis = None
+        array = self._split_numpy_array(
+            np.empty(array.shape, order=self.data_order))
+        if self._have_split() and self.data_order == 'C':
+            split_axis = -1
+        elif self._have_split() and self.data_order == 'F':
+            split_axis = 0
+            grow_axis = 1
+        return array.shape, grow_axis, \
+            split_axis
+
 
 problem_size = lp.ValueArg('problem_size', dtype=np.int32)
 """
