@@ -109,10 +109,23 @@ def _get_poly_wrapper(name, conp):
     return poly_wrapper
 
 
-def _get_fd_jacobian(self, test_size, conp=True):
+def _get_fd_jacobian(self, test_size, conp=True, pregen=None, return_kernel=False):
     """
     Convenience method to evaluate the finite difference Jacobian from a given
     Phi / parameter set
+
+    Parameters
+    ----------
+    test_size: int
+        The number of conditions to test
+    conp: bool
+        If True, CONP else CONV
+    pregen: Callable [None]
+        If not None, this corresponds to a previously generated AD-Jacobian kernel
+        Used in the validation tester to speed up chunked Jacobian evaluation
+    return_kernel: bool [False]
+        If True, we want __get_jacobian to return the kernel and kernel call
+        rather than the evaluated array (to be used with :param:`pregen`)
     """
 
     class create_arr(object):
@@ -190,6 +203,10 @@ def _get_fd_jacobian(self, test_size, conp=True):
     # obtain the finite difference jacobian
     kc = kernel_call('dnkdnj', [None], **args)
 
+    # check for pregenerated kernel
+    if pregen is not None:
+        return pregen(kc)
+
     __b_call_wrapper = _get_poly_wrapper('b', conp)
 
     __cp_call_wrapper = _get_poly_wrapper('cp', conp)
@@ -222,7 +239,7 @@ def _get_fd_jacobian(self, test_size, conp=True):
             [__h_call_wrapper, __cp_call_wrapper] if conp else
             [__u_call_wrapper, __cv_call_wrapper]) + [
             get_molar_rates, __temperature_wrapper],
-        allint=allint)
+        allint=allint, return_kernel=return_kernel)
 
 
 def _make_array(self, array):
@@ -252,7 +269,7 @@ def _make_array(self, array):
 
 
 def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[],
-                  **kw_args):
+                  return_kernel=False, **kw_args):
     """
     Computes an autodifferentiated kernel, exposed to external classes in order
     to share with the :mod:`functional_tester`
@@ -271,6 +288,11 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         Additional functions that must be called before :param:`func`.
         These can be used to chain together functions to find derivatives of
         complicated values (e.g. ROP)
+    return_kernel: bool [False]
+        If True, return a callable function that takes as as an arguement the
+        new kernel_call w/ updated args and returns the result
+        Note: The user is responsible for checking that the arguements are of
+            valid shape
     kwargs: dict
         Additional args for :param:`func
 
@@ -418,10 +440,25 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         editor.output.shape,
         order=editor.output.order)
 
+    if return_kernel:
+        def __pregen(kernel_call):
+            # setup the kernel call
+            # reset the state
+            kernel_call.set_state(single_knl.array_split, ad_opts.order)
+            # add dummy 'j' arguement
+            kernel_call.kernel_args['j'] = -1
+            # and place output
+            kernel_call.kernel_args[editor.output.name] = np.zeros(
+                editor.output.shape,
+                order=editor.output.order)
+            # run
+            populate([knl[0]], kernel_call, editor=editor)
+            # get result
+            return _make_array(self, kernel_call.kernel_args[editor.output.name])
+        return __pregen
+
     # run kernel
-    populate(
-        [knl[0]], kernel_call,
-        editor=editor)
+    populate([knl[0]], kernel_call, editor=editor)
 
     return _make_array(self, kernel_call.kernel_args[editor.output.name])
 
