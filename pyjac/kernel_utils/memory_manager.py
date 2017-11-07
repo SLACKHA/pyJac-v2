@@ -579,13 +579,18 @@ class mapped_memory(memory_strategy):
         sync = {}
         __update('sync', sync)
 
-        copy_in_2d = self._get_2d_templates(lang, to_device=True, ndim=2)
+        all_full = not utils.can_vectorize_lang[lang]
+        copy_in_2d = self._get_2d_templates(
+            lang, to_device=True, ndim=2, use_full=all_full)
         __update('copy_in_2d', copy_in_2d)
-        copy_out_2d = self._get_2d_templates(lang, to_device=False, ndim=2)
+        copy_out_2d = self._get_2d_templates(
+            lang, to_device=False, ndim=2, use_full=all_full)
         __update('copy_out_2d', copy_out_2d)
-        copy_in_1d = self._get_2d_templates(lang, to_device=True)
+        copy_in_1d = self._get_2d_templates(
+            lang, to_device=True, use_full=all_full)
         __update('copy_in_1d', copy_in_1d)
-        copy_out_1d = self._get_2d_templates(lang, to_device=False)
+        copy_out_1d = self._get_2d_templates(
+            lang, to_device=False, use_full=all_full)
         __update('copy_out_1d', copy_out_1d)
         host_constant_template = self._get_2d_templates(
             lang, to_device=True, use_full=True)

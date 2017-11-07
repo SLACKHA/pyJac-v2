@@ -42,6 +42,7 @@ problem_size : size_t
 */
 void mem_init(size_t problem_size)
 {
+    size_t per_run = problem_size;
     /* Alloc buffers */
     ${mem_allocs}
 }
