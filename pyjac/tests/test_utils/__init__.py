@@ -1033,6 +1033,9 @@ class runner(object):
                                np.reshape(extra, (-1, 1)),
                                moles[:, :-1]), axis=1)
 
+    def post(self):
+        pass
+
 
 def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
                          raise_on_missing=True):
@@ -1276,6 +1279,10 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
 
             # store the old state
             old_state = state.copy()
+
+        # cleanup any answers / arrays created by the runner for this
+        # mechanism
+        run.post()
     del run
 
 
