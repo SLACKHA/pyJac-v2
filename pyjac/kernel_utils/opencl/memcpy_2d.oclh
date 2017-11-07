@@ -1,0 +1,118 @@
+  /**
+ *  memcpy_2d.oclh
+ *
+ *  \author Nick Curtis
+ *  \date 11-06-2017
+ *
+ *  A C-imlementation of the clEnqueueWriteBufferRect/clEnqueueReadBufferRect
+ *  memcopy function to enable copying to / from pinned memory pointers
+ *
+ *  These implementations are based on pocl_basic_write/read_rect,
+ *  from the wonderful open source OpenCL implementation
+ *  Portable OpenCL (Pocl) https://github.com/pocl/pocl
+ *
+ */
+
+#ifndef MEMCPY2D_H
+#define MEMCPY2D_H
+
+#include <stdlib.h>
+#include <string.h>
+
+
+/**
+ * \brief  A C-imlementation of the clEnqueueWriteBufferRect
+           memcopy function to enable copying to / from pinned memory pointers
+ *
+ * \param[in]   host_ptr            The source (host) data array
+ * \param[out]  device_ptr          The destination (mapped device) data array
+ * \param[in]   host_origin         The origin of the host buffer in {bytes, items, ite,s}
+                                        Note: the first entry should be in bytes, while the subsecuent entries should be in number of array entries
+                                        to make the units of host_origin[0] + host_row_pitch * host_origin[1] + host_slice_pitch === bytes
+ * \param[in]   region              The region to copy in {bytes, items, items}
+                                        Note: the first entry should be in bytes, while the subsecuent entries should be in number of array entries
+                                        to make the units of region[0] + host_row_pitch * region[1] + host_slice_pitch === bytes
+ * \param[in]   buffer_row_pitch    The width (in bytes) of the second dimension of the device_ptr
+ * \param[in]   buffer_slice_pitch  The width (in bytes) of the third dimension of the device_ptr
+ * \param[in]   host_row_pitch      The width (in bytes) of the second dimension of the host_ptr
+ * \param[in]   host_slice_pitch    The width (in bytes) of the third dimension of the host_ptr
+ */
+static inline void memcpy2D_in(const void *__restrict__ const host_ptr,
+                               void *__restrict__ const device_ptr,
+                               const size_t *__restrict__ const host_origin,
+                               const size_t *__restrict__ const region,
+                               size_t const buffer_row_pitch,
+                               size_t const buffer_slice_pitch,
+                               size_t const host_row_pitch,
+                               size_t const host_slice_pitch)
+{
+  /*
+    the device buffer origin is zero by definition
+  */
+  size_t buffer_origin [3] = {0, 0, 0};
+  char *__restrict const adjusted_device_ptr =
+    (char*)device_ptr +
+        buffer_origin[0] + buffer_row_pitch * buffer_origin[1] + buffer_slice_pitch * buffer_origin[2];
+  char const *__restrict__ const adjusted_host_ptr =
+    (char const*)host_ptr +
+    host_origin[0] + host_row_pitch * host_origin[1];
+
+  size_t j, k;
+
+  /* TODO: handle overlaping regions */
+
+  for (k = 0; k < region[2]; ++k)
+    for (j = 0; j < region[1]; ++j)
+      memcpy (adjusted_device_ptr + buffer_row_pitch * j + buffer_slice_pitch * k,
+              adjusted_host_ptr + host_row_pitch * j + host_slice_pitch * k,
+              region[0]);
+}
+/**
+ * \brief  A C-imlementation of the clEnqueueReadBufferRect
+           memcopy function to enable copying to / from pinned memory pointers
+ *
+ * \param[in]   host_ptr            The source (host) data array
+ * \param[out]  device_ptr          The destination (mapped device) data array
+ * \param[in]   host_origin         The origin of the host buffer in {bytes, items, ite,s}
+                                        Note: the first entry should be in bytes, while the subsecuent entries should be in number of array entries
+                                        to make the units of host_origin[0] + host_row_pitch * host_origin[1] + host_slice_pitch === bytes
+ * \param[in]   region              The region to copy in {bytes, items, items}
+                                        Note: the first entry should be in bytes, while the subsecuent entries should be in number of array entries
+                                        to make the units of region[0] + host_row_pitch * region[1] + host_slice_pitch === bytes
+ * \param[in]   buffer_row_pitch    The width (in bytes) of the second dimension of the device_ptr
+ * \param[in]   buffer_slice_pitch  The width (in bytes) of the third dimension of the device_ptr
+ * \param[in]   host_row_pitch      The width (in bytes) of the second dimension of the host_ptr
+ * \param[in]   host_slice_pitch    The width (in bytes) of the third dimension of the host_ptr
+ */
+static inline void memcpy2D_out(const void *__restrict__ const host_ptr,
+                               void *__restrict__ const device_ptr,
+                               const size_t *__restrict__ const host_origin,
+                               const size_t *__restrict__ const region,
+                               size_t const buffer_row_pitch,
+                               size_t const buffer_slice_pitch,
+                               size_t const host_row_pitch,
+                               size_t const host_slice_pitch)
+{
+  /*
+    the device buffer origin is zero by definition
+  */
+  size_t buffer_origin [3] = {0, 0, 0};
+  char *__restrict const adjusted_device_ptr =
+    (char*)device_ptr +
+        buffer_origin[0] + buffer_row_pitch * buffer_origin[1] + buffer_slice_pitch * buffer_origin[2];
+  char *__restrict__ const adjusted_host_ptr =
+    (char*)host_ptr +
+    host_origin[2] * host_slice_pitch + host_origin[1] * host_row_pitch + host_origin[0];
+
+  size_t j, k;
+
+  /* TODO: handle overlaping regions */
+
+  for (k = 0; k < region[2]; ++k)
+    for (j = 0; j < region[1]; ++j)
+      memcpy (adjusted_host_ptr + host_row_pitch * j + host_slice_pitch * k,
+              adjusted_device_ptr + buffer_row_pitch * j + buffer_slice_pitch * k,
+              region[0]);
+}
+
+#endif
