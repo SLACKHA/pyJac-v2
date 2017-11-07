@@ -68,9 +68,6 @@ void execute_kernel(size_t problem_size, ${knl_args})
 
         /* Memory Transfers out */
         ${mem_transfers_out}
-
-        /* synchronization, if needed e.g., for PINNED memory */
-        ${mem_sync}
     }
 
 

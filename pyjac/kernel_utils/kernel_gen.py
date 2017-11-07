@@ -150,16 +150,11 @@ class kernel_generator(object):
 
         # Used for pinned memory kernels to enable splitting evaluation over multiple
         # kernel calls
-        self.offset_variable = lp.ValueArg('global_index_offset', dtype=np.int32)
-        self.host_buffer_stride = lp.ValueArg('host_buffer_stride', dtype=np.int32)
-        self.arg_name_maps = {self.offset_variable: 'offset',
-                              self.host_buffer_stride: 'problem_size',
-                              p_size: 'per_run'}
+        self.arg_name_maps = {p_size: 'per_run'}
 
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
                                   self.array_split._have_split(),
-                                  dev_type=self.loopy_opts.device_type,
-                                  host_buffer_stride=self.host_buffer_stride.name)
+                                  dev_type=self.loopy_opts.device_type)
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
@@ -841,9 +836,6 @@ ${name} : ${type}
 
         # add problem size arg to front
         kernel_data.insert(0, problem_size)
-        # if we are using pinned memory, we additonally may need an offset variable
-        if self.mem.use_pinned:
-            kernel_data.extend([self.offset_variable, self.host_buffer_stride])
         # and save
         self.kernel_data = kernel_data[:]
 
@@ -1306,34 +1298,6 @@ ${name} : ${type}
             if k not in kernel_data:
                 kernel_data.append(k)
 
-        if self.mem.use_pinned:
-            # check if the input and output are in this kernel
-            needs_offset = set(self.mem.host_arrays)
-            in_and_out = [i for i, x in enumerate(kernel_data)
-                          if x.name in needs_offset]
-            # change args
-            for i in in_and_out:
-                # offset is 0 in all non-initial condition dimensions
-                offset = [0] * len(kernel_data[i].shape)
-                offset[0] = self.offset_variable.name
-
-                # unfortunately we have to add yet _another_ arguement here
-                # to let the kernel know that this array is _full sized_
-
-                # replace in the variable size
-                shape = kernel_data[i].shape
-                shape = [s if str(s) != p_size.name else self.host_buffer_stride.name
-                         for s in shape]
-
-                # and copy with offset and shape
-                kernel_data[i] = kernel_data[i].copy(offset=tuple(offset),
-                                                     shape=tuple(shape))
-
-            # finally, add the offset to the kernel arg list
-            if in_and_out:
-                kernel_data = [self.offset_variable, self.host_buffer_stride]\
-                    + kernel_data
-
         # make the kernel
         knl = lp.make_kernel(iname_arr,
                              kernel_str,
@@ -1646,7 +1610,7 @@ class opencl_kernel_generator(kernel_generator):
         # build options
         build_options = self.build_options
         # kernel arg setting
-        kernel_arg_set, offset_arg_set = self.get_kernel_arg_setting()
+        kernel_arg_set = self.get_kernel_arg_setting()
         # kernel list
         kernel_paths = [self.bin_name]
         kernel_paths = ', '.join('"{}"'.format(x)
@@ -1663,7 +1627,6 @@ class opencl_kernel_generator(kernel_generator):
         host_constants_transfers = self.mem.get_host_constants_in()
 
         # get host memory syncs if necessary
-        mem_sync = self.mem.get_mem_sync()
         mem_strat = self.mem.get_mem_strategy()
 
         return subs_at_indent(file_src,
@@ -1678,9 +1641,7 @@ class opencl_kernel_generator(kernel_generator):
                               max_size=max_size,  # max size for CL1.1 mem init
                               host_constants=host_constants,
                               host_constants_transfers=host_constants_transfers,
-                              mem_sync=mem_sync,
-                              MEM_STRATEGY=mem_strat,
-                              offset_arg_set=offset_arg_set
+                              MEM_STRATEGY=mem_strat
                               )
 
     def get_kernel_arg_setting(self):
@@ -1720,10 +1681,7 @@ class opencl_kernel_generator(kernel_generator):
                         arg_index=i,
                         arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
                         arg_value='&{}'.format(name))
-                if arg == self.offset_variable:
-                    offset_arg_set = arg_set
-                else:
-                    kernel_arg_sets.append(arg_set)
+                kernel_arg_sets.append(arg_set)
 
         return '\n'.join(kernel_arg_sets), offset_arg_set
 

@@ -625,8 +625,6 @@ class pinned_memory(mapped_memory):
         self.order = order
         self.have_split = have_split
         self.align_size = align_size
-        # synchronizations
-        sync = {'opencl': guarded_call('opencl', 'clFinish(queue)')}
 
         # copies in / out are not needed for pinned memory
         # If the value is an input or output, it will be be supplied as a host buffer
@@ -693,8 +691,7 @@ class pinned_memory(mapped_memory):
 
         # get the defaults from :class:`mapped_memory`
         super(pinned_memory, self).__init__(lang, order, have_split,
-                                            sync=sync, memset=memset,
-                                            **copies)
+                                            memset=memset, **copies)
 
     def alloc(self, device, name, buff_size='', per_run_size='',
               readonly=False, host_constant=False, dtype='double', **kwargs):
@@ -797,7 +794,7 @@ class memory_manager(object):
     """
 
     def __init__(self, lang, order, have_split,
-                 dev_type=None, mem_limits_file='', host_buffer_stride=''):
+                 dev_type=None, mem_limits_file=''):
         """
         Parameters
         ----------
@@ -811,8 +808,6 @@ class memory_manager(object):
         dev_type: :class:`pyopencl.device_type` [None]
             The device type.  If CPU, the host buffers will be used for input /
             output variables
-        host_buffer_stride: str
-            The variable name for the host buffer stride for pinned memory
         """
         self.arrays = []
         self.in_arrays = []
@@ -837,9 +832,6 @@ class memory_manager(object):
             align_size = memory_limits.get_limits(
                 loopy_opts, {}, mem_limits_file).limits[memory_type.m_pagesize]
             self.mem = pinned_memory(lang, order, have_split, align_size)
-            # and add to list of string strides
-            if host_buffer_stride:
-                self.string_strides.append(host_buffer_stride)
         else:
             self.mem = mapped_memory(lang, order, have_split)
         self.host_constant_template = Template(
@@ -1077,13 +1069,7 @@ class memory_manager(object):
                     'str_size': [x for x in str_size if x != item_size]}
         return ' * '.join([x for x in str_size if x])
 
-    def _mem_transfers(self, to_device=True, host_constants=False, host_postfix='',
-                       get_sync=False):
-        if get_sync:
-            # don't need to transfer as we use host pointers
-            # instead we simply need to enqueue a barrier so that we
-            # ensure we have consistent memory
-            return self.mem.sync()
+    def _mem_transfers(self, to_device=True, host_constants=False, host_postfix=''):
         if not host_constants:
             # get arrays
             arr_list = self.in_arrays if to_device else self.out_arrays
@@ -1167,21 +1153,6 @@ class memory_manager(object):
         """
 
         return self._mem_transfers(to_device=False)
-
-    def get_mem_sync(self):
-        """
-        Synchronizes OpenCL (or other) mapped host buffers
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        mem_sync : str
-            The string to perform the host memory synchronization
-        """
-        return self._mem_transfers(get_sync=True)
 
     def get_mem_strategy(self):
         """
