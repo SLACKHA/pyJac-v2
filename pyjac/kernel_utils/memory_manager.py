@@ -761,7 +761,7 @@ class pinned_memory(mapped_memory):
             to_device, *args, dtype=dtype, d_short=dtype[0],
             map_flags=map_flags, **kwargs)
 
-    def memset(self, *args, **kwargs):
+    def memset(self, device, *args, **kwargs):
         """
         An override of the base :func:`memset` to steal copies of the host buffer
         and place them in to a map / unmap for pinned memory
@@ -782,9 +782,11 @@ class pinned_memory(mapped_memory):
 
         """
 
+        map_flags = self.map_flags[self.lang(True)][device]
         dtype = kwargs.pop('dtype')
         return super(pinned_memory, self).memset(
-            *args, dtype=dtype, d_short=dtype[0], **kwargs)
+            device, *args, dtype=dtype, d_short=dtype[0],
+            map_flags=map_flags, **kwargs)
 
 
 class memory_manager(object):
