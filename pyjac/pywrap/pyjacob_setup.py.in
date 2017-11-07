@@ -17,7 +17,7 @@ ext_modules = [Extension("pyjac_c",
                          include_dirs=includes + [numpy.get_include()],
                          extra_compile_args=[
                              '-frounding-math', '-fsignaling-nans', '-fopenmp',
-                             '-std=c11'],
+                             '-std=c99'],
                          language='c',
                          extra_objects=[os.path.join('$outpath', '$libname'),
                                         '-fopenmp']
