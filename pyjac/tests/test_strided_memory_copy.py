@@ -70,13 +70,18 @@ def test_strided_copy(state):
         if not isinstance(shape, tuple):
             shape = (shape,)
         shape = (ics,) + shape
-        return np.array(np.random.rand(*shape), dtype=dtype, order=order)
+        arr = np.zeros(shape, dtype=dtype, order=order)
+        arr.flat[:] = np.arange(np.prod(shape))
+        return arr
     arrays = [__create(16), __create(10), __create(20), __create((20, 20)),
               __create(())]
-    const = [np.array(np.random.rand(10), dtype=dtype, order=order)]
+    const = [np.arange(10, dtype=dtype)]
     lp_arrays = [lp.GlobalArg('a{}'.format(i), shape=('problem_size',) + a.shape[1:],
                               order=order, dtype=(arrays + const)[i].dtype)
-                 for i, a in enumerate(arrays + const)]
+                 for i, a in enumerate(arrays)] + \
+                [lp.TemporaryVariable('a{}'.format(i + len(arrays)), dtype=dtype,
+                 order=order, initializer=const[i], read_only=True,
+                 shape=const[i].shape) for i in range(len(const))]
     const = lp_arrays[len(arrays):]
 
     dtype = 'double'
@@ -109,19 +114,22 @@ def test_strided_copy(state):
     mem.add_arrays([x for x in lp_arrays],
                    in_arrays=[x.name for x in lp_arrays if x not in const],
                    out_arrays=[x.name for x in lp_arrays if x not in const],
-                   host_constants=[x for x in lp_arrays if x in const])
+                   host_constants=const)
 
     # create "kernel"
-    lang_headers = ['#include "memcpy_2d.h"']
     size_type = 'int'
+    lang_headers = []
     if lang == 'opencl':
         lang_headers.extend([
+                        '#include "memcpy_2d.oclh"',
                         '#include "vectorization.oclh"',
                         '#include <CL/cl.h>',
                         '#include "ocl_errorcheck.oclh"'])
         size_type = 'cl_uint'
     elif lang == 'c':
-        lang_headers.extend(['#include "error_check.h"'])
+        lang_headers.extend([
+            '#include "memcpy_2d.h"',
+            '#include "error_check.h"'])
 
     # kernel must copy in and out, using the mem_manager's format
     knl = Template("""
@@ -135,43 +143,32 @@ def test_strided_copy(state):
         /* Memory Transfers out */
         ${mem_transfers_out}
     }
-    """).safe_substitute(max_per_run=max_per_run,
-                         type=size_type,
+    """).safe_substitute(type=size_type,
                          mem_transfers_in=mem._mem_transfers(
                             to_device=True, host_postfix='_save'),
                          mem_transfers_out=mem.get_mem_transfers_out(),
                          problem_size=ics
                          )
 
-    def _alloc(i, arr, device=True):
-        prefix = 'd_' if device else 'h_'
-        return mem.mem.alloc(
-            device=device, name=prefix + arr.name,
-            buff_size=mem._get_size(arr),
-            per_run_size=mem._get_size(arr, subs_n='per_run'),
-            readonly=arr in const,
-            non_ic_size=int(np.prod((arrays + const)[i].shape[1:])),
-            dtype=dtype)
-
     # create the host memory allocations
     host_names = ['h_' + arr.name for arr in lp_arrays]
-    host_allocs = [_alloc(i, arr, False) for i, arr in enumerate(lp_arrays)]
-    host_decls = ['double* h_{};'.format(arr.name) for arr in lp_arrays]
+    host_allocs = mem.get_mem_allocs(True, host_postfix='')
 
     # device memory allocations
-    device_allocs = [_alloc(i, arr, True) for i, arr in enumerate(lp_arrays)]
+    device_allocs = mem.get_mem_allocs(False)
 
     # copy to save for test
     host_name_saves = ['h_' + a.name + '_save' for a in lp_arrays]
+    host_const_allocs = mem.get_host_constants()
     host_copies = [Template(
         """
-        ${type} ${save} [${size}] = {0};
-        memcpy(${save}, ${host}, ${size} * sizeof(${type}));
+        ${type} ${save} [${size}] = {${vals}};
         memset(${host}, 0, ${size} * sizeof(${type}));
         """).safe_substitute(
             save='h_' + lp_arrays[i].name + '_save',
             host='h_' + lp_arrays[i].name,
             size=arrays[i].size,
+            vals=', '.join([str(x) for x in arrays[i].flatten()]),
             type=dtype)
         for i in range(len(arrays))]
 
@@ -238,16 +235,19 @@ void main()
 {
     ${preamble}
 
-    ${size_type} problem_size = ${problem_size};
-    ${size_type} per_run = ${max_per_run} < problem_size ? ${max_per_run} :
-        ${problem_size};
+    double zero [${max_dim}] = {0};
 
-    ${host_decls}
+    ${size_type} problem_size = ${problem_size};
+    ${size_type} per_run = ${max_per_run};
+
     ${host_allocs}
+    ${host_const_allocs}
     ${mem_declares}
     ${device_allocs}
 
     ${mem_saves}
+
+    ${host_constant_copy}
 
     ${knl}
 
@@ -259,17 +259,19 @@ void main()
 }
     """).safe_substitute(lang_headers='\n'.join(lang_headers),
                          mem_declares=mem.get_defns(),
-                         host_allocs='\n'.join(host_allocs),
-                         host_decls='\n'.join(host_decls),
-                         device_allocs='\n'.join(device_allocs),
+                         host_allocs=host_allocs,
+                         host_const_allocs=host_const_allocs,
+                         device_allocs=device_allocs,
                          mem_saves='\n'.join(host_copies),
+                         host_constant_copy=mem.get_host_constants_in(),
                          checks='\n'.join(checks),
                          knl=knl,
                          preamble=preamble,
                          end=end,
                          size_type=size_type,
                          max_per_run=max_per_run,
-                         problem_size=ics)
+                         problem_size=ics,
+                         max_dim=max([x.size for x in arrays]))
 
     # write file
     fname = os.path.join(build_dir, 'test' + utils.file_ext[lang])
