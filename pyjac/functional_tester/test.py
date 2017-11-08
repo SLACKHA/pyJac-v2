@@ -214,8 +214,10 @@ class hdf5_store(object):
             # close open handle
             file = self.handles[pytables_name]
             file.close()
-            # and remove old file
-            os.remove(pytables_name)
+            # first check if the file still exists -- it might have been removed in
+            # the :func:`_run_mechanism_tests.__cleanup()`
+            if os.path.exists(pytables_name):
+                os.remove(pytables_name)
             # and remove from handles
             del self.handles[pytables_name]
 
