@@ -24,7 +24,7 @@ def main(args=None):
                             )
         parser.add_argument('-r', '--runtype',
                             choices=['jac', 'spec', 'both'],
-                            default='jac',
+                            default='both',
                             help='The type of validation test to run, Jacobian [jac]'
                                  ' or species rates [spec], or [both].')
         parser.add_argument('-p', '--prefix',

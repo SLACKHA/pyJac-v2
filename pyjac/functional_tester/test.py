@@ -208,7 +208,7 @@ class hdf5_store(object):
         if filename is None:
             filename = os.path.join(dirname, name + '.bin')
         if pytables_name is None:
-            pytables_name = filename.replace('.bin', 'hdf5')
+            pytables_name = filename.replace('.bin', '.hdf5')
 
         if pytables_name in self.handles:
             # close open handle
