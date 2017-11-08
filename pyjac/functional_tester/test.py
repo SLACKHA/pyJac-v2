@@ -167,7 +167,6 @@ class hdf5_store(object):
                 # it may have already been removed in
                 # :func:`_run_mechanism_tests.__cleanup()`
                 os.remove(f)
-            os.remove(f)
         self.handles.clear()
 
     def output_to_pytables(self, name, dirname, ref_ans, order, asplit,
