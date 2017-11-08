@@ -9,16 +9,15 @@ from __future__ import print_function
 import os
 import subprocess
 
-
 # Related modules
 import numpy as np
 import numpy.ma as ma
+import cantera as ct
+from six.moves import range
+from six import iteritems
 
-try:
-    import cantera as ct
-except ImportError:
-    print('Error: Cantera must be installed.')
-    raise
+# pytables
+import tables
 
 # Local imports
 from ..core.mech_interpret import read_mech_ct
@@ -39,7 +38,235 @@ def getf(x):
     return os.path.basename(x)
 
 
-class validation_runner(runner):
+class hdf5_store(object):
+    def __init__(self, chunk_size=10000):
+        """
+        Initialize :class:`hdf5_store`
+
+        Parameters
+        ----------
+        chunk_size: int [10000]
+            The default chunk size for reading into hdf5 arrays
+        """
+        self.handles = {}
+        self._chunk_size = chunk_size
+
+    @property
+    def chunk_size(self):
+        return self._chunk_size
+
+    @chunk_size.setter
+    def chunk_size(self, new_size):
+        self._chunk_size = int(new_size)
+
+    def _nicename(self, filename):
+        return filename[:filename.index('.hdf5')]
+
+    def to_file(self, arr, filename):
+        """
+        Transfers a large numpy array to a pytables HDF5 file and returns
+        the pytables handle
+
+        Parameters
+        ----------
+        arr: :class:`numpy.ndarray`
+            The numpy array to store
+        filename: str
+            The file to store the array in
+
+        Returns
+        -------
+        arr: :class:`pytables.array`
+            The converted pytables array
+        """
+
+        # get nicename
+        name = self._nicename(filename)
+
+        # open file
+        hdf5_file = tables.open_file(filename, mode='w')
+        # add compression
+        filters = tables.Filters(complevel=5, complib='blosc')
+        # create hdf5 array
+        data_storage = hdf5_file.create_carray(
+            hdf5_file.root, name, tables.Atom.from_dtype(arr.dtype),
+            shape=arr.shape, filters=filters)
+        # copy in
+        data_storage[:] = arr[:]
+        # store
+        hdf5_file.close()
+        # now reopen w/ read & return handle
+        return self.open_for_read(filename)
+
+    def open_for_chunked_write(self, filename, shape, num_conds):
+        """
+        Opens a new file :param:`filename` and creates an :class:`pytables.EArray`
+        (extendable array) for writing
+
+        Parameters
+        ----------
+        filename: str
+            The file to open
+        shape: tuple of int
+            The shape of the array.  Note that the initial conditions axis should
+            be set to zero
+        """
+        assert filename not in self.handles
+
+        name = self._nicename(filename)
+        # open
+        hdf5_file = tables.open_file(filename, mode='w')
+        # add compression
+        filters = tables.Filters(complevel=5, complib='blosc')
+        dtype = np.dtype('Float64')
+        # create hdf5 array
+        arr = hdf5_file.create_earray(
+            hdf5_file.root, name, tables.Atom.from_dtype(dtype),
+            shape=shape, filters=filters, expectedrows=num_conds)
+        self.handles[filename] = hdf5_file
+        return arr
+
+    def open_for_read(self, filename):
+        """
+        Stores an already open :class:`pytables.array`, and reopens for reading
+
+        Parameters
+        ----------
+        arr: :class:`pytables.array`
+            The array to close
+        filename: str
+            The filename
+        """
+
+        if filename in self.handles:
+            # close old
+            self.handles[filename].close()
+
+        # reopen as read
+        hdf5_file = tables.open_file(filename, mode='r')
+        self.handles[filename] = hdf5_file
+        name = self._nicename(filename)
+        return getattr(hdf5_file.root, name)
+
+    def release(self):
+        """
+        Closes all open hdf5 file references, and removes the file
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        for f, h in iteritems(self.handles):
+            h.close()
+            os.remove(f)
+        self.handles.clear()
+
+    def output_to_pytables(self, name, dirname, ref_ans, order, asplit,
+                           filename=None, pytables_name=None):
+        """
+        Converts the binary output file in :param:`filename` to a HDF5 pytables file
+        in order to avoid memory errors
+
+        Note
+        ----
+        Processes the file in chunks of :attr:`error_chunk_size`
+
+        Parameters
+        ----------
+        name: str
+            The name of the output array
+        dir: str
+            The directory the output is stored in
+        ref_ans: :class:`pytables.array`
+            The corresponding reference answer, from which shape / dtype information
+            will be taken
+        order: ['C', 'F']
+            The storage order of the data in the binary file
+        asplit: :class:`pyjac.core.array_creator.array_splitter`
+            The array splitter, needed to find out the shape out the output from
+            the reference answer's shape
+        filename: str [None]
+            The filename of the output, if not supplied it will be assumed to be
+            :param:`dir`/name.bin
+        pytables_name: str [None]
+            The filename of the pytables_output.  If not supplied, it will be the
+            same as :param:`filename` with the '.bin' prefix replaced with
+            '.hdf5'
+
+        Returns
+        -------
+        arr: :class:`pytables.array`
+            The pytables
+        """
+
+        # filenames
+        if filename is None:
+            filename = os.path.join(dirname, name + '.bin')
+        if pytables_name is None:
+            pytables_name = filename.replace('.bin', 'hdf5')
+
+        if pytables_name in self.handles:
+            # close open handle
+            file = self.handles[pytables_name]
+            file.close()
+            # and remove old file
+            os.remove(pytables_name)
+
+        # open the pytables file for writing
+        hdf5_file = tables.open_file(pytables_name, mode='w')
+        # add compression
+        filters = tables.Filters(complevel=5, complib='blosc')
+        # get the reference answer in order to get shape, etc.
+        shape, grow_axis, split_axis = asplit.split_shape(ref_ans)
+
+        # and set the enlargable shape for the pytables array
+        eshape = tuple(shape[i] if i != grow_axis else 0
+                       for i in range(len(shape)))
+        # create hdf5 array
+        data_storage = hdf5_file.create_earray(
+            hdf5_file.root, name, tables.Atom.from_dtype(ref_ans.dtype),
+            shape=eshape, filters=filters,
+            expectedrows=shape[grow_axis])
+        # and read the number of conditions in the grow dimension
+        num_conds = shape[grow_axis]
+        # and cut down by vec width to respect chunk size
+        chunk_size = self.chunk_size
+        if split_axis is not None:
+            assert chunk_size % shape[split_axis] == 0
+            chunk_size = int(chunk_size / shape[split_axis])
+        with open(filename, 'rb') as file:
+            # need to read in in chunks
+            for i in range(0, num_conds, chunk_size):
+                # find out how many ICs to read
+                num_read = np.minimum(i + chunk_size, num_conds) - i
+                # set the shape to read in
+                rshape = tuple(shape[i] if i != grow_axis else num_read
+                               for i in range(len(shape)))
+                # read in data
+                arr = np.fromfile(file, dtype=ref_ans.dtype,
+                                  count=np.prod(rshape))
+                # reshape
+                arr = arr.reshape(rshape, order=order)
+
+                # and place into storage
+                data_storage.append(arr)
+
+        # close hdf5 file
+        hdf5_file.close()
+        # now reopen w/ read & return handle
+        hdf5_file = tables.open_file(pytables_name, mode='r')
+        # and store the handle
+        self.handles[pytables_name] = hdf5_file
+        # and reutrn data
+        return getattr(hdf5_file.root, name)
+
+
+class validation_runner(runner, hdf5_store):
     def __init__(self, eval_class, rtype=build_type.jacobian):
         """Runs validation testing for pyJac for a mechanism
 
@@ -51,10 +278,11 @@ class validation_runner(runner):
         rtype: :class:`build_type` [build_type.jacobian]
             The type of test to run
         """
-        super(validation_runner, self).__init__(rtype)
+        runner.__init__(self, rtype)
+        self.base_chunk_size = 10000
+        hdf5_store.__init__(self, self.base_chunk_size)
+
         self.eval_class = eval_class
-        self.package_lang = {'opencl': 'ocl',
-                             'c': 'c'}
         self.mod_test = test_utils.get_run_source()
 
     def check_file(self, filename, _):
@@ -114,21 +342,81 @@ class validation_runner(runner):
         self.P = data['P']
         self.V = data['V']
         self.moles = data['moles']
+        # get phi vectors
         self.phi_cp = self.get_phi(self.T, self.P, self.V, self.moles)
         self.phi_cv = self.get_phi(self.T, self.V, self.P, self.moles)
+        # convert to hdf
+        self.phi_cp = self.to_file(self.phi_cp, 'phi_cp.hdf5')
+        self.phi_cv = self.to_file(self.phi_cv, 'phi_cv.hdf5')
         self.num_conditions = num_conditions
         self.max_vec_width = max_vec_width
 
-        self.helper = self.eval_class(gas, num_conditions)
-        # find the number of conditions per run
-        # this is to avoid memory overflows for IPentanol for species rates
-        # and to avoid breaking Intel w/ segfaults for GRI+ jacobian
-        self.cond_per_run = int(
-            np.floor(self.max_per_run / max_vec_width) * max_vec_width)
+        # reset
+        self.chunk_size = self.base_chunk_size
 
-    @property
-    def max_per_run(self):
-        return 100000
+        # ensure our chunk size matches vec width
+        if self.chunk_size % max_vec_width != 0:
+            self.chunk_size += self.chunk_size % max_vec_width
+
+        self.helper = self.eval_class(gas, num_conditions)
+        # and check for helper
+        if self.helper.chunk_size % max_vec_width != 0:
+            self.helper.chunk_size = self.chunk_size
+
+    def post(self):
+        """
+        Cleanup HDF5 files
+        """
+        self.helper.release()
+        self.release()
+
+    def arrays_per_run(self, offset, this_run, order, answers, outputs, asplit):
+        """
+        Converts reference answers & outputs from :class:`pytable.arrays` to
+        in-memory :class:`numpy.ndarrays` arrays, applying splitting if necessary
+
+        Parameters
+        ----------
+        offset: int
+            The initial condition offset to use
+        this_run: int
+            How many initial conditions to select from the offset
+        order: ['C', 'F']
+            The data ordering
+        answers: list of :class:`pytables.Array`
+            The reference answers
+        outputs: list of :class:`pytables.Array`
+            The outputs to check
+        asplit: :class:`array_splitter
+            The splitting object
+
+        Returns
+        -------
+        converted_answers: list of :class:`numpy.ndarray`
+            The converted in-memory reference arrays
+        converted_outputs: list of :class:`numpy.ndarray`
+            The converted in-memory outputs
+        """
+
+        # outputs require a bit of parsing
+        out = []
+        ic_mask = np.arange(offset, offset + this_run)
+        for i, arr in enumerate(outputs):
+            mask = parse_split_index(
+                arr, [ic_mask], order, ref_ndim=answers[i].ndim, axis=(0,))
+            # next find the grow dimension
+            _, grow_dim, split_dim = asplit.split_shape(arr)
+            # we need to slice on the grow dim to pull into memory
+            # create empty slices in other dimensions -- vecwidth dim is full by
+            # defn
+            inds = [slice(None) for x in range(arr.ndim)]
+            inds[grow_dim] = np.unique(mask[grow_dim])
+            out.append(arr[tuple(inds)])
+
+        # simply need to reference and split answers
+        answers = [x[offset:offset + this_run, :] for x in answers]
+        answers = asplit.split_numpy_arrays(answers)
+        return answers, out
 
     def run(self, state, asplit, dirs, phi_path, data_output):
         """
@@ -168,42 +456,36 @@ class validation_runner(runner):
                                out_dir=my_test, btype=self.rtype, shared=True,
                                as_executable=True)
 
-        # now generate the per run data
+        # store phi array to file
+        np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
+        # call
+        subprocess.check_call([os.path.join(my_test, lib),
+                               str(self.num_conditions), str(state['num_cores'])],
+                              cwd=my_test)
+
+        answers = self.helper.ref_answers(state)
+        outputs = []
+        # convert output to hdf5 files
+        for name, ref_ans in zip(*(self.helper.output_names, answers)):
+            outputs.append(
+                self.output_to_pytables(name, my_test, ref_ans, state['order'],
+                                        asplit))
+
+        # now loop through the output in error chunks increments to get error
         offset = 0
         # store the error dict
         err_dict = {}
         while offset < self.num_conditions:
-            this_run = int(
-                np.floor(np.minimum(self.cond_per_run, self.num_conditions - offset)
-                         / self.max_vec_width) * self.max_vec_width)
+            this_run = np.minimum(
+                self.chunk_size, self.num_conditions - offset)
 
-            # get phi array
-            sphi = np.array(phi[offset:offset + this_run], order='C', copy=True)
-            # save to file for input
-            sphi.flatten('C').tofile(phi_path)
-
-            # get reference outputs
-            out_names, ref_ans = self.helper.get_outputs(
-                state, offset, this_run, asplit)
-
-            # save for comparison
-            outf = [os.path.join(my_test, '{}.bin'.format(name))
-                    for name in out_names]
-
-            # call
-            do_compilation = 1 if offset == 0 else 0
-            subprocess.check_call([os.path.join(my_test, lib),
-                                   str(this_run), str(state['num_cores']),
-                                   str(do_compilation)],
-                                  cwd=my_test)
+            # convert our chunks to workable numpy arrays
+            ans, out = self.arrays_per_run(
+                offset, this_run, state['order'], answers, outputs, asplit)
 
             # get error
             err_dict = self.helper.eval_error(
-                this_run, state['order'], outf, out_names, ref_ans, err_dict)
-
-            # cleanup
-            for x in outf:
-                os.remove(x)
+                offset, this_run, state, out, ans, err_dict)
 
             # finally update the offset
             offset += this_run
@@ -212,14 +494,18 @@ class validation_runner(runner):
         np.savez(data_output, **err_dict)
 
 
-class eval(object):
+class eval(hdf5_store):
     def eval_answer(self, phi, param, state):
         raise NotImplementedError
 
-    def eval_error(self, my_test, offset, this_run):
+    def eval_error(self, offset, this_run, state, output, answers, err_dict):
         raise NotImplementedError
 
-    def get_outputs(self, state, offset, this_run, asplit):
+    def ref_answers(self, state):
+        raise NotImplementedError
+
+    @property
+    def output_names(self):
         raise NotImplementedError
 
     def _check_file(self, err, names, mods):
@@ -280,6 +566,16 @@ class spec_rate_eval(eval):
         self.gas = gas
         self.evaled = False
         self.name = 'spec'
+
+        super(spec_rate_eval, self).__init__()
+
+    @property
+    def output_names(self):
+        # outputs
+        return ['dphi', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+
+    def ref_answers(self, state):
+        return self.outputs_cp if state['conp'] else self.outputs_cv
 
     def eval_answer(self, phi, P, V, state):
         def __eval_cp(j, T):
@@ -347,70 +643,68 @@ class spec_rate_eval(eval):
                         T[i] * ct.gas_constant * np.sum(
                             self.mw_frac * spec_rates[:-1])
 
+            def _dphi(conp):
+                temperature_rates = self.conp_temperature_rates if conp \
+                    else self.conv_temperature_rates
+                extra_rates = self.conp_extra_rates if conp else\
+                    self.conv_extra_rates
+                return np.concatenate((temperature_rates, extra_rates,
+                                      self.molar_rates), axis=1)
+
+            # finally convert to HDF5
+            self.dphi_cp = _dphi(True)
+            self.dphi_cp = self.to_file(self.dphi_cp, 'dphi_cp.hdf5')
+            self.dphi_cv = _dphi(False)
+            self.dphi_cv = self.to_file(self.dphi_cp, 'dphi_cv.hdf5')
+            self.molar_rates = self.to_file(self.molar_rates, 'molar_rates.hdf5')
+            self.rop_fwd_test = self.to_file(self.rop_fwd_test, 'rop_fwd_test.hdf5')
+            self.rop_rev_test = self.to_file(self.rop_rev_test, 'rop_rev_test.hdf5')
+            self.rop_net_test = self.to_file(self.rop_net_test, 'rop_net_test.hdf5')
+            self.conp_extra_rates = self.to_file(
+                self.conp_extra_rates, 'conp_extra_rates.hdf5')
+            self.conv_extra_rates = self.to_file(
+                self.conv_extra_rates, 'conv_extra_rates.hdf5')
+            # and store outputs
+            outputs = [self.rop_fwd_test, self.rop_rev_test, self.pres_mod_test,
+                       self.rop_net_test]
+            self.outputs_cp = [self.dphi_cp] + outputs
+            self.outputs_cv = [self.dphi_cv] + outputs
             self.evaled = True
 
-    def get_outputs(self, state, offset, this_run, asplit):
-        conp = state['conp']
-        output_names = ['dphi', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
-        temperature_rates = self.conp_temperature_rates if conp \
-            else self.conv_temperature_rates
-        extra_rates = self.conp_extra_rates if conp else self.conv_extra_rates
-        dphi = np.concatenate((temperature_rates[offset:offset + this_run, :],
-                               extra_rates[offset:offset + this_run, :],
-                               self.molar_rates[offset:offset + this_run, :]),
-                              axis=1)
-        out_arrays = [dphi,
-                      self.rop_fwd_test[offset:offset + this_run, :],
-                      self.rop_rev_test[offset:offset + this_run, :],
-                      self.pres_mod_test[offset:offset + this_run, :],
-                      self.rop_net_test[offset:offset + this_run, :]]
+    def eval_error(self, offset, this_run, state, output, answers, err_dict):
+        # get indicies
+        pmod_ind = next(
+            i for i, x in enumerate(self.output_names) if 'pres_mod' in x)
+        fwd_ind = next(
+            i for i, x in enumerate(self.output_names) if 'rop_fwd' in x)
+        rev_ind = next(
+            i for i, x in enumerate(self.output_names) if 'rop_rev' in x)
 
-        return output_names, asplit.split_numpy_arrays(out_arrays)
-
-    def eval_error(self, this_run, order, out_files, out_names, reference_answers,
-                   err_dict):
-        def __get_test(name):
-            return reference_answers[out_names.index(name)]
-
-        out_check = out_files[:]
-        # load output arrays
-        for i in range(len(out_files)):
-            out_check[i] = np.fromfile(out_files[i], dtype=np.float64)
-            # check finite
-            assert np.all(np.isfinite(out_check[i]))
-            # and reshape to match test array
-            out_check[i] = np.reshape(out_check[i], __get_test(out_names[i]).shape,
-                                      order=order)
+        # pull order
+        order = state['order']
 
         # multiply fwd/rev ROP by pressure rates to compare w/ Cantera
-        pmod_ind = next(
-            i for i, x in enumerate(out_files) if 'pres_mod' in x)
-        fwd_ind = next(
-            i for i, x in enumerate(out_files) if 'rop_fwd' in x)
-        rev_ind = next(
-            i for i, x in enumerate(out_files) if 'rop_rev' in x)
         # fwd
-        fwd_masked = parse_split_index(out_check[fwd_ind], self.thd_map, order)
-        out_check[fwd_ind][fwd_masked] *= out_check[pmod_ind][parse_split_index(
-            out_check[pmod_ind], np.arange(self.thd_map.size, dtype=np.int32),
+        fwd_masked = parse_split_index(output[fwd_ind], self.thd_map, order)
+        output[fwd_ind][fwd_masked] *= output[pmod_ind][parse_split_index(
+            output[pmod_ind], np.arange(self.thd_map.size, dtype=np.int32),
             order)]
         # rev
-        rev_masked = parse_split_index(out_check[rev_ind], self.rev_to_thd_map,
+        rev_masked = parse_split_index(output[rev_ind], self.rev_to_thd_map,
                                        order)
         # thd to rev map already in thd index list, so don't need to do arange
-        out_check[rev_ind][rev_masked] *= out_check[pmod_ind][parse_split_index(
-            out_check[pmod_ind], self.thd_to_rev_map, order)]
+        output[rev_ind][rev_masked] *= output[pmod_ind][parse_split_index(
+            output[pmod_ind], self.thd_to_rev_map, order)]
 
         # simple test to get IC index
-        mask_dummy = parse_split_index(reference_answers[0], np.array([this_run]),
+        mask_dummy = parse_split_index(answers[0], np.array([this_run]),
                                        order=order, axis=(0,))
         IC_axis = next(i for i, ax in enumerate(mask_dummy) if ax != slice(None))
 
         # load output
-        for name, out in zip(*(out_names, out_check)):
+        for name, out, check_arr in zip(*(self.output_names, output, answers)):
             if name == 'pres_mod':
                 continue
-            check_arr = __get_test(name)
             # get err
             err = np.abs(out - check_arr)
             err_compare = err / (self.atol + self.rtol * np.abs(check_arr))
@@ -448,8 +742,8 @@ class spec_rate_eval(eval):
             if name == 'rop_net':
                 # need to find the fwd / rop error at the max locations
                 # here
-                rop_fwd_err = np.abs(out_check[fwd_ind][err_mask] -
-                                     reference_answers[fwd_ind][err_mask])
+                rop_fwd_err = np.abs(output[fwd_ind][err_mask] -
+                                     answers[fwd_ind][err_mask])
 
                 rop_rev_err = np.zeros(rop_fwd_err.size)
                 # get err locs for rev reactions
@@ -457,12 +751,12 @@ class spec_rate_eval(eval):
                 # get reversible mask using the error locations for the reversible
                 # reactions, and the rev_map size for the mask
                 _, rev_mask = __get_locs_and_mask(
-                    out_check[rev_ind], locs=rev_err_locs,
+                    output[rev_ind], locs=rev_err_locs,
                     inds=np.arange(self.rev_map.size))
                 # and finally update
                 rop_rev_err[self.rev_map] = np.abs(
-                    out_check[rev_ind][rev_mask] -
-                    reference_answers[rev_ind][rev_mask])
+                    output[rev_ind][rev_mask] -
+                    answers[rev_ind][rev_mask])
                 # now find maximum of error in fwd / rev ROP
                 rop_component_error = np.maximum(rop_fwd_err, rop_rev_err)
 
@@ -486,7 +780,6 @@ class spec_rate_eval(eval):
             # update the values for normalization
             err_dict[name + '_value'][update_locs] = check_arr[err_mask][update_locs]
 
-        del out_check
         return err_dict
 
     def _check_size(self, err, names, mods, size, vecwidth):
@@ -564,10 +857,11 @@ class jacobian_eval(eval):
         self.evaled = False
         self.name = 'jac'
         self.inds = determine_jac_inds(self.reacs, self.specs,
-                                       RateSpecialization.fixed)[
-            'jac_inds']
+                                       RateSpecialization.fixed)['jac_inds']
 
-    def __sparsify(self, jac, order, check=True):
+        super(jacobian_eval, self).__init__()
+
+    def __sparsify(self, jac, name, order, check=True):
         # get the sparse indicies
         inds = self.inds['flat_' + order]
         if check:
@@ -579,11 +873,24 @@ class jacobian_eval(eval):
             assert inNd(mask, inds).size == mask.shape[0]
             del mask
             del check
-            # and finally return the sparse array
-        return np.asarray(jac[:, inds[:, 0], inds[:, 1]], order=order)
+
+        # and finally return the sparse array
+        # need to do this in chunks to avoid memory errors
+        num_conds = jac.shape[0]
+        shape = (0, inds[:, 0].size)
+        out = self.open_for_chunked_write(name + '.hdf5', shape, num_conds)
+        threshold = 0
+        for offset in range(0, num_conds, self.chunk_size):
+            end = np.minimum(num_conds, offset + self.chunk_size)
+            # need to preslice the pytables array to get numpy indexing
+            jtemp = jac[offset:end][:, inds[:, 0], inds[:, 1]]
+            threshold += np.linalg.norm(jtemp) ** 2
+            out.append(jtemp)
+        return out, np.sqrt(threshold)
 
     def __fast_jac(self, conp, sparse, order):
         jac = None
+        # check for stored jacobian
         name = 'fd_jac_' + 'cp' if conp else 'cv'
         if hasattr(self, name):
             jac = getattr(self, name)
@@ -592,7 +899,10 @@ class jacobian_eval(eval):
             return None
 
         if sparse == 'sparse':
-            return self.__sparsify(jac, order=order, check=False)
+            # check for stored sparse matrix
+            name += '_sp'
+            if hasattr(self, name):
+                return getattr(self, name)
         return jac
 
     def eval_answer(self, phi, P, V, state):
@@ -600,53 +910,89 @@ class jacobian_eval(eval):
         if jac is not None:
             return jac
 
+        # number of IC's
+        num_conds = phi.shape[0]
+        # open the pytables file for writing
+        name = 'fd_jac_' + 'cp' if state['conp'] else 'cv'
+        jac = self.open_for_chunked_write(
+            name + '.hdf5', (0, len(self.specs) + 1, len(self.specs) + 1),
+            num_conds)
+
         # create the "store" for the AD-jacobian eval
         # mask phi to get rid of parameter stored in there for data input
         phi_mask = np.array([0] + list(range(2, phi.shape[1])))
-        self.store = type('', (object,), {
-            'reacs': self.reacs,
-            'specs': self.specs,
-            'phi_cp': phi[:, phi_mask].copy() if state['conp'] else None,
-            'phi_cv': phi[:, phi_mask].copy() if not state['conp'] else None,
-            'P': P,
-            'V': V,
-            'test_size': self.num_conditions
-            })
-
+        # note that we have to do this piecewise in order to avoid memory overflows
+        # eval jacobian
         from ..tests.test_jacobian import _get_fd_jacobian
-        jac = _get_fd_jacobian(self, self.num_conditions, state['conp'])
-        name = 'fd_jac_' + 'cp' if state['conp'] else 'cv'
-        setattr(self, name, jac.copy())
-        self.threshold = np.linalg.norm(jac)
+
+        def __get_state(offset, end):
+            end = np.minimum(end, num_conds)
+            return type('', (object,), {
+                'reacs': self.reacs,
+                'specs': self.specs,
+                'phi_cp': (phi[offset:end, phi_mask].copy() if state['conp']
+                           else None),
+                'phi_cv': (phi[offset:end, phi_mask].copy() if not state['conp']
+                           else None),
+                'P': P[offset:end],
+                'V': V[offset:end],
+                'test_size': end - offset
+                })
+
+        # pregenerated kernel for speed
+        self.store = __get_state(0, self.chunk_size)
+        pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+                                  None, True)
+        last_size = None
+        threshold = 0
+        for offset in range(0, num_conds, self.chunk_size):
+            self.state = __get_state(offset, offset + self.chunk_size,)
+            if last_size is not None and self.store.test_size != last_size:
+                # invalidate
+                pregen = None
+
+            # and add to Jacobian
+            jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+                                     pregen)
+            # get threshold
+            threshold += np.linalg.norm(jtemp) ** 2
+            # and add to data array
+            jac.append(jtemp)
+
+        # and reload for reading
+        jac = self.open_for_read(name + '.hdf5')
+        # store for later use
+        setattr(self, name, jac)
+
+        # store threshold for single computation
+        thresh_name = 'threshold_' + 'cp' if state['conp'] else 'cv'
+        setattr(self, thresh_name, np.sqrt(threshold))
 
         if state['sparse'] == 'sparse':
-            jac = self.__sparsify(jac, state['order'], check=True)
             name += '_sp'
-            setattr(self, name, jac.copy())
+            jac, threshold = self.__sparsify(jac, name, state['order'], check=True)
+            # store
+            setattr(self, name, jac)
+            setattr(self, thresh_name + '_sp', threshold)
 
         return jac
 
-    def get_outputs(self, state, offset, this_run, asplit):
-        output_names = ['jac']
-        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
-        jac = jac[offset:offset + this_run, :]
-        return output_names, asplit.split_numpy_arrays([jac])
+    def threshold(self, state):
+        # find appropriate threshold from state
+        name = 'threshold_' + 'cp' if state['conp'] else 'cv'
+        if state['sparse'] == 'sparse':
+            name += '_sp'
+        return getattr(self, name)
 
-    def eval_error(self, this_run, order, out_files, out_names, reference_answers,
-                   err_dict):
-        def __get_test(name):
-            return reference_answers[out_names.index(name)]
+    @property
+    def output_names(self):
+        # outputs
+        return ['jac']
 
-        out_check = out_files[:]
-        # load output arrays
-        for i in range(len(out_files)):
-            out_check[i] = np.fromfile(out_files[i], dtype=np.float64)
-            # check finite
-            assert np.all(np.isfinite(out_check[i]))
-            # and reshape to match test array
-            out_check[i] = np.reshape(out_check[i], __get_test(out_names[i]).shape,
-                                      order=order)
+    def ref_answers(self, state):
+        return [self.__fast_jac(state['conp'], state['sparse'], state['order'])]
 
+    def eval_error(self, offset, this_run, state, outputs, answers, err_dict):
         def __update_key(key, value, op='norm'):
             if key in err_dict:
                 if op == 'norm':
@@ -659,45 +1005,45 @@ class jacobian_eval(eval):
                 else:
                     raise NotImplementedError(op)
             err_dict[key] = value
+
+        threshold = self.threshold(state)
         # load output
-        for name, out in zip(*(out_names, out_check)):
-            check_arr = __get_test(name)
+        for out, ans in zip(*(outputs, answers)):
             # get err
-            err = np.abs(out - check_arr)
+            err = np.abs(out - ans)
             # do these once
             out = np.abs(out)
-            denom = np.abs(check_arr)
+            denom = np.abs(ans)
             # regular frobenieus norm, have to filter out zero entries for our
             # norm here
-            __update_key('jac', np.linalg.norm(
-                err[denom > 0] / denom[denom > 0]))
-            __update_key('jac_zero', np.linalg.norm(
-                err[denom == 0]))
+            non_zero = np.where(denom > 0)
+            __update_key('jac', np.linalg.norm(err[non_zero] / denom[non_zero]))
+            del non_zero
+            zero = np.where(denom == 0)
+            __update_key('jac_zero', np.linalg.norm(err[zero]))
             assert np.allclose(err_dict['jac_zero'], 0)
+            del zero
             # norm suggested by lapack
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
                 denom))
 
             # thresholded error
-            thresholded_err = err[out > self.threshold / 1.e20] / denom[
-                out > self.threshold / 1.e20]
+            locs = np.where(out > threshold / 1.e20)
+            thresholded_err = err[locs] / denom[locs]
             amax = np.argmax(thresholded_err)
             __update_key('jac_thresholded_20', np.linalg.norm(thresholded_err))
             del thresholded_err
-            __update_key('jac_thresholded_20_PJ_amax', out[
-                out > self.threshold / 1.e20][amax], op='max')
-            __update_key('jac_thresholded_20_AD_amax', check_arr[
-                out > self.threshold / 1.e20][amax], op='max')
+            __update_key('jac_thresholded_20_PJ_amax', out[locs][amax], op='max')
+            __update_key('jac_thresholded_20_AD_amax', denom[locs][amax], op='max')
+            del locs
 
-            thresholded_err = err[out > self.threshold / 1.e15] / denom[
-                out > self.threshold / 1.e15]
+            locs = np.where(out > threshold / 1.e15)
+            thresholded_err = err[locs] / denom[locs]
             amax = np.argmax(thresholded_err)
             __update_key('jac_thresholded_15', np.linalg.norm(thresholded_err))
             del thresholded_err
-            __update_key('jac_thresholded_15_PJ_amax', out[
-                out > self.threshold / 1.e15][amax], op='max')
-            __update_key('jac_thresholded_15_AD_amax', check_arr[
-                out > self.threshold / 1.e15][amax], op='max')
+            __update_key('jac_thresholded_15_PJ_amax', out[locs][amax], op='max')
+            __update_key('jac_thresholded_15_AD_amax', denom[locs][amax], op='max')
 
             # largest relative errors for different absolute toleratnces
             denom = self.rtol * denom
@@ -710,14 +1056,13 @@ class jacobian_eval(eval):
                 del err_weighted
                 __update_key('jac_weighted_{}_PJ_amax'.format(atol), out.flat[amax],
                              op='max')
-                __update_key('jac_weighted_{}_AD_amax'.format(atol), np.abs(
-                    check_arr.flat[amax]), op='max')
+                __update_key('jac_weighted_{}_AD_amax'.format(atol),
+                             denom.flat[amax], op='max')
 
             # info values for lookup
             __update_key('jac_max_value', np.amax(out), op='max')
-            __update_key('jac_threshold_value', self.threshold, op='max')
+            __update_key('jac_threshold_value', threshold, op='max')
 
-        del out_check
         return err_dict
 
     def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
