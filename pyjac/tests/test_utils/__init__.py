@@ -32,6 +32,14 @@ except:
 from unittest.case import SkipTest
 from optionloop import OptionLoop
 import numpy as np
+try:
+    # compatability for older numpy
+    np_divmod = np.divmod
+except:
+    def np_divmod(a, b, **kwargs):
+        div, mod = divmod(a, b)
+        return np.asarray(div, **kwargs), np.asarray(mod, **kwargs)
+
 import pyopencl as cl
 import six
 
@@ -173,7 +181,7 @@ class indexer(object):
             # check that this is ind is not a slice
             # if it is we don't need to to anything
             if isinstance(inds[axi], np.ndarray):
-                rv[-1], rv[0] = np.divmod(
+                rv[-1], rv[0] = np_divmod(
                     inds[axi], self.split_dim, dtype=np.int32)
 
         for i, ax in enumerate(axes):
@@ -204,7 +212,7 @@ class indexer(object):
             # if it is we don't need to to anything
             if isinstance(inds[axi], np.ndarray):
                 # it's a numpy array, so we can divmod
-                rv[0], rv[-1] = np.divmod(
+                rv[0], rv[-1] = np_divmod(
                     inds[axi], self.split_dim, dtype=np.int32)
 
         for i, ax in enumerate(axes):
@@ -548,7 +556,7 @@ class get_comparable(object):
                     if kc.current_order == 'F':
                         stride_arr = [1] + [np.unique(ic_vals).size, 1, 1]
                     else:
-                        d, m = np.divmod(ic_vals, outv.shape[-1])
+                        d, m = np_divmod(ic_vals, outv.shape[-1])
                         stride_arr = [np.unique(d).size] \
                             + [1, 1] + [np.unique(m).size]
 
