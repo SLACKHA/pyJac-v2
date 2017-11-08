@@ -91,7 +91,16 @@ except (ImportError, OSError, IOError):
 
     tests_require=[
           'pyopencl>=2015.2',
-          'nose'],
+          'nose',
+          'nose-exclude',
+          'nose-testconfig',
+          'Cython',
+          'PyYAML',
+          'parameterized',
+          'optionloop >= 1.0.7',
+          'cantera >= 2.3.0',
+          'scipy',
+          'tables'],
 
     # use nose for tests
     test_suite='nose.collector',
