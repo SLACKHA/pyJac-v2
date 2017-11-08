@@ -356,7 +356,8 @@ class validation_runner(runner, hdf5_store):
 
         # ensure our chunk size matches vec width
         if self.chunk_size % max_vec_width != 0:
-            self.chunk_size += self.chunk_size % max_vec_width
+            self.chunk_size = int(
+                np.ceil(self.chunk_size / max_vec_width) * max_vec_width)
 
         self.helper = self.eval_class(gas, num_conditions)
         # and check for helper
