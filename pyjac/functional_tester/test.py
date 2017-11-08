@@ -216,6 +216,8 @@ class hdf5_store(object):
             file.close()
             # and remove old file
             os.remove(pytables_name)
+            # and remove from handles
+            del self.handles[pytables_name]
 
         # open the pytables file for writing
         hdf5_file = tables.open_file(pytables_name, mode='w')
