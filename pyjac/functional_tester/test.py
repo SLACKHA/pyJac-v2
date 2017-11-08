@@ -163,6 +163,10 @@ class hdf5_store(object):
 
         for f, h in iteritems(self.handles):
             h.close()
+            if os.path.exists(f):
+                # it may have already been removed in
+                # :func:`_run_mechanism_tests.__cleanup()`
+                os.remove(f)
             os.remove(f)
         self.handles.clear()
 
