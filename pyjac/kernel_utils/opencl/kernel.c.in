@@ -90,8 +90,8 @@ void mem_init(size_t per_run, size_t problem_size, ${knl_args})
         double zero = 0;
     #else
         // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
-        double* zero = (double*)malloc(${max_size});
-        memset(zero, 0, ${max_size});
+        double* zero = (double*)malloc(${max_size} * sizeof(double));
+        memset(zero, 0, ${max_size} * sizeof(double));
     #endif
 
     /* If we've run out of constant memory space, we will place converted
