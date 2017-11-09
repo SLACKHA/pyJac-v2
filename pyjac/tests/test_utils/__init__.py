@@ -1310,6 +1310,9 @@ def platform_is_gpu(platform_name):
         False if platform found and the device type is not GPU
         None otherwise
     """
+    # filter out C or other non pyopencl platforms
+    if not platform_name or not isinstance(platform_name, str):
+        return False
     import pyopencl as cl
     for p in cl.get_platforms():
         if platform_name.lower() in p.name.lower():
