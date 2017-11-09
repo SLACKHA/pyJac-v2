@@ -951,7 +951,7 @@ class jacobian_eval(eval):
         self.store = __get_state(0, self.chunk_size)
         pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
                                   None, True)
-        store_size = self.store.size
+        store_size = self.store.test_size
         threshold = 0
         for offset in range(0, num_conds, self.chunk_size):
             self.store = __get_state(offset, offset + self.chunk_size)
