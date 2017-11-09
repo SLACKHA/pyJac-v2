@@ -1122,11 +1122,11 @@ class AdeptCompiler(CPlusPlusCompiler):
         from ..siteconf import ADEPT_INC_DIR, ADEPT_LIB_DIR, ADEPT_LIBNAME
         defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
                     'ldflags': '-O3 -shared -fopenmp -fPIC'.split()}
-        defaults['ldflags'].append('-l{}'.format(ADEPT_LIBNAME))
+        defaults['ldflags'].extend(['-l{}'.format(x) for x in ADEPT_LIBNAME])
         if ADEPT_LIB_DIR:
-            defaults['ldflags'].append('-L{}'.format(ADEPT_LIB_DIR))
+            defaults['ldflags'].extend(['-L{}'.format(x) for x in ADEPT_LIB_DIR])
         if ADEPT_INC_DIR:
-            defaults['cflags'].append('-I{}'.format(ADEPT_INC_DIR))
+            defaults['cflags'].append(['-I{}'.format(x) for x in ADEPT_INC_DIR])
 
         # update to use any user specified info
         defaults.update(kwargs)
