@@ -919,7 +919,7 @@ class jacobian_eval(eval):
             return jac
 
         # number of IC's
-        num_conds = phi.shape[0]
+        num_conds = self.num_conditions
         # open the pytables file for writing
         name = 'fd_jac_' + 'cp' if state['conp'] else 'cv'
         jac = self.open_for_chunked_write(
@@ -954,7 +954,7 @@ class jacobian_eval(eval):
         last_size = None
         threshold = 0
         for offset in range(0, num_conds, self.chunk_size):
-            self.state = __get_state(offset, offset + self.chunk_size,)
+            self.store = __get_state(offset, offset + self.chunk_size)
             if last_size is not None and self.store.test_size != last_size:
                 # invalidate
                 pregen = None
