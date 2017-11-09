@@ -951,13 +951,16 @@ class jacobian_eval(eval):
         self.store = __get_state(0, self.chunk_size)
         pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
                                   None, True)
-        last_size = None
+        store_size = self.store.size
         threshold = 0
         for offset in range(0, num_conds, self.chunk_size):
             self.store = __get_state(offset, offset + self.chunk_size)
-            if last_size is not None and self.store.test_size != last_size:
-                # invalidate
-                pregen = None
+            if self.store.test_size != store_size:
+                # need to regenerate
+                pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+                                          None, True)
+                # and store size to check for regen
+                store_size = self.store.test_size
 
             # and add to Jacobian
             jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
