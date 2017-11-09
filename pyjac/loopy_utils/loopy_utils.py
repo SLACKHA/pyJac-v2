@@ -1126,7 +1126,7 @@ class AdeptCompiler(CPlusPlusCompiler):
         if ADEPT_LIB_DIR:
             defaults['ldflags'].extend(['-L{}'.format(x) for x in ADEPT_LIB_DIR])
         if ADEPT_INC_DIR:
-            defaults['cflags'].append(['-I{}'.format(x) for x in ADEPT_INC_DIR])
+            defaults['cflags'].extend(['-I{}'.format(x) for x in ADEPT_INC_DIR])
 
         # update to use any user specified info
         defaults.update(kwargs)
