@@ -246,22 +246,20 @@ class hdf5_store(object):
         if split_axis is not None:
             assert chunk_size % shape[split_axis] == 0
             chunk_size = int(chunk_size / shape[split_axis])
-        with open(filename, 'rb') as file:
-            # need to read in in chunks
-            for i in range(0, num_conds, chunk_size):
-                # find out how many ICs to read
-                num_read = np.minimum(i + chunk_size, num_conds) - i
-                # set the shape to read in
-                rshape = tuple(shape[i] if i != grow_axis else num_read
-                               for i in range(len(shape)))
-                # read in data
-                arr = np.fromfile(file, dtype=ref_ans.dtype,
-                                  count=np.prod(rshape))
-                # reshape
-                arr = arr.reshape(rshape, order=order)
-
-                # and place into storage
-                data_storage.append(arr)
+        # open the data as a memmap to avoid loading it all into memory
+        file = np.memmap(filename, mode='r', dtype=ref_ans.dtype,
+                         shape=shape, order=order)
+        # now read in chunks
+        for i in range(0, num_conds, chunk_size):
+            # find out how many ICs to read
+            end = np.minimum(i + chunk_size, num_conds)
+            # set the read region
+            rslice = tuple(slice(None) if ax != grow_axis else slice(i, end)
+                           for ax in range(len(shape)))
+            # read in data and place into storage
+            data_storage.append(file[rslice])
+        # close memmap
+        del file
 
         # close hdf5 file
         hdf5_file.close()
