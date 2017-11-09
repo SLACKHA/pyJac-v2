@@ -345,16 +345,21 @@ class validation_runner(runner, hdf5_store):
 
         self.gas = gas
         self.gas.basis = 'molar'
-        self.T = data['T']
-        self.P = data['P']
-        self.V = data['V']
-        self.moles = data['moles']
+        T = data['T']
+        P = data['P']
+        V = data['V']
+        moles = data['moles']
         # get phi vectors
-        self.phi_cp = self.get_phi(self.T, self.P, self.V, self.moles)
-        self.phi_cv = self.get_phi(self.T, self.V, self.P, self.moles)
+        self.phi_cp = self.get_phi(T, P, V, moles)
+        self.phi_cv = self.get_phi(T, V, P, moles)
         # convert to hdf
         self.phi_cp = self.to_file(self.phi_cp, 'phi_cp.hdf5')
         self.phi_cv = self.to_file(self.phi_cv, 'phi_cv.hdf5')
+        # and free old data
+        del T
+        del P
+        del V
+        del moles
         self.num_conditions = num_conditions
         self.max_vec_width = max_vec_width
 
