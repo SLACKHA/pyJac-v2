@@ -458,7 +458,7 @@ class validation_runner(runner, hdf5_store):
 
         # get the answer
         phi = self.phi_cp if state['conp'] else self.phi_cv
-        self.helper.eval_answer(phi, self.P, self.V, state)
+        self.helper.eval_answer(phi, state)
 
         my_test = dirs['test']
         my_build = dirs['build']
@@ -590,7 +590,7 @@ class spec_rate_eval(eval):
     def ref_answers(self, state):
         return self.outputs_cp if state['conp'] else self.outputs_cv
 
-    def eval_answer(self, phi, P, V, state):
+    def eval_answer(self, phi, state):
         def __eval_cp(j, T):
             return self.specs[j].thermo.cp(T)
         eval_cp = np.vectorize(__eval_cp, cache=True)
@@ -918,7 +918,7 @@ class jacobian_eval(eval):
                 return getattr(self, name)
         return jac
 
-    def eval_answer(self, phi, P, V, state):
+    def eval_answer(self, phi, state):
         jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
         if jac is not None:
             return jac
@@ -937,6 +937,8 @@ class jacobian_eval(eval):
         # note that we have to do this piecewise in order to avoid memory overflows
         # eval jacobian
         from ..tests.test_jacobian import _get_fd_jacobian
+        P = phi[:, 1] if state['conp'] else phi[:, 2]
+        V = phi[:, 2] if state['conp'] else phi[:, 1]
 
         def __get_state(offset, end):
             end = np.minimum(end, num_conds)
