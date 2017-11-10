@@ -100,7 +100,8 @@ class kernel_generator(object):
                  barriers=[],
                  extra_kernel_data=[],
                  extra_preambles=[],
-                 is_validation=False):
+                 is_validation=False,
+                 fake_calls={}):
         """
         Parameters
         ----------
@@ -141,6 +142,10 @@ class kernel_generator(object):
         is_validation: bool [False]
             If true, this kernel generator is being used to validate pyJac
             Hence we need to save our output data to a file
+        fake_calls: dict of str -> kernel_generator
+            In some cases, e.g. finite differnce jacobians, we need to place a dummy
+            call in the kernel that loopy will accept as valid.  Then it needs to
+            be substituted with an appropriate call to the kernel generator's kernel
         """
 
         self.compiler = None
@@ -214,6 +219,11 @@ class kernel_generator(object):
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds))
 
+        # calls smuggled past loopy
+        self.fake_calls = fake_calls.copy()
+        if self.fake_calls:
+            # compress into one kernel which we will call separately
+            self.seperate_kernels = False
 
     def apply_barriers(self, instructions):
         """
@@ -709,6 +719,25 @@ ${name} : ${type}
 
         pass
 
+    def _get_kernel_call(self, knl=None):
+        """
+        Returns a function call for the given kernel :param:`k` to be used
+        as an instruction.
+
+        If k is None, returns the kernel call for this :class:`kernel_generator`
+        """
+
+        args = self.kernel_data
+        name = self.name
+        if knl is not None:
+            args = knl.args
+            name = knl.name
+
+        return Template("${name}(${args});\n").substitute(
+            name=name,
+            args=', '.join([x.name for x in args])
+            )
+
     def _generate_wrapping_kernel(self, path, instruction_store=None):
         """
         Generates a wrapper around the various subkernels in this
@@ -958,16 +987,6 @@ ${name} : ${type}
         instructions = []
         local_decls = []
 
-        def _get_call(k):
-            """
-            Returns a function call for the given kernel :param:`k` to be used
-            as an instruction
-            """
-            return Template("${name}(${args});\n").substitute(
-                name=k.name,
-                args=', '.join([x.name for x in k.args])
-                )
-
         def _update_for_host_constants(kernel):
             """
             Moves temporary variables to global arguments based on the
@@ -1000,6 +1019,9 @@ ${name} : ${type}
             else:
                 return lp_utils.get_code(str(cgr.ast.contents[-1]))
 
+        if self.fake_calls:
+            extra_fake_kernels = {x: [] for x in self.fake_calls}
+
         from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
         for i, k, in enumerate(self.kernels):
@@ -1010,12 +1032,21 @@ ${name} : ${type}
                     # need to regenerate the call here, in the case that there was
                     # a difference in the host_constants in the sub kernel
                     k = _update_for_host_constants(k)
-                    insns = _get_call(k)
+                    insns = self._get_kernel_call(k)
                     cgr = lp.generate_code_v2(k)
                     assert len(cgr.device_programs) == 1
                     extra = _get_func_body(cgr.device_programs[0])
 
-                instructions.append(insns)
+                if self.fake_calls:
+                    # find out which kernel this belongs to
+                    sub = next(x for x in self.depends_on if k in x.kernels)
+                    # and add the instructions to this fake kernel
+                    extra_fake_kernels[sub].append(insns)
+                    # and clear insns
+                    insns = ''
+
+                if insns:
+                    instructions.append(insns)
                 if pre and pre not in preambles:
                     preambles.extend(pre)
                 if init:
@@ -1092,7 +1123,7 @@ ${name} : ${type}
                 # we need to place the call in the instructions and the extra kernels
                 # in their own array
                 extra_kernels.append(_get_func_body(cgr))
-                instructions.append(_get_call(k))
+                instructions.append(self._get_kernel_call(k))
 
             if instruction_store is not None:
                 assert k.name not in instruction_store
@@ -1106,9 +1137,21 @@ ${name} : ${type}
 
         # get defn
         defn_str = lp_utils.get_header(knl)
+        # and store in case somebody wants access
+        self.kernel_defn = defn_str[:defn_str.index(';')]
 
         # add local declaration to beginning of instructions
         instructions[0:0] = local_decls
+
+        # fix extra fake kernels
+        for dep in self.fake_calls:
+            import pdb; pdb.set_trace()
+            # replace call in instructions to call to kernel
+            knl_call = dep._get_kernel_call()
+            dummy = self.fake_calls[dep]
+            instructions = [x.replace(dummy, knl_call) for x in instructions]
+            # and put the kernel in the extra's
+            extra_kernels.append(extra_fake_kernels[dep])
 
         # join to str
         instructions = '\n'.join(instructions)
@@ -1127,7 +1170,7 @@ ${name} : ${type}
             lines = file_src.safe_substitute(
                 defines='',
                 preamble=preamble,
-                func_define=defn_str[:defn_str.index(';')],
+                func_define=self.kernel_defn,
                 body=instructions,
                 extra_kernels='\n'.join(extra_kernels)).split('\n')
 
@@ -1137,7 +1180,7 @@ ${name} : ${type}
 
         # and the header file (only include self now, as we're using embedded
         # kernels)
-        headers = [defn_str + utils.line_end[self.lang]]
+        headers = [self.kernel_defn + utils.line_end[self.lang]]
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + self.name +
                          utils.header_ext[self.lang]), self.lang) as file:

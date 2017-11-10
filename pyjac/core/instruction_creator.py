@@ -356,6 +356,58 @@ def wrap_instruction_on_condition(insn, condition, wrapper):
     return insn
 
 
+def place_in_vectorization_loop(loopy_opts, insn, namer, vectorize=True):
+    """
+    Places a instruction (or set thereof) inside a "loop" who's sole purpose is
+    to enable top-level vectorization -- taking into account whether atomics can be
+    used.
+
+    Note
+    ----
+    Non-deep vectorizations will not be affected
+
+    Parameters
+    ----------
+    loopy_opts: :class:`loopy_options`
+        The loopy options indicating whether this is a deep vectorization, and the
+        availabilty of atomics
+    insn: str
+        The instructions to wrap
+    namer: :class:`pytools.UniqueNameGenerator`
+        The namer to use to ensure unique inames
+    vectorize: [True]
+        If true, this is intended to be a vectorized instruction.
+        If false, this is a "dummy" vectorization
+    needs_atomic: [False]
+        If True, requires
+
+    Returns
+    -------
+    wrapped_insn: str
+        The wrapped instructions
+    iname_spec: tuple of (str, str)
+        The iname specification to add to the extra_inames.  If this is None, no
+        iname need be added
+    """
+
+    if not loopy_opts.depth:
+        return insn, None
+    # otherwise
+    if vectorize:
+        iname = namer('full_vec')
+        spec = '0 <= {} < {}'.format(iname, loopy_opts.depth)
+    else:
+        iname = namer('fake_vec')
+        spec = '0 <= {} < 1'.format(iname)
+
+    return Template("""
+    for ${iname}
+        ${insn}
+    end
+    """).safe_substitute(iname=iname, insn=insn), (iname, spec)
+
+
+
 def with_conditional_jacobian(func):
     """
     A function wrapper that makes available the :func:`_conditional_jacobian`
