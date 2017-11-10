@@ -1037,7 +1037,7 @@ class jacobian_eval(eval):
             del non_zero
             zero = np.where(np.isclose(denom, 0))
             __update_key('jac_zero', np.linalg.norm(err[zero]))
-            assert np.allclose(err_dict['jac_zero'], 0, atol=1e-5)
+            assert np.allclose(err_dict['jac_zero'], 0, atol=1e-3)
             del zero
             # norm suggested by lapack
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
@@ -1066,7 +1066,7 @@ class jacobian_eval(eval):
             for mul in [1, 10, 100, 1000]:
                 atol = self.atol * mul
                 err_weighted = err / (atol + denom)
-                amax = np.argmax(err_weighted)
+                amax = np.unravel_index(np.argmax(err_weighted), err_weighted.shape)
                 __update_key('jac_weighted_{}'.format(atol), np.linalg.norm(
                              err_weighted))
                 del err_weighted
