@@ -924,7 +924,7 @@ class jacobian_eval(eval):
         # number of IC's
         num_conds = self.num_conditions
         # open the pytables file for writing
-        name = 'fd_jac_' + 'cp' if state['conp'] else 'cv'
+        name = 'fd_jac_' + ('cp' if state['conp'] else 'cv')
         jac = self.open_for_chunked_write(
             name + '.hdf5', (0, len(self.specs) + 1, len(self.specs) + 1),
             num_conds)
