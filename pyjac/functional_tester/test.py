@@ -1035,7 +1035,7 @@ class jacobian_eval(eval):
             non_zero = np.where(denom > 0)
             __update_key('jac', np.linalg.norm(err[non_zero] / denom[non_zero]))
             del non_zero
-            zero = np.where(np.isclose(denom, 0))
+            zero = np.where(denom == 0)
             __update_key('jac_zero', np.linalg.norm(err[zero]))
             assert np.allclose(err_dict['jac_zero'], 0, atol=1e-3)
             del zero
