@@ -1073,7 +1073,7 @@ class jacobian_eval(eval):
                 __update_key('jac_weighted_{}_PJ_amax'.format(atol), out[amax],
                              op='max')
                 __update_key('jac_weighted_{}_AD_amax'.format(atol),
-                             denom[amax], op='max')
+                             denom[amax] / self.rtol, op='max')
 
             # info values for lookup
             __update_key('jac_max_value', np.amax(out), op='max')
