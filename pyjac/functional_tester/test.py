@@ -1062,9 +1062,10 @@ class jacobian_eval(eval):
             __update_key('jac_thresholded_15_AD_amax', denom[locs][amax], op='max')
 
             # largest relative errors for different absolute toleratnces
+            denom = self.rtol * denom
             for mul in [1, 10, 100, 1000]:
                 atol = self.atol * mul
-                err_weighted = err / (atol + self.rtol * denom)
+                err_weighted = err / (atol + denom)
                 amax = np.unravel_index(np.argmax(err_weighted), err_weighted.shape)
                 __update_key('jac_weighted_{}'.format(atol), np.linalg.norm(
                              err_weighted))
@@ -1072,9 +1073,7 @@ class jacobian_eval(eval):
                 __update_key('jac_weighted_{}_PJ_amax'.format(atol), out[amax],
                              op='max')
                 __update_key('jac_weighted_{}_AD_amax'.format(atol),
-                             np.abs(ans[amax]), op='max')
-                num_digits = np.linalg.norm(err - atol) / np.linalg.norm(denom)
-                __update_key('jac_weighted_{}_acc'.format(atol), num_digits)
+                             denom[amax], op='max')
 
             # info values for lookup
             __update_key('jac_max_value', np.amax(out), op='max')
@@ -1119,7 +1118,7 @@ class jacobian_eval(eval):
             allclear = allclear and self._check_file(err, names, mods)
             # check that we have the weighted jacobian error
             names = ['jac_weighted_' + x for x in ['0.01', '0.1', '1.0', '10.0']]
-            mods = ['', '_PJ_amax', '_AD_amax', '_acc']
+            mods = ['', '_PJ_amax', '_AD_amax']
             allclear = allclear and self._check_file(err, names, mods)
             # check for max / threshold value
             names = ['jac_']
