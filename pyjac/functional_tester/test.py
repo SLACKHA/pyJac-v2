@@ -1037,7 +1037,6 @@ class jacobian_eval(eval):
             del non_zero
             zero = np.where(denom == 0)
             __update_key('jac_zero', np.linalg.norm(err[zero]))
-            assert np.allclose(err_dict['jac_zero'], 0, atol=1e-3)
             del zero
             # norm suggested by lapack
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
