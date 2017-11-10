@@ -902,7 +902,7 @@ class jacobian_eval(eval):
     def __fast_jac(self, conp, sparse, order):
         jac = None
         # check for stored jacobian
-        name = 'fd_jac_' + 'cp' if conp else 'cv'
+        name = 'fd_jac_' + ('cp' if conp else 'cv')
         if hasattr(self, name):
             jac = getattr(self, name)
 
