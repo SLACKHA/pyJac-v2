@@ -4478,7 +4478,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     dphi_lp, dphi_isum = mapstore.apply_maps(namestore.n_dot, global_ind, i_sum)
 
     # iterate over net non-zero phi (i.e. those w / non-zero derivatives)
-    _, phi_str = mapstore.apply_maps(namestore.n_dot, global_ind, var_name)
+    _, phi_str = mapstore.apply_maps(namestore.n_arr, global_ind, var_name)
     _, dphi_copy = mapstore.apply_maps(namestore.n_dot, global_ind, i_copy)
 
     # jacobian update
@@ -4524,7 +4524,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # inner isum changes depending on atomics
     i_sum_inner = Template("""
     ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
-        ewt[${i_sum}] * fabs(${dphi_isum})) {id=sum, dep=init:ewt:sum_set${atomic}}
+        ewt[${i_sum}] * fabs(${dphi_isum})) {id=sum, dep=*:init:ewt:sum_set${atomic}}
     """).safe_substitute(**locals())
     if not ic.use_atomics(loopy_opts):
         # make each vector lane run this
@@ -4536,7 +4536,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # and the ewt calc's
     ewt_calcs = Template("""
     for ${i_set}
-        ewt[${i_set}] = ATOL + (RTOL * fabs(${phi_iset})) {id=ewt}
+        ewt[${i_set}] = ATOL + (RTOL * fabs(${phi_iset})) {id=ewt, dep=*, \
+                                                           nosync=change}
     end
     # get the base dphi
     ${spec_rate_call} {id=init}
@@ -4563,7 +4564,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # inner loop instructions
     per_spec_fac = Template("""
-    <> phi_orig = ${phi_str}
+    <> phi_orig = ${phi_str} {dep=*}
     <> r = fmax(srur * fabs(phi_orig), r0 / ewt[i])
     """).safe_substitute(**locals())
     # put in vecloop
@@ -4573,7 +4574,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         extra_inames.append(iname)
 
     k_insns = Template("""
-    ${phi_str} = phi_orig + xcoeffs[k] * r {id=change}
+    ${phi_str} = phi_orig + xcoeffs[k] * r {id=change, nosync=*}
     ${spec_rate_call} {id=inner_call, dep=change}
     ${barrier} {id=barrier2, dep=inner_call}
     """).safe_substitute(**locals())
@@ -4607,7 +4608,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         # need to split only good inames
         def __fixer(knl):
             vw = loopy_opts.depth
-            import pdb; pdb.set_trace()
             can_vec = set([i_set, i_copy, i_end])
             if ic.use_atomics(loopy_opts):
                 can_vec.update([i_copy])
