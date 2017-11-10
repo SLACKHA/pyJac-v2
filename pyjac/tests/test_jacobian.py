@@ -14,7 +14,8 @@ from ..core.create_jacobian import (
     dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
     dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
     dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE,
-    determine_jac_inds, reset_arrays, get_jacobian_kernel)
+    determine_jac_inds, reset_arrays, get_jacobian_kernel,
+    finite_difference_jacobian)
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
@@ -2631,5 +2632,12 @@ class SubTest(TestClass):
     @attr('long')
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
+                          lambda conp: self.__get_full_jac(conp),
+                          btype=build_type.jacobian, call_name='jacobian')
+
+    @parameterized.expand([('opencl',), ('c',)])
+    @attr('long')
+    def test_fd_jacobian(self, lang):
+        _full_kernel_test(self, lang, finite_difference_jacobian, 'jac',
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian')

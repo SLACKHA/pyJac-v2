@@ -41,13 +41,18 @@ class RateSpecialization(IntEnum):
 class JacobianType(IntEnum):
     """
     The Jacobian type to be constructed.
-    An exact Jacobian has no approximations for reactions including the last species,
-    while an approximate Jacobian ignores the derivatives of these reactions from
-    species not directly involved (i.e. fwd/rev stoich coeff == 0, and not a third
-    body species) while in a reaction including the last species
+
+    - An exact Jacobian has no approximations for reactions including the last
+      species,
+    - An approximate Jacobian ignores the derivatives of these reactions from
+      species not directly involved (i.e. fwd/rev stoich coeff == 0, and not a third
+      body species) while in a reaction including the last species
+    - A finite differnce Jacobian is constructed from finite differences of the
+      species rate kernel
     """
     exact = 0,
-    approximate = 1
+    approximate = 1,
+    finite_difference = 2
 
 
 class JacobianFormat(IntEnum):
@@ -58,9 +63,18 @@ class JacobianFormat(IntEnum):
     a Compressed Row/Column storage based format depending on the data-order ('C'
     and 'F' respectively)
     """
-
     full = 0,
     sparse = 1
+
+
+class FiniteDifferenceMode(IntEnum):
+    """
+    The mode of finite differences--forwards, backwards or central--used to create
+    the finite difference Jacobian
+    """
+    forward = 0,
+    central = 1,
+    backward = 2
 
 
 class loopy_options(object):

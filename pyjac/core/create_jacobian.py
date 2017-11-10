@@ -19,7 +19,8 @@ from . import rate_subs as rate
 from . import mech_auxiliary as aux
 from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat
+from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat, \
+    FiniteDifferenceMode
 from . import array_creator as arc
 from ..kernel_utils import kernel_gen as k_gen
 from .reaction_types import reaction_type, falloff_form, thd_body_type
@@ -30,6 +31,8 @@ from .rate_subs import assign_rates
 
 # external
 import numpy as np
+import loopy as lp
+from loopy.kernel.data import temp_var_scope as scopes
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
@@ -4319,10 +4322,331 @@ def dRopi_dnj(loopy_opts, namestore, allint, test_size=None):
         if x is not None]
 
 
-def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True,
-                        test_size=None, auto_diff=False):
+@ic.with_conditional_jacobian
+def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=None,
+                               order=1, rtol=1e-8, atol=1e-15,
+                               mode=FiniteDifferenceMode.forward,
+                               jac_create=None):
+    """
+    Creates a wrapper around the species rates kernels that evaluates a central,
+    forward or backwards finite difference Jacobian of the given :param:`order`,
+    based on perturbations calculated from :param:`rtol` and :param:`atol`
+
+    Parameters
+    ----------
+    reacs : list of :class:`ReacInfo`
+        List of species in the mechanism.
+    specs : list of :class:`SpecInfo`
+        List of species in the mechanism.
+    loopy_opts : :class:`loopy_options` object
+        A object containing all the loopy options to execute
+    conp : bool
+        If true, generate equations using constant pressure assumption
+        If false, use constant volume equations
+    loopy_opts : `loopy_options` object
+        A object containing all the loopy options to execute
+    test_size : int
+        If not none, this kernel is being used for testing.
+        Hence we need to size the arrays accordingly
+    order: int [1]
+        The order of the finite difference jacobian
+    rtol: double [1e-8]
+        The relative tolerance for perturbing the state vector to compute the
+        finite difference jacobian
+    atol: double [1e-15]
+        The relative tolerance for perturbing the state vector to compute the
+        finite difference jacobian
+    mode: ['f', 'b', 'c']
+        The mode of the Jacobian, forward ('f'), backwards ('b') or central ('c')
+    jac_create: Callable
+        The conditional Jacobian instruction creator from :mod:`instruction_creator`
+
+    Returns
+    -------
+    knl_list : list of :class:`knl_info`
+        The generated infos for feeding into the kernel generator
+    """
+
+    if test_size is None:
+        test_size = 'problem_size'
+
+    # first we create a species rates kernel
+    sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
+                                     test_size=test_size)
+    sub_kernels = sgen.kernels[:]
+
+    # figure out rates and info
+    rate_info = determine_jac_inds(reacs, specs, loopy_opts.rate_spec,
+                                   loopy_opts.jac_type)
+
+    # create the namestore
+    namestore = arc.NameStore(loopy_opts, rate_info, conp, test_size=test_size)
+
+    # indicies
+    kernel_data = []
+    if namestore.test_size == 'problem_size':
+        kernel_data.append(namestore.problem_size)
+
+    # need to loop over all non-zero phi entries
+    mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_phi,
+                            namestore.net_nonzero_phi)
+
+    # next, define our FD coefficients
+    # take from https://en.wikipedia.org/wiki/Finite_difference_coefficient
+    central_xcoeffs = {2: [-1, 1],
+                       4: [-2, -1, 1, 2],
+                       6: [-3, -2, -1, 1, 2, 3],
+                       8: [-4, -3, -2, -1, 1, 2, 3, 4]}
+    central_ycoeffs = {2: [-0.5, 0.5],
+                       4: [1 / 12, -2 / 3, 2 / 3, -1 / 12],
+                       6: [-1 / 60, 3 / 20, -3 / 4, 3 / 4, -3 / 20, 1 / 60],
+                       8: [1 / 280, -4 / 105, 1 / 5, -4 / 5, 4 / 5, -1 / 5, 4 / 105,
+                           -1 / 280]}
+    fwd_xcoeffs = {x: list(range(x + 1)) for x in range(1, 6)}
+    fwd_ycoeffs = {1: [-1, 1],
+                   2: [-3 / 2, 2, -1 / 2],
+                   3: [-11 / 6, 3, 3 / 2, 1 / 3],
+                   4: [-25 / 12, 4, -3, 4 / 3, 1 / 4],
+                   5: [-137 / 60, 5, -5, 10 / 3, -5 / 4, 1 / 5],
+                   6: [-49 / 20, 6, -15 / 2, 20 / 3, -15 / 4, 6 / 5, -1 / 6]}
+
+    # backwards xcoeffs are just the negative of the forward
+    bwd_xcoeffs = {x: [-v for v in fwd_xcoeffs[x]] for x in fwd_xcoeffs}
+    # and the y coeffs as well, as we are using a first derivative
+    bwd_ycoeffs = {x: [-v for v in fwd_ycoeffs[x]] for x in fwd_xcoeffs}
+
+    coeffs = {FiniteDifferenceMode.forward: (fwd_xcoeffs, fwd_ycoeffs),
+              FiniteDifferenceMode.backward: (bwd_xcoeffs, bwd_ycoeffs),
+              FiniteDifferenceMode.central: (central_xcoeffs, central_ycoeffs)}
+
+    xcoeffs, ycoeffs = coeffs[mode]
+    assert all(x in ycoeffs for x in xcoeffs)
+
+    if order not in xcoeffs:
+        logger = logging.getLogger(__name__)
+        logger.exception('{}-mode finite-difference of order {} not defined, '
+                         'available orders are: {}'.format(
+                            str(mode).title(), order,
+                            ', '.join(str(x) for x in xcoeffs)))
+        sys.exit(-1)
+    xcoeffs = xcoeffs[order]
+    ycoeffs = ycoeffs[order]
+
+    phi_size = namestore.n_arr.shape[-1]
+    # need to create a temporary variable to store the error weights
+    error_weights = lp.TemporaryVariable('ewt', order=loopy_opts.order,
+                                         shape=(phi_size,), dtype=np.float64,
+                                         scope=scopes.PRIVATE)
+
+    # and the sum of error weights (needs to be a local for deep-vecs)
+    sumv = lp.TemporaryVariable('sum', dtype=np.float64,
+                                scope=(scopes.LOCAL if ic.use_atomics(loopy_opts)
+                                       else scopes.PRIVATE),
+                                for_atomic=ic.use_atomics(loopy_opts))
+
+    # and finally the coeffs
+    xcoeffs = np.array(xcoeffs, dtype=np.int32)
+    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=np.int32, initializer=xcoeffs,
+                                   shape=xcoeffs.shape, scope=scopes.PRIVATE,
+                                   read_only=True)
+
+    ycoeffs = np.array(ycoeffs, dtype=np.float64)
+    ycoeffs = lp.TemporaryVariable('ycoeffs', dtype=np.float64, initializer=ycoeffs,
+                                   shape=ycoeffs.shape, scope=scopes.PRIVATE,
+                                   read_only=True)
+
+    # and add to data
+    kernel_data.extend([error_weights, sumv, xcoeffs, ycoeffs])
+    sumv = sumv.name
+
+    # create our extra loops
+    i_set = 'i_set'
+    i_sum = 'i_sum'
+    i_copy = 'i_copy'
+    i_end = 'i_end'
+    extra_inames = [(i_set, '0 <= {} < {}'.format(i_set, phi_size)),
+                    (i_sum, '0 <= {} < {}'.format(i_sum, phi_size)),
+                    (i_copy, '0 <= {} < {}'.format(i_copy, phi_size)),
+                    (i_end, '0 <= {} < {}'.format(i_end, phi_size)),
+                    ('k', '0 <= k < {}'.format(xcoeffs.shape[0]))]
+
+    # start creating our variables
+
+    # sum over all phi
+    phi_lp, phi_iset = mapstore.apply_maps(namestore.n_arr, global_ind, i_set)
+    dphi_lp, dphi_isum = mapstore.apply_maps(namestore.n_dot, global_ind, i_sum)
+
+    # iterate over net non-zero phi (i.e. those w / non-zero derivatives)
+    _, phi_str = mapstore.apply_maps(namestore.n_dot, global_ind, var_name)
+    _, dphi_copy = mapstore.apply_maps(namestore.n_dot, global_ind, i_copy)
+
+    # jacobian update
+    jac_update_insn = Template('${jac_str} = ${jac_str} + ycoeffs[k] * ${dphi_copy} \
+                       {id=update, dep=${deps}}').safe_substitute(
+                       dphi_copy=dphi_copy)
+    jac_lp, jac_update_insn = jac_create(
+        mapstore, namestore.jac, global_ind, var_name, i_copy,
+        deps='barrier2', insn=jac_update_insn)
+    # finite difference division
+    jac_finite_diff_insn = '${jac_str} = ${jac_str} / r \
+                           {id=final, dep=${deps}, nosync=update}'
+    _, jac_finite_diff_insn = jac_create(
+        mapstore, namestore.jac, global_ind, var_name, i_end,
+        deps='update', insn=jac_finite_diff_insn)
+    kernel_data.extend([phi_lp, dphi_lp, jac_lp])
+
+    # we will have to replace this during kernel creation, but for now we just
+    # need to put a call
+    spec_rate_call = 'dummy()'
+
+    barrier = '... nop'
+    if loopy_opts.depth or loopy_opts.width:
+        barrier = '... lbarrier'
+
+    atomic = ', atomic' if ic.use_atomics(loopy_opts) else ''
+    # now create our instructions
+    from pytools import UniqueNameGenerator
+    namer = UniqueNameGenerator()
+
+    # initialize sum
+    sum_init = Template("""
+    # get the error weights and original phi
+    ${sumv} = 0 {id=sum_init${atomic}}
+    ${barrier} {id=sum_set}
+    """).safe_substitute(**locals())
+    # convert to vecloop if needed
+    sum_init, iname = ic.place_in_vectorization_loop(
+        loopy_opts, sum_init, namer, vectorize=ic.use_atomics(loopy_opts))
+    if iname:
+        extra_inames.append(iname)
+
+    # inner isum changes depending on atomics
+    i_sum_inner = Template("""
+    ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
+        ewt[${i_sum}] * fabs(${dphi_isum})) {id=sum, dep=init:ewt:sum_set${atomic}}
+    """).safe_substitute(**locals())
+    if not ic.use_atomics(loopy_opts):
+        # make each vector lane run this
+        i_sum_inner, iname = ic.place_in_vectorization_loop(
+            loopy_opts, i_sum_inner, namer, vectorize=True)
+        if iname:
+            extra_inames.append(iname)
+
+    # and the ewt calc's
+    ewt_calcs = Template("""
+    for ${i_set}
+        ewt[${i_set}] = ATOL + (RTOL * fabs(${phi_iset})) {id=ewt}
+    end
+    # get the base dphi
+    ${spec_rate_call} {id=init}
+    for ${i_sum}
+       ${i_sum_inner}
+    end
+    """).safe_substitute(**locals())
+
+    # and finally the factor inits
+    fac_inits = Template("""
+    ${barrier} {id=barrier, dep=sum}
+    <> fac = sqrt(${sumv} / ${phi_size}.0) {dep=barrier}
+    <> r0 = 1000.0 * RTOL * DBL_EPSILON * ${phi_size}.0 * fac
+    <> srur = sqrt(DBL_EPSILON)
+    """).safe_substitute(**locals())
+    # put in vecloop
+    fac_inits, iname = ic.place_in_vectorization_loop(
+        loopy_opts, fac_inits, namer, vectorize=True)
+    if iname:
+        extra_inames.append(iname)
+
+    # and join
+    pre_instructions = '\n'.join([sum_init, ewt_calcs, fac_inits])
+
+    # inner loop instructions
+    per_spec_fac = Template("""
+    <> phi_orig = ${phi_str}
+    <> r = fmax(srur * fabs(phi_orig), r0 / ewt[i])
+    """).safe_substitute(**locals())
+    # put in vecloop
+    per_spec_fac, iname = ic.place_in_vectorization_loop(
+        loopy_opts, per_spec_fac, namer, vectorize=True)
+    if iname:
+        extra_inames.append(iname)
+
+    k_insns = Template("""
+    ${phi_str} = phi_orig + xcoeffs[k] * r {id=change}
+    ${spec_rate_call} {id=inner_call, dep=change}
+    ${barrier} {id=barrier2, dep=inner_call}
+    """).safe_substitute(**locals())
+    # put in vecloop
+    k_insns, iname = ic.place_in_vectorization_loop(
+        loopy_opts, k_insns, namer, vectorize=True)
+    if iname:
+        extra_inames.append(iname)
+
+    instructions = Template("""
+    ${per_spec_fac}
+    for k
+        ${k_insns}
+        for ${i_copy}
+            ${jac_update_insn}
+        end
+    end
+    for ${i_end}
+        ${jac_finite_diff_insn}
+    end
+    """).safe_substitute(**locals())
+
+    parameters = {'RTOL': rtol,
+                  'ATOL': atol,
+                  'DBL_EPSILON': np.finfo(np.float64).eps}
+
+    if not loopy_opts.depth:
+        def __fixer(knl):
+            return knl
+    else:
+        # need to split only good inames
+        def __fixer(knl):
+            vw = loopy_opts.depth
+            import pdb; pdb.set_trace()
+            can_vec = set([i_set, i_copy, i_end])
+            if ic.use_atomics(loopy_opts):
+                can_vec.update([i_copy])
+            for iname, _ in extra_inames:
+                if '_vec' in iname or iname in can_vec:
+                    # realize fake / full / legit vectorization
+                    knl = lp.split_iname(knl, iname, vw, inner_tag='l.0')
+            return knl
+
+    info = k_gen.knl_info(name='fd_jac',
+                          instructions=instructions,
+                          pre_instructions=pre_instructions,
+                          mapstore=mapstore,
+                          var_name=var_name,
+                          kernel_data=kernel_data,
+                          parameters=parameters,
+                          can_vectorize=False,
+                          vectorization_specializer=__fixer,
+                          extra_inames=extra_inames,
+                          manglers=[lp_pregen.fmax()])
+
+    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
+    output_arrays = ['jac']
+
+    # and return the full generator
+    return k_gen.make_kernel_generator(
+        loopy_opts=loopy_opts,
+        name='jacobian_kernel',
+        kernels=sub_kernels + [info],
+        namestore=namestore,
+        depends_on=[sgen],
+        input_arrays=input_arrays,
+        output_arrays=output_arrays,
+        test_size=test_size,
+        fake_calls={sgen: spec_rate_call})
+
+
+def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None):
     """Helper function that generates kernels for
-       evaluation of reaction rates / rate constants / and species rates
+       evaluation of analytical jacobian
 
     Parameters
     ----------
@@ -4337,8 +4661,6 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True,
         If false, use constant volume equations
     test_size : int
         If not None, this kernel is being used for testing.
-    auto_diff : bool
-        If ``True``, generate files for Adept autodifferention library.
 
     Returns
     -------
@@ -4543,7 +4865,6 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True,
         depends_on=[sgen],
         input_arrays=input_arrays,
         output_arrays=output_arrays,
-        auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers)
 
@@ -4671,8 +4992,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         Typically should be N2, Ar, He or another inert bath gas
     skip_jac : bool, optional
         If ``True``, only the reaction rate subroutines will be generated
-    auto_diff : bool, optional
-        If ``True``, generate files for use with the Adept autodifferention library.
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be used
