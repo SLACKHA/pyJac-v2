@@ -115,9 +115,6 @@ class kernel_generator(object):
             The namestore object used in creation of this kernel.
             This is used to pull any extra data (e.g. the Jacobian row/col inds)
             as needed
-        external_kernels : list of :class:`loopy.LoopKernel`
-            External kernels that must be called, but not implemented in this
-            file
         input_arrays : list of str
             The names of the input arrays of this kernel
         output_arrays : list of str
@@ -163,7 +160,6 @@ class kernel_generator(object):
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
-        self.external_kernels = external_kernels
         self.seperate_kernels = loopy_opts.seperate_kernels
         self.test_size = test_size
         self.auto_diff = auto_diff
