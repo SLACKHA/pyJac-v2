@@ -299,7 +299,7 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
 
     # add arrays
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, init_ids=['reset'])
+        loopy_opts, init_ids=['reset'], is_write_race=False)
 
     return k_gen.knl_info(name='reset_arrays',
                           instructions=instructions,
