@@ -39,7 +39,7 @@ def use_atomics(loopy_opts):
 
 
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
-                         force_sequential=False):
+                         force_sequential=False, is_write_race=True):
     """
     Returns a deep specializer to enable deep vectorization using either
     atomic updates or a sequential (single-lane/thread) "dummy" deep
@@ -61,6 +61,10 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         These instructions ids should be passed as split_ids
     init_ids: list of str
         List of instructions that initialize atomic variables
+    is_write_race: bool [True]
+        If False, this kernel is guarenteed not to have a write race by nature
+        of it's access pattern. Hence we only need to return a
+        :class:`write_race_silencer` for non-atomic configurations
 
     Returns
     -------
@@ -79,6 +83,9 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         return True, atomic_deep_specialization(
             loopy_opts.depth, atomic_ids=atomic_ids,
             split_ids=split_ids, init_ids=init_ids)
+    elif not is_write_race:
+        return True, write_race_silencer(
+            lwrite_races=atomic_ids + split_ids + init_ids)
     else:
         return False, dummy_deep_specialization(
             write_races=atomic_ids + split_ids + init_ids)
