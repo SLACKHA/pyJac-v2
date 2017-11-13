@@ -4436,7 +4436,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # need to create a temporary variable to store the error weights
     error_weights = lp.TemporaryVariable('ewt', order=loopy_opts.order,
                                          shape=(phi_size,), dtype=np.float64,
-                                         scope=scopes.PRIVATE)
+                                         scope=scopes.PRIVATE
+                                         if not loopy_opts.depth else scopes.LOCAL)
 
     # and the sum of error weights (needs to be a local for deep-vecs)
     sumv = lp.TemporaryVariable('sum', dtype=np.float64,
@@ -4494,7 +4495,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                        dphi_copy=dphi_copy)
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, jac_var_template.format(i_copy),
-        var_name, deps='barrier2', insn=jac_update_insn)
+        var_name, deps='spec_rate_call', insn=jac_update_insn)
     # finite difference division
     jac_finite_diff_insn = '${jac_str} = ${jac_str} / r \
                            {id=final, dep=${deps}, nosync=update}'
@@ -4508,11 +4509,13 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     spec_rate_call = 'dummy()'
 
     barrier = '... nop'
+    abarrier = '... nop'  # barrier for atomic only operations
     atomic = ''
     if loopy_opts.depth:
         barrier = '... lbarrier'
     if ic.use_atomics(loopy_opts):
         atomic = ', atomic'
+        abarrier = '... lbarrier'
 
     # now create our instructions
     from pytools import UniqueNameGenerator
@@ -4520,29 +4523,33 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # initialize sum
     sum_init = Template("""
+    # get the base dphi
+    ${spec_rate_call} {id=init}
     # get the error weights and original phi
     ${sumv} = 0 {id=sum_init${atomic}}
-    ${barrier} {id=sum_set, dep=sum_init}
+    ${barrier} {id=sum_and_dphi_init, dep=sum_init:init}
     """).safe_substitute(**locals())
     # convert to vecloop if needed
     sum_init, iname = ic.place_in_vectorization_loop(
-        loopy_opts, sum_init, namer, vectorize=ic.use_atomics(loopy_opts))
+        loopy_opts, sum_init, namer, vectorize=True)
     if iname:
         extra_inames.append(iname)
 
-    # inner isum changes depending on atomics
+    # inner isum changes depending on presence of atomics
     i_sum_inner = Template("""
     for ${i_sum}
         ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
             ewt[${i_sum}] * fabs(${dphi_isum})) \
-            {id=sum, dep=*:init:ewt:sum_set${atomic}}
+            {id=sum, dep=*:sum_and_dphi_init:ewt${atomic}}
     end
+    ${abarrier} {id=sum_barrier, dep=sum}
     """).safe_substitute(**locals())
-    # parallelize only for deep atomics
-    i_sum_inner, iname = ic.place_in_vectorization_loop(
-        loopy_opts, i_sum_inner, namer, vectorize=ic.use_atomics(loopy_opts))
-    if iname:
-        extra_inames.append(iname)
+    if not ic.use_atomics(loopy_opts) and loopy_opts.depth:
+        # simply have each workitem run this
+        i_sum_inner, iname = ic.place_in_vectorization_loop(
+            loopy_opts, i_sum_inner, namer, vectorize=True)
+        if iname:
+            extra_inames.append(iname)
 
     # and the ewt calc's
     ewt_calcs = Template("""
@@ -4550,8 +4557,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         ewt[${i_set}] = ATOL + (RTOL * fabs(${phi_iset})) {id=ewt, dep=*, \
                                                            nosync=change}
     end
-    # get the base dphi
-    ${spec_rate_call} {id=init}
     for ${i_sum}
        ${i_sum_inner}
     end
@@ -4559,8 +4564,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # and finally the factor inits
     fac_inits = Template("""
-    ${barrier} {id=barrier, dep=sum}
-    <> fac = sqrt(${sumv} / ${phi_size}.0) {dep=barrier}
+    <> fac = sqrt(${sumv} / ${phi_size}.0) {dep=sum_barrier}
     <> r0 = 1000.0 * RTOL * DBL_EPSILON * ${phi_size}.0 * fac
     <> srur = sqrt(DBL_EPSILON)
     """).safe_substitute(**locals())
@@ -4584,18 +4588,24 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     if iname:
         extra_inames.append(iname)
 
-    k_insns = Template("""
+    # phi update instruction in FD loop
+    phi_set = Template("""
     ${phi_str} = phi_orig + xcoeffs[k] * r {id=change, nosync=*}
     """).safe_substitute(**locals())
-    k_insns, iname = ic.place_in_vectorization_loop(
-        loopy_opts, k_insns, namer, vectorize=False)
+    phi_set, iname = ic.place_in_vectorization_loop(
+        loopy_opts, phi_set, namer, vectorize=ic.use_atomics(loopy_opts))
     if iname:
         extra_inames.append(iname)
+    # add barrier to ensure broadcast to all work items
+    phi_set = Template("""
+    ${phi_set}
+    ${barrier} {id=phi_set, dep=change}
+    """).safe_substitute(**locals())
 
+    # and the species rate call
     k_insns2 = Template("""
-    ${barrier} {id=barrier2, dep=change}
-    ${spec_rate_call} {id=inner_call, dep=barrier2}
-    ${barrier} {id=barrier3, dep=inner_call}
+    ${spec_rate_call} {id=inner_call, dep=phi_set}
+    ${barrier} {id=spec_rate_call, dep=inner_call}
     """).safe_substitute(**locals())
     # put in vecloop
     k_insns2, iname = ic.place_in_vectorization_loop(
@@ -4603,24 +4613,37 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     if iname:
         extra_inames.append(iname)
 
+    # and reset the phi value to original
+    phi_reset = Template('${phi_str} = phi_orig {id=phi_reset, dep=*:update, '
+                         'nosync=*${atomic}}').safe_substitute(**locals())
+    phi_reset, iname = ic.place_in_vectorization_loop(
+        loopy_opts, phi_reset, namer, vectorize=ic.use_atomics(loopy_opts))
+    if iname:
+        extra_inames.append(iname)
+
+    # put together all instructions
     instructions = Template("""
     ${per_spec_fac}
     for k
-        ${k_insns}
+        ${phi_set}
         ${k_insns2}
         for ${i_copy}
             ${jac_update_insn}
         end
     end
+    ${phi_reset}
     for ${i_end}
         ${jac_finite_diff_insn}
     end
+    ${barrier} {id=end, dep=final:phi_reset}
     """).safe_substitute(**locals())
 
+    # set parameters
     parameters = {'RTOL': rtol,
                   'ATOL': atol,
                   'DBL_EPSILON': np.finfo(np.float64).eps}
 
+    # specialization fixer
     if not loopy_opts.depth:
         def __fixer(knl):
             return knl
@@ -4637,6 +4660,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                     knl = lp.split_iname(knl, iname, vw, inner_tag='l.0')
             return knl
 
+    # create kernel info
     info = k_gen.knl_info(name='fd_jac',
                           instructions=instructions,
                           pre_instructions=pre_instructions,
@@ -4650,20 +4674,31 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                           manglers=[lp_pregen.fmax(),
                                     lp_pregen.MangleGen('dummy', tuple(), tuple())])
 
+    # inputs and outputs
+
     input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
     output_arrays = ['jac']
+
+    # and finally add a reset array
+    reset = reset_arrays(loopy_opts, namestore, test_size=test_size)
+
+    # and barriers
+    barriers = []
+    if loopy_opts.depth:
+        barriers.append((0, 1, 'global'))
 
     # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='jacobian_kernel',
-        kernels=sub_kernels + [info],
+        kernels=sub_kernels + [reset, info],
         namestore=namestore,
         depends_on=[sgen],
         input_arrays=input_arrays,
         output_arrays=output_arrays,
         test_size=test_size,
-        fake_calls={sgen: spec_rate_call})
+        fake_calls={sgen: spec_rate_call},
+        barriers=barriers)
 
 
 def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None):

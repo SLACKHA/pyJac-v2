@@ -85,7 +85,7 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
             split_ids=split_ids, init_ids=init_ids)
     elif not is_write_race:
         return True, write_race_silencer(
-            lwrite_races=atomic_ids + split_ids + init_ids)
+            write_races=atomic_ids + split_ids + init_ids)
     else:
         return False, dummy_deep_specialization(
             write_races=atomic_ids + split_ids + init_ids)
