@@ -4500,10 +4500,10 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     spec_rate_call = 'dummy()'
 
     barrier = '... nop'
-    if loopy_opts.depth or loopy_opts.width:
-        barrier = '... lbarrier'
+    atomic = ''
+    if ic.use_atomics(loopy_opts):
+        atomic = ', atomic'
 
-    atomic = ', atomic' if ic.use_atomics(loopy_opts) else ''
     # now create our instructions
     from pytools import UniqueNameGenerator
     namer = UniqueNameGenerator()
@@ -4512,7 +4512,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     sum_init = Template("""
     # get the error weights and original phi
     ${sumv} = 0 {id=sum_init${atomic}}
-    ${barrier} {id=sum_set}
+    ${barrier} {id=sum_set, dep=sum_init}
     """).safe_substitute(**locals())
     # convert to vecloop if needed
     sum_init, iname = ic.place_in_vectorization_loop(
@@ -4522,15 +4522,17 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # inner isum changes depending on atomics
     i_sum_inner = Template("""
-    ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
-        ewt[${i_sum}] * fabs(${dphi_isum})) {id=sum, dep=*:init:ewt:sum_set${atomic}}
+    for ${i_sum}
+        ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
+            ewt[${i_sum}] * fabs(${dphi_isum})) \
+            {id=sum, dep=*:init:ewt:sum_set${atomic}}
+    end
     """).safe_substitute(**locals())
-    if not ic.use_atomics(loopy_opts):
-        # make each vector lane run this
-        i_sum_inner, iname = ic.place_in_vectorization_loop(
-            loopy_opts, i_sum_inner, namer, vectorize=True)
-        if iname:
-            extra_inames.append(iname)
+    # parallelize only for deep atomics
+    i_sum_inner, iname = ic.place_in_vectorization_loop(
+        loopy_opts, i_sum_inner, namer, vectorize=ic.use_atomics(loopy_opts))
+    if iname:
+        extra_inames.append(iname)
 
     # and the ewt calc's
     ewt_calcs = Template("""
@@ -4626,7 +4628,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                           can_vectorize=False,
                           vectorization_specializer=__fixer,
                           extra_inames=extra_inames,
-                          manglers=[lp_pregen.fmax()])
+                          manglers=[lp_pregen.fmax(),
+                                    lp_pregen.MangleGen('dummy', tuple(), tuple())])
 
     input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
     output_arrays = ['jac']

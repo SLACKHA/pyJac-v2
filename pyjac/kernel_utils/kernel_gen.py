@@ -221,7 +221,7 @@ class kernel_generator(object):
             # compress into one kernel which we will call separately
             self.seperate_kernels = False
 
-    def apply_barriers(self, instructions):
+    def apply_barriers(self, instructions, use_sub_barriers=True):
         """
         A method stud that can be overriden to apply synchonization barriers
         to vectorized code
@@ -231,6 +231,10 @@ class kernel_generator(object):
 
         instructions: list of str
             The instructions for this kernel
+
+        use_sub_barriers: bool [True]
+            If true, apply barriers from dependency kernel generators in
+            :attr:`depends_on`
 
         Returns
         -------
@@ -760,7 +764,7 @@ ${name} : ${type}
             isinstance(x, lp.LoopKernel) for x in self.kernels), (
             'Cannot generate wrapper before calling _make_kernels')
 
-        sub_instructions = {}
+        sub_instructions = {} if instruction_store is None else instruction_store
         if self.depends_on:
             # generate wrappers for dependencies
             for x in self.depends_on:
@@ -867,15 +871,6 @@ ${name} : ${type}
         # update memory args
         self.mem.add_arrays(kernel_data)
 
-        def _name_assign(arr):
-            if arr.name not in read_only and not \
-                    isinstance(arr, lp.ValueArg):
-                return arr.name + '[{ind}] = 0 {atomic}'.format(
-                    ind=', '.join(['0'] * len(arr.shape)),
-                    atomic='{atomic}' if isinstance(arr.dtype, AtomicNumpyType)
-                           else '')
-            return ''
-
         # generate the kernel definition
         self.vec_width = self.loopy_opts.depth
         if self.vec_width is None:
@@ -956,15 +951,27 @@ ${name} : ${type}
             self.mem.add_arrays(kernel_data[data_size:],
                                 in_arrays=read_only[read_size:])
 
+        # create a dummy kernel to get the defn string
         inames, _ = self.get_inames(0)
 
+        # domains
         domains = []
         for iname in ['i'] + inames:
             domains.append('{{[{iname}]: 0 <= {iname} < {size}}}'.format(
                 iname=iname,
                 size=self.vec_width))
 
-        # create a dummy kernel to get the defn
+        # assign to non-readonly to prevent removal
+        def _name_assign(arr, use_atomics=True):
+            if arr.name not in read_only and not \
+                    isinstance(arr, lp.ValueArg):
+                return arr.name + '[{ind}] = 0 {atomic}'.format(
+                    ind=', '.join(['0'] * len(arr.shape)),
+                    atomic='{atomic}'
+                           if isinstance(arr.dtype, AtomicNumpyType) and use_atomics
+                           else '')
+            return ''
+
         knl = lp.make_kernel(domains,
                              '\n'.join(_name_assign(arr)
                                        for arr in kernel_data),
@@ -975,6 +982,11 @@ ${name} : ${type}
         if self.vec_width != 0:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
+
+        # get defn
+        defn_str = lp_utils.get_header(knl)
+        # and store in case somebody wants access
+        self.kernel_defn = defn_str[:defn_str.index(';')]
 
         # and finally, generate the kernel code
         preambles = []
@@ -1128,26 +1140,31 @@ ${name} : ${type}
                                              else [], ldecls,
                                              instructions[-1][:])
 
-        # insert barriers if any
-        instructions = self.apply_barriers(instructions)
+        # fix extra fake kernels
+        for gen in self.fake_calls:
+            dep = self.fake_calls[gen]
+            # replace call in instructions to call to kernel
+            knl_call = gen._get_kernel_call()
+            instructions = [x.replace(dep, knl_call) for x in instructions]
+            # and put the kernel in the extra's
+            sub_instructions = extra_fake_kernels[gen]
+            # apply barriers
+            sub_instructions = gen.apply_barriers(sub_instructions)
+            # and place within a single extra kernel
+            extra_kernels.append(Template("""
+            ${defn}
+            {
+                ${insns}
+            }
+            """).safe_substitute(defn=gen.kernel_defn, insns='\n'.join(
+                                 sub_instructions)))
 
-        # get defn
-        defn_str = lp_utils.get_header(knl)
-        # and store in case somebody wants access
-        self.kernel_defn = defn_str[:defn_str.index(';')]
+        # insert barriers if any
+        instructions = self.apply_barriers(instructions,
+                                           use_sub_barriers=not self.fake_calls)
 
         # add local declaration to beginning of instructions
         instructions[0:0] = local_decls
-
-        # fix extra fake kernels
-        for dep in self.fake_calls:
-            import pdb; pdb.set_trace()
-            # replace call in instructions to call to kernel
-            knl_call = dep._get_kernel_call()
-            dummy = self.fake_calls[dep]
-            instructions = [x.replace(dummy, knl_call) for x in instructions]
-            # and put the kernel in the extra's
-            extra_kernels.append(extra_fake_kernels[dep])
 
         # join to str
         instructions = '\n'.join(instructions)
@@ -1810,7 +1827,7 @@ class opencl_kernel_generator(kernel_generator):
                     num_source=1
                 ))
 
-    def apply_barriers(self, instructions):
+    def apply_barriers(self, instructions, use_sub_barriers=True):
         """
         An override of :method:`kernel_generator.apply_barriers` that
         applies synchronization barriers to OpenCL kernels
@@ -1821,6 +1838,10 @@ class opencl_kernel_generator(kernel_generator):
         instructions: list of str
             The instructions for this kernel
 
+        use_sub_barriers: bool [True]
+            If true, apply barriers from dependency kernel generators in
+            :attr:`depends_on`
+
         Returns
         -------
 
@@ -1830,8 +1851,9 @@ class opencl_kernel_generator(kernel_generator):
 
         barriers = self.barriers[:]
         # include barriers from the sub-kernels
-        for dep in self.depends_on:
-            barriers = dep.barriers + barriers
+        if use_sub_barriers:
+            for dep in self.depends_on:
+                barriers = dep.barriers + barriers
         instructions = list(enumerate(instructions))
         for barrier in barriers:
             # find insert index (the second barrier ind)

@@ -47,7 +47,7 @@ class MangleGen(object):
                                     i, self.name, str(d1), str(d2)))
 
         # get target for creation
-        target = arg_dtypes[0].target
+        target = kernel.target
         return CallMangleInfo(
             target_name=self.name,
             result_dtypes=tuple(to_loopy_type(x, target=target) for x in
