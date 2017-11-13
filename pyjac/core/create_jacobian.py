@@ -4487,8 +4487,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     jac_var_template = '{}'
     if not mapstore._is_contiguous(nnz_phi):
         # need to add a map
-        jac_var_template = '{name}[{{}}]'.format(name=nnz_phi.name)
-        kernel_data.append(nnz_phi)
+        nnz_phi_lp, jac_var_template = mapstore.apply_maps(nnz_phi, jac_var_template)
+        kernel_data.append(nnz_phi_lp)
 
     jac_update_insn = Template('${jac_str} = ${jac_str} + ycoeffs[k] * ${dphi_copy} \
                        {id=update, dep=${deps}}').safe_substitute(
