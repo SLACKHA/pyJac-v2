@@ -1145,19 +1145,17 @@ ${name} : ${type}
             dep = self.fake_calls[gen]
             # replace call in instructions to call to kernel
             knl_call = gen._get_kernel_call()
-            instructions = [x.replace(dep, knl_call) for x in instructions]
+            instructions = [x.replace(dep, knl_call[:-2]) for x in instructions]
             # and put the kernel in the extra's
             sub_instructions = extra_fake_kernels[gen]
             # apply barriers
             sub_instructions = gen.apply_barriers(sub_instructions)
             # and place within a single extra kernel
-            extra_kernels.append(Template("""
-            ${defn}
-            {
-                ${insns}
-            }
-            """).safe_substitute(defn=gen.kernel_defn, insns='\n'.join(
-                                 sub_instructions)))
+            extra_kernels.append(subs_at_indent("""
+${defn}
+{
+    ${insns}
+}""", defn=gen.kernel_defn, insns='\n'.join(sub_instructions)))
 
         # insert barriers if any
         instructions = self.apply_barriers(instructions,
