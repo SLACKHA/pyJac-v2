@@ -4,7 +4,6 @@ import numpy as np
 import unittest
 import loopy as lp
 import yaml
-from testconfig import config
 
 # system
 import os
@@ -127,7 +126,12 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
 
 
 def _get_test_input(key, default=''):
-    from testconfig import config
+    try:
+        from testconfig import config
+    except ImportError:
+        # not nose
+        config = {}
+
     value = default
     if key in config:
         value = config[key.lower()]
