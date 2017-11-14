@@ -284,8 +284,8 @@ class validation_runner(runner, hdf5_store):
             The type of test to run
         """
         runner.__init__(self, rtype)
-        self.base_chunk_size = 10000
-        hdf5_store.__init__(self, self.base_chunk_size)
+        hdf5_store.__init__(self)
+        self.base_chunk_size = self.chunk_size
 
         self.eval_class = eval_class
         self.mod_test = test_utils.get_run_source()
