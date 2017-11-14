@@ -4477,7 +4477,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # iterate over net non-zero phi (i.e. those w / non-zero derivatives)
     _, phi_str = mapstore.apply_maps(namestore.n_arr, global_ind, var_name)
-    _, dphi_copy = mapstore.apply_maps(namestore.n_dot, global_ind, i_copy)
 
     # jacobian update
     jac_var_template = '{}'
@@ -4486,12 +4485,17 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         nnz_phi_lp, jac_var_template = mapstore.apply_maps(nnz_phi, jac_var_template)
         kernel_data.append(nnz_phi_lp)
 
+    # dphi for the update instruction needs to be keyed on the sanme non-zero phi
+    # index
+    _, dphi_copy = mapstore.apply_maps(namestore.n_dot, global_ind,
+                                       jac_var_template.format(i_copy))
+
     jac_update_insn = Template('${jac_str} = ${jac_str} + ycoeffs[k] * ${dphi_copy} \
                        {id=update, dep=${deps}}').safe_substitute(
                        dphi_copy=dphi_copy)
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, jac_var_template.format(i_copy),
-        var_name, deps='inner_call', insn=jac_update_insn)
+        var_name, deps='call_barrier', insn=jac_update_insn)
     # finite difference division
     jac_finite_diff_insn = '${jac_str} = ${jac_str} / r \
                            {id=final, dep=${deps}, nosync=update}'
@@ -4593,12 +4597,13 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     """).safe_substitute(**locals())
 
     # and the species rate call
-    k_insns2 = Template("""
+    call = Template("""
     ${spec_rate_call} {id=inner_call, dep=phi_set}
+    ${barrier} {id=call_barrier, dep=inner_call${mem_kind}}
     """).safe_substitute(**locals())
     # put in vecloop
-    k_insns2, iname = ic.place_in_vectorization_loop(
-        loopy_opts, k_insns2, namer, vectorize=True)
+    call, iname = ic.place_in_vectorization_loop(
+        loopy_opts, call, namer, vectorize=True)
     if iname:
         extra_inames.append(iname)
 
@@ -4615,7 +4620,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     ${per_spec_fac}
     for k
         ${phi_set}
-        ${k_insns2}
+        ${call}
         for ${i_copy}
             ${jac_update_insn}
         end
