@@ -743,7 +743,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
-                      btype, call_name, **oploop_kwds):
+                      btype, call_name, call_kwds={}, **oploop_kwds):
     oploop = _get_oploop(self, do_conp=True, do_vector=lang != 'c', langs=[lang],
                          **oploop_kwds)
 
@@ -813,7 +813,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         conp = state['conp']
 
         # generate kernel
-        kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp)
+        kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp,
+                          **call_kwds)
 
         # generate
         kgen.generate(
