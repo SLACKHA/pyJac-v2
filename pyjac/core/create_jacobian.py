@@ -4403,7 +4403,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                        6: [-1 / 60, 3 / 20, -3 / 4, 3 / 4, -3 / 20, 1 / 60],
                        8: [1 / 280, -4 / 105, 1 / 5, -4 / 5, 4 / 5, -1 / 5, 4 / 105,
                            -1 / 280]}
-    fwd_xcoeffs = {x: list(range(x + 1)) for x in range(1, 6)}
+    fwd_xcoeffs = {x: list(range(x + 1)) for x in range(1, 7)}
     fwd_ycoeffs = {1: [-1, 1],
                    2: [-3 / 2, 2, -1 / 2],
                    3: [-11 / 6, 3, 3 / 2, 1 / 3],
@@ -4437,14 +4437,10 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # need to create a temporary variable to store the error weights
     error_weights = lp.TemporaryVariable('ewt', order=loopy_opts.order,
                                          shape=(phi_size,), dtype=np.float64,
-                                         scope=scopes.PRIVATE
-                                         if not loopy_opts.depth else scopes.LOCAL)
+                                         scope=scopes.PRIVATE)
 
     # and the sum of error weights (needs to be a local for deep-vecs)
-    sumv = lp.TemporaryVariable('sum', dtype=np.float64,
-                                scope=(scopes.LOCAL if ic.use_atomics(loopy_opts)
-                                       else scopes.PRIVATE),
-                                for_atomic=ic.use_atomics(loopy_opts))
+    sumv = lp.TemporaryVariable('sum', dtype=np.float64, scope=scopes.PRIVATE)
 
     # and finally the coeffs
     xcoeffs = np.array(xcoeffs, dtype=np.int32)
@@ -4496,7 +4492,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                        dphi_copy=dphi_copy)
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, jac_var_template.format(i_copy),
-        var_name, deps='spec_rate_call', insn=jac_update_insn)
+        var_name, deps='inner_call', insn=jac_update_insn)
     # finite difference division
     jac_finite_diff_insn = '${jac_str} = ${jac_str} / r \
                            {id=final, dep=${deps}, nosync=update}'
@@ -4511,12 +4507,16 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     barrier = '... nop'
     abarrier = '... nop'  # barrier for atomic only operations
+    mem_kind = ''
+    amem_kind = ''
     atomic = ''
     if loopy_opts.depth:
         barrier = '... lbarrier'
+        mem_kind = ', mem_kind=global'
     if ic.use_atomics(loopy_opts):
         atomic = ', atomic'
         abarrier = '... lbarrier'
+        amem_kind = ', mem_kind=global'
 
     # now create our instructions
     from pytools import UniqueNameGenerator
@@ -4528,7 +4528,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     ${spec_rate_call} {id=init}
     # get the error weights and original phi
     ${sumv} = 0 {id=sum_init${atomic}}
-    ${barrier} {id=sum_and_dphi_init, dep=sum_init:init}
+    ${barrier} {id=sum_and_dphi_init, dep=sum_init:init${mem_kind}}
     """).safe_substitute(**locals())
     # convert to vecloop if needed
     sum_init, iname = ic.place_in_vectorization_loop(
@@ -4536,36 +4536,26 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     if iname:
         extra_inames.append(iname)
 
-    # inner isum changes depending on presence of atomics
-    i_sum_inner = Template("""
+    # error weight calculations
+    ewt_calcs = Template("""
     for ${i_sum}
+        ewt[${i_sum}] = ATOL + (RTOL * fabs(${phi_iset})) \
+            {id=ewt, dep=*, nosync=change}
         ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
             ewt[${i_sum}] * fabs(${dphi_isum})) \
-            {id=sum, dep=*:sum_and_dphi_init:ewt${atomic}}
+            {id=sum, dep=*:sum_and_dphi_init:ewt}
     end
-    ${abarrier} {id=sum_barrier, dep=sum}
     """).safe_substitute(**locals())
-    if not ic.use_atomics(loopy_opts) and loopy_opts.depth:
+    if loopy_opts.depth:
         # simply have each workitem run this
-        i_sum_inner, iname = ic.place_in_vectorization_loop(
-            loopy_opts, i_sum_inner, namer, vectorize=True)
+        ewt_calcs, iname = ic.place_in_vectorization_loop(
+            loopy_opts, ewt_calcs, namer, vectorize=True)
         if iname:
             extra_inames.append(iname)
 
-    # and the ewt calc's
-    ewt_calcs = Template("""
-    for ${i_set}
-        ewt[${i_set}] = ATOL + (RTOL * fabs(${phi_iset})) {id=ewt, dep=*, \
-                                                           nosync=change}
-    end
-    for ${i_sum}
-       ${i_sum_inner}
-    end
-    """).safe_substitute(**locals())
-
     # and finally the factor inits
     fac_inits = Template("""
-    <> fac = sqrt(${sumv} / ${phi_size}.0) {dep=sum_barrier}
+    <> fac = sqrt(${sumv} / ${phi_size}.0) {dep=sum}
     <> r0 = 1000.0 * RTOL * DBL_EPSILON * ${phi_size}.0 * fac
     <> srur = sqrt(DBL_EPSILON)
     """).safe_substitute(**locals())
@@ -4600,13 +4590,12 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # add barrier to ensure broadcast to all work items
     phi_set = Template("""
     ${phi_set}
-    ${barrier} {id=phi_set, dep=change}
+    ${barrier} {id=phi_set, dep=change${mem_kind}}
     """).safe_substitute(**locals())
 
     # and the species rate call
     k_insns2 = Template("""
     ${spec_rate_call} {id=inner_call, dep=phi_set}
-    ${barrier} {id=spec_rate_call, dep=inner_call}
     """).safe_substitute(**locals())
     # put in vecloop
     k_insns2, iname = ic.place_in_vectorization_loop(
@@ -4636,7 +4625,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     for ${i_end}
         ${jac_finite_diff_insn}
     end
-    ${barrier} {id=end, dep=final:phi_reset}
+    ${barrier} {id=end, dep=final:phi_reset${mem_kind}}
     """).safe_substitute(**locals())
 
     # set parameters
@@ -4652,7 +4641,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         # need to split only good inames
         def __fixer(knl):
             vw = loopy_opts.depth
-            can_vec = set([i_set, i_copy, i_end])
+            can_vec = set([i_copy, i_end])
             if ic.use_atomics(loopy_opts):
                 can_vec.update([i_copy])
             for iname, _ in extra_inames:
