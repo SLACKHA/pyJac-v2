@@ -12,3 +12,4 @@ misc tasks:
   ☐ Find a way to unify kernels, such that a single library / pywrapper exposes
     all available code
   ☐ Look into Cog or Jinja2 to simplify code generation
+  ☐ Get the rest of the write race warnings
