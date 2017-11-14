@@ -23,7 +23,7 @@ import tables
 from ..core.mech_interpret import read_mech_ct
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
-from ..tests import test_utils, get_platform_file
+from ..tests import test_utils, get_platform_file, _get_test_input
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
@@ -39,7 +39,7 @@ def getf(x):
 
 
 class hdf5_store(object):
-    def __init__(self, chunk_size=10000):
+    def __init__(self, chunk_size=_get_test_input('chunk_size', 10000)):
         """
         Initialize :class:`hdf5_store`
 
