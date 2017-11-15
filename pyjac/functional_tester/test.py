@@ -49,7 +49,7 @@ class hdf5_store(object):
             The default chunk size for reading into hdf5 arrays
         """
         self.handles = {}
-        self._chunk_size = chunk_size
+        self._chunk_size = int(chunk_size)
 
     @property
     def chunk_size(self):
