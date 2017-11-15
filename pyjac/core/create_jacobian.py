@@ -254,10 +254,6 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_nonzero_jac_inds,
-                            namestore.num_nonzero_jac_inds)
-
     # first, create all arrays
     kernel_data = []
 
@@ -265,10 +261,11 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     if namestore.problem_size is not None:
         kernel_data.append(namestore.problem_size)
 
-    k_ind = 'row'
-    j_ind = 'col'
-
     if loopy_opts.jac_format == JacobianFormat.sparse:
+        # simply loop over the whole jacobian array
+        mapstore = arc.MapStore(loopy_opts,
+                                namestore.num_nonzero_jac_inds,
+                                namestore.num_nonzero_jac_inds)
         jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, var_name,
                                               ignore_lookups=True)
         instructions = Template(
@@ -278,23 +275,24 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
 
         kernel_data.extend([jac_lp])
     else:
+        # simply loop over the whole jacobian array
+        mapstore = arc.MapStore(loopy_opts, namestore.jac_size,
+                                namestore.jac_size)
         # need jac_array
+        row = 'row'
+        col = 'col'
+        row_size = namestore.num_specs.size + 1
+        i = var_name
         jac_lp, jac_str = mapstore.apply_maps(
-            namestore.jac, global_ind, k_ind, j_ind)
-        # and row / col inds
-        row_lp, row_str = mapstore.apply_maps(
-            namestore.flat_jac_row_inds, var_name)
-        col_lp, col_str = mapstore.apply_maps(
-            namestore.flat_jac_col_inds, var_name)
-
+            namestore.jac, global_ind, row, col)
         instructions = Template(
             """
-                <> ${k_ind} = ${row_str}
-                <> ${j_ind} = ${col_str}
-                ${jac_str} = 0d {id=reset}
+            <> ${row} = ${i} // ${row_size}
+            <> ${col} = ${i} % ${row_size}
+            ${jac_str} = 0d {id=reset}
             """).substitute(**locals())
 
-        kernel_data.extend([jac_lp, row_lp, col_lp])
+        kernel_data.extend([jac_lp])
 
     # add arrays
     can_vectorize, vec_spec = ic.get_deep_specializer(
