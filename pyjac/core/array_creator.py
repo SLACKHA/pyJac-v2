@@ -1468,6 +1468,12 @@ class NameStore(object):
                                                 initializer=np.arange(
                                                     flat_row_inds.size,
                                                     dtype=np.int32))
+            self.jac_size = creator('jac_size',
+                                    shape=((rate_info['Ns'] + 1)**2),
+                                    dtype=np.int32,
+                                    order=self.order,
+                                    initializer=np.arange((rate_info['Ns'] + 1)**2,
+                                                          dtype=np.int32))
             self.flat_jac_row_inds = creator('jac_row_inds',
                                              shape=flat_row_inds.shape,
                                              dtype=np.int32,
@@ -1517,8 +1523,24 @@ class NameStore(object):
                     self.jac_row_inds = self.ccs_jac_row_ind
                     self.jac_col_inds = self.ccs_jac_col_ptr
             else:
-                self.jac_row_inds = self.flat_jac_row_inds
-                self.jac_col_inds = self.flat_jac_col_inds
+                if self.order == 'C':
+                    flat_jac_row_ptr = self.__make_offset(
+                        self.flat_jac_row_inds.initializer)
+                    self.jac_row_ptr = creator('jac_row_ptr',
+                                               shape=flat_jac_row_ptr.shape,
+                                               dtype=flat_jac_row_ptr.dtype,
+                                               order=self.order,
+                                               initializer=flat_jac_row_ptr)
+                    self.jac_col_inds = self.flat_jac_col_inds
+                else:
+                    flat_jac_col_ptr = self.__make_offset(
+                        self.flat_jac_col_inds.initializer)
+                    self.jac_col_inds = creator('jac_col_ptr',
+                                                shape=flat_jac_col_ptr.shape,
+                                                dtype=flat_jac_col_ptr.dtype,
+                                                order=self.order,
+                                                initializer=flat_jac_col_ptr)
+                    self.jac_row_inds = self.flat_jac_row_inds
 
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
