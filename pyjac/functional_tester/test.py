@@ -23,7 +23,7 @@ import tables
 from ..core.mech_interpret import read_mech_ct
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
-from ..tests import test_utils, get_platform_file
+from ..tests import test_utils, get_platform_file, _get_test_input
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
@@ -39,7 +39,7 @@ def getf(x):
 
 
 class hdf5_store(object):
-    def __init__(self, chunk_size=10000):
+    def __init__(self, chunk_size=_get_test_input('chunk_size', 10000)):
         """
         Initialize :class:`hdf5_store`
 
@@ -49,7 +49,7 @@ class hdf5_store(object):
             The default chunk size for reading into hdf5 arrays
         """
         self.handles = {}
-        self._chunk_size = chunk_size
+        self._chunk_size = int(chunk_size)
 
     @property
     def chunk_size(self):
@@ -246,22 +246,20 @@ class hdf5_store(object):
         if split_axis is not None:
             assert chunk_size % shape[split_axis] == 0
             chunk_size = int(chunk_size / shape[split_axis])
-        with open(filename, 'rb') as file:
-            # need to read in in chunks
-            for i in range(0, num_conds, chunk_size):
-                # find out how many ICs to read
-                num_read = np.minimum(i + chunk_size, num_conds) - i
-                # set the shape to read in
-                rshape = tuple(shape[i] if i != grow_axis else num_read
-                               for i in range(len(shape)))
-                # read in data
-                arr = np.fromfile(file, dtype=ref_ans.dtype,
-                                  count=np.prod(rshape))
-                # reshape
-                arr = arr.reshape(rshape, order=order)
-
-                # and place into storage
-                data_storage.append(arr)
+        # open the data as a memmap to avoid loading it all into memory
+        file = np.memmap(filename, mode='r', dtype=ref_ans.dtype,
+                         shape=shape, order=order)
+        # now read in chunks
+        for i in range(0, num_conds, chunk_size):
+            # find out how many ICs to read
+            end = np.minimum(i + chunk_size, num_conds)
+            # set the read region
+            rslice = tuple(slice(None) if ax != grow_axis else slice(i, end)
+                           for ax in range(len(shape)))
+            # read in data and place into storage
+            data_storage.append(file[rslice])
+        # close memmap
+        del file
 
         # close hdf5 file
         hdf5_file.close()
@@ -286,8 +284,8 @@ class validation_runner(runner, hdf5_store):
             The type of test to run
         """
         runner.__init__(self, rtype)
-        self.base_chunk_size = 10000
-        hdf5_store.__init__(self, self.base_chunk_size)
+        hdf5_store.__init__(self)
+        self.base_chunk_size = self.chunk_size
 
         self.eval_class = eval_class
         self.mod_test = test_utils.get_run_source()
@@ -345,16 +343,21 @@ class validation_runner(runner, hdf5_store):
 
         self.gas = gas
         self.gas.basis = 'molar'
-        self.T = data['T']
-        self.P = data['P']
-        self.V = data['V']
-        self.moles = data['moles']
+        T = data['T']
+        P = data['P']
+        V = data['V']
+        moles = data['moles']
         # get phi vectors
-        self.phi_cp = self.get_phi(self.T, self.P, self.V, self.moles)
-        self.phi_cv = self.get_phi(self.T, self.V, self.P, self.moles)
+        self.phi_cp = self.get_phi(T, P, V, moles)
+        self.phi_cv = self.get_phi(T, V, P, moles)
         # convert to hdf
         self.phi_cp = self.to_file(self.phi_cp, 'phi_cp.hdf5')
         self.phi_cv = self.to_file(self.phi_cv, 'phi_cv.hdf5')
+        # and free old data
+        del T
+        del P
+        del V
+        del moles
         self.num_conditions = num_conditions
         self.max_vec_width = max_vec_width
 
@@ -453,7 +456,7 @@ class validation_runner(runner, hdf5_store):
 
         # get the answer
         phi = self.phi_cp if state['conp'] else self.phi_cv
-        self.helper.eval_answer(phi, self.P, self.V, state)
+        self.helper.eval_answer(phi, state)
 
         my_test = dirs['test']
         my_build = dirs['build']
@@ -585,7 +588,7 @@ class spec_rate_eval(eval):
     def ref_answers(self, state):
         return self.outputs_cp if state['conp'] else self.outputs_cv
 
-    def eval_answer(self, phi, P, V, state):
+    def eval_answer(self, phi, state):
         def __eval_cp(j, T):
             return self.specs[j].thermo.cp(T)
         eval_cp = np.vectorize(__eval_cp, cache=True)
@@ -899,7 +902,7 @@ class jacobian_eval(eval):
     def __fast_jac(self, conp, sparse, order):
         jac = None
         # check for stored jacobian
-        name = 'fd_jac_' + 'cp' if conp else 'cv'
+        name = 'fd_jac_' + ('cp' if conp else 'cv')
         if hasattr(self, name):
             jac = getattr(self, name)
 
@@ -913,15 +916,15 @@ class jacobian_eval(eval):
                 return getattr(self, name)
         return jac
 
-    def eval_answer(self, phi, P, V, state):
+    def eval_answer(self, phi, state):
         jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
         if jac is not None:
             return jac
 
         # number of IC's
-        num_conds = phi.shape[0]
+        num_conds = self.num_conditions
         # open the pytables file for writing
-        name = 'fd_jac_' + 'cp' if state['conp'] else 'cv'
+        name = 'fd_jac_' + ('cp' if state['conp'] else 'cv')
         jac = self.open_for_chunked_write(
             name + '.hdf5', (0, len(self.specs) + 1, len(self.specs) + 1),
             num_conds)
@@ -932,6 +935,8 @@ class jacobian_eval(eval):
         # note that we have to do this piecewise in order to avoid memory overflows
         # eval jacobian
         from ..tests.test_jacobian import _get_fd_jacobian
+        P = phi[:, 1] if state['conp'] else phi[:, 2]
+        V = phi[:, 2] if state['conp'] else phi[:, 1]
 
         def __get_state(offset, end):
             end = np.minimum(end, num_conds)
@@ -951,13 +956,16 @@ class jacobian_eval(eval):
         self.store = __get_state(0, self.chunk_size)
         pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
                                   None, True)
-        last_size = None
+        store_size = self.store.test_size
         threshold = 0
         for offset in range(0, num_conds, self.chunk_size):
-            self.state = __get_state(offset, offset + self.chunk_size,)
-            if last_size is not None and self.store.test_size != last_size:
-                # invalidate
-                pregen = None
+            self.store = __get_state(offset, offset + self.chunk_size)
+            if self.store.test_size != store_size:
+                # need to regenerate
+                pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+                                          None, True)
+                # and store size to check for regen
+                store_size = self.store.test_size
 
             # and add to Jacobian
             jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
@@ -1029,7 +1037,6 @@ class jacobian_eval(eval):
             del non_zero
             zero = np.where(denom == 0)
             __update_key('jac_zero', np.linalg.norm(err[zero]))
-            assert np.allclose(err_dict['jac_zero'], 0)
             del zero
             # norm suggested by lapack
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
@@ -1058,14 +1065,14 @@ class jacobian_eval(eval):
             for mul in [1, 10, 100, 1000]:
                 atol = self.atol * mul
                 err_weighted = err / (atol + denom)
-                amax = np.argmax(err_weighted)
+                amax = np.unravel_index(np.argmax(err_weighted), err_weighted.shape)
                 __update_key('jac_weighted_{}'.format(atol), np.linalg.norm(
                              err_weighted))
                 del err_weighted
-                __update_key('jac_weighted_{}_PJ_amax'.format(atol), out.flat[amax],
+                __update_key('jac_weighted_{}_PJ_amax'.format(atol), out[amax],
                              op='max')
                 __update_key('jac_weighted_{}_AD_amax'.format(atol),
-                             denom.flat[amax], op='max')
+                             denom[amax] / self.rtol, op='max')
 
             # info values for lookup
             __update_key('jac_max_value', np.amax(out), op='max')

@@ -10,6 +10,6 @@ void cpu_assert(bool x, const char* message, const char *file, int line) {
     if (!x)
     {
         fprintf(stderr, "cpu_assert: %s %s %d\n", message, file, line);
-        exit(x);
+        exit(-1);
     }
 }

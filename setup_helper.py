@@ -383,6 +383,9 @@ def get_config_schema():
         IncludeDir("CL", []),
         LibraryDir("CL", []),
         Libraries("CL", default_libs),
+        IncludeDir("ADEPT", []),
+        LibraryDir("ADEPT", []),
+        Libraries("ADEPT", ['adept']),
 
         StringListOption("CC_FLAGS", default_ccflags,
                          help="Any extra C compiler options to include"),
