@@ -2642,5 +2642,6 @@ class SubTest(TestClass):
         _full_kernel_test(self, lang, finite_difference_jacobian, 'jac',
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian',
+                          do_finite_difference=True,
                           call_kwds={'mode': FiniteDifferenceMode.forward,
                                      'order': 6})
