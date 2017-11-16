@@ -203,9 +203,8 @@ class kernel_generator(object):
         self.extra_kernel_data = extra_kernel_data[:]
 
         self.extra_preambles = extra_preambles[:]
-        # check for Jacobian type
-        if self.loopy_opts.jac_format == lp_utils.JacobianFormat.sparse\
-                and namestore.jac_row_inds is not None:
+        # If we have a lookup style jacobian
+        if isinstance(namestore.jac, arc.jac_creator):
             # need to add the row / column inds
             self.extra_kernel_data.extend([self.namestore.jac_row_inds([''])[0],
                                            self.namestore.jac_col_inds([''])[0]])

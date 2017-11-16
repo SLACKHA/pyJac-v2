@@ -414,7 +414,6 @@ def place_in_vectorization_loop(loopy_opts, insn, namer, vectorize=True):
     """).safe_substitute(iname=iname, insn=insn), (iname, spec)
 
 
-
 def with_conditional_jacobian(func):
     """
     A function wrapper that makes available the :func:`_conditional_jacobian`
@@ -466,31 +465,30 @@ def with_conditional_jacobian(func):
             The jacobian lookup / access instructions
         """
 
+        # check jacobian type
+        logger = logging.getLogger(__name__)
+        precompute = False
+        is_sparse = False
+        if isinstance(jac, jac_creator):
+            is_sparse = jac.is_sparse
+            precompute = True
+
         # Get defaults out of kwargs
         entry_exists = kwargs.pop('entry_exists', False)
         return_arg = kwargs.pop('return_arg', True)
         insn = kwargs.pop('insn', '')
-        index_insn = kwargs.pop('index_insn', True) and insn != ''
+        index_insn = kwargs.pop('index_insn', is_sparse) and insn != ''
         deps = kwargs.pop('deps', '')
         deps = deps.split(':')
-        created_index = _conditional_jacobian.created_index
 
-        # check jacobian type
-        logger = logging.getLogger(__name__)
-        is_sparse = False
-        if isinstance(jac, jac_creator):
-            is_sparse = True
-            if not index_insn:
-                logger.warn('Using a sparse jacobian without precomputing the index'
-                            ' will result in extra indirect lookups.')
-        elif index_insn:
-            logger.info('Precomputed non-sparse Jacobian indicies not currently'
-                        'supported.')
-            index_insn = False
+        created_index = _conditional_jacobian.created_index
+        if not index_insn and is_sparse:
+            logger.warn('Using a sparse jacobian without precomputing the index'
+                        ' will result in extra indirect lookups.')
 
         # if we want to precompute the index, do so
-        if is_sparse:
-            sparse_index, offset, _ = mapstore.apply_maps(
+        if precompute:
+            replace_ind, computed_ind, offset, _ = mapstore.apply_maps(
                 jac, *jac_inds, plain_index=True, **kwargs)
             if index_insn:
                 # get the index
@@ -499,35 +497,44 @@ def with_conditional_jacobian(func):
                     dep_str = 'dep={}'.format(':'.join(deps + existing))
                 else:
                     dep_str = ''
-                name = _conditional_jacobian.id_namer('sparse_jac_index')
+
+                name = '{}jac_index'.format('sparse_' if is_sparse else '')
+                name = _conditional_jacobian.id_namer(name)
                 index_insn = Template(
                     '${creation}jac_index = ${index_str} {id=${name}, ${dep_str}}'
                     ).safe_substitute(
                         creation='<> ' if not created_index else '',
-                        index_str=sparse_index,
+                        index_str=computed_ind,
                         name=name,
                         dep_str=dep_str)
                 # add dependency to all before me (and just added)
                 # so that we don't get out of order
                 deps += [name]
                 # and redefine the jac indicies
-                jac_inds = (jac_inds[0],) + ('jac_index',)
-                conditional = 'jac_index >= {}'.format(offset)
+                if is_sparse:
+                    jac_inds = (jac_inds[0],) + ('jac_index',)
+                    conditional = 'jac_index >= {}'.format(offset)
+                else:
+                    jac_inds[replace_ind] = computed_ind
+                    conditional = 'jac_index >= -1'
                 # we've now created the temporary
                 _conditional_jacobian.created_index = True
             else:
                 # otherwise we're conditional on the lookup
                 index_insn = ''
-                conditional = '{} >= {}'.format(sparse_index, offset)
+                if is_sparse:
+                    conditional = '{} >= {}'.format(computed_ind, offset)
+                else:
+                    conditional = '{} >= -1'.format(computed_ind)
 
-        if is_sparse and insn:
+        if precompute and insn:
             # need to wrap the instruction
             insn = wrap_instruction_on_condition(
                 insn, not entry_exists, conditional)
 
         # and finally return the insn
         mykwargs = kwargs.copy()
-        if is_sparse:
+        if precompute:
             mykwargs.update({'ignore_lookups': index_insn != ''})
         # get jac_str
         jac_lp, jac_str = mapstore.apply_maps(

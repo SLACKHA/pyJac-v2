@@ -1245,6 +1245,8 @@ class jac_creator(creator):
         # store our row / column indicies
         self.row_inds = kwargs.pop('row_inds')
         self.col_inds = kwargs.pop('col_inds')
+        # enable non-sparse guarded Jacobian access for FD-jacobian
+        self.is_sparse = kwargs.pop('is_sparse', True)
         self.lookup_call = Template(Template(
             '${lookup}(${start}, ${end}, ${match})').safe_substitute(
                 lookup=lp_pregen.jac_indirect_lookup.name))
@@ -1307,11 +1309,25 @@ class jac_creator(creator):
             If True, do not call the indirect lookups.  Occasionally useful
             e.g. when resetting the Jacobian we don't need to lookup entries.
         plain_index: bool [False]
-            If True, return the sparse Jacobian index instead of the
+            If True, return index information instread of the
             :class:`loopy.GlobalArg` and access string returned by the parent
             :func:`creator.__call__`.  Useful when precomputing indicies
-            Also return the offset and lookup
-            -> Useful for checking to see if jacobian entry exists
+            to check to see if jacobian entry exists
+
+            Returns
+            -------
+            replace_ind: int
+                The index in the jacobian indicies that was should be replaced
+                with a precomputed index
+            computed_ind: str
+                The computed lookup / sparse jacobian index -- this is the index
+                that must be checked
+            offset: str
+                The offset string for sparse indicies -- ignored for non-sparse
+                indicies
+            lookup: str
+                The lookup string
+
         """
         ignore_lookups = kwargs.pop('ignore_lookups', False)
         plain_index = kwargs.pop('plain_index', False)
@@ -1321,15 +1337,26 @@ class jac_creator(creator):
         if not ignore_lookups:
             indicies = list(indicies)
             offset, lookup = self.__get_offset_and_lookup(*indicies[:])
-            # and add the offset to the lookup
-            indicies[1], indicies[2] = offset, lookup
-
-        indicies = (indicies[0], ' + '.join([str(x) for x in indicies[1:]]))
+            if self.is_sparse:
+                # add the offset to the lookup
+                indicies = (indicies[0], ' + '.join([str(x) for x in indicies[1:]]))
+                replace_ind = 1
+                computed_ind = indicies[1]
+            elif self.order == 'C':
+                # only replace the column w/ lookup
+                indicies[2] = lookup
+                replace_ind = 2
+                computed_ind = indicies[2]
+            elif self.order == 'F':
+                # only replace the row w/ lookup
+                indicies[1] = lookup
+                replace_ind = 1
+                computed_ind = indicies[1]
 
         if plain_index:
             assert not ignore_lookups, "Can't do both."
-            # return sparse index
-            return (indicies[1], offset, lookup)
+            # return sparse / check index, offset & lookup
+            return (replace_ind, computed_ind, offset, lookup)
 
         return super(jac_creator, self).__call__(*indicies, **kwargs)
 
@@ -1526,11 +1553,11 @@ class NameStore(object):
                 if self.order == 'C':
                     flat_jac_row_ptr = self.__make_offset(
                         self.flat_jac_row_inds.initializer)
-                    self.jac_row_ptr = creator('jac_row_ptr',
-                                               shape=flat_jac_row_ptr.shape,
-                                               dtype=flat_jac_row_ptr.dtype,
-                                               order=self.order,
-                                               initializer=flat_jac_row_ptr)
+                    self.jac_row_inds = creator('jac_row_ptr',
+                                                shape=flat_jac_row_ptr.shape,
+                                                dtype=flat_jac_row_ptr.dtype,
+                                                order=self.order,
+                                                initializer=flat_jac_row_ptr)
                     self.jac_col_inds = self.flat_jac_col_inds
                 else:
                     flat_jac_col_ptr = self.__make_offset(

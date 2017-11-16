@@ -4483,22 +4483,40 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         nnz_phi_lp, jac_var_template = mapstore.apply_maps(nnz_phi, jac_var_template)
         kernel_data.append(nnz_phi_lp)
 
-    # dphi for the update instruction needs to be keyed on the sanme non-zero phi
+    jac = namestore.jac
+    if not loopy_opts.jac_format == JacobianFormat.sparse:
+        # need to create a jac_creator to simulate the sparse lookup
+        # This is necessary such that we don't populate entries of the Jacobian that
+        # are identically zero -- for species with small concentrations we can
+        # often end up with large values here due to the resulting small tolerances
+        # and floating point errors
+        phi_size = namestore.phi_inds.size
+        jac = arc.jac_creator('jac',
+                              shape=(test_size, phi_size, phi_size),
+                              order=loopy_opts.order,
+                              dtype=np.float64,
+                              is_input_or_output=True,
+                              row_inds=namestore.jac_row_inds,
+                              col_inds=namestore.jac_col_inds,
+                              is_sparse=False)
+
+    # dphi for the update instruction needs to be keyed on the same non-zero phi
     # index
     _, dphi_copy = mapstore.apply_maps(namestore.n_dot, global_ind,
                                        jac_var_template.format(i_copy))
 
+    # update the jacobian for this ycoeff * dphi
     jac_update_insn = Template('${jac_str} = ${jac_str} + ycoeffs[k] * ${dphi_copy} \
                        {id=update, dep=${deps}}').safe_substitute(
                        dphi_copy=dphi_copy)
     jac_lp, jac_update_insn = jac_create(
-        mapstore, namestore.jac, global_ind, jac_var_template.format(i_copy),
+        mapstore, jac, global_ind, jac_var_template.format(i_copy),
         var_name, deps='call_barrier', insn=jac_update_insn)
     # finite difference division
     jac_finite_diff_insn = '${jac_str} = ${jac_str} / r \
                            {id=final, dep=${deps}, nosync=update}'
     _, jac_finite_diff_insn = jac_create(
-        mapstore, namestore.jac, global_ind, jac_var_template.format(i_end),
+        mapstore, jac, global_ind, jac_var_template.format(i_end),
         var_name, deps='update', insn=jac_finite_diff_insn)
     kernel_data.extend([phi_lp, dphi_lp, jac_lp])
 
