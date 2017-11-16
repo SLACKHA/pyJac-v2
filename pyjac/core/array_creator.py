@@ -10,7 +10,7 @@ import numpy as np
 import copy
 from string import Template
 from loopy.kernel.data import temp_var_scope as scopes
-from ..loopy_utils.loopy_utils import JacobianFormat
+from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
 from ..loopy_utils import preambles_and_manglers as lp_pregen
 import six
 
@@ -1407,6 +1407,7 @@ class NameStore(object):
         self.test_size = test_size
         self.conp = conp
         self.jac_format = loopy_opts.jac_format
+        self.jac_type = loopy_opts.jac_type
         self._add_arrays(rate_info, test_size)
 
     def __getattr__(self, name):
@@ -1514,13 +1515,13 @@ class NameStore(object):
 
             # Compressed Row Storage jacobian
             crs_col_ind = rate_info['jac_inds']['crs']['col_ind']
-            self.crs_jac_col_ind = creator('sparse_jac_col_inds',
+            self.crs_jac_col_ind = creator('jac_col_inds',
                                            shape=crs_col_ind.shape,
                                            dtype=np.int32,
                                            order=self.order,
                                            initializer=crs_col_ind)
             crs_row_ptr = rate_info['jac_inds']['crs']['row_ptr']
-            self.crs_jac_row_ptr = creator('sparse_jac_row_ptr',
+            self.crs_jac_row_ptr = creator('jac_row_ptr',
                                            shape=crs_row_ptr.shape,
                                            dtype=np.int32,
                                            order=self.order,
@@ -1528,19 +1529,20 @@ class NameStore(object):
 
             # Compressed Column Storage jacobian
             ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
-            self.ccs_jac_row_ind = creator('sparse_jac_row_inds',
+            self.ccs_jac_row_ind = creator('jac_row_inds',
                                            shape=ccs_row_ind.shape,
                                            dtype=np.int32,
                                            order=self.order,
                                            initializer=ccs_row_ind)
             ccs_col_ptr = rate_info['jac_inds']['ccs']['col_ptr']
-            self.ccs_jac_col_ptr = creator('sparse_jac_col_ptr',
+            self.ccs_jac_col_ptr = creator('jac_col_ptr',
                                            shape=ccs_col_ptr.shape,
                                            dtype=np.int32,
                                            order=self.order,
                                            initializer=ccs_col_ptr)
 
-            if self.jac_format == JacobianFormat.sparse:
+            if self.jac_format == JacobianFormat.sparse or \
+                    self.jac_type == JacobianType.finite_difference:
                 if self.order == 'C':
                     # use CRS
                     self.jac_row_inds = self.crs_jac_row_ptr
@@ -1549,25 +1551,6 @@ class NameStore(object):
                     # use CCS
                     self.jac_row_inds = self.ccs_jac_row_ind
                     self.jac_col_inds = self.ccs_jac_col_ptr
-            else:
-                if self.order == 'C':
-                    flat_jac_row_ptr = self.__make_offset(
-                        self.flat_jac_row_inds.initializer)
-                    self.jac_row_inds = creator('jac_row_ptr',
-                                                shape=flat_jac_row_ptr.shape,
-                                                dtype=flat_jac_row_ptr.dtype,
-                                                order=self.order,
-                                                initializer=flat_jac_row_ptr)
-                    self.jac_col_inds = self.flat_jac_col_inds
-                else:
-                    flat_jac_col_ptr = self.__make_offset(
-                        self.flat_jac_col_inds.initializer)
-                    self.jac_col_inds = creator('jac_col_ptr',
-                                                shape=flat_jac_col_ptr.shape,
-                                                dtype=flat_jac_col_ptr.dtype,
-                                                order=self.order,
-                                                initializer=flat_jac_col_ptr)
-                    self.jac_row_inds = self.flat_jac_row_inds
 
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
@@ -1619,6 +1602,17 @@ class NameStore(object):
                                    is_input_or_output=True,
                                    row_inds=self.jac_row_inds,
                                    col_inds=self.jac_col_inds)
+        elif self.jac_type == JacobianType.finite_difference and \
+                'jac_inds' in rate_info:
+            self.jac = jac_creator('jac',
+                                   shape=(test_size, rate_info['Ns'] + 1,
+                                          rate_info['Ns'] + 1),
+                                   order=self.order,
+                                   dtype=np.float64,
+                                   is_input_or_output=True,
+                                   row_inds=self.jac_row_inds,
+                                   col_inds=self.jac_col_inds,
+                                   is_sparse=False)
         else:
             self.jac = creator('jac',
                                shape=(test_size, rate_info['Ns'] + 1,

@@ -203,7 +203,7 @@ class kernel_generator(object):
         self.extra_kernel_data = extra_kernel_data[:]
 
         self.extra_preambles = extra_preambles[:]
-        # If we have a lookup style jacobian
+        # check for Jacobian type
         if isinstance(namestore.jac, arc.jac_creator):
             # need to add the row / column inds
             self.extra_kernel_data.extend([self.namestore.jac_row_inds([''])[0],
@@ -1046,7 +1046,8 @@ ${name} : ${type}
 
                 if self.fake_calls:
                     # find out which kernel this belongs to
-                    sub = next(x for x in self.depends_on if k in x.kernels)
+                    sub = next(x for x in self.depends_on
+                               if k.name in [y.name for y in x.kernels])
                     # and add the instructions to this fake kernel
                     extra_fake_kernels[sub].append(insns)
                     # and clear insns
