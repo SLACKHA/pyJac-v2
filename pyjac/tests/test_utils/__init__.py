@@ -865,18 +865,18 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # get split arrays
         test, = kgen.array_split.split_numpy_arrays(test)
 
-        def __get_looser_tols(ravel_ind, copy_inds, looser_tols=np.empty((0,))):
-            if ravel_ind.size:
-                # fill other ravel locations with tiled test size
-                stride = 1
-                size = np.prod([test.shape[i] for i in range(test.ndim)
-                               if i not in copy_inds])
-                for i in [x for x in range(test.ndim) if x not in copy_inds]:
-                    repeats = int(np.ceil(size / (test.shape[i] * stride)))
-                    ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
-                                           (repeats, stride)).flatten(
-                                                order='F')[:size]
-                    stride *= test.shape[i]
+        def __get_looser_tols(ravel_ind, copy_inds,
+                              looser_tols=np.empty((0,))):
+            # fill other ravel locations with tiled test size
+            stride = 1
+            size = np.prod([test.shape[i] for i in range(test.ndim)
+                           if i not in copy_inds])
+            for i in [x for x in range(test.ndim) if x not in copy_inds]:
+                repeats = int(np.ceil(size / (test.shape[i] * stride)))
+                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
+                                       (repeats, stride)).flatten(
+                                            order='F')[:size]
+                stride *= test.shape[i]
 
             # and use multi_ravel to convert to linear for dphi
             # for whatever reason, if we have two ravel indicies with multiple values
@@ -939,7 +939,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             ravel_ind = np.empty((0,))
             copy_inds = np.empty((0,))
 
-        looser_tols = __get_looser_tols(ravel_ind, copy_inds, looser_tols)
+        looser_tols = __get_looser_tols(ravel_ind, copy_inds,
+                                        looser_tols=looser_tols)
 
         # number of devices is:
         #   number of threads for CPU
