@@ -888,37 +888,53 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                         [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
                                         for i in range(1, test.ndim)])
                     copy_inds = np.array([0])
-
-                # fill other ravel locations with tiled test size
-                stride = 1
-                size = np.prod([test.shape[i] for i in range(test.ndim)
-                               if i not in copy_inds])
-                for i in [x for x in range(test.ndim) if x not in copy_inds]:
-                    repeats = int(np.ceil(size / (test.shape[i] * stride)))
-                    ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
-                                           (repeats, stride)).flatten(
-                                                order='F')[:size]
-                    stride *= test.shape[i]
-            # and use multi_ravel to convert to linear for dphi
-            # for whatever reason, if we have two ravel indicies with multiple values
-            # we need to need to iterate and stitch them together
-            looser_tols = np.empty((0,))
-            if last_zeros.size:
-                for index in np.ndindex(tuple(x.shape[0]
-                                        for x in ravel_ind[copy_inds])):
-                    # create copy w/ replaced index
-                    copy = ravel_ind.copy()
-                    copy[copy_inds] = [np.array(
-                        ravel_ind[copy_inds][i][x], dtype=np.int32)
-                        for i, x in enumerate(index)]
-                    # amd take union of the iterated ravels
-                    looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
-                        copy, test.shape, order=opts.order))
-
-                # and force to int for indexing
-                looser_tols = np.array(looser_tols, dtype=np.int32)
+            else:
+                ravel_ind = np.empty((0,))
+                copy_inds = np.empty((0,))
         else:
-            looser_tols = looser_tol_finder()
+            ravel_ind, copy_inds = looser_tol_finder(test, opts.order,
+                                                     kgen.array_split._have_split())
+
+        if ravel_ind.size:
+            # fill other ravel locations with tiled test size
+            stride = 1
+            size = np.prod([test.shape[i] for i in range(test.ndim)
+                           if i not in copy_inds])
+            for i in [x for x in range(test.ndim) if x not in copy_inds]:
+                repeats = int(np.ceil(size / (test.shape[i] * stride)))
+                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
+                                       (repeats, stride)).flatten(
+                                            order='F')[:size]
+                stride *= test.shape[i]
+
+        # and use multi_ravel to convert to linear for dphi
+        # for whatever reason, if we have two ravel indicies with multiple values
+        # we need to need to iterate and stitch them together
+        looser_tols = np.empty((0,))
+        if ravel_ind.size:
+            copy = ravel_ind.copy()
+            looser_tols = []
+            if copy_inds.size > 1:
+                # check all copy inds are same shape
+                assert np.all(ravel_ind[copy_inds[0]].shape == y.shape
+                              for y in ravel_ind[copy_inds[1:]])
+            for index in np.ndindex(ravel_ind[copy_inds[0]].shape):
+                # create copy w/ replaced index
+                copy[copy_inds] = [np.array(
+                    ravel_ind[copy_inds][i][index], dtype=np.int32)
+                    for i in range(copy_inds.size)]
+                # and store the raveled indicies
+                looser_tols.append(np.ravel_multi_index(
+                    copy, test.shape, order=opts.order))
+
+            # concat
+            looser_tols = np.concatenate(looser_tols)
+
+            # get unique
+            looser_tols = np.unique(looser_tols)
+
+            # and force to int for indexing
+            looser_tols = np.asarray(looser_tols, dtype=np.int32)
 
         # number of devices is:
         #   number of threads for CPU
@@ -935,6 +951,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
             db.flatten(order=opts.order).tofile(file,)
 
+        looser_tols_str = '[]'
+        if looser_tols.size:
+            looser_tols_str = ', '.join(str(x) for x in looser_tols)
         # write the module tester
         with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
             file.write(mod_test.safe_substitute(
@@ -942,8 +961,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                     lang=package_lang[opts.lang]),
                 input_args=', '.join('"{}"'.format(x) for x in args),
                 test_arrays=', '.join('"{}"'.format(x) for x in tests),
-                looser_tols='[{}]'.format(
-                    ', '.join(str(x) for x in looser_tols)),
+                looser_tols='[{}]'.format(looser_tols_str),
                 loose_rtol=loose_rtol,
                 loose_atol=loose_atol,
                 non_array_args='{}, {}'.format(

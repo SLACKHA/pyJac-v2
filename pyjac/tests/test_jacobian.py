@@ -2639,9 +2639,85 @@ class SubTest(TestClass):
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')
     def test_fd_jacobian(self, lang):
+        def __looser_tol_finder(arr, order, have_split):
+            last_spec_name = self.store.gas.species_names[-1]
+            # look for derivatives resulting from the last species' prescense in the
+            # reaction
+            ns_derivs = set()
+
+            def __add(rxn, wrt=None):
+                # find net nu
+                from collections import defaultdict
+                nu = defaultdict(lambda: 0)
+                for spec in rxn.products:
+                    nu[spec] += rxn.products[spec]
+                for spec in rxn.reactants:
+                    nu[spec] -= rxn.reactants[spec]
+
+                nonzero = [self.store.gas.species_index(spec) for spec in nu
+                           if nu[spec] != 0 and spec != last_spec_name]
+                # get default derivative (all species)
+                if wrt is None:
+                    wrt = range(self.store.gas.n_species - 1)
+                # add any with nonzero and not last species
+                ns_derivs.update([(x, y) for x in nonzero for y in wrt])
+
+            for rxn in self.store.gas.reactions():
+                # first, check for last species in reaction
+                in_rxn = set(k for k in list(rxn.products.keys())
+                             + list(rxn.reactants.keys()))
+                if last_spec_name in in_rxn:
+                    __add(rxn)
+                    continue
+
+                # next, check for third body / falloff
+                try:
+                    if last_spec_name in rxn.efficiencies:
+                        # first, check if it's only entry -> pdep species
+                        if len(rxn.efficiencies) == 1 and \
+                                rxn.default_efficiency == 0:
+                            __add(rxn)
+                        elif rxn.efficiencies[last_spec_name] != 1.0:
+                            # non-unity efficiency, need to add all species w/o
+                            # same efficiency
+                            wrt = set()
+                            if rxn.default_efficiency != rxn.efficiencies[
+                                    last_spec_name]:
+                                # add all species not in efficiency list
+                                wrt.update(
+                                    [x for x in
+                                     range(self.store.gas.n_species - 1)
+                                     if self.store.gas.species_names[x] not in
+                                     rxn.efficiencies])
+                            # and add all species in efficiency list that don't match
+                            wrt.update([self.store.gas.species_index(x)
+                                        for x in rxn.efficiencies
+                                        if rxn.efficiencies[x] !=
+                                        rxn.efficiencies[last_spec_name]])
+                            # and add
+                            __add(rxn, wrt)
+                except AttributeError:
+                    # no efficiencies
+                    pass
+
+            # finally, we need to turn these into 1d indicies
+            row, col = zip(*sorted(ns_derivs))
+            # turn into numpy arrays
+            row = np.array(row) + 2
+            col = np.array(col) + 2
+            from .test_utils import parse_split_index
+            ravel_ind = parse_split_index(arr, (row, col),
+                                          order, ref_ndim=3, axis=(1, 2))
+            copy_inds = np.array([1, 2])
+            if have_split and order == 'F':
+                # the last dimension has been split
+                copy_inds = np.array([0, 2, 3])
+            return np.array(ravel_ind), copy_inds
+
         _full_kernel_test(self, lang, finite_difference_jacobian, 'jac',
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian',
                           do_finite_difference=True,
+                          looser_tol_finder=__looser_tol_finder,
                           call_kwds={'mode': FiniteDifferenceMode.forward,
                                      'order': 6})
