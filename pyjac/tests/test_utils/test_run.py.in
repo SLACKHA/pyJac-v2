@@ -64,14 +64,16 @@ if __name__ == '__main__':
     else:
         # check allclose
         for i in range(len(output_args)):
-            if not np.allclose(output_args[i], test_arrays[i]):
+            if not np.allclose(output_args[i], test_arrays[i], atol=${atol},
+                               rtol=${rtol}):
                 if looser_tols and looser_tols[i]:
                     # first check that all the misses are in looser_tols
                     lt = looser_tols[i]
 
                     # find misses
                     misses = np.where(np.logical_not(np.isclose(
-                        output_args[i], test_arrays[i])))[0]
+                        output_args[i], test_arrays[i], atol=${atol},
+                        rtol=${rtol})))[0]
 
                     if not np.all(np.in1d(misses, lt)):
                         # log the missed values for debugging purposes
