@@ -588,7 +588,7 @@ class get_comparable(object):
 
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=['opencl'], do_vector=True, do_sparse=False,
-                do_approximate=False):
+                do_approximate=False, do_finite_difference=False):
 
     platforms = get_test_platforms(owner.store.test_platforms,
                                    do_vector=do_vector, langs=langs)
@@ -607,9 +607,11 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
     if do_sparse:
         oploop += [('jac_format', [JacobianFormat.sparse, JacobianFormat.full])]
     else:
-        oploop += [('jac_format', ['full'])]
+        oploop += [('jac_format', [JacobianFormat.full])]
     if do_approximate:
         oploop += [('jac_type', [JacobianType.exact, JacobianType.approximate])]
+    elif do_finite_difference:
+        oploop += [('jac_type', [JacobianType.finite_difference])]
     else:
         oploop += [('jac_type', [JacobianType.exact])]
     oploop += [('knl_type', ['map'])]
