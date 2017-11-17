@@ -54,6 +54,8 @@ class JacobianType(IntEnum):
     approximate = 1,
     finite_difference = 2
 
+    # TODO - provide an "approximate" FD?
+
 
 class JacobianFormat(IntEnum):
     """

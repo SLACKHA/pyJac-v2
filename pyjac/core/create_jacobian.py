@@ -148,7 +148,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
             # looking for a full Jacobian, this entire row has non-zero
             # derivatives
             if (rxn in has_ns or (thd_ind is not None and thd_ind in thd_has_ns)) \
-                    and jacobian_type == JacobianType.exact:
+                    and jacobian_type != JacobianType.approximate:
                 __add_specs(range(row_size))
                 break
 
@@ -281,8 +281,11 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
         col = 'col'
         row_size = namestore.num_specs.size + 1
         i = var_name
-        jac_lp, jac_str = mapstore.apply_maps(
-            namestore.jac, global_ind, row, col)
+        kwargs = {}
+        if loopy_opts.jac_type == JacobianType.finite_difference:
+            kwargs['ignore_lookups'] = True
+        jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, row, col,
+                                              **kwargs)
         instructions = Template(
             """
             <> ${row} = ${i} // ${row_size}
