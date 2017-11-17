@@ -727,7 +727,8 @@ ${name} : ${type}
         If k is None, returns the kernel call for this :class:`kernel_generator`
         """
 
-        args = self.kernel_data
+        args = self.kernel_data + [x for x in self.extra_kernel_data
+                                   if isinstance(x, lp.KernelArgument)]
         name = self.name
         if knl is not None:
             args = knl.args
@@ -738,7 +739,8 @@ ${name} : ${type}
             args=', '.join([x.name for x in args])
             )
 
-    def _generate_wrapping_kernel(self, path, instruction_store=None):
+    def _generate_wrapping_kernel(self, path, instruction_store=None,
+                                  as_dummy_call=False):
         """
         Generates a wrapper around the various subkernels in this
         :class:`kernel_generator` (rather than working through loopy's fusion)
@@ -750,6 +752,10 @@ ${name} : ${type}
         instruction_store: dict [None]
             If supplied, store the generated instructions for this kernel
             in this store to avoid duplicate work
+        as_dummy_call: bool [False]
+            If True, this is being generated as a dummy call smuggled past loopy
+            e.g., for a Finite Difference jacobian call to the species rates kernel
+            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
 
         Returns
         -------
@@ -769,7 +775,8 @@ ${name} : ${type}
             # generate wrappers for dependencies
             for x in self.depends_on:
                 x._generate_wrapping_kernel(
-                    path, instruction_store=sub_instructions)
+                    path, instruction_store=sub_instructions,
+                    as_dummy_call=x in self.fake_calls)
 
         self.file_prefix = ''
         if self.auto_diff:
@@ -972,6 +979,10 @@ ${name} : ${type}
                            else '')
             return ''
 
+        if as_dummy_call:
+            # add extra kernel args
+            kernel_data.extend([x for x in self.extra_kernel_data
+                                if isinstance(x, lp.KernelArgument)])
         knl = lp.make_kernel(domains,
                              '\n'.join(_name_assign(arr)
                                        for arr in kernel_data),
