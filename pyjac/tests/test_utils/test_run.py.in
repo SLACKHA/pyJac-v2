@@ -86,14 +86,14 @@ if __name__ == '__main__':
                     # next check for match at looser tols
                     if np.allclose(output_args[i][misses][check],
                                    test_arrays[i][misses][check],
-                                   rtol=${rtol}, atol=${atol}):
+                                   rtol=${loose_rtol}, atol=${loose_atol}):
                         continue
 
                     # log the missed values for debugging purposes
                     missed_checks = np.where(np.logical_not(np.isclose(
                         output_args[i][misses][check],
                         test_arrays[i][misses][check],
-                        rtol=${rtol}, atol=${atol})))
+                        rtol=${loose_rtol}, atol=${loose_atol})))
                     misses = misses[check][missed_checks]
                     warnings.warn(
                         'Out of tolerance for indicies:\n({})\n'
