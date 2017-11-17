@@ -745,7 +745,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
-                      btype, call_name, call_kwds={}, **oploop_kwds):
+                      btype, call_name, call_kwds={}, looser_tol_finder=None,
+                      loose_rtol=1e-4, loose_atol=1, **oploop_kwds):
     oploop = _get_oploop(self, do_conp=True, do_vector=lang != 'c', langs=[lang],
                          **oploop_kwds)
 
@@ -863,56 +864,61 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         # get split arrays
         test, = kgen.array_split.split_numpy_arrays(test)
 
-        # find where Pr is zero
-        last_zeros = np.where(self.store.ref_Pr == 0)[0]
+        if looser_tol_finder is None:
+            # find where Pr is zero
+            last_zeros = np.where(self.store.ref_Pr == 0)[0]
 
-        # turn into updated form
-        if last_zeros.size:
-            if kgen.array_split._have_split():
-                ravel_ind = parse_split_index(test, (last_zeros,), opts.order,
-                                              ref_ndim=ref_ndim, axis=(0,))
-                # and list
-                ravel_ind = np.array(ravel_ind)
+            # turn into updated form
+            if last_zeros.size:
+                if kgen.array_split._have_split():
+                    ravel_ind = parse_split_index(test, (last_zeros,), opts.order,
+                                                  ref_ndim=ref_ndim, axis=(0,))
+                    # and list
+                    ravel_ind = np.array(ravel_ind)
 
-                # just choose the initial condition indicies
-                if opts.order == 'C':
-                    # wide split, take first and last index
-                    copy_inds = np.array([0, test.ndim - 1], dtype=np.int32)
-                elif opts.order == 'F':
-                    # deep split, take just the IC index at 1
-                    copy_inds = np.array([1], dtype=np.int32)
-            else:
-                ravel_ind = np.array(
-                    [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
-                                    for i in range(1, test.ndim)])
-                copy_inds = np.array([0])
+                    # just choose the initial condition indicies
+                    if opts.order == 'C':
+                        # wide split, take first and last index
+                        copy_inds = np.array([0, test.ndim - 1], dtype=np.int32)
+                    elif opts.order == 'F':
+                        # deep split, take just the IC index at 1
+                        copy_inds = np.array([1], dtype=np.int32)
+                else:
+                    ravel_ind = np.array(
+                        [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
+                                        for i in range(1, test.ndim)])
+                    copy_inds = np.array([0])
 
-            # fill other ravel locations with tiled test size
-            stride = 1
-            size = np.prod([test.shape[i] for i in range(test.ndim)
-                           if i not in copy_inds])
-            for i in [x for x in range(test.ndim) if x not in copy_inds]:
-                repeats = int(np.ceil(size / (test.shape[i] * stride)))
-                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
-                                       (repeats, stride)).flatten(order='F')[:size]
-                stride *= test.shape[i]
-        # and use multi_ravel to convert to linear for dphi
-        # for whatever reason, if we have two ravel indicies with multiple values
-        # we need to need to iterate and stitch them together
-        looser_tols = np.empty((0,))
-        if last_zeros.size:
-            for index in np.ndindex(tuple(x.shape[0] for x in ravel_ind[copy_inds])):
-                # create copy w/ replaced index
-                copy = ravel_ind.copy()
-                copy[copy_inds] = [np.array(
-                    ravel_ind[copy_inds][i][x], dtype=np.int32)
-                    for i, x in enumerate(index)]
-                # amd take union of the iterated ravels
-                looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
-                    copy, test.shape, order=opts.order))
+                # fill other ravel locations with tiled test size
+                stride = 1
+                size = np.prod([test.shape[i] for i in range(test.ndim)
+                               if i not in copy_inds])
+                for i in [x for x in range(test.ndim) if x not in copy_inds]:
+                    repeats = int(np.ceil(size / (test.shape[i] * stride)))
+                    ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
+                                           (repeats, stride)).flatten(
+                                                order='F')[:size]
+                    stride *= test.shape[i]
+            # and use multi_ravel to convert to linear for dphi
+            # for whatever reason, if we have two ravel indicies with multiple values
+            # we need to need to iterate and stitch them together
+            looser_tols = np.empty((0,))
+            if last_zeros.size:
+                for index in np.ndindex(tuple(x.shape[0]
+                                        for x in ravel_ind[copy_inds])):
+                    # create copy w/ replaced index
+                    copy = ravel_ind.copy()
+                    copy[copy_inds] = [np.array(
+                        ravel_ind[copy_inds][i][x], dtype=np.int32)
+                        for i, x in enumerate(index)]
+                    # amd take union of the iterated ravels
+                    looser_tols = np.union1d(looser_tols, np.ravel_multi_index(
+                        copy, test.shape, order=opts.order))
 
-            # and force to int for indexing
-            looser_tols = np.array(looser_tols, dtype=np.int32)
+                # and force to int for indexing
+                looser_tols = np.array(looser_tols, dtype=np.int32)
+        else:
+            looser_tols = looser_tol_finder()
 
         # number of devices is:
         #   number of threads for CPU
@@ -938,8 +944,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 test_arrays=', '.join('"{}"'.format(x) for x in tests),
                 looser_tols='[{}]'.format(
                     ', '.join(str(x) for x in looser_tols)),
-                rtol=1e-1 if btype != build_type.jacobian else 1e0,
-                atol=1e-8,
+                loose_rtol=loose_rtol,
+                loose_atol=loose_atol,
                 non_array_args='{}, {}'.format(
                     self.store.test_size, num_devices),
                 call_name=call_name,
