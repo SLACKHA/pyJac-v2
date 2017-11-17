@@ -40,7 +40,6 @@ except:
         div, mod = divmod(a, b)
         return np.asarray(div, **kwargs), np.asarray(mod, **kwargs)
 
-import pyopencl as cl
 import six
 
 
@@ -946,7 +945,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         #   number of threads for CPU
         #   1 for GPU
         num_devices = int(cpu_count() / 2)
-        if lang == 'opencl' and opts.device_type == cl.device_type.GPU:
+        if platform_is_gpu(opts.platform):
             num_devices = 1
 
         # and save the data.bin file in case of testing
@@ -1329,13 +1328,13 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
     del run
 
 
-def platform_is_gpu(platform_name):
+def platform_is_gpu(platform):
     """
     Attempts to determine if the given platform name corresponds to a GPU
 
     Parameters
     ----------
-    platform_name: str
+    platform_name: str or :class:`pyopencl.platform`
         The name of the platform to check
 
     Returns
@@ -1346,17 +1345,23 @@ def platform_is_gpu(platform_name):
         None otherwise
     """
     # filter out C or other non pyopencl platforms
-    if not platform_name or not isinstance(platform_name, str):
+    if not platform:
         return False
-    import pyopencl as cl
-    for p in cl.get_platforms():
-        if platform_name.lower() in p.name.lower():
-            # match, get device type
-            dtype = set(d.type for d in p.get_devices())
-            assert len(dtype) == 1, (
-                "Mixed device types on platform {}".format(p.name))
-            # fix cores for GPU
-            if cl.device_type.GPU in dtype:
-                return True
-            return False
+    try:
+        import pyopencl as cl
+        if isinstance(platform, cl.Platform):
+            return platform.get_devices()[0].type == cl.device_type.GPU
+
+        for p in cl.get_platforms():
+            if platform.lower() in p.name.lower():
+                # match, get device type
+                dtype = set(d.type for d in p.get_devices())
+                assert len(dtype) == 1, (
+                    "Mixed device types on platform {}".format(p.name))
+                # fix cores for GPU
+                if cl.device_type.GPU in dtype:
+                    return True
+                return False
+    except ImportError:
+        pass
     return None
