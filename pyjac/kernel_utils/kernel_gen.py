@@ -24,6 +24,7 @@ from .. import utils
 from ..loopy_utils import loopy_utils as lp_utils
 from ..loopy_utils import preambles_and_manglers as lp_pregen
 from ..core.array_creator import problem_size as p_size
+from ..core.array_creator import global_ind
 from ..core import array_creator as arc
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
@@ -194,10 +195,10 @@ class kernel_generator(object):
         """
 
         # list of inames added to sub kernels
-        self.inames = ['j']
+        self.inames = [global_ind]
 
         # list of iname domains added to subkernels
-        self.iname_domains = ['0<=j<{}']
+        self.iname_domains = ['0<={}<{{}}'.format(global_ind)]
 
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = extra_kernel_data[:]
@@ -1415,7 +1416,7 @@ ${defn}
         vec_width = None
         to_split = None
         i_tag = inner_ind
-        j_tag = 'j'
+        j_tag = global_ind
         depth = loopy_opts.depth
         width = loopy_opts.width
         if depth:
@@ -1423,7 +1424,7 @@ ${defn}
             vec_width = depth
             i_tag += '_outer'
         elif width:
-            to_split = 'j'
+            to_split = global_ind
             vec_width = width
             j_tag += '_outer'
         if not can_vectorize:
@@ -1439,7 +1440,7 @@ ${defn}
             knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
 
         if utils.can_vectorize_lang[loopy_opts.lang]:
-            # tag 'j' as g0, use simple parallelism
+            # tag 'global_ind' as g0, use simple parallelism
             knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
 
         # if we have a specialization
@@ -1488,8 +1489,8 @@ class c_kernel_generator(kernel_generator):
         # over the states is implemented in the wrapping kernel
         self.iname_domains = []
 
-        # add 'j' to the list of extra kernel data to be added to subkernels
-        self.extra_kernel_data.append(lp.ValueArg('j', dtype=np.int32))
+        # add 'global_ind' to the list of extra kernel data to be added to subkernels
+        self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
 
     def get_inames(self, test_size):
         """
