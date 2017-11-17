@@ -2706,12 +2706,19 @@ class SubTest(TestClass):
             row = np.array(row) + 2
             col = np.array(col) + 2
             from .test_utils import parse_split_index
+            # also have to override the size & stride arrays as these indicies
+            # can be indexed together already -- this keeps us from blowing chunks
+            # performance wise in the __get_looser_tols's multi ravel loop
             ravel_ind = parse_split_index(arr, (row, col),
-                                          order, ref_ndim=3, axis=(1, 2))
+                                          order, ref_ndim=3, axis=(1, 2),
+                                          size_arr=[row.size],
+                                          stride_arr=[1, 1])
             copy_inds = np.array([1, 2])
             if have_split and order == 'F':
                 # the last dimension has been split
                 copy_inds = np.array([0, 2, 3])
+
+            # return ravel inds, copy axes
             return np.array(ravel_ind), copy_inds
 
         # we're really not testing here for correctness, rather that
