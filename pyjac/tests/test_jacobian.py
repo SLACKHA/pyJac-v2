@@ -2718,6 +2718,6 @@ class SubTest(TestClass):
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian',
                           do_finite_difference=True,
-                          looser_tol_finder=__looser_tol_finder,
+                          atol=1, rtol=1e-1, looser_tol_finder=__looser_tol_finder,
                           call_kwds={'mode': FiniteDifferenceMode.forward,
                                      'order': 6})
