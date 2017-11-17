@@ -914,10 +914,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             looser_tols = __get_looser_tols(*looser_tol_finder(
                 test, opts.order, kgen.array_split._have_split()))
 
-        # add more where Pr is zero
+        # add more loose tolerances where Pr is zero
         last_zeros = np.where(self.store.ref_Pr == 0)[0]
-
-        # turn into updated form
         if last_zeros.size:
             if kgen.array_split._have_split():
                 ravel_ind = parse_split_index(test, (last_zeros,), opts.order,
