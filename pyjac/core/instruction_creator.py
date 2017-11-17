@@ -510,13 +510,15 @@ def with_conditional_jacobian(func):
                 # add dependency to all before me (and just added)
                 # so that we don't get out of order
                 deps += [name]
-                # and redefine the jac indicies
                 if is_sparse:
+                    # redefine the jac indicies
                     jac_inds = (jac_inds[0],) + ('jac_index',)
+                    # and add conditional
                     conditional = 'jac_index >= {}'.format(offset)
                 else:
-                    jac_inds[replace_ind] = computed_ind
-                    conditional = 'jac_index >= -1'
+                    # if not sparse, we don't replace the jacobian indicies at all
+                    # this is simply a check to make sure this is present
+                    conditional = 'jac_index >= 0'
                 # we've now created the temporary
                 _conditional_jacobian.created_index = True
             else:
@@ -525,7 +527,7 @@ def with_conditional_jacobian(func):
                 if is_sparse:
                     conditional = '{} >= {}'.format(computed_ind, offset)
                 else:
-                    conditional = '{} >= -1'.format(computed_ind)
+                    conditional = '{} >= 0'.format(computed_ind)
 
         if precompute and insn:
             # need to wrap the instruction
@@ -535,7 +537,10 @@ def with_conditional_jacobian(func):
         # and finally return the insn
         mykwargs = kwargs.copy()
         if precompute:
-            mykwargs.update({'ignore_lookups': index_insn != ''})
+            # we can skip the lookup here _if_ we've precomputed it (and stored
+            # in a temp) _or_ it's a full jacobian
+            mykwargs.update({'ignore_lookups': index_insn != ''
+                             or not is_sparse})
         # get jac_str
         jac_lp, jac_str = mapstore.apply_maps(
             jac, *jac_inds, **mykwargs)
