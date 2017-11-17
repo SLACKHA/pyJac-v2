@@ -4662,7 +4662,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                           var_name=var_name,
                           kernel_data=kernel_data,
                           parameters=parameters,
-                          can_vectorize=False,
+                          can_vectorize=loopy_opts.depth is None,
                           vectorization_specializer=__fixer,
                           extra_inames=extra_inames,
                           manglers=[lp_pregen.fmax(),
