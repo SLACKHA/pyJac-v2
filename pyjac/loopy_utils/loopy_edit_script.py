@@ -37,12 +37,15 @@ def __save_file(filename, lines):
             file.writelines(lines)
 
 
-def substitute(filename, text_in=None):
+def substitute(filename, text_in=None, extra_subs={}):
     lines = __get_file(filename, text_in=text_in)
 
+    # grab any platform specific substitutions
+    lswaps = swaps.copy()
+    lswaps.update(extra_subs)
     # do any replacements
-    for swap in swaps:
-        lines = [re.sub(swap, swaps[swap], line) for line in lines]
+    for swap in lswaps:
+        lines = [re.sub(swap, lswaps[swap], line) for line in lines]
 
     __save_file(filename, lines)
     return '\n'.join(lines)
