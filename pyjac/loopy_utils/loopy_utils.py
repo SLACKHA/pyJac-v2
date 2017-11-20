@@ -536,7 +536,7 @@ def set_adept_editor(knl,
     return __set_editor(knl, adept_edit_script)
 
 
-def get_code(knl):
+def get_code(knl, opts=None):
     """
     Returns the device code for a :class:`loopy.LoopKernel` or
     fixes alreay generated code
@@ -545,7 +545,10 @@ def get_code(knl):
     ----------
     knl : :class:`loopy.LoopKernel` or str
         The kernel to generate code for.  If knl is a string, it is assumed
-        to be pregenerated code, and only the editor script must be callsed
+        to be pregenerated code, and only the editor script must be called
+    opts: :class:`loopy_options`
+        The options used in created the kernel -- used to detect platform specific
+        fixes.  Ignored if not supplied
 
     Returns
     -------
@@ -561,7 +564,21 @@ def get_code(knl):
         code = knl
     else:
         code, _ = lp.generate_code(knl)
-    return codefix('stdin', text_in=code)
+
+    extra_subs = {}
+    if opts is None:
+        # ignore
+        pass
+    elif opts.lang == 'opencl' and 'intel' in opts.platform.name.lower() \
+            and opts.order == 'C' and opts.width:
+        # If True, this is a finite-difference Jacobian on an Intel OpenCL platform
+        # Hence we have to tell the codefixer about the intel bug
+        # https://software.intel.com/en-us/forums/opencl/topic/748841
+        extra_subs[r'__kernel void __attribute__ \(\(reqd_work_group_size\(\d+, 1, 1'
+                   r'\)\)\) species_rates_kernel'] = r'void species_rates_kernel'
+
+    return codefix('stdin', text_in=code, extra_subs=extra_subs)
+
 
 def not_is_close(arr1, arr2, **kwargs):
     """

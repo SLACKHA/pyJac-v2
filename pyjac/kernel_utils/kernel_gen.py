@@ -219,7 +219,11 @@ class kernel_generator(object):
         self.fake_calls = fake_calls.copy()
         if self.fake_calls:
             # compress into one kernel which we will call separately
-            self.seperate_kernels = False
+            def __set(kgen):
+                kgen.seperate_kernels = False
+                for x in kgen.depends_on:
+                    __set(x)
+            __set(self)
 
     def apply_barriers(self, instructions, use_sub_barriers=True):
         """
@@ -1034,9 +1038,9 @@ ${name} : ${type}
             from a :class:`loopy.GeneratedProgram`
             """
             if isinstance(cgr.ast, cgen.FunctionBody):
-                return lp_utils.get_code(str(cgr.ast))
+                return lp_utils.get_code(str(cgr.ast), self.loopy_opts)
             else:
-                return lp_utils.get_code(str(cgr.ast.contents[-1]))
+                return lp_utils.get_code(str(cgr.ast.contents[-1]), self.loopy_opts)
 
         if self.fake_calls:
             extra_fake_kernels = {x: [] for x in self.fake_calls}
@@ -1162,12 +1166,13 @@ ${name} : ${type}
             sub_instructions = extra_fake_kernels[gen]
             # apply barriers
             sub_instructions = gen.apply_barriers(sub_instructions)
-            # and place within a single extra kernel
-            extra_kernels.append(subs_at_indent("""
+            code = subs_at_indent("""
 ${defn}
 {
     ${insns}
-}""", defn=gen.kernel_defn, insns='\n'.join(sub_instructions)))
+}""", defn=gen.kernel_defn, insns='\n'.join(sub_instructions))
+            # and place within a single extra kernel
+            extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
 
         # insert barriers if any
         instructions = self.apply_barriers(instructions,
