@@ -100,8 +100,8 @@ if __name__ == '__main__':
                     warnings.warn(
                         'Out of tolerance for indicies:\n({})\n'
                         'error:\n({})'.format(
-                            ', '.join(misses),
-                            ', '.join(np.abs((
+                            ', '.join(str(x) for x in misses),
+                            ', '.join(str(x) for x in np.abs((
                                 output_args[i][misses] - test_arrays[i][misses]
                                 ) / test_arrays[i][misses]))))
                 # if not a match, exit
