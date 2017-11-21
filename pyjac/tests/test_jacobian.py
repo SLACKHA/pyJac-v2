@@ -2712,7 +2712,7 @@ class SubTest(TestClass):
             ravel_ind = parse_split_index(arr, (row, col),
                                           order, ref_ndim=3, axis=(1, 2),
                                           size_arr=[row.size],
-                                          stride_arr=[1, 1])
+                                          stride_arr=[1] * arr.ndim)
             copy_inds = np.array([1, 2])
             if have_split and order == 'F':
                 # the last dimension has been split
