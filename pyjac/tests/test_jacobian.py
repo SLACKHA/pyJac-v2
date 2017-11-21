@@ -2643,6 +2643,7 @@ class SubTest(TestClass):
             last_spec_name = self.store.gas.species_names[-1]
             # look for derivatives resulting from the last species' prescense in the
             # reaction
+
             ns_derivs = set()
 
             def __add(rxn, wrt=None):
@@ -2672,39 +2673,37 @@ class SubTest(TestClass):
 
                 # next, check for third body / falloff
                 try:
+                    # if last species is third body
                     if last_spec_name in rxn.efficiencies:
-                        # first, check if it's only entry -> pdep species
-                        if len(rxn.efficiencies) == 1 and \
-                                rxn.default_efficiency == 0:
-                            __add(rxn)
-                        elif rxn.efficiencies[last_spec_name] != 1.0:
-                            # non-unity efficiency, need to add all species w/o
-                            # same efficiency
-                            wrt = set()
-                            if rxn.default_efficiency != rxn.efficiencies[
-                                    last_spec_name]:
-                                # add all species not in efficiency list
-                                wrt.update(
-                                    [x for x in
-                                     range(self.store.gas.n_species - 1)
-                                     if self.store.gas.species_names[x] not in
-                                     rxn.efficiencies])
-                            # and add all species in efficiency list that don't match
-                            wrt.update([self.store.gas.species_index(x)
-                                        for x in rxn.efficiencies
-                                        if rxn.efficiencies[x] !=
-                                        rxn.efficiencies[last_spec_name]])
-                            # and add
-                            __add(rxn, wrt)
+                        # add full row
+                        __add(rxn)
+                    else:
+                        # third body efficiencies in general can give poor
+                        # FD approximations
+                        __add(rxn, tuple(self.store.gas.species_index(x) for x in
+                                         rxn.efficiencies))
                 except AttributeError:
                     # no efficiencies
                     pass
 
             # finally, we need to turn these into 1d indicies
             row, col = zip(*sorted(ns_derivs))
+            row_size = self.store.gas.n_species + 1
             # turn into numpy arrays
             row = np.array(row) + 2
             col = np.array(col) + 2
+            # temperature and extra variable deriviatives w.r.t species are
+            # inherently noisier
+
+            # as are species / temperature rates w.r.t. P & V
+            first_rows = [0] * (row_size - 2) + [1] * (row_size - 2) + \
+                list(range(row_size))
+            row = np.insert(row, 0, first_rows)
+            first_cols = list(range(2, row_size)) + list(range(2, row_size)) + \
+                [1] * row_size
+            col = np.insert(col, 0, first_cols)
+            # and the extra variable derivative
+
             from .test_utils import parse_split_index
             # also have to override the size & stride arrays as these indicies
             # can be indexed together already -- this keeps us from blowing chunks
@@ -2727,7 +2726,7 @@ class SubTest(TestClass):
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian',
                           do_finite_difference=True,
-                          atol=1000, rtol=100, loose_rtol=100, loose_atol=1000,
+                          atol=10, rtol=100, loose_rtol=1e7, loose_atol=10,
                           looser_tol_finder=__looser_tol_finder,
                           call_kwds={'mode': FiniteDifferenceMode.central,
                                      'order': 8})

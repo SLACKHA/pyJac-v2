@@ -4456,7 +4456,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     sumv = sumv.name
 
     # create our extra loops
-    i_set = 'i_set'
     i_sum = 'i_sum'
     i_copy = 'i_copy'
     i_end = 'i_end'
