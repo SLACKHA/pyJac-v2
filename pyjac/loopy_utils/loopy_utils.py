@@ -569,8 +569,10 @@ def get_code(knl, opts=None):
     if opts is None:
         # ignore
         pass
-    elif opts.lang == 'opencl' and 'intel' in opts.platform.name.lower() \
-            and opts.order == 'C' and opts.width:
+    elif opts.lang == 'opencl' and (
+        'intel' in opts.platform.name.lower()
+            and (opts.order == 'C' and opts.width) or (
+                 opts.order == 'F' and opts.depth)):
         # If True, this is a finite-difference Jacobian on an Intel OpenCL platform
         # Hence we have to tell the codefixer about the intel bug
         # https://software.intel.com/en-us/forums/opencl/topic/748841
