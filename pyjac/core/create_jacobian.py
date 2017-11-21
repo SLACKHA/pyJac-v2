@@ -4462,8 +4462,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     i_end = 'i_end'
     # copy and end use non-zero inds
     nnz_phi = namestore.net_nonzero_phi
-    extra_inames = [(i_set, '0 <= {} < {}'.format(i_set, phi_size)),
-                    (i_sum, '0 <= {} < {}'.format(i_sum, phi_size)),
+    extra_inames = [(i_sum, '0 <= {} < {}'.format(i_sum, phi_size)),
                     (i_copy, '0 <= {} < {}'.format(i_copy, nnz_phi.size)),
                     (i_end, '0 <= {} < {}'.format(i_end, nnz_phi.size)),
                     ('k', '0 <= k < {}'.format(xcoeffs.shape[0]))]
@@ -4471,7 +4470,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # start creating our variables
 
     # sum over all phi
-    phi_lp, phi_iset = mapstore.apply_maps(namestore.n_arr, global_ind, i_set)
+    phi_lp, phi_isum = mapstore.apply_maps(namestore.n_arr, global_ind, i_sum)
     dphi_lp, dphi_isum = mapstore.apply_maps(namestore.n_dot, global_ind, i_sum)
 
     # iterate over net non-zero phi (i.e. those w / non-zero derivatives)
@@ -4542,7 +4541,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # error weight calculations
     ewt_calcs = Template("""
     for ${i_sum}
-        ewt[${i_sum}] = ATOL + (RTOL * fabs(${phi_iset})) \
+        ewt[${i_sum}] = ATOL + (RTOL * fabs(${phi_isum})) \
             {id=ewt, dep=*, nosync=change}
         ${sumv} = ${sumv} + (ewt[${i_sum}] * fabs(${dphi_isum})) * (\
             ewt[${i_sum}] * fabs(${dphi_isum})) \
