@@ -186,6 +186,8 @@ class loopy_options(object):
                 self.device_type = cl.device_type.CPU
             elif platform.lower() == 'gpu':
                 self.device_type = cl.device_type.GPU
+            elif platform.lower() == 'accelerator':
+                self.device_type = cl.device_type.ACCELERATOR
             else:
                 check_name = self.platform
             self.platform = None
