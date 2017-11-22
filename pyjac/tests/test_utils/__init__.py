@@ -911,7 +911,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         if looser_tol_finder is not None:
             # pull user specified first
             looser_tols = __get_looser_tols(*looser_tol_finder(
-                test, opts.order, kgen.array_split._have_split()))
+                test, opts.order, kgen.array_split._have_split(),
+                state['conp']))
 
         # add more loose tolerances where Pr is zero
         last_zeros = np.where(self.store.ref_Pr == 0)[0]
