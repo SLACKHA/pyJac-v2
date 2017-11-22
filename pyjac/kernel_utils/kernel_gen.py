@@ -1044,6 +1044,7 @@ ${name} : ${type}
 
         if self.fake_calls:
             extra_fake_kernels = {x: [] for x in self.fake_calls}
+            extra_fake_ldecls = {x: set() for x in self.fake_calls}
 
         from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
@@ -1068,6 +1069,11 @@ ${name} : ${type}
                     extra_fake_kernels[sub].append(insns)
                     # and clear insns
                     insns = ''
+
+                    if ldecls:
+                        # add to fake kernel
+                        extra_fake_ldecls[sub].update(ldecls)
+                        ldecls = []
 
                 if insns:
                     instructions.append(insns)
@@ -1166,6 +1172,9 @@ ${name} : ${type}
             sub_instructions = extra_fake_kernels[gen]
             # apply barriers
             sub_instructions = gen.apply_barriers(sub_instructions)
+            # insert any extra local declares
+            if gen in extra_fake_ldecls:
+                sub_instructions[0:0] = sorted(extra_fake_ldecls[gen])
             code = subs_at_indent("""
 ${defn}
 {
