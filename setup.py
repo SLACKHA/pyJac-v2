@@ -100,7 +100,8 @@ except (ImportError, OSError, IOError):
           'optionloop >= 1.0.7',
           'cantera >= 2.3.0',
           'scipy',
-          'tables'],
+          'tables',
+          'psutil'],
 
     # use nose for tests
     test_suite='nose.collector',
