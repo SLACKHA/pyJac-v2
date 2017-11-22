@@ -4507,17 +4507,10 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     spec_rate_call = 'dummy()'
 
     barrier = '... nop'
-    abarrier = '... nop'  # barrier for atomic only operations
     mem_kind = ''
-    amem_kind = ''
-    atomic = ''
     if loopy_opts.depth:
         barrier = '... lbarrier'
         mem_kind = ', mem_kind=global'
-    if ic.use_atomics(loopy_opts):
-        atomic = ', atomic'
-        abarrier = '... lbarrier'
-        amem_kind = ', mem_kind=global'
 
     # now create our instructions
     from pytools import UniqueNameGenerator
@@ -4528,7 +4521,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # get the base dphi
     ${spec_rate_call} {id=init}
     # get the error weights and original phi
-    ${sumv} = 0 {id=sum_init${atomic}}
+    ${sumv} = 0 {id=sum_init}
     ${barrier} {id=sum_and_dphi_init, dep=sum_init:init${mem_kind}}
     """).safe_substitute(**locals())
     # convert to vecloop if needed
@@ -4607,7 +4600,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # and reset the phi value to original
     phi_reset = Template('${phi_str} = phi_orig {id=phi_reset, dep=*:update, '
-                         'nosync=*${atomic}}').safe_substitute(**locals())
+                         'nosync=*}').safe_substitute(**locals())
     phi_reset, iname = ic.place_in_vectorization_loop(
         loopy_opts, phi_reset, namer, vectorize=ic.use_atomics(loopy_opts))
     if iname:
