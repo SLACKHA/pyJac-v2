@@ -1,5 +1,5 @@
 import os
-import multiprocessing
+import psutil
 import sys
 import cantera as ct
 from collections import OrderedDict
@@ -74,7 +74,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     split_kernels = [False]
     num_cores = []
     nc = 1
-    while nc < multiprocessing.cpu_count() / 2:
+    while nc < psutil.cpu_count(logical=False):
         num_cores.append(nc)
         nc *= 2
 
