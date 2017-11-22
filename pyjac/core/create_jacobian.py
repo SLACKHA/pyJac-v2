@@ -297,7 +297,9 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
 
     # add arrays
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, init_ids=['reset'], is_write_race=False)
+        loopy_opts, init_ids=['reset'], is_write_race=False,
+        # for FD jacobian, no need for atomics
+        use_atomics=loopy_opts.jac_type != JacobianType.finite_difference)
 
     return k_gen.knl_info(name='reset_arrays',
                           instructions=instructions,
@@ -4637,8 +4639,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         def __fixer(knl):
             vw = loopy_opts.depth
             can_vec = set([i_copy, i_end])
-            if ic.use_atomics(loopy_opts):
-                can_vec.update([i_copy])
             for iname, _ in extra_inames:
                 if '_vec' in iname or iname in can_vec:
                     # realize fake / full / legit vectorization
