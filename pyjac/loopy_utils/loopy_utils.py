@@ -229,6 +229,12 @@ class loopy_options(object):
                 logger.warn('Some GPU implementation(s)--NVIDIA--give incorrect'
                             'values sporadically without either a deep or wide'
                             'vectorization. Use at your own risk.')
+            elif self.depth and self.jac_type == JacobianType.finite_difference and \
+                    'portable' in self.platform.name.lower():
+                # https://github.com/pocl/pocl/issues/520
+                # no way around calling a function w/ atomics for FD-deep
+                # vectorizations at the moment -- can remove when #520 is resolved
+                raise BrokenPlatformError(self)
 
 
 def get_device_list():
