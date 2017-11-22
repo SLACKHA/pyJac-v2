@@ -2639,7 +2639,7 @@ class SubTest(TestClass):
     @parameterized.expand([('opencl',), ('c',)])
     @attr('long')
     def test_fd_jacobian(self, lang):
-        def __looser_tol_finder(arr, order, have_split):
+        def __looser_tol_finder(arr, order, have_split, conp):
             last_spec_name = self.store.gas.species_names[-1]
             # look for derivatives resulting from the last species' prescense in the
             # reaction
@@ -2695,12 +2695,21 @@ class SubTest(TestClass):
             # temperature and extra variable deriviatives w.r.t species are
             # inherently noisier
 
-            # as are species / temperature rates w.r.t. P & V
-            first_rows = [0] * (row_size - 2) + [1] * (row_size - 2) + \
-                list(range(row_size))
+            first_rows = [0] * (row_size - 2) + [1] * (row_size - 2)
+            if conp:
+                # as are species / temperature rates w.r.t. V
+                first_rows += list(range(row_size))
+            else:
+                # temperature rates can be a bit wonky here
+                first_rows += list(range(row_size))
             row = np.insert(row, 0, first_rows)
-            first_cols = list(range(2, row_size)) + list(range(2, row_size)) + \
-                [1] * row_size
+            first_cols = list(range(2, row_size)) + list(range(2, row_size))
+            if conp:
+                # species / temperature rates w.r.t. V
+                first_cols += [1] * row_size
+            else:
+                # temperature rates can be a bit wonky here
+                first_cols += [0] * row_size
             col = np.insert(col, 0, first_cols)
             # and the extra variable derivative
 
@@ -2726,7 +2735,7 @@ class SubTest(TestClass):
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian',
                           do_finite_difference=True,
-                          atol=10, rtol=100, loose_rtol=1e7, loose_atol=10,
+                          atol=100, rtol=100, loose_rtol=1e7, loose_atol=100,
                           looser_tol_finder=__looser_tol_finder,
                           call_kwds={'mode': FiniteDifferenceMode.central,
                                      'order': 8})
