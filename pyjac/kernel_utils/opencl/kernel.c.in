@@ -182,7 +182,7 @@ void init(size_t per_run, size_t problem_size, cl_uint num_devices, ${knl_args})
         }
     }
 
-    if (device_type == CL_DEVICE_TYPE_CPU)
+    if (device_type != CL_DEVICE_TYPE_GPU)
     {
         //num devices is actually the number of cores
         //Hence, we're going to create a subdevice limited to that # of cores
@@ -207,8 +207,7 @@ void init(size_t per_run, size_t problem_size, cl_uint num_devices, ${knl_args})
         cl_uint num_compute;
         //first get the maximum number of sub partitions (i.e. logical threads)
         check_err(clGetDeviceInfo(device_ids[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(num_compute), &num_compute, NULL));
-        cassert(num_cores <= num_compute &&
-                num_cores <= MAX_CORES, "Too many cores used...");
+        cassert(num_cores <= num_compute, "Too many cores used...");
 
         //ok, now we know we're ok
         //let's create a subdevice with the required number of compute units

@@ -22,7 +22,6 @@ Nicholas Curtis - 2017
 
 #define NUM_PLATFORMS (16)
 #define MAX_DEVICE (16)
-#define MAX_CORES (100)
 
 
 /*
