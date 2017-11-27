@@ -236,6 +236,25 @@ class loopy_options(object):
                 # vectorizations at the moment -- can remove when #520 is resolved
                 raise BrokenPlatformError(self)
 
+    @property
+    def has_scatter(self):
+        """
+        Utility to determine whether the target supports scatter writes
+
+        Currently, only Intel's OpenCL implementation does not (CPU-only 16.1.1)
+        and if attempted, it breaks the auto-vectorization
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        has_scatter: bool
+            Whether the target supports scatter operations or not
+        """
+        return not (self.lang == 'opencl' and 'intel' in self.platform.name.lower())
+
 
 def get_device_list():
     """

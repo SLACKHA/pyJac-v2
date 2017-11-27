@@ -11,6 +11,7 @@ import sys
 from math import log
 from string import Template
 import logging
+import re
 
 # Local imports
 from .. import utils
@@ -4638,11 +4639,21 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         # need to split only good inames
         def __fixer(knl):
             vw = loopy_opts.depth
-            can_vec = set([i_copy, i_end])
+            if loopy_opts.has_scatter:
+                # if we have a scatter operation, the copy and division loops
+                # can be safely vectorized
+                can_vec = set([i_copy, i_end])
+                no_vec = set([])
+            else:
+                can_vec = set([])
+                no_vec = set([i_copy, i_end])
             for iname, _ in extra_inames:
-                if '_vec' in iname or iname in can_vec:
-                    # realize fake / full / legit vectorization
+                if re.search('(full|fake)_vec', iname) or iname in can_vec:
+                    # realize full vectorization
                     knl = lp.split_iname(knl, iname, vw, inner_tag='l.0')
+                elif iname in no_vec:
+                    # fake vectorization
+                    knl = lp.split_iname(knl, iname, 1, inner_tag='l.0')
             return knl
 
     # create kernel info
