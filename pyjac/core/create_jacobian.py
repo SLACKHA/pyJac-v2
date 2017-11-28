@@ -5010,7 +5010,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
                     use_atomics=True, jac_type='exact', jac_format='full',
-                    for_validation=False, seperate_kernels=True):
+                    for_validation=False, seperate_kernels=True,
+                    fd_order=1, fd_mode='forward'
+                    ):
     """Create Jacobian subroutine from mechanism.
 
     Parameters
@@ -5075,16 +5077,22 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         Useful in testing, as there are serious floating point errors for
         net production rates near equilibrium, invalidating direct comparison to
         Cantera
-    jac_type: ['exact', 'approximate']
-        The type of Jacobian kernel to generate.  An approximate Jacobian ignores
-        derivatives of the last species with respect to other species in the
-        mechanism -- i.e. :math:`\frac{\partial n_{N_s}}{\partial n_{j}}` -- in the
-        reaction rate derivatives.
+    jac_type: ['exact', 'approximate', 'finite_difference']
+        The type of Jacobian kernel to generate.
+
+        An 'approximate' Jacobian ignores derivatives of the last species with
+        respect to other species in the mechanism --
+        i.e. :math:`\frac{\partial n_{N_s}}{\partial n_{j}}` -- in the reaction rate
+        derivatives.
 
         This can significantly increase sparsity for mechanisms containing reactions
         that include the last species directly, or as a third-body species with a
         non-unity efficiency, but gives results in an approxmiate Jacobian, and thus
         is more suitable to use with implicit integration techniques.
+
+        Finally a 'finite_difference' jacobian is computed using finite differences
+        of the species rates kernel.  This is used internally for performance testing
+        comparison, but is also available to the user if desired.
     jac_format: ['full', 'sparse']
         If 'sparse', the Jacobian will be encoded using a compressed row or column
         storage format (for a data order of 'C' and 'F' respectively).
@@ -5094,8 +5102,15 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     seperate_kernels: bool [True]
         If True, separate evaluation into different functions in the generated kernel
         in order to improve compiler vectorization / optimization.
-        However, on some platforms this breaks during compilation,
-        hence we provide a method to turn if off if necessary.
+        However, on some platforms / vectorization combinations this breaks
+        (or greatly slows) kernel compilation, hence we provide a method to turn if
+        off if necessary.
+    fd_order: int [1]
+        The order of the finite difference jacobian -- used if :param:`jac_type` ==
+        'finite_difference'
+    fd_mode: ['forward', 'backward', 'central']
+        The mode of the finite difference Jacobian, forward, backwards or central
+        used if :param:`jac_type` == 'finite_difference'
     Returns
     -------
     None
@@ -5139,6 +5154,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         jac_format.lower())
     jac_type = utils.EnumType(JacobianType)(
         jac_type.lower())
+
+    if jac_type == JacobianType.finite_difference:
+        # convert mode
+        fd_mode = utils.EnumType(lp_utils.FiniteDifferenceMode)(
+            fd_mode.lower())
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
@@ -5187,6 +5207,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
+    elif jac_type == JacobianType.finite_difference:
+        gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
+                                         mode=fd_mode, order=fd_order)
     else:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
