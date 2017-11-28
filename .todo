@@ -2,14 +2,19 @@ v2 tasks:
   ☐ Figure out how to properly emit fast_powi / fast_powf automagically depending
     on data type
   ☐ Setup TravisCI / tester
+  ☐ Get the rest of the write race warnings
 Improvements:
   ☐ Make libgen use codepy, since we depend on it already
   ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.)
   ☐ Remove pyopencl dependency (only needed for testing)
   ☐ Fusion of similar kernels
   ☐ Preload of commonly reused data into __local mem for deep-vectorizations on GPUs
+    ☐ Note: the utility of this is limited at the moment, as NVIDIA doesn't yet support atomics
+      hence, this will become more pressing when CUDA support is enabled
+  ☐ New targets: ISPC, CUDA
 misc tasks:
   ☐ Find a way to unify kernels, such that a single library / pywrapper exposes
     all available code
   ☐ Look into Cog or Jinja2 to simplify code generation
-  ☐ Get the rest of the write race warnings
+    ☐ In that vein, we can possibly use these to improve codegen for loopy
+      psuedocode (i.e. the input to loopy)
