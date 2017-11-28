@@ -856,8 +856,10 @@ ${name} : ${type}
             args = self.kernel_data + [x for x in self.extra_kernel_data
                                        if isinstance(x, lp.KernelArgument)]
             if passed_locals:
-                # put reference of local declares in call
-                args += [str(l.subdecl.name) for l in passed_locals]
+                # put a dummy object that we can reference the name of in the
+                # arguements
+                args += [type('', (object,), {'name': l.subdecl.name})
+                         for l in passed_locals]
             name = self.name
         else:
             # otherwise used passed kernel
