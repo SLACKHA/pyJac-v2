@@ -1327,7 +1327,8 @@ ${name} : ${type}
 ${defn}
 {
     ${insns}
-}""", defn=gen.__get_kernel_defn(local_decls), insns='\n'.join(sub_instructions))
+}""", defn=gen.__get_kernel_defn(passed_locals=local_decls),
+                                 insns='\n'.join(sub_instructions))
             # and place within a single extra kernel
             extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
 
