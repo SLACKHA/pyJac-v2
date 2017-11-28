@@ -69,6 +69,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
         else ['fixed']
     sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
+    jtype = ['exact', 'finite_difference'] if test_type == build_type.jacobian else \
+        ['exact']
     vec_widths = [4, 8, 16]
     gpu_width = [64, 128]
     split_kernels = [False]
@@ -133,7 +135,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
                         ('rate_spec', rate_spec),
                         ('split_kernels', split_kernels),
                         ('conp', [True, False]),
-                        ('sparse', sparse)]
+                        ('sparse', sparse),
+                        ('jac_type', jtype)]
             params[i] = platform[:]
         return params
 
