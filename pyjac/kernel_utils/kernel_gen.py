@@ -13,6 +13,7 @@ from collections import defaultdict
 import six
 from six.moves import reduce
 import loopy as lp
+from loopy.kernel.data import temp_var_scope as scopes
 import pyopencl as cl
 import numpy as np
 import cgen
@@ -225,6 +226,10 @@ class kernel_generator(object):
                     __set(x)
             __set(self)
 
+        # set kernel attribute
+        self.kernel = None
+
+
     def apply_barriers(self, instructions, use_sub_barriers=True):
         """
         A method stud that can be overriden to apply synchonization barriers
@@ -353,6 +358,7 @@ class kernel_generator(object):
 
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
+
             # set the editor
             self.kernels[i] = lp_utils.set_editor(self.kernels[i])
 
@@ -723,24 +729,148 @@ ${name} : ${type}
 
         pass
 
-    def _get_kernel_call(self, knl=None):
+    def __migrate_locals(self, kernel, ldecls):
         """
-        Returns a function call for the given kernel :param:`k` to be used
+        Migrates local variables in :param:`ldecls` to the arguements of the
+        given :param:`kernel`
+
+        Parameters
+        ----------
+        kernel: :class:`loopy.LoopKernel`
+            The kernel to modify
+        ldecls: list of :class:`loopy.TemporaryVariable` or :class:`cgen.CLLocal`
+            The local variables to migrate
+
+        Returns
+        -------
+        mod: :class:`loopy.LoopKernel`
+            A modified kernel with the given local variables moved from the
+            :attr:`loopy.LoopKernel.temporary_variables` to the kernel's
+            :attr:`loopy.LoopKernel.args`
+
+        """
+        class TemporaryArg(lp.TemporaryVariable, lp.KernelArgument):
+            # TODO: implement this in loopy
+            # fix to avoid the is_written check in decl_info
+            def decl_info(self, target, is_written, index_dtype,
+                          shape_override=None):
+                return super(TemporaryArg, self).decl_info(
+                    target, index_dtype)
+
+            # and sneak __local's past loopy
+            def get_arg_decl(self, ast_builder, name_suffix, shape, dtype,
+                             is_written):
+                from cgen.opencl import CLLocal
+                from loopy.target.opencl import OpenCLCASTBuilder
+                if self.scope == scopes.GLOBAL:
+                    return CLLocal(
+                        super(OpenCLCASTBuilder, ast_builder).
+                        get_global_arg_decl(
+                            self.name + name_suffix, shape, dtype, is_written))
+                else:
+                    from loopy import LoopyError
+                    raise LoopyError(
+                        "unexpected request for argument declaration of "
+                        "non-global temporary")
+
+        def __argify(temp):
+            if isinstance(temp, lp.TemporaryVariable):
+                return TemporaryArg(
+                    scopes=scopes.GLOBAL,
+                    **{k: v for k, v in six.iteritems(vars(temp))
+                       if k in ['name', 'shape', 'dtype']})
+            # turn CLLocal or the like back into a temporary variable
+            from loopy.target.c import POD
+            # find actual decl for dtype and name
+            while not isinstance(temp, POD):
+                temp = temp.subdecl
+            return TemporaryArg(temp.name, scope=scopes.GLOBAL, dtype=temp.dtype,
+                                shape=(1,))
+        # migrate locals to kernel args
+        return kernel.copy(
+            args=kernel.args[:] + [__argify(x) for x in ldecls],
+            temporary_variables={
+                key: val for key, val in six.iteritems(
+                    kernel.temporary_variables) if not any(
+                    key in str(l) for l in ldecls)})
+
+    def __get_kernel_defn(self, knl=None, passed_locals=[]):
+        """
+        Returns the kernel definition string for this :class:`kernel_generator`,
+        taking into account any migrated local variables
+
+        Note: relies on building steps that occur in
+        :func:`_generate_wrapping_kernel` -- will raise an error if called before
+        this method
+
+        Parameters
+        ----------
+        knl: None
+            If supplied, this is used instead of the generated kernel
+        passed_locals: list of :class:`cgen.CLLocal`
+            __local variables declared in the wrapping kernel scope, that must
+            be passed into this kernel, as __local defn's in subfunctions
+            are not well defined, `function qualifiers in OpenCL <https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/functionQualifiers.html>` # noqa
+
+        Returns
+        -------
+        defn: str
+            The kernel definition
+        """
+
+        if self.kernel is None and knl is None:
+            raise Exception('Must call _generate_wrapping_kernel first')
+
+        if knl is None:
+            knl = self.kernel
+        if passed_locals:
+            knl = self.__migrate_locals(knl, passed_locals)
+        defn_str = lp_utils.get_header(knl)
+        return defn_str[:defn_str.index(';')]
+
+    def _get_kernel_call(self, knl=None, passed_locals=[]):
+        """
+        Returns a function call for the given kernel :param:`knl` to be used
         as an instruction.
 
-        If k is None, returns the kernel call for this :class:`kernel_generator`
+        If :param:`knl` is None, returns the kernel call for
+        this :class:`kernel_generator`
+
+        Parameters
+        ----------
+        knl: :class:`loopy.LoopKernel`
+            The loopy kernel to generate a call for
+        passed_locals: list of :class:`cgen.CLLocal`
+            __local variables declared in the wrapping kernel scope, that must
+            be passed into this kernel, as __local defn's in subfunctions
+            are not well defined, `function qualifiers in OpenCL <https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/functionQualifiers.html>` # noqa
+
+        Returns
+        -------
+        call: str
+            The resulting function call
         """
 
-        args = self.kernel_data + [x for x in self.extra_kernel_data
-                                   if isinstance(x, lp.KernelArgument)]
-        name = self.name
-        if knl is not None:
+        # default is the generated kernel
+        if knl is None:
+            args = self.kernel_data + [x for x in self.extra_kernel_data
+                                       if isinstance(x, lp.KernelArgument)]
+            if passed_locals:
+                # put reference of local declares in call
+                args += [str(l.subdecl.name) for l in passed_locals]
+            name = self.name
+        else:
+            # otherwise used passed kernel
+            if passed_locals:
+                knl = self.__migrate_locals(knl, passed_locals)
             args = knl.args
             name = knl.name
 
+        args = [x.name for x in args]
+
         return Template("${name}(${args});\n").substitute(
             name=name,
-            args=', '.join([x.name for x in args])
+            args=', '.join(args)
             )
 
     def _generate_wrapping_kernel(self, path, instruction_store=None,
@@ -998,10 +1128,7 @@ ${name} : ${type}
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
-        # get defn
-        defn_str = lp_utils.get_header(knl)
-        # and store in case somebody wants access
-        self.kernel_defn = defn_str[:defn_str.index(';')]
+        self.kernel = knl.copy()
 
         # and finally, generate the kernel code
         preambles = []
@@ -1032,19 +1159,26 @@ ${name} : ${type}
                     args=kernel.args + new_args, temporary_variables=new_temps)
             return kernel
 
-        def _get_func_body(cgr):
+        def _get_func_body(cgr, subs={}):
             """
             Returns the function declaration w/o initializers or preambles
             from a :class:`loopy.GeneratedProgram`
             """
+            # get body
             if isinstance(cgr.ast, cgen.FunctionBody):
-                return lp_utils.get_code(str(cgr.ast), self.loopy_opts)
+                body = str(cgr.ast)
             else:
-                return lp_utils.get_code(str(cgr.ast.contents[-1]), self.loopy_opts)
+                body = str(cgr.ast.contents[-1])
+
+            # apply any substitutions
+            for k, v in six.iteritems(subs):
+                body = body.replace(k, v)
+
+            # feed through get_code to get any corrections
+            return lp_utils.get_code(body, self.loopy_opts)
 
         if self.fake_calls:
             extra_fake_kernels = {x: [] for x in self.fake_calls}
-            extra_fake_ldecls = {x: set() for x in self.fake_calls}
 
         from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
@@ -1056,10 +1190,22 @@ ${name} : ${type}
                     # need to regenerate the call here, in the case that there was
                     # a difference in the host_constants in the sub kernel
                     k = _update_for_host_constants(k)
-                    insns = self._get_kernel_call(k)
+                    # get call w/ migrated locals
+                    insns = self._get_kernel_call(k, passed_locals=ldecls)
+                    # and generate code / func body
                     cgr = lp.generate_code_v2(k)
                     assert len(cgr.device_programs) == 1
-                    extra = _get_func_body(cgr.device_programs[0])
+                    subs = {}
+                    if ldecls:
+                        # create kernel definition substitutions
+                        knl_defn = self.__get_kernel_defn(k)
+                        local_knl_defn = self.__get_kernel_defn(
+                            k, passed_locals=ldecls)
+                        subs = {knl_defn: local_knl_defn}
+                        subs.update(**{str(x): '' for x in ldecls})
+
+                    extra = _get_func_body(cgr.device_programs[0],
+                                           subs)
 
                 if self.fake_calls:
                     # find out which kernel this belongs to
@@ -1069,11 +1215,6 @@ ${name} : ${type}
                     extra_fake_kernels[sub].append(insns)
                     # and clear insns
                     insns = ''
-
-                    if ldecls:
-                        # add to fake kernel
-                        extra_fake_ldecls[sub].update(ldecls)
-                        ldecls = []
 
                 if insns:
                     instructions.append(insns)
@@ -1087,7 +1228,8 @@ ${name} : ${type}
                     # filter out any known extras
                     extra_kernels.append(extra)
                 if ldecls:
-                    ldecls = [x for x in ldecls if str(x) not in local_decls]
+                    ldecls = [x for x in ldecls if not any(
+                                str(x) == str(l) for l in local_decls)]
                     local_decls.extend(ldecls)
                 continue
 
@@ -1133,27 +1275,36 @@ ${name} : ${type}
             # and add to inits
             inits.extend(init_list)
 
+            # need to strip out any declaration of a __local variable as these
+            # must be in the kernel scope
+
+            # NOTE: this entails hoisting local declarations up to the wrapping
+            # kernel for non-separated OpenCL kernels as __local variables in
+            # sub-functions are not well defined in the standard:
+            # https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/functionQualifiers.html # noqa
+            def partition(l, p):
+                return reduce(lambda x, y: x[
+                    not p(y)].append(y) or x, l, ([], []))
+            ldecls, body = partition(cgr.body_ast.contents,
+                                     lambda x: isinstance(x, CLLocal))
+
+            # have to do a string compare for proper equality testing
+            local_decls.extend([x for x in ldecls if not any(
+                str(x) == str(y) for y in local_decls)])
+
             if not self.seperate_kernels:
-                # need to strip out any declaration of a __local variable as these
-                # must be in the kernel scope
-                def partition(l, p):
-                    return reduce(lambda x, y: x[
-                        not p(y)].append(y) or x, l, ([], []))
-                ldecls, body = partition(cgr.body_ast.contents,
-                                         lambda x: isinstance(x, CLLocal))
-                ldecls = [str(x) for x in ldecls]
-                local_decls.extend([x for x in ldecls if x not in local_decls])
                 cgr.body_ast = cgr.body_ast.__class__(contents=body)
                 # leave a comment to distinguish the name
                 # and put the body in
                 instructions.append('// {name}\n{body}\n'.format(
                     name=k.name, body=str(cgr.body_ast)))
             else:
-                ldecls = []
                 # we need to place the call in the instructions and the extra kernels
                 # in their own array
                 extra_kernels.append(_get_func_body(cgr))
-                instructions.append(self._get_kernel_call(k))
+                # additionally, we need to hoist the local declarations to the call
+                instructions.append(self._get_kernel_call(
+                    k, passed_locals=ldecls))
 
             if instruction_store is not None:
                 assert k.name not in instruction_store
@@ -1166,20 +1317,17 @@ ${name} : ${type}
         for gen in self.fake_calls:
             dep = self.fake_calls[gen]
             # replace call in instructions to call to kernel
-            knl_call = gen._get_kernel_call()
+            knl_call = gen._get_kernel_call(passed_locals=local_decls)
             instructions = [x.replace(dep, knl_call[:-2]) for x in instructions]
             # and put the kernel in the extra's
             sub_instructions = extra_fake_kernels[gen]
             # apply barriers
             sub_instructions = gen.apply_barriers(sub_instructions)
-            # insert any extra local declares
-            if gen in extra_fake_ldecls:
-                sub_instructions[0:0] = sorted(extra_fake_ldecls[gen])
             code = subs_at_indent("""
 ${defn}
 {
     ${insns}
-}""", defn=gen.kernel_defn, insns='\n'.join(sub_instructions))
+}""", defn=gen.__get_kernel_defn(local_decls), insns='\n'.join(sub_instructions))
             # and place within a single extra kernel
             extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
 
@@ -1188,7 +1336,7 @@ ${defn}
                                            use_sub_barriers=not self.fake_calls)
 
         # add local declaration to beginning of instructions
-        instructions[0:0] = local_decls
+        instructions[0:0] = [str(x) for x in local_decls]
 
         # join to str
         instructions = '\n'.join(instructions)
@@ -1207,7 +1355,7 @@ ${defn}
             lines = file_src.safe_substitute(
                 defines='',
                 preamble=preamble,
-                func_define=self.kernel_defn,
+                func_define=self.__get_kernel_defn(),
                 body=instructions,
                 extra_kernels='\n'.join(extra_kernels)).split('\n')
 
@@ -1217,7 +1365,7 @@ ${defn}
 
         # and the header file (only include self now, as we're using embedded
         # kernels)
-        headers = [self.kernel_defn + utils.line_end[self.lang]]
+        headers = [self.__get_kernel_defn() + utils.line_end[self.lang]]
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + self.name +
                          utils.header_ext[self.lang]), self.lang) as file:

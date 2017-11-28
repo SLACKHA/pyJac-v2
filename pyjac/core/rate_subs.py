@@ -833,17 +833,19 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
             pre_instructions = ['<>dE = 0.0d']
             post_instructions = [Template(
                 """
-                temp_sum = ${V_str} * ${Tdot_str} / ${T_str} {id=temp_init, dep=*,\
-                                                              atomic}
+                temp_sum[0] = ${V_str} * ${Tdot_str} / ${T_str} \
+                    {id=temp_init, dep=*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
-                temp_sum = temp_sum + ${V_str} * dE * ${T_str} * R_u /  ${P_str} \
+                temp_sum[0] = temp_sum[0] + \
+                    ${V_str} * dE * ${T_str} * R_u / ${P_str} \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
-                ${Edot_str} = temp_sum {id=final, dep=lb2, atomic, nosync=temp_init}
+                ${Edot_str} = temp_sum[0] \
+                    {id=final, dep=lb2, atomic, nosync=temp_init}
                 """
             ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
-                                                    scope=scopes.LOCAL))
+                                                    scope=scopes.LOCAL, shape=(1,)))
         else:
             post_instructions = [Template(
                 """
@@ -858,17 +860,18 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
             pre_instructions = ['<>dE = 0.0d']
             post_instructions = [Template(
                 """
-                temp_sum = ${P_str} * ${Tdot_str} / ${T_str} {id=temp_init, dep=*,\
-                                                              atomic}
+                temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_str} \
+                    {id=temp_init, dep=*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
-                temp_sum = temp_sum + ${T_str} * R_u * dE \
+                temp_sum[0] = temp_sum[0] + ${T_str} * R_u * dE \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
-                ${Edot_str} = temp_sum {id=final, dep=lb2, atomic, nosync=temp_init}
+                ${Edot_str} = temp_sum[0] \
+                    {id=final, dep=lb2, atomic, nosync=temp_init}
                 """
             ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
-                                                    scope=scopes.LOCAL))
+                                                    scope=scopes.LOCAL, shape=(1,)))
         else:
             post_instructions = [Template(
                 """
@@ -988,15 +991,16 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
         # need to fix the post instructions to work atomically
         post_instructions = [Template(
             """
-            temp_sum = 0 {id=temp_init, atomic}
+            temp_sum[0] = 0 {id=temp_init, atomic}
             ... lbarrier {id=lb1, dep=temp_init}
-            temp_sum = temp_sum + lower {id=temp_sum, dep=lb1:sum*, atomic}
+            temp_sum[0] = temp_sum[0] + lower {id=temp_sum, dep=lb1:sum*, atomic}
             ... lbarrier {id=lb2, dep=temp_sum}
-            ${Tdot_str} = ${Tdot_str} - upper / temp_sum {id=final, dep=lb2, atomic}
+            ${Tdot_str} = ${Tdot_str} - upper / temp_sum[0] \
+                {id=final, dep=lb2, atomic}
             """
         ).safe_substitute(**locals())]
         kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
-                                                scope=scopes.LOCAL))
+                                                scope=scopes.LOCAL, shape=(1,)))
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, init_ids=['init', 'temp_init'],
