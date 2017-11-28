@@ -140,8 +140,6 @@ class loopy_options(object):
         The format of Jacobian kernel (full or sparse) to generate
     seperate_kernels: bool [True]
         If true, break the kernel evaluation into calls to individual kernels.
-        For POCL, this must be false for deep-vectorizations using atomic until:
-        https://github.com/pocl/pocl/issues/520 is fixed
     """
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
@@ -229,12 +227,6 @@ class loopy_options(object):
                 logger.warn('Some GPU implementation(s)--NVIDIA--give incorrect'
                             'values sporadically without either a deep or wide'
                             'vectorization. Use at your own risk.')
-            elif self.depth and self.jac_type == JacobianType.finite_difference and \
-                    'portable' in self.platform.name.lower():
-                # https://github.com/pocl/pocl/issues/520
-                # no way around calling a function w/ atomics for FD-deep
-                # vectorizations at the moment -- can remove when #520 is resolved
-                raise BrokenPlatformError(self)
 
     @property
     def has_scatter(self):

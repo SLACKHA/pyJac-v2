@@ -5094,8 +5094,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     seperate_kernels: bool [True]
         If True, separate evaluation into different functions in the generated kernel
         in order to improve compiler vectorization / optimization.
-        However, on some platforms (POCL w/ atomics
-        https://github.com/pocl/pocl/issues/520) this breaks during compilation,
+        However, on some platforms this breaks during compilation,
         hence we provide a method to turn if off if necessary.
     Returns
     -------
