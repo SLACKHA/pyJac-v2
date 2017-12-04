@@ -1164,7 +1164,7 @@ def get_target(lang, device=None, compiler=None):
     if lang == 'opencl':
         return lp.PyOpenCLTarget(device=device)
     elif lang == 'c':
-        return lp.CTarget(compiler=compiler)
+        return lp.ExecutableCTarget(compiler=compiler)
     elif lang == 'cuda':
         return lp.CudaTarget()
     elif lang == 'ispc':
