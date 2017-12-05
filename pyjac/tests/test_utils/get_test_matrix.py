@@ -4,7 +4,7 @@ import sys
 import cantera as ct
 from collections import OrderedDict
 from optionloop import OptionLoop
-from .. import get_test_platforms
+from .. import get_test_platforms, _get_test_input
 from . import platform_is_gpu
 from ...libgen import build_type
 import logging
@@ -76,7 +76,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     split_kernels = [False]
     num_cores = []
     nc = 1
-    while nc < psutil.cpu_count(logical=False):
+    while nc < _get_test_input('max_threads', psutil.cpu_count(logical=False)):
         num_cores.append(nc)
         nc *= 2
 
