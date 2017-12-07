@@ -33,6 +33,7 @@ apt:
 
 # install dependencies
 before_install:
+  - gcc --version
   # openmp
   - export OMP_NUM_THREADS=4
   # go up to start cloning from git
