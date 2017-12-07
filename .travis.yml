@@ -31,8 +31,10 @@ apt:
 
 # install dependencies
 before_install:
-  - export CC=gcc-8
-  - export CXX=g++-8
+  # setup compilers
+  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 60 --slave /usr/bin/g++ g++ /usr/bin/g++-8
+  - export CC=gcc
+  - export CXX=g++
   # go up to start cloning from git
   - cd ..
   - git clone https://github.com/OCL-dev/ocl-icd
