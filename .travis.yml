@@ -25,21 +25,19 @@ before_install:
   # add repo
   - sudo apt-add-repository -y "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-$LLV main"
   # update
+  - echo `which clang`
+  - echo `which llvm-config`
   - sudo apt-get update -qq
   - sudo apt-get install -qq g++-7 gcc-7 clang-$LLV clang-$LLV-doc libclang-common-$LLV-dev libclang-$LLV-dev libclang1-$LLV libclang1-$LLV-dbg libllvm$LLV libllvm$LLV-dbg lldb-$LLV llvm-$LLV llvm-$LLV-dev llvm-$LLV-doc llvm-$LLV-examples llvm-$LLV-runtime clang-format-$LLV python-clang-$LLV lld-$LLV libfuzzer-$LLV-dev libltdl3-dev libhwloc-dev cmake3 git
   # and finally update alternatives
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 $PRIORITY
   - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 $PRIORITY
-  - sudo update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-$LLV $PRIORITY
-  - sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-$LLV $PRIORITY
-  - sudo update-alternatives --config gcc
-  - sudo update-alternatives --config g++
-  - sudo update-alternatives --config llvm-config
-  - sudo update-alternatives --config clang
+  - sudo update-alternatives --install /usr/local/bin/llvm-config llvm-config /usr/local/bin/llvm-config-$LLV $PRIORITY
+  - sudo update-alternatives --install /usr/local/bin/clang clang /usr/local/bin/clang-$LLV $PRIORITY
   # openmp
   - export OMP_NUM_THREADS=4
   # go up to start cloning from git
-  - cd ..
+  - cd ~
   - git clone https://github.com/OCL-dev/ocl-icd
   # build OCL-ICD
   - cd ocl-icd
@@ -47,7 +45,7 @@ before_install:
   - ./configure
   - make
   - sudo make install
-  - cd ../
+  - cd ~
   # build pocl
   - git clone https://github.com/pocl/pocl
   - cd pocl/
@@ -55,7 +53,7 @@ before_install:
   - cmake -DWITH_LLVM_CONFIG=`which llvm-config` ..
   - make
   - sudo make install
-  - cd ../
+  - cd ~/pyJac
   # and go back to pyjac
   - pwd
   - ls -la
@@ -64,10 +62,11 @@ before_install:
 install:
   # currently need the newest loopy version
   - pip install git+https://github.com/inducer/loopy.git
-  - pip install -r requirements.txt --user
-  - pip install -r optional-requirements.txt --user
-  - pip install . --user
+  - pip install -r requirements.txt
+  - pip install -r optional-requirements.txt
+  - pip install .
 
 # run test
 script:
+  - cd ~/pyJac
   - nosetests -a '!verylong' -s
