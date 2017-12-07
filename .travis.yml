@@ -5,10 +5,10 @@ dist: trusty
 # environment
 env:
   global:
-    - LLVM_VERSION=5.0
-    - CLANG_VERSION=5.0
     - CC=gcc-7
     - CXX=g++-7
+    - PRIORITY=500
+    - LLV=$LLV
 
 # language spec
 language: python
@@ -23,10 +23,48 @@ before_install:
   # get llvm key
   - wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
   # add repo
-  - sudo apt-add-repository -y "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-5.0 main"
+  - sudo apt-add-repository -y "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-$LLV main"
   # update
   - sudo apt-get update -qq
-  - sudo apt-get install -qq g++-7 gcc-7 clang-5.0 clang-5.0-doc libclang-common-5.0-dev libclang-5.0-dev libclang1-5.0 libclang1-5.0-dbg libllvm5.0 libllvm5.0-dbg lldb-5.0 llvm-5.0 llvm-5.0-dev llvm-5.0-doc llvm-5.0-examples llvm-5.0-runtime clang-format-5.0 python-clang-5.0 lld-5.0 libfuzzer-5.0-dev libltdl3-dev libhwloc-dev cmake3 git
+  - sudo apt-get install -qq g++-7 gcc-7 clang-$LLV clang-$LLV-doc libclang-common-$LLV-dev libclang-$LLV-dev libclang1-$LLV libclang1-$LLV-dbg libllvm$LLV libllvm$LLV-dbg lldb-$LLV llvm-$LLV llvm-$LLV-dev llvm-$LLV-doc llvm-$LLV-examples llvm-$LLV-runtime clang-format-$LLV python-clang-$LLV lld-$LLV libfuzzer-$LLV-dev libltdl3-dev libhwloc-dev cmake3 git
+  # and finally update alternatives
+  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 $PRIORITY
+  - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 $PRIORITY
+  - sudo update-alternatives --install \
+        /usr/bin/llvm-config       llvm-config      /usr/bin/llvm-config-$LLV  $PRIORITY \
+        --slave /usr/bin/llvm-ar           llvm-ar          /usr/bin/llvm-ar-$LLV \
+        --slave /usr/bin/llvm-as           llvm-as          /usr/bin/llvm-as-$LLV \
+        --slave /usr/bin/llvm-bcanalyzer   llvm-bcanalyzer  /usr/bin/llvm-bcanalyzer-$LLV \
+        --slave /usr/bin/llvm-cov          llvm-cov         /usr/bin/llvm-cov-$LLV \
+        --slave /usr/bin/llvm-diff         llvm-diff        /usr/bin/llvm-diff-$LLV \
+        --slave /usr/bin/llvm-dis          llvm-dis         /usr/bin/llvm-dis-$LLV \
+        --slave /usr/bin/llvm-dwarfdump    llvm-dwarfdump   /usr/bin/llvm-dwarfdump-$LLV \
+        --slave /usr/bin/llvm-extract      llvm-extract     /usr/bin/llvm-extract-$LLV \
+        --slave /usr/bin/llvm-link         llvm-link        /usr/bin/llvm-link-$LLV \
+        --slave /usr/bin/llvm-mc           llvm-mc          /usr/bin/llvm-mc-$LLV \
+        --slave /usr/bin/llvm-mcmarkup     llvm-mcmarkup    /usr/bin/llvm-mcmarkup-$LLV \
+        --slave /usr/bin/llvm-nm           llvm-nm          /usr/bin/llvm-nm-$LLV \
+        --slave /usr/bin/llvm-objdump      llvm-objdump     /usr/bin/llvm-objdump-$LLV \
+        --slave /usr/bin/llvm-ranlib       llvm-ranlib      /usr/bin/llvm-ranlib-$LLV \
+        --slave /usr/bin/llvm-readobj      llvm-readobj     /usr/bin/llvm-readobj-$LLV \
+        --slave /usr/bin/llvm-rtdyld       llvm-rtdyld      /usr/bin/llvm-rtdyld-$LLV \
+        --slave /usr/bin/llvm-size         llvm-size        /usr/bin/llvm-size-$LLV \
+        --slave /usr/bin/llvm-stress       llvm-stress      /usr/bin/llvm-stress-$LLV \
+        --slave /usr/bin/llvm-symbolizer   llvm-symbolizer  /usr/bin/llvm-symbolizer-$LLV \
+        --slave /usr/bin/llvm-tblgen       llvm-tblgen      /usr/bin/llvm-tblgen-$LLV \
+  - sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-$LLV $PRIORITY \
+    --slave $BIN/clang++                        clang++                     $BIN/clang++-$LLV \
+    --slave $BIN/clang-apply-replacements       clang-apply-replacements    $BIN/clang-apply-replacements-$LLV \
+    --slave $BIN/clang-check                    clang-check                 $BIN/clang-check-$LLV \
+    --slave $BIN/clang-query                    clang-query                 $BIN/clang-query-$LLV \
+    --slave $BIN/clang-rename                   clang-rename                $BIN/clang-rename-$LLV \
+    --slave $BIN/clang-tblgen                   clang-tblgen                $BIN/clang-tblgen-$LLV \
+    --slave $BIN/clang-tidy                     clang-tidy                  $BIN/clang-tidy-$LLV \
+    --slave $BIN/asan_symbolize                 asan_symbolize              $BIN/asan_symbolize-$LLV \
+  - sudo update-alternatives --config gcc
+  - sudo update-alternatives --config g++
+  - sudo update-alternatives --config llvm-config
+  - sudo update-alternatives --config clang
   # openmp
   - export OMP_NUM_THREADS=4
   # go up to start cloning from git
@@ -48,7 +86,7 @@ before_install:
   - sudo make install
   - cd ../
   # and go back to pyjac
-  - cd spyJac
+  - cd arghdos/spyJac
 
 # install pyjac
 install:
