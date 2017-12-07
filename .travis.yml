@@ -32,8 +32,10 @@ python:
 
 # install dependencies
 before_install:
-  # use conda
+  # update
   - sudo apt-get update -qq
+  - sudo apt-get install -qq libltdl3-dev libhwloc-dev
+  # get conda
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
       wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O miniconda.sh;
     else
@@ -47,43 +49,41 @@ before_install:
   # Useful for debugging any issues with conda
   - conda info -a
   # add channels
-  - conda config --add channels conda-forge cantera
+  - conda config --add channels conda-forge
+  - conda config --add channels cantera
   - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd
   - source activate test-environment
-  # install deps
-  # LLVM / CLang
-  - conda install -c conda-forge llvmdev
-  - conda install -c conda-forge clangdev
-  # update
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq libltdl3-dev libhwloc-dev
-  # ensure new clang/llvm is found first:
-  - export PATH=/usr/lib/llvm-$LLV/bin/:$PATH
-  - export LD_LIBRARY_PATH=/usr/lib/llvm-$LLV/lib/:$LD_LIBRARY_PATH
   # openmp
   - export OMP_NUM_THREADS=4
-  # add libdir
-  - export LD_LIBRARY_PATH=/usr/local/lib/ocl-icd/:$LD_LIBRARY_PATH
-  - cd ~
-  - export LD_LIBRARY_PATH=~/test-environment/llvmdev:~/test-environment/clangdev:$LD_LIBRARY_PATH
   # build pocl - for the moment can't use conda-forge, as that's still on v0.14
+  - cd ~
   - git clone https://github.com/pocl/pocl
   - cd pocl/
   - mkdir build && cd build
   - cmake -DWITH_LLVM_CONFIG=`which llvm-config` ..
   - make -j4
   - sudo make install
+  # get Adept
+  - cd ~
+  - git clone https://github.com/rjhogan/Adept
+  - cd Adept
+  - autoreconf -fi
+  - ./configure
+  - make
+  - make install
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
 install:
   # currently need the newest loopy version
   - pip install git+https://github.com/inducer/loopy.git
-  - pip install -r requirements.txt
-  - pip install -r optional-requirements.txt
+  # read from requirements -- install via conda if available
+  - while read requirement; do conda install --yes $requirement || pip install $requirement; done < requirements.txt
+  - while read requirement; do conda install --yes $requirement || pip install $requirement; done < optional-requirements.txt
+  # build siteconf.py
+  - python setup.py build CL_INC_DIR="~/miniconda/bin/ocl-icd/include" CL_LIB_DIR="~/miniconda/bin/ocl-icd/lib"
   - pip install .
 
 # run test
 script:
-  - cd ~/pyJac
   - nosetests -a '!verylong' -s
