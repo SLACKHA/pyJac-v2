@@ -9,3 +9,4 @@ cantera >= 2.3.0
 scipy
 tables
 psutil
+pyopencl
