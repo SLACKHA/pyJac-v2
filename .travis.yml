@@ -57,7 +57,8 @@ before_install:
   - sudo make install
   - cd ../
   # and go back to pyjac
-  - cd arghdos/spyJac
+  - pwd
+  - ls -la
 
 # install pyjac
 install:
