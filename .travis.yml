@@ -8,7 +8,7 @@ env:
     - CC=gcc-7
     - CXX=g++-7
     - PRIORITY=500
-    - LLV=$LLV
+    - LLV=5.0
 
 # language spec
 language: python
