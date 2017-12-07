@@ -74,7 +74,7 @@ before_install:
   # get scons and cython
   - pip install scons
   - pip install cython
-  - scons build -j4 python_package=full python_cmd=`which_python` blas_lapack_libs=lapack,blas, optimize=y
+  - scons build -j4 python_package=full blas_lapack_libs=lapack,blas, optimize=y
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
