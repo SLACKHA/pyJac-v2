@@ -31,7 +31,7 @@ before_install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 $PRIORITY
   - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 $PRIORITY
   # ensure new clang/llvm is found first:
-  - export PATH=/usr/lib/llvm-$LLB/bin/:$PATH
+  - export PATH=/usr/lib/llvm-$LLV/bin/:$PATH
   - export LD_LIBRARY_PATH=/usr/lib/llvm-$LLV/lib/:$LD_LIBRARY_PATH
   # openmp
   - export OMP_NUM_THREADS=4
