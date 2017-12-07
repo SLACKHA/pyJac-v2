@@ -26,7 +26,7 @@ before_install:
   - sudo apt-add-repository -y "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-$LLV main"
   # update
   - sudo apt-get update -qq
-  - sudo apt-get install -qq gcc-7 g++-7 clang-$LLV lldb-$LLV lld-$LLV libltdl3-dev libhwloc-dev
+  - sudo apt-get install -qq gcc-7 g++-7 clang-$LLV libclang-$LLV-dev lldb-$LLV lld-$LLV libltdl3-dev libhwloc-dev
   # and finally update alternatives
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 $PRIORITY
   - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 $PRIORITY
@@ -44,6 +44,8 @@ before_install:
   - ./configure
   - make
   - sudo make install
+  # add libdir
+  - export LD_LIBRARY_PATH=/usr/local/lib/ocl-icd/:$LD_LIBRARY_PATH
   - cd ~
   # build pocl
   - git clone https://github.com/pocl/pocl
