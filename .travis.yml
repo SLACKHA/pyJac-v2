@@ -33,12 +33,14 @@ apt:
 before_install:
   - export CC=gcc-8
   - export CXX=g++-8
-  # get ocl-icd & pocl
+  # go up to start cloning from git
+  - cd ..
   - git clone https://github.com/OCL-dev/ocl-icd
   # build OCL-ICD
   - cd ocl-icd
+  - ./bootstrap
   - ./configure
-  - make -j2
+  - make
   - sudo make install
   - cd ../
   # build pocl
@@ -49,6 +51,8 @@ before_install:
   - make
   - sudo make install
   - cd ../
+  # and go back to pyjac
+  - cd spyJac
 
 # install pyjac
 install:
