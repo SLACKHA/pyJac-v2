@@ -30,37 +30,8 @@ before_install:
   # and finally update alternatives
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 $PRIORITY
   - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 $PRIORITY
-  - sudo update-alternatives --install \
-        /usr/bin/llvm-config       llvm-config      /usr/bin/llvm-config-$LLV  $PRIORITY \
-        --slave /usr/bin/llvm-ar           llvm-ar          /usr/bin/llvm-ar-$LLV \
-        --slave /usr/bin/llvm-as           llvm-as          /usr/bin/llvm-as-$LLV \
-        --slave /usr/bin/llvm-bcanalyzer   llvm-bcanalyzer  /usr/bin/llvm-bcanalyzer-$LLV \
-        --slave /usr/bin/llvm-cov          llvm-cov         /usr/bin/llvm-cov-$LLV \
-        --slave /usr/bin/llvm-diff         llvm-diff        /usr/bin/llvm-diff-$LLV \
-        --slave /usr/bin/llvm-dis          llvm-dis         /usr/bin/llvm-dis-$LLV \
-        --slave /usr/bin/llvm-dwarfdump    llvm-dwarfdump   /usr/bin/llvm-dwarfdump-$LLV \
-        --slave /usr/bin/llvm-extract      llvm-extract     /usr/bin/llvm-extract-$LLV \
-        --slave /usr/bin/llvm-link         llvm-link        /usr/bin/llvm-link-$LLV \
-        --slave /usr/bin/llvm-mc           llvm-mc          /usr/bin/llvm-mc-$LLV \
-        --slave /usr/bin/llvm-mcmarkup     llvm-mcmarkup    /usr/bin/llvm-mcmarkup-$LLV \
-        --slave /usr/bin/llvm-nm           llvm-nm          /usr/bin/llvm-nm-$LLV \
-        --slave /usr/bin/llvm-objdump      llvm-objdump     /usr/bin/llvm-objdump-$LLV \
-        --slave /usr/bin/llvm-ranlib       llvm-ranlib      /usr/bin/llvm-ranlib-$LLV \
-        --slave /usr/bin/llvm-readobj      llvm-readobj     /usr/bin/llvm-readobj-$LLV \
-        --slave /usr/bin/llvm-rtdyld       llvm-rtdyld      /usr/bin/llvm-rtdyld-$LLV \
-        --slave /usr/bin/llvm-size         llvm-size        /usr/bin/llvm-size-$LLV \
-        --slave /usr/bin/llvm-stress       llvm-stress      /usr/bin/llvm-stress-$LLV \
-        --slave /usr/bin/llvm-symbolizer   llvm-symbolizer  /usr/bin/llvm-symbolizer-$LLV \
-        --slave /usr/bin/llvm-tblgen       llvm-tblgen      /usr/bin/llvm-tblgen-$LLV \
-  - sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-$LLV $PRIORITY \
-    --slave $BIN/clang++                        clang++                     $BIN/clang++-$LLV \
-    --slave $BIN/clang-apply-replacements       clang-apply-replacements    $BIN/clang-apply-replacements-$LLV \
-    --slave $BIN/clang-check                    clang-check                 $BIN/clang-check-$LLV \
-    --slave $BIN/clang-query                    clang-query                 $BIN/clang-query-$LLV \
-    --slave $BIN/clang-rename                   clang-rename                $BIN/clang-rename-$LLV \
-    --slave $BIN/clang-tblgen                   clang-tblgen                $BIN/clang-tblgen-$LLV \
-    --slave $BIN/clang-tidy                     clang-tidy                  $BIN/clang-tidy-$LLV \
-    --slave $BIN/asan_symbolize                 asan_symbolize              $BIN/asan_symbolize-$LLV \
+  - sudo update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-$LLV $PRIORITY
+  - sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-$LLV $PRIORITY
   - sudo update-alternatives --config gcc
   - sudo update-alternatives --config g++
   - sudo update-alternatives --config llvm-config
@@ -81,7 +52,7 @@ before_install:
   - git clone https://github.com/pocl/pocl
   - cd pocl/
   - mkdir build && cd build
-  - cmake ..
+  - cmake -DWITH_LLVM_CONFIG=`which llvm-config` ..
   - make
   - sudo make install
   - cd ../
