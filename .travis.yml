@@ -5,13 +5,13 @@ dist: trusty
 # environment
 env:
   global:
-    - CC=gcc-7
-    - CXX=g++-7
     - PRIORITY=500
     - LLV=5.0
 
 addons:
   apt:
+    sources:
+      - ubuntu-toolchain-r-test
     packages:
       - python-dev
       - python-numpy
@@ -32,49 +32,47 @@ python:
 
 # install dependencies
 before_install:
-  # add new gcc toolchains
-  - sudo apt-add-repository -y ppa:ubuntu-toolchain-r/test
-  # get llvm key
-  - wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
-  # add repo
-  - sudo apt-add-repository -y "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-$LLV main"
+  # use conda
+  - sudo apt-get update -qq
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
+      wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O miniconda.sh;
+    else
+      wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh;
+    fi
+  - bash miniconda.sh -b -p $HOME/miniconda
+  - export PATH="$HOME/miniconda/bin:$PATH"
+  - hash -r
+  - conda config --set always_yes yes --set changeps1 no
+  - conda update -q conda
+  # Useful for debugging any issues with conda
+  - conda info -a
+  # add channels
+  - conda config --add channels conda-forge cantera
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd
+  - source activate test-environment
+  # install deps
+  # LLVM / CLang
+  - conda install -c conda-forge llvmdev
+  - conda install -c conda-forge clangdev
   # update
   - sudo apt-get update -qq
-  - sudo apt-get install -qq gcc-7 g++-7 clang-$LLV libclang-$LLV-dev lldb-$LLV lld-$LLV libltdl3-dev libhwloc-dev
-  # and finally update alternatives
-  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 $PRIORITY
-  - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 $PRIORITY
+  - sudo apt-get install -qq libltdl3-dev libhwloc-dev
   # ensure new clang/llvm is found first:
   - export PATH=/usr/lib/llvm-$LLV/bin/:$PATH
   - export LD_LIBRARY_PATH=/usr/lib/llvm-$LLV/lib/:$LD_LIBRARY_PATH
   # openmp
   - export OMP_NUM_THREADS=4
-  # go up to start cloning from git
-  - cd ~
-  - git clone https://github.com/OCL-dev/ocl-icd
-  # build OCL-ICD
-  - cd ocl-icd
-  - ./bootstrap
-  - ./configure
-  - make -j4
-  - sudo make install
   # add libdir
   - export LD_LIBRARY_PATH=/usr/local/lib/ocl-icd/:$LD_LIBRARY_PATH
   - cd ~
-  # build pocl
+  - export LD_LIBRARY_PATH=~/test-environment/llvmdev:~/test-environment/clangdev:$LD_LIBRARY_PATH
+  # build pocl - for the moment can't use conda-forge, as that's still on v0.14
   - git clone https://github.com/pocl/pocl
   - cd pocl/
   - mkdir build && cd build
   - cmake -DWITH_LLVM_CONFIG=`which llvm-config` ..
   - make -j4
   - sudo make install
-  # build cantera
-  - git clone https://github.com/Cantera/cantera
-  - cd cantera
-  # get scons and cython
-  - pip install scons
-  - pip install cython
-  - scons build -j4 python_package=full blas_lapack_libs=lapack,blas, optimize=y
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
