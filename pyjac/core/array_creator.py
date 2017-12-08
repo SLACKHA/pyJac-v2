@@ -121,26 +121,8 @@ class array_splitter(object):
 
         # }}}
 
-        # {{{ adjust offset
-
-        new_offset = ary.offset
-        if ary.offset_per_axis:
-            new_offset = list(new_offset)
-            from loopy.kernel.array import _pymbolic_parse_if_necessary
-            from loopy.symbolic import simplify_using_aff
-
-            offset_at_nr = _pymbolic_parse_if_necessary(new_offset[split_axis])
-            new_offset[split_axis] = simplify_using_aff(
-                kernel, offset_at_nr // count)
-            outer_offset = simplify_using_aff(kernel, offset_at_nr % count)
-            new_offset.insert(dest_axis, outer_offset)
-            new_offset = tuple(new_offset)
-
-        # }}}
-
         kernel = achng.with_changed_array(ary.copy(
-            shape=new_shape, dim_tags=new_dim_tags, dim_names=new_dim_names,
-            offset=new_offset))
+            shape=new_shape, dim_tags=new_dim_tags, dim_names=new_dim_names))
 
         # }}}
 
