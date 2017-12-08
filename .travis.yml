@@ -51,12 +51,11 @@ before_install:
   # add channels
   - conda config --add channels conda-forge
   - conda config --add channels cantera
+  # create env
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables
+  - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
-  # create env
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev \
-    cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables
-  - source activate test-environment
   # build pocl - for the moment can't use conda-forge, as that's still on v0.14
   - cd ~
   - git clone https://github.com/pocl/pocl
@@ -81,10 +80,10 @@ install:
   # currently need the newest loopy version
   - pip install git+https://github.com/inducer/loopy.git
   # read from requirements -- install via conda if available
-  - pip install -f requirements.txt
-  - pip install -f optional-requirements.txt
+  - pip install -r requirements.txt
+  - pip install -r optional-requirements.txt
   # build siteconf.py
-  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIXlib" --adept-inc-dir="$CONDA_PREFIX/include"
+  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include"
   - pip install .
 before_script:
   # copy in siteconf
