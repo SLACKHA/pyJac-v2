@@ -51,18 +51,19 @@ before_install:
   # add channels
   - conda config --add channels conda-forge
   - conda config --add channels cantera
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd
-  - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
-  # openmp
-  - export OMP_NUM_THREADS=4
+  # create env
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev\
+    cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables
+  - source activate test-environment
   # build pocl - for the moment can't use conda-forge, as that's still on v0.14
   - cd ~
   - git clone https://github.com/pocl/pocl
   - cd pocl/
   - mkdir build && cd build
-  - cmake -DWITH_LLVM_CONFIG=`which llvm-config` -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX ..
+  - cmake -DWITH_LLVM_CONFIG=`which llvm-config` -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX \
+    -DCMAKE_C_FLAGS="-I$CONDA_PREFIX/include" ..
   - make -j4
   - make install
   # get Adept
@@ -88,6 +89,8 @@ install:
 before_script:
   # copy in siteconf
   - cp siteconf.py pyjac/
+  # openmp
+  - export OMP_NUM_THREADS=4
 # run test
 script:
   - nosetests -a '!verylong' -s
