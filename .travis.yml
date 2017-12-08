@@ -80,8 +80,8 @@ install:
   # currently need the newest loopy version
   - pip install git+https://github.com/inducer/loopy.git
   # read from requirements -- install via conda if available
-  - while read requirement; do conda install --yes $requirement || pip install $requirement; done < requirements.txt
-  - while read requirement; do conda install --yes $requirement || pip install $requirement; done < optional-requirements.txt
+  - pip install -f requirements.txt
+  - pip install -f optional-requirements.txt
   # build siteconf.py
   - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIXlib" --adept-inc-dir="$CONDA_PREFIX/include"
   - pip install .
