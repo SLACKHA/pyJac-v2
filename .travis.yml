@@ -62,17 +62,17 @@ before_install:
   - git clone https://github.com/pocl/pocl
   - cd pocl/
   - mkdir build && cd build
-  - cmake -DWITH_LLVM_CONFIG=`which llvm-config` ..
+  - cmake -DWITH_LLVM_CONFIG=`which llvm-config` -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX ..
   - make -j4
-  - sudo make install
+  - make install
   # get Adept
   - cd ~
   - git clone https://github.com/rjhogan/Adept
   - cd Adept
   - autoreconf -fi
-  - ./configure
+  - ./configure --prefix=$CONDA_PREFIX
   - make
-  - sudo make install
+  - make install
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
@@ -83,9 +83,8 @@ install:
   - while read requirement; do conda install --yes $requirement || pip install $requirement; done < requirements.txt
   - while read requirement; do conda install --yes $requirement || pip install $requirement; done < optional-requirements.txt
   # build siteconf.py
-  - python configure.py --cl-inc-dir="~/miniconda/bin/ocl-icd/include" --cl-lib-dir="~/miniconda/bin/ocl-icd/lib"
+  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIXlib" --adept-inc-dir="$CONDA_PREFIX/include"
   - pip install .
-
 # run test
 script:
   - nosetests -a '!verylong' -s
