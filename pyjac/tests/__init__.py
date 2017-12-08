@@ -4,6 +4,7 @@ import numpy as np
 import unittest
 import loopy as lp
 import yaml
+from nose.tools import nottest
 
 # system
 import os
@@ -22,6 +23,7 @@ lib_dir = os.path.join(script_dir, 'lib')
 utils.create_dir(build_dir)
 
 
+@nottest
 def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
                        raise_on_missing=False):
     try:
