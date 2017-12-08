@@ -81,7 +81,7 @@ install:
   - while read requirement; do conda install --yes $requirement || pip install $requirement; done < requirements.txt
   - while read requirement; do conda install --yes $requirement || pip install $requirement; done < optional-requirements.txt
   # build siteconf.py
-  - python setup.py build CL_INC_DIR="~/miniconda/bin/ocl-icd/include" CL_LIB_DIR="~/miniconda/bin/ocl-icd/lib"
+  - python configure.py --cl-inc-dir="~/miniconda/bin/ocl-icd/include" --cl-lib-dir="~/miniconda/bin/ocl-icd/lib"
   - pip install .
 
 # run test
