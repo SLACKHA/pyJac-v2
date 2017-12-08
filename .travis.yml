@@ -85,6 +85,9 @@ install:
   # build siteconf.py
   - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIXlib" --adept-inc-dir="$CONDA_PREFIX/include"
   - pip install .
+before_script:
+  # copy in siteconf
+  - cp siteconf.py pyjac/
 # run test
 script:
   - nosetests -a '!verylong' -s
