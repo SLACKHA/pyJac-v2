@@ -6,11 +6,54 @@ Borrowed heavily from `pyopencl`_'s aksetup_helper.py, from which the siteconf
 idea is based upon.
 
 . _pyopencl https://documen.tician.de/pyopencl/
-
-
 """
 
 import sys
+
+
+def configure_frontend():
+    from optparse import OptionParser
+
+    schema = get_config_schema()
+    if schema.have_config():
+        print("************************************************************")
+        print("*** I have detected that you have already run configure.")
+        print("*** I'm taking the configured values as defaults for this")
+        print("*** configure run. If you don't want this, delete the file")
+        print("*** %s." % schema.get_conf_file())
+        print("************************************************************")
+
+    description = "generate a configuration file for this software package"
+    parser = OptionParser(description=description)
+    parser.add_option(
+        "--python-exe", dest="python_exe", default=sys.executable,
+        help="Which Python interpreter to use", metavar="PATH")
+
+    parser.add_option("--prefix", default=None,
+                      help="Ignored")
+    parser.add_option("--enable-shared", help="Ignored", action="store_false")
+    parser.add_option("--disable-static", help="Ignored", action="store_false")
+    parser.add_option("--update-user",
+                      help="Update user config file ({})".format(
+                        schema.user_conf_file),
+                      action="store_true")
+    parser.add_option("--update-global",
+                      help="Update global config file ({})".format(
+                        schema.global_conf_file),
+                      action="store_true")
+
+    schema.add_to_configparser(parser, schema.read_config())
+
+    options, args = parser.parse_args()
+
+    config = schema.get_from_configparser(options)
+    schema.write_config(config)
+
+    if options.update_user:
+        schema.update_user_config(config)
+
+    if options.update_global:
+        schema.update_global_config(config)
 
 
 # {{{ configure guts
@@ -58,10 +101,11 @@ def expand_value(v, options):
 
 def expand_options(options):
     return dict(
-            (k, expand_value(v, options)) for k, v in options.items())
+        (k, expand_value(v, options)) for k, v in options.items())
 
 
 class ConfigSchema:
+
     def __init__(self, options, conf_file="siteconf.py", conf_dir="."):
         self.optdict = dict((opt.name, opt) for opt in options)
         self.options = options
@@ -176,7 +220,7 @@ class ConfigSchema:
                 pass
             else:
                 raise KeyError("invalid config key in %s: %s" % (
-                        filename, key))
+                    filename, key))
 
     def update_config_from_and_modify_command_line(self, config, argv):
         cfg_prefix = "--conf:"
@@ -188,7 +232,7 @@ class ConfigSchema:
             if arg.startswith(cfg_prefix):
                 del argv[i]
                 self.update_from_python_snippet(
-                        config, arg[len(cfg_prefix):], "<command line>")
+                    config, arg[len(cfg_prefix):], "<command line>")
             else:
                 i += 1
 
@@ -234,6 +278,7 @@ class ConfigSchema:
 
 
 class Option(object):
+
     def __init__(self, name, default=None, help=None):
         self.name = name
         self.default = default
@@ -250,7 +295,7 @@ class Option(object):
         result = self.help
         if self.default:
             result += " (default: %s)" % self.value_to_str(
-                    default_or(default, self.default))
+                default_or(default, self.default))
         return result
 
     def value_to_str(self, default):
@@ -269,6 +314,7 @@ class Option(object):
 
 
 class StringListOption(Option):
+
     def value_to_str(self, default):
         if default is None:
             return None
@@ -294,6 +340,7 @@ class StringListOption(Option):
 
 
 class IncludeDir(StringListOption):
+
     def __init__(self, lib_name, default=None, human_name=None, help=None):
         StringListOption.__init__(
             self, "%s_INC_DIR" % lib_name, default,
@@ -302,6 +349,7 @@ class IncludeDir(StringListOption):
 
 
 class LibraryDir(StringListOption):
+
     def __init__(self, lib_name, default=None, human_name=None, help=None):
         StringListOption.__init__(
             self, "%s_LIB_DIR" % lib_name, default,
@@ -310,6 +358,7 @@ class LibraryDir(StringListOption):
 
 
 class Libraries(StringListOption):
+
     def __init__(self, lib_name, default=None, human_name=None, help=None):
         StringListOption.__init__(
             self, "%s_LIBNAME" % lib_name, default,
@@ -347,16 +396,16 @@ def get_config_schema():
         osx_ver = '.'.join(osx_ver.split('.')[:2])
 
         sysroot_paths = [
-                "/Applications/Xcode.app/Contents/Developer/Platforms/"
-                "MacOSX.platform/Developer/SDKs/MacOSX%s.sdk" % osx_ver,
-                "/Developer/SDKs/MacOSX%s.sdk" % osx_ver
-                ]
+            "/Applications/Xcode.app/Contents/Developer/Platforms/"
+            "MacOSX.platform/Developer/SDKs/MacOSX%s.sdk" % osx_ver,
+            "/Developer/SDKs/MacOSX%s.sdk" % osx_ver
+        ]
 
         default_libs = []
         default_cxxflags = default_cxxflags + [
-                '-stdlib=libc++', '-mmacosx-version-min=10.7',
-                '-arch', 'i386', '-arch', 'x86_64'
-                ]
+            '-stdlib=libc++', '-mmacosx-version-min=10.7',
+            '-arch', 'i386', '-arch', 'x86_64'
+        ]
 
         from os.path import isdir
         for srp in sysroot_paths:
@@ -377,8 +426,9 @@ def get_config_schema():
             default_ldflags = []
 
     return ConfigSchema([
-        Option("CL_VERSION", None,
-               "Dotted CL version (e.g. 1.2) which you'd like to use."),
+        Option("CL_VERSION", '1.2',
+               "Dotted CL version (e.g. 1.2) which you'd like to use.  "
+               "By default, we use OpenCL 1.2"),
 
         IncludeDir("CL", []),
         LibraryDir("CL", []),
@@ -395,7 +445,7 @@ def get_config_schema():
                          help="Any extra C++ compiler options to include"),
         StringListOption("LDFLAGS", default_ldflags,
                          help="Any extra linker options to include"),
-        ])
+    ])
 
 
 # {{{ siteconf handling
