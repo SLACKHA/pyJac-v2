@@ -70,7 +70,7 @@ before_install:
   - autoreconf -fi
   - ./configure
   - make
-  - make install
+  - sudo make install
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
