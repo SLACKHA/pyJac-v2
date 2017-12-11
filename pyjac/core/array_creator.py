@@ -1339,7 +1339,7 @@ class jac_creator(creator):
             offset, lookup = self.__get_offset_and_lookup(*indicies[:])
             if self.is_sparse:
                 # add the offset to the lookup
-                indicies = (indicies[0], ' + '.join([str(x) for x in indicies[1:]]))
+                indicies = (indicies[0], ' + '.join([offset, lookup]))
                 replace_ind = 1
                 computed_ind = indicies[1]
             elif self.order == 'C':
