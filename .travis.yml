@@ -71,7 +71,7 @@ before_install:
   - cd Adept
   - autoreconf -fi
   - ./configure --prefix=$CONDA_PREFIX
-  - make
+  - make -j4
   - make install
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
