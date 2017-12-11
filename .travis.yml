@@ -85,7 +85,7 @@ install:
   - pip install -r requirements.txt
   - pip install -r optional-requirements.txt
   # build siteconf.py
-  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include"
+  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include" --ldflags="-Wl\,-rpath\,$CONDA_PREFIX/lib"
   - pip install .
 before_script:
   # copy in siteconf
