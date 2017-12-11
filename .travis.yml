@@ -53,8 +53,6 @@ before_install:
   # create env
   - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables
   - source activate test-environment
-  # export library path
-  - export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
   # build pocl - for the moment can't use conda-forge, as that's still on v0.14
@@ -85,7 +83,7 @@ install:
   - pip install -r requirements.txt
   - pip install -r optional-requirements.txt
   # build siteconf.py
-  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include" --ldflags="-Wl\,-rpath\,$CONDA_PREFIX/lib"
+  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include"
   - pip install .
 before_script:
   # copy in siteconf

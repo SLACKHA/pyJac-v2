@@ -1193,3 +1193,12 @@ class AdeptCompiler(CPlusPlusCompiler):
 
         # and create
         super(AdeptCompiler, self).__init__(*args, **defaults)
+
+    def build(self, *args, **kwargs):
+        """override from CPlusPlusCompiler to load Adept into ctypes and avoid
+           missing symbol errors"""
+        from ctypes.util import find_library
+        from ctypes import CDLL, RTLD_GLOBAL
+        CDLL(find_library('adept'), mode=RTLD_GLOBAL)
+
+        return super(AdeptCompiler, self).build(*args, **kwargs)
