@@ -32,9 +32,6 @@ python:
 
 # install dependencies
 before_install:
-  # update
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq libltdl3-dev libhwloc-dev
   # get conda
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
       wget https://repo.continuum.io/miniconda/Miniconda2-latest-Linux-x86_64.sh -O miniconda.sh;
@@ -52,7 +49,7 @@ before_install:
   - conda config --add channels conda-forge
   - conda config --add channels cantera
   # create env
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables libhwloc libtool
   - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
