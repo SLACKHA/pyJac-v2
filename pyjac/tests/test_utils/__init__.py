@@ -366,7 +366,7 @@ def combination(*arrays, **kwargs):
         The combined array of shape N x :param:`arrays`[0].size
     """
 
-    assert np.all([np.array_equal(x.shape, arrays[0].shape) for x in arrays[1:]])
+    # assert np.all([np.array_equal(x.shape, arrays[0].shape) for x in arrays[1:]])
 
     order = kwargs.pop('order')
     if order == 'F':
