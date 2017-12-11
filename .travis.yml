@@ -51,6 +51,8 @@ before_install:
   # create env
   - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables libhwloc libtool
   - source activate test-environment
+  # export library path
+  - export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
   # build pocl - for the moment can't use conda-forge, as that's still on v0.14
