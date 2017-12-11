@@ -60,6 +60,8 @@ before_install:
   - cd ~
   - git clone https://github.com/pocl/pocl
   - cd pocl/
+  # grab RC1.0
+  - git checkout v1.0-RC1
   - mkdir build && cd build
   - cmake -DWITH_LLVM_CONFIG=`which llvm-config` -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX -DCMAKE_C_FLAGS="-I$CONDA_PREFIX/include" -DEXTRA_KERNEL_FLAGS="-I$CONDA_PREFIX/include" ..
   - make -j4
