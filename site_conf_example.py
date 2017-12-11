@@ -3,6 +3,7 @@ CL_LIBNAME = ['OpenCL']
 CL_VERSION = '1.2'
 CL_FLAGS = []
 CC_FLAGS = []
+LD_FLAGS = []
 # relies on OCL-ICD
 CL_LIB_DIR = ['/usr/local/lib']
 # Adept is used in functional testing / unit testing for verification of Jacobian
