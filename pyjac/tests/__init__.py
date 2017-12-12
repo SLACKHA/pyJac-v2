@@ -384,6 +384,7 @@ class TestClass(unittest.TestCase):
     _is_setup = False
     _store = None
 
+    @nottest
     def runTest(self):
         pass
 
