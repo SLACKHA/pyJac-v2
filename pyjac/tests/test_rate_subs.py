@@ -53,14 +53,26 @@ class kf_wrapper(object):
             np.array(self.kf_fall_val[0], order=x, copy=True))
 
     def __call__(self, loopy_opts, namestore, test_size):
+        from ..core.exceptions import BrokenPlatformError
         # check if we've found the kf / kf_fall values yet
         if not self.kf_val:
             # ensure the loopy opts don't have a split in them, otherwise the
             # shape of the base kf / kf_fall will be wrong
-            opts = loopy_options(order=loopy_opts.order,
-                                 rate_spec=loopy_opts.rate_spec,
-                                 rate_spec_kernels=loopy_opts.rate_spec_kernels,
-                                 platform=loopy_opts.platform.name)
+            try:
+                opts = loopy_options(order=loopy_opts.order,
+                                     rate_spec=loopy_opts.rate_spec,
+                                     rate_spec_kernels=loopy_opts.rate_spec_kernels,
+                                     platform=loopy_opts.platform.name)
+            except BrokenPlatformError:
+                # bad platform
+                # currently only for non-vectorized nvidia
+                # can fix by adding a (non-splitting) vectorization
+                opts = loopy_options(order=loopy_opts.order,
+                                     rate_spec=loopy_opts.rate_spec,
+                                     rate_spec_kernels=loopy_opts.rate_spec_kernels,
+                                     platform=loopy_opts.platform.name,
+                                     width=4 if loopy_opts.order == 'F' else None,
+                                     depth=4 if loopy_opts.order == 'C' else None)
 
             # first we have to get the simple arrhenius rates
             # in order to evaluate the reduced pressure
@@ -71,8 +83,10 @@ class kf_wrapper(object):
                 {'phi': self.kwargs['phi']},
                 {'falloff': True})
 
-            self.kf_fall_val.append(
-                runner(opts, namestore, test_size)['kf_fall'])
+            kf = runner(opts, namestore, test_size)
+            if isinstance(kf, list):
+                kf = kf[-1]
+            self.kf_fall_val.append(kf['kf_fall'])
 
             # next with regular parameters
             runner = test_utils.kernel_runner(
@@ -80,8 +94,10 @@ class kf_wrapper(object):
                 self.store.test_size,
                 {'phi': self.kwargs['phi']})
 
-            self.kf_val.append(
-                runner(opts, namestore, test_size)['kf'])
+            kf = runner(opts, namestore, test_size)
+            if isinstance(kf, list):
+                kf = kf[-1]
+            self.kf_val.append(kf['kf'])
 
         # finally we can call the function
         return self.func(loopy_opts, namestore, test_size)
