@@ -7,13 +7,24 @@ brances:
   only:
     - conda_CI
 
-# environment
+# language & environment and matrix spec
+language: python
+matrix:
+  include:
+    - python: "2.7"
+      env: ISFLAKE="0"
+    - python: "3.6"
+      env: ISFLAKE="0"
+    - python: "2.7"
+      env: ISFLAKE="1"
+    - python: "3.6"
+      env: ISFLAKE="1"
+
+# global env
 env:
   global:
     - PRIORITY=500
     - LLV=5.0
-    - ISFLAKE="0"
-    - ISFLAKE="1"
 
 addons:
   apt:
@@ -30,12 +41,6 @@ addons:
       - liblapack-dev
       - libblas-dev
       - libboost-dev
-
-# language spec
-language: python
-python:
-  - "2.7"
-  - "3.6"
 
 # install dependencies
 before_install:
@@ -102,5 +107,5 @@ script:
   if [[ "$ISFLAKE" == "0" ]]; then
       nosetests -a '!verylong' -s;
   else
-      flake8 pyjac/
+      python -m flake8 pyjac/ --count;
   fi
