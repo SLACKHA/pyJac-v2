@@ -12,6 +12,7 @@ import os
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
+from nose.tools import nottest
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
@@ -22,6 +23,7 @@ lib_dir = os.path.join(script_dir, 'lib')
 utils.create_dir(build_dir)
 
 
+@nottest
 def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
                        raise_on_missing=False):
     try:
