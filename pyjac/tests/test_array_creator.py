@@ -22,6 +22,7 @@ def _dummy_opts(knl_type, order='C', use_private_memory=False):
             self.order = order
             self.use_private_memory = use_private_memory
             self.jac_format = ''
+            self.jac_type = ''
     return dummy(knl_type, order=order, use_private_memory=use_private_memory)
 
 

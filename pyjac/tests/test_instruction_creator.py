@@ -121,7 +121,7 @@ def test_lpy_array_splitter_c_wide():
                 a2[i, 0] = 0 {id=a2}
             """,
             [arg1, arg2],
-            target=lp.CTarget())
+            target=lp.ExecutableCTarget())
 
     k = lp.split_iname(_create(), 'i', 8)
     k = asplit.split_loopy_arrays(k)
@@ -166,7 +166,7 @@ def test_lpy_array_splitter_f_deep():
                 a2[0, i] = 0 {id=a2}
             """,
             [arg1, arg2],
-            target=lp.CTarget())
+            target=lp.ExecutableCTarget())
 
     k = lp.split_iname(_create(), 'i', 8)
     k = asplit.split_loopy_arrays(k)
