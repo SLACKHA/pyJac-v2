@@ -25,6 +25,7 @@ import numpy as np
 from nose.plugins.attrib import attr
 from parameterized import parameterized
 from unittest.case import SkipTest
+import six
 
 
 class kf_wrapper(object):
@@ -106,10 +107,6 @@ class SubTest(TestClass):
             [i for i in range(gas.n_reactions) if gas.is_reversible(i)])
         assert np.array_equal(result['rev']['map'], rev_inds)
         assert result['rev']['num'] == rev_inds.size
-        fwd_specs = []
-        fwd_nu = []
-        rev_specs = []
-        rev_nu = []
         nu_sum = []
         net_nu = []
         net_specs = []
@@ -118,39 +115,47 @@ class SubTest(TestClass):
         spec_nu = defaultdict(lambda: [])
         spec_to_reac = defaultdict(lambda: [])
         for ireac, reac in enumerate(gas.reactions()):
-            temp_nu_sum_dict = defaultdict(lambda: 0)
-            for spec, nu in sorted(reac.reactants.items(), key=lambda x: gas.species_index(x[0])):
-                fwd_specs.append(gas.species_index(spec))
-                fwd_nu.append(nu)
-                temp_nu_sum_dict[spec] -= nu
-            assert result['fwd']['num_reac_to_spec'][
-                ireac] == len(reac.reactants)
-            for spec, nu in sorted(reac.products.items(), key=lambda x: gas.species_index(x[0])):
-                if ireac in rev_inds:
-                    rev_specs.append(gas.species_index(spec))
-                    rev_nu.append(nu)
-                temp_nu_sum_dict[spec] += nu
+            fwd_nu_dict = defaultdict(lambda: 0)
+            rev_nu_dict = defaultdict(lambda: 0)
+            per_spec_nu = defaultdict(lambda: 0)
+            for spec, nu in sorted(reac.reactants.items(),
+                                   key=lambda x: gas.species_index(x[0])):
+                fwd_nu_dict[spec] = nu
+                per_spec_nu[spec] -= nu
+            # check # of species agrees
+            assert result['net']['num_reac_to_spec'][
+                ireac] == len(set(reac.reactants) | set(reac.products))
+            for spec, nu in sorted(reac.products.items(),
+                                   key=lambda x: gas.species_index(x[0])):
+                rev_nu_dict[spec] = nu
+                per_spec_nu[spec] += nu
             if ireac in rev_inds:
-                rev_ind = np.where(rev_inds == ireac)[0]
-                assert result['rev']['num_reac_to_spec'][
-                    rev_ind] == len(reac.products)
-            temp_specs, temp_nu_sum = zip(*[(gas.species_index(x[0]), x[1]) for x in
-                                            sorted(temp_nu_sum_dict.items(), key=lambda x: gas.species_index(x[0]))])
-            net_specs.extend(temp_specs)
-            net_num_specs.append(len(temp_specs))
-            net_nu.extend(temp_nu_sum)
-            nu_sum.append(sum(temp_nu_sum))
-            for spec, nu in temp_nu_sum_dict.items():
+                # check reaction in reverse index
+                assert ireac in result['rev']['map']
+            fwd_specs, fwd_nu = zip(
+                *[(gas.species_index(x[0]), x[1]) for x in
+                  sorted(six.iteritems(fwd_nu_dict),
+                         key=lambda x: gas.species_index(x[0]))])
+            rev_specs, rev_nu = zip(
+                *[(gas.species_index(x[0]), x[1]) for x in
+                  sorted(six.iteritems(rev_nu_dict),
+                         key=lambda x: gas.species_index(x[0]))])
+            net_specs.extend(sorted(set(fwd_specs + rev_specs)))
+            net_num_specs.append(len(set(fwd_specs + rev_specs)))
+            seen = set()
+            for spec in sorted(set(fwd_specs + rev_specs)):
+                if spec not in seen:
+                    seen.update([spec])
+                    name = gas.species_names[spec]
+                    net_nu.extend([rev_nu_dict[name], fwd_nu_dict[name]])
+            nu_sum.append(np.sum(per_spec_nu.values()))
+            for spec, nu in six.iteritems(per_spec_nu):
                 spec_ind = gas.species_index(spec)
                 if nu:
                     reac_count[spec_ind] += 1
                     spec_nu[spec_ind].append(nu)
                     spec_to_reac[spec_ind].append(ireac)
 
-        assert np.array_equal(fwd_specs, result['fwd']['reac_to_spec'])
-        assert np.array_equal(fwd_nu, result['fwd']['nu'])
-        assert np.array_equal(rev_specs, result['rev']['reac_to_spec'])
-        assert np.array_equal(rev_nu, result['rev']['nu'])
         assert np.array_equal(nu_sum, result['net']['nu_sum'])
         assert np.array_equal(net_nu, result['net']['nu'])
         assert np.array_equal(net_num_specs, result['net']['num_reac_to_spec'])
@@ -175,13 +180,15 @@ class SubTest(TestClass):
             except:
                 if not fall:
                     # want the normal rates
-                    if isinstance(reac, ct.FalloffReaction) and not isinstance(reac, ct.ChemicallyActivatedReaction):
+                    if isinstance(reac, ct.FalloffReaction) and not isinstance(
+                            reac, ct.ChemicallyActivatedReaction):
                         rate = reac.high_rate
                     else:
                         rate = reac.low_rate
                 else:
                     # want the other rates
-                    if isinstance(reac, ct.FalloffReaction) and not isinstance(reac, ct.ChemicallyActivatedReaction):
+                    if isinstance(reac, ct.FalloffReaction) and not isinstance(
+                            reac, ct.ChemicallyActivatedReaction):
                         rate = reac.low_rate
                     else:
                         rate = reac.high_rate
@@ -302,27 +309,33 @@ class SubTest(TestClass):
 
         # ALL BELOW HERE ARE INDEPENDENT OF SPECIALIZATIONS
         if result['cheb']['num']:
-            cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+            cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in
+                                          enumerate(gas.reactions())
                                           if isinstance(x, ct.ChebyshevReaction)])
             assert result['cheb']['num'] == len(cheb_inds)
             assert np.array_equal(result['cheb']['map'], np.array(cheb_inds))
 
         if result['plog']['num']:
-            plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
+            plog_inds, plog_reacs = zip(*[(i, x) for i, x in
+                                          enumerate(gas.reactions())
                                           if isinstance(x, ct.PlogReaction)])
             assert result['plog']['num'] == len(plog_inds)
             assert np.array_equal(result['plog']['map'], np.array(plog_inds))
 
         # test the thd / falloff / chem assignments
         assert np.array_equal(result['fall']['map'],
-                              [i for i, x in enumerate(gas.reactions()) if (isinstance(x,
-                                                                                       ct.FalloffReaction) or isinstance(x, ct.ChemicallyActivatedReaction))])
+                              [i for i, x in enumerate(gas.reactions())
+                               if (isinstance(x, ct.FalloffReaction) or
+                                   isinstance(x, ct.ChemicallyActivatedReaction))])
         fall_reacs = [gas.reaction(y) for y in result['fall']['map']]
         # test fall vs chemically activated
         assert np.array_equal(result['fall']['ftype'],
-                              np.array([reaction_type.fall if (isinstance(x, ct.FalloffReaction) and not
-                                                               isinstance(x, ct.ChemicallyActivatedReaction)) else reaction_type.chem for x in
-                                        fall_reacs], dtype=np.int32) - int(reaction_type.fall))
+                              np.array([
+                                int(reaction_type.fall)
+                                if (isinstance(x, ct.FalloffReaction) and not
+                                    isinstance(x, ct.ChemicallyActivatedReaction))
+                                else int(reaction_type.chem) for x in fall_reacs],
+                                       dtype=np.int32) - int(reaction_type.fall))
         # test blending func
         blend_types = []
         for x in fall_reacs:
@@ -333,7 +346,8 @@ class SubTest(TestClass):
             else:
                 blend_types.append(falloff_form.lind)
         assert np.array_equal(
-            result['fall']['blend'], np.array(blend_types, dtype=np.int32))
+            result['fall']['blend'], np.array(
+                [int(x) for x in blend_types], dtype=np.int32))
         # test parameters
         # troe
         if result['fall']['troe']['num']:
@@ -343,8 +357,9 @@ class SubTest(TestClass):
             troe_a, troe_T3, troe_T1, troe_T2 = [
                 np.array(x) for x in zip(*troe_par)]
             assert np.array_equal(result['fall']['troe']['a'], troe_a)
-            assert np.array_equal(result['fall']['troe']['T3'], troe_T3)
-            assert np.array_equal(result['fall']['troe']['T1'], troe_T1)
+            # test T3 & T1 against inverse
+            assert np.array_equal(result['fall']['troe']['T3'], 1. / troe_T3)
+            assert np.array_equal(result['fall']['troe']['T1'], 1. / troe_T1)
             assert np.array_equal(result['fall']['troe']['T2'], troe_T2)
             # and map
             assert np.array_equal([fall_reacs.index(x) for x in troe_reacs],
@@ -367,14 +382,16 @@ class SubTest(TestClass):
         # lindemann
         if result['fall']['lind']['num']:
             assert np.array_equal(result['fall']['lind']['map'],
-                                  [i for i, x in enumerate(fall_reacs) if not isinstance(x.falloff, ct.TroeFalloff)
+                                  [i for i, x in enumerate(fall_reacs)
+                                   if not isinstance(x.falloff, ct.TroeFalloff)
                                    and not isinstance(x.falloff, ct.SriFalloff)])
 
         # and finally test the third body stuff
         # test map
-        third_reac_inds = [i for i, x in enumerate(gas.reactions()) if (isinstance(x,
-                                                                                   ct.FalloffReaction) or isinstance(x, ct.ChemicallyActivatedReaction)
-                                                                        or isinstance(x, ct.ThreeBodyReaction))]
+        third_reac_inds = [i for i, x in enumerate(gas.reactions())
+                           if (isinstance(x, ct.FalloffReaction) or
+                               isinstance(x, ct.ChemicallyActivatedReaction) or
+                               isinstance(x, ct.ThreeBodyReaction))]
         assert np.array_equal(result['thd']['map'], third_reac_inds)
         # construct types, efficiencies, species, and species numbers
         thd_type = []
