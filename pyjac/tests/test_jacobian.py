@@ -484,7 +484,7 @@ class SubTest(TestClass):
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None, do_conp=False, do_sparse=True,
-                            **kw_args):
+                            sparse_only=False, **kw_args):
         """
         A generic testing method that can be used for testing jacobian kernels
 
@@ -502,11 +502,16 @@ class SubTest(TestClass):
             If true, test kernel splitting for rop_net
         do_conp:  bool [False]
             If true, test for both constant pressure _and_ constant volume
+        do_sparse: bool [True]
+            Test the sparse Jacobian as well
+        sparse_only: bool [False]
+            Test only the sparse jacobian (e.g. for testing indexing)
         """
 
         _generic_tester(self, func, kernel_calls, determine_jac_inds,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                        do_conp=do_conp, do_sparse=do_sparse, **kw_args)
+                        do_conp=do_conp, do_sparse=do_sparse,
+                        sparse_only=sparse_only, **kw_args)
 
     def _make_namestore(self, conp):
         # get number of sri reactions
@@ -2627,7 +2632,8 @@ class SubTest(TestClass):
         kc = kernel_call('index_test', ref_ans, compare_mask=[__get_compare],
                          compare_axis=-1, **args)
 
-        return self._generic_jac_tester(__kernel_creator, kc)
+        return self._generic_jac_tester(__kernel_creator, kc,
+                                        sparse_only=True)
 
     @parameterized.expand([('opencl',), ('c',)])
     @attr('verylong')
