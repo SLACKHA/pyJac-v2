@@ -15,6 +15,7 @@ import numpy.ma as ma
 import cantera as ct
 from six.moves import range
 from six import iteritems
+from nose.tools import nottest
 
 # pytables
 import tables
@@ -1127,7 +1128,7 @@ class jacobian_eval(eval):
         except:
             return False
 
-
+@nottest
 def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''):
     """Runs validation testing on pyJac's species_rate kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
@@ -1157,6 +1158,7 @@ def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''
                          raise_on_missing=raise_on_missing)
 
 
+@nottest
 def jacobian_tester(work_dir='error_checking', test_platform=None, prefix=''):
     """Runs validation testing on pyJac's jacobian kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting

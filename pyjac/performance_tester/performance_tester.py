@@ -8,6 +8,7 @@ from __future__ import print_function
 # Standard libraries
 import os
 import subprocess
+from nose.tools import nottest
 
 # Local imports
 from ..libgen import build_type, generate_library
@@ -216,6 +217,7 @@ class performance_runner(runner):
                                           stdout=file)
 
 
+@nottest
 def species_performance_tester(work_dir='performance',
                                test_platforms=None,
                                prefix=''):
@@ -248,6 +250,7 @@ def species_performance_tester(work_dir='performance',
                          raise_on_missing=raise_on_missing)
 
 
+@nottest
 def jacobian_performance_tester(work_dir='performance',
                                 test_platforms=None,
                                 prefix=''):
