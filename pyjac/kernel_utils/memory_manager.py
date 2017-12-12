@@ -579,18 +579,19 @@ class mapped_memory(memory_strategy):
         sync = {}
         __update('sync', sync)
 
-        all_full = not utils.can_vectorize_lang[lang]
+        __update('use_full', not utils.can_vectorize_lang[lang])
+        use_full = overrides['use_full']
         copy_in_2d = self._get_2d_templates(
-            lang, to_device=True, ndim=2, use_full=all_full)
+            lang, to_device=True, ndim=2, use_full=use_full)
         __update('copy_in_2d', copy_in_2d)
         copy_out_2d = self._get_2d_templates(
-            lang, to_device=False, ndim=2, use_full=all_full)
+            lang, to_device=False, ndim=2, use_full=use_full)
         __update('copy_out_2d', copy_out_2d)
         copy_in_1d = self._get_2d_templates(
-            lang, to_device=True, use_full=all_full)
+            lang, to_device=True, use_full=use_full)
         __update('copy_in_1d', copy_in_1d)
         copy_out_1d = self._get_2d_templates(
-            lang, to_device=False, use_full=all_full)
+            lang, to_device=False, use_full=use_full)
         __update('copy_out_1d', copy_out_1d)
         host_constant_template = self._get_2d_templates(
             lang, to_device=True, use_full=True)
@@ -621,6 +622,9 @@ class mapped_memory(memory_strategy):
             False: 'CL_MEM_READ_WRITE',
             True: 'CL_MEM_READ_ONLY'}}
         __update('alloc_flags', alloc_flags)
+
+        if 'use_full' in overrides:
+            overrides.pop('use_full')
         super(mapped_memory, self).__init__(lang, **overrides)
 
 
@@ -803,7 +807,8 @@ class memory_manager(object):
     """
 
     def __init__(self, lang, order, have_split,
-                 dev_type=None, mem_limits_file=''):
+                 dev_type=None, mem_limits_file='',
+                 strided_c_copy=False):
         """
         Parameters
         ----------
@@ -817,6 +822,8 @@ class memory_manager(object):
         dev_type: :class:`pyopencl.device_type` [None]
             The device type.  If CPU, the host buffers will be used for input /
             output variables
+        strided_c_copy: bool [False]
+            Used in testing strided memory copies for c-targets
         """
         self.arrays = []
         self.in_arrays = []
@@ -840,9 +847,11 @@ class memory_manager(object):
             loopy_opts = type('', (object,), {'lang': host_langs[lang]})
             align_size = memory_limits.get_limits(
                 loopy_opts, {}, mem_limits_file).limits[memory_type.m_pagesize]
-            self.mem = pinned_memory(lang, order, have_split, align_size)
+            self.mem = pinned_memory(lang, order, have_split, align_size,
+                                     use_full=not strided_c_copy)
         else:
-            self.mem = mapped_memory(lang, order, have_split)
+            self.mem = mapped_memory(lang, order, have_split,
+                                     use_full=not strided_c_copy)
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
