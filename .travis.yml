@@ -2,6 +2,11 @@
 sudo: required
 dist: trusty
 
+# safelist
+brances:
+  only:
+    - conda_CI
+
 # environment
 env:
   global:
