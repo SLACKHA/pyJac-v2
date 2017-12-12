@@ -7,6 +7,8 @@ env:
   global:
     - PRIORITY=500
     - LLV=5.0
+    - ISFLAKE="0"
+    - ISFLAKE="1"
 
 addons:
   apt:
@@ -51,7 +53,7 @@ before_install:
   - conda config --add channels conda-forge
   - conda config --add channels cantera
   # create env
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming
   - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
@@ -92,4 +94,8 @@ before_script:
   - export OMP_NUM_THREADS=4
 # run test
 script:
-  - nosetests -a '!verylong' -s
+  if [[ "$ISFLAKE" == "0" ]]; then
+      nosetests -a '!verylong' -s;
+  else
+      flake8 pyjac/
+  end
