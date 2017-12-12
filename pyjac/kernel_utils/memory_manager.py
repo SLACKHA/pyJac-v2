@@ -841,6 +841,10 @@ class memory_manager(object):
         self.dev_type = dev_type
         self.use_pinned = self.dev_type is not None and self.dev_type == DTYPE_CPU
         self.string_strides = [p_size.name]
+        kwargs = {}
+        if not utils.can_vectorize_lang[lang] and strided_c_copy:
+            kwargs['use_full'] = True
+
         if self.use_pinned:
             # check if user supplied alignement size
             # create dummy options
@@ -848,10 +852,10 @@ class memory_manager(object):
             align_size = memory_limits.get_limits(
                 loopy_opts, {}, mem_limits_file).limits[memory_type.m_pagesize]
             self.mem = pinned_memory(lang, order, have_split, align_size,
-                                     use_full=not strided_c_copy)
+                                     **kwargs)
         else:
             self.mem = mapped_memory(lang, order, have_split,
-                                     use_full=not strided_c_copy)
+                                     **kwargs)
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
