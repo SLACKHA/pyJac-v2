@@ -192,7 +192,7 @@ void init(size_t per_run, size_t problem_size, cl_uint num_devices, ${knl_args})
     }
     else if (num_devices >= MAX_DEVICE)
     {
-        fprintf(stderr, "Cannot create program with %s devices, please update MAX_DEVICE definition.\n");
+        fprintf(stderr, "Cannot create program with %d devices, please update MAX_DEVICE definition.\n", num_devices);
         exit(EXIT_FAILURE);
     }
 
