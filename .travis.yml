@@ -5,7 +5,7 @@ dist: trusty
 # safelist
 brances:
   only:
-    - conda_CI
+    - spyJac
 
 # language & environment and matrix spec
 language: python
