@@ -843,7 +843,7 @@ class memory_manager(object):
         self.string_strides = [p_size.name]
         kwargs = {}
         if not utils.can_vectorize_lang[lang] and strided_c_copy:
-            kwargs['use_full'] = True
+            kwargs['use_full'] = False
 
         if self.use_pinned:
             # check if user supplied alignement size
