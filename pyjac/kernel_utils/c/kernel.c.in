@@ -145,7 +145,7 @@ int main(int argc, char* argv[])
     execute_kernel(problem_size, ${local_input_args});
     double runtime = GetTimer();
 
-    printf("%d,%.15le,%.15le,%.15le\n", problem_size, -1.0,
+    printf("%zu,%.15le,%.15le,%.15le\n", problem_size, -1.0,
                 setup_time, runtime);
 
     // write output to file if supplied
