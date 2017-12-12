@@ -587,7 +587,8 @@ class get_comparable(object):
 
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=['opencl'], do_vector=True, do_sparse=False,
-                do_approximate=False, do_finite_difference=False):
+                do_approximate=False, do_finite_difference=False,
+                sparse_only=False):
 
     platforms = get_test_platforms(owner.store.test_platforms,
                                    do_vector=do_vector, langs=langs)
@@ -603,7 +604,9 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
             ('rop_net_kernels', [True])]
     if do_conp:
         oploop += [('conp', [True, False])]
-    if do_sparse:
+    if sparse_only:
+        oploop += [('jac_format', [JacobianFormat.sparse])]
+    elif do_sparse:
         oploop += [('jac_format', [JacobianFormat.sparse, JacobianFormat.full])]
     else:
         oploop += [('jac_format', [JacobianFormat.full])]
@@ -627,7 +630,8 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    do_sparse=False, langs=['opencl'], **kw_args):
+                    do_sparse=False, langs=['opencl'],
+                    sparse_only=False, **kw_args):
     """
     A generic testing method that can be used for to test the correctness of
     any _pyJac_ kernel via the supplied :class:`kernel_call`'s
@@ -657,12 +661,15 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         The testing languages, @see utils.langs for allowed languages
     do_sparse: bool [False]
         If true, test sparse jacobian alongside full
+    sparse_only: bool [False]
+            Test only the sparse jacobian (e.g. for testing indexing)
     kwargs: dict
         Any additional arguements to pass to the :param:`func`
     """
 
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                         do_conp=do_conp, do_sparse=do_sparse)
+                         do_conp=do_conp, do_sparse=do_sparse,
+                         sparse_only=sparse_only)
 
     reacs = owner.store.reacs
     specs = owner.store.specs
