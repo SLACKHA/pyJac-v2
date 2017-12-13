@@ -165,7 +165,7 @@ class SubTest(TestClass):
                     seen.update([spec])
                     name = gas.species_names[spec]
                     net_nu.extend([rev_nu_dict[name], fwd_nu_dict[name]])
-            nu_sum.append(np.sum(per_spec_nu.values()))
+            nu_sum.append(sum(per_spec_nu.values()))
             for spec, nu in six.iteritems(per_spec_nu):
                 spec_ind = gas.species_index(spec)
                 if nu:
