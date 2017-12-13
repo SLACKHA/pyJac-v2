@@ -1178,15 +1178,18 @@ class AdeptCompiler(CPlusPlusCompiler):
         from ..siteconf import LDFLAGS, CXXFLAGS
         defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
                     'ldflags': '-O3 -shared -fopenmp -fPIC'.split()}
-        defaults['ldflags'].extend(['-l{}'.format(x) for x in ADEPT_LIBNAME])
+        defaults['libraries'] = ADEPT_LIBNAME
         if CXXFLAGS:
-            defaults['cflags'].extend(CXXFLAGS)
+            defaults['cflags'].extend([x for x in CXXFLAGS
+                                       if x not in defaults['cflags']
+                                       and x.strip()])
         if ADEPT_LIB_DIR:
-            defaults['ldflags'].extend(['-L{}'.format(x) for x in ADEPT_LIB_DIR])
+            defaults['library_dirs'] = ADEPT_LIB_DIR
         if ADEPT_INC_DIR:
             defaults['cflags'].extend(['-I{}'.format(x) for x in ADEPT_INC_DIR])
         if LDFLAGS:
-            defaults['ldflags'].extend(LDFLAGS)
+            defaults['ldflags'].extend([x for x in LDFLAGS if x not in
+                                        defaults['ldflags']])
 
         # update to use any user specified info
         defaults.update(kwargs)
