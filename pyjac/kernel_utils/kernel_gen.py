@@ -229,7 +229,6 @@ class kernel_generator(object):
         # set kernel attribute
         self.kernel = None
 
-
     def apply_barriers(self, instructions, use_sub_barriers=True):
         """
         A method stud that can be overriden to apply synchonization barriers
@@ -1179,6 +1178,15 @@ ${name} : ${type}
             # feed through get_code to get any corrections
             return lp_utils.get_code(body, self.loopy_opts)
 
+        def _hoist_local_decls(k):
+            # create kernel definition substitutions
+            knl_defn = self.__get_kernel_defn(k)
+            local_knl_defn = self.__get_kernel_defn(
+                k, passed_locals=ldecls)
+            subs = {knl_defn: local_knl_defn}
+            subs.update(**{str(x): '' for x in ldecls})
+            return subs
+
         if self.fake_calls:
             extra_fake_kernels = {x: [] for x in self.fake_calls}
 
@@ -1199,13 +1207,7 @@ ${name} : ${type}
                     assert len(cgr.device_programs) == 1
                     subs = {}
                     if ldecls:
-                        # create kernel definition substitutions
-                        knl_defn = self.__get_kernel_defn(k)
-                        local_knl_defn = self.__get_kernel_defn(
-                            k, passed_locals=ldecls)
-                        subs = {knl_defn: local_knl_defn}
-                        subs.update(**{str(x): '' for x in ldecls})
-
+                        subs = _hoist_local_decls(k)
                     extra = _get_func_body(cgr.device_programs[0],
                                            subs)
 
@@ -1290,6 +1292,11 @@ ${name} : ${type}
             ldecls, body = partition(cgr.body_ast.contents,
                                      lambda x: isinstance(x, CLLocal))
 
+            subs = {}
+            if ldecls and self.seperate_kernels and not instruction_store:
+                # need to check for any locals in top level kernels
+                subs = _hoist_local_decls(k)
+
             # have to do a string compare for proper equality testing
             local_decls.extend([x for x in ldecls if not any(
                 str(x) == str(y) for y in local_decls)])
@@ -1303,7 +1310,7 @@ ${name} : ${type}
             else:
                 # we need to place the call in the instructions and the extra kernels
                 # in their own array
-                extra_kernels.append(_get_func_body(cgr))
+                extra_kernels.append(_get_func_body(cgr, subs))
                 # additionally, we need to hoist the local declarations to the call
                 instructions.append(self._get_kernel_call(
                     k, passed_locals=ldecls))
