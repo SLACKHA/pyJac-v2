@@ -98,6 +98,7 @@ class kernel_runner(object):
         self.args = args
         self.kwargs = kwargs
         self.test_size = test_size
+        self.__name__ = self.func.__name__ + '_runner'
 
     def __call__(self, loopy_opts, namestore, test_size):
         device = get_device_list()[0]
