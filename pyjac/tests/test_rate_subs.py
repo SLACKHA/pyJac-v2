@@ -51,6 +51,7 @@ class kf_wrapper(object):
             self.kf_val[0], order=x, copy=True)
         self.kwargs['kf_fall'] = lambda x: np.array(
             np.array(self.kf_fall_val[0], order=x, copy=True))
+        self.__name__ = function.__name__ + '_wrapper'
 
     def __call__(self, loopy_opts, namestore, test_size):
         from ..core.exceptions import BrokenPlatformError
