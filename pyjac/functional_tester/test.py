@@ -868,8 +868,12 @@ class jacobian_eval(eval):
         self.gas = gas
         self.evaled = False
         self.name = 'jac'
-        self.inds = determine_jac_inds(self.reacs, self.specs,
-                                       RateSpecialization.fixed)['jac_inds']
+        ret = determine_jac_inds(self.reacs, self.specs, RateSpecialization.fixed)
+        self.inds = ret['jac_inds']
+        self.non_zero_specs = ret['net_per_spec']['map']
+        if self.gas.n_species - 1 in self.non_zero_specs:
+            # remove last species
+            self.non_zero_specs = self.non_zero_specs[:-1]
 
         super(jacobian_eval, self).__init__()
 
@@ -880,7 +884,7 @@ class jacobian_eval(eval):
             # get check array as max(|jac|) down the IC axis
             check = np.amax(jac, axis=0)
             # set T / parameter derivativs to non-zero by assumption
-            check[:, :, :2] = 1
+            check[:, self.non_zero_specs + 2, :2] = 1
             # get masked where > 0
             mask = np.asarray(np.where(ma.masked_where(check != 0, check).mask)).T
             # and check that all our non-zero entries are in the sparse indicies
