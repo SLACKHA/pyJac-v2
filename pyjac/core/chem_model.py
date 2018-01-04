@@ -7,6 +7,7 @@ from __future__ import division
 
 # Standard libraries
 import math
+import logging
 import numpy as np
 from .reaction_types import reaction_type, thd_body_type, falloff_form, \
     reversible_type
@@ -24,45 +25,6 @@ AVAG = 6.0221367e23
 
 # pressure of one standard atmosphere [Pa]
 PA = 101325.0
-
-
-class CommonEqualityMixin(object):
-    """Base class for `ReacInfo` and `SpecInfo` classes for equality comparison
-    """
-
-    def __list_compare(self, a, b):
-        try:
-            a = np.array(a)
-            b = np.array(b)
-            return np.allclose(a, b)
-        except:
-            # can't convert to numpy data -> string
-            return np.array_equal(a, b)
-
-    def __eq__(self, other):
-        try:
-            for key, value in self.__dict__.items():
-                if value is None:
-                    continue
-                if key not in other.__dict__:
-                    return False
-                if isinstance(value, np.ndarray):
-                    if not np.allclose(value, other.__dict__[key]):
-                        return False
-                elif isinstance(value, list):
-                    for i in range(len(value)):
-                        if not self.__list_compare(value[i], other.__dict__[key][i]):
-                            return False
-                elif isinstance(value, str):
-                    return value == other.__dict__[key]
-                elif not np.allclose(value, other.__dict__[key]):
-                    return False
-            return True
-        except Exception:
-            return False
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
 
 
 def get_elem_wt():
@@ -116,7 +78,7 @@ def get_elem_wt():
     return elem_wt
 
 
-class ReacInfo(CommonEqualityMixin):
+class ReacInfo(object):
     """Reaction class.
 
     Contains all information about a single reaction.
@@ -173,6 +135,80 @@ class ReacInfo(CommonEqualityMixin):
     If `troe` and `sri` are both False, then the Lindemann is assumed.
 
     """
+
+    def __eq__(self, other):
+        """
+        Check for equality of reactions
+        """
+
+        try:
+            # check type
+            assert type(self) == type(other)
+            # check reactants
+            assert len(self.reac) == len(other.reac)
+            assert all(self.reac[i] == other.reac[i] for i in range(len(self.reac)))
+            assert all(self.reac_nu[i] == other.reac_nu[i] for i in range(
+                len(self.reac)))
+            # check products
+            assert len(self.prod) == len(other.prod)
+            assert all(self.prod[i] == other.prod[i] for i in range(len(self.prod)))
+            assert all(self.prod_nu[i] == other.prod_nu[i] for i in range(
+                len(self.prod)))
+            # check arrhenius
+            assert np.isclose(self.A, other.A)
+            assert np.isclose(self.b, other.b)
+            assert np.isclose(self.E, other.E)
+            # check rev
+            assert self.rev == other.rev
+            assert np.allclose(self.rev_par, other.rev_par)
+            # check duplicate
+            assert self.dup == other.dup
+            # check third bodu
+            assert self.thd_body == other.thd_body
+            assert np.allclose(self.thd_body_eff, other.thd_body_eff)
+            # check falloff
+            assert self.pdep == other.pdep
+            assert self.pdep_sp == other.pdep_sp
+            assert np.allclose(self.low, other.low)
+            assert np.allclose(self.high, other.high)
+            # check troe
+            assert self.troe == other.troe
+            assert np.allclose(self.troe_par, other.troe_par)
+            # check sri
+            assert self.sri == other.sri
+
+            def __optional_param_check(p1, p2, default):
+                minsize = np.minimum(len(p1), len(p2))
+                assert np.allclose(p1[:minsize], p2[:minsize])
+                if len(p1) > minsize:
+                    assert np.allclose(p1[minsize:], default)
+                if len(p2) > minsize:
+                    assert np.allclose(p2[minsize:], default)
+
+            __optional_param_check(self.sri_par, other.sri_par, [1, 0])
+            # check chebyshev
+            assert self.cheb == other.cheb
+            assert self.cheb_n_temp == other.cheb_n_temp
+            assert self.cheb_n_pres == other.cheb_n_pres
+            assert np.allclose(self.cheb_plim, other.cheb_plim)
+            assert np.allclose(self.cheb_tlim, other.cheb_tlim)
+            assert (self.cheb_par is None and other.cheb_par is None) or \
+                np.allclose(self.cheb_par, other.cheb_par)
+            # check plog
+            assert self.plog == other.plog
+            assert (self.plog_par is None and other.plog_par is None) or \
+                np.allclose(self.plog_par, other.plog_par)
+            return True
+        except AssertionError:
+            return False
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.warn('Unknown exception occured in reaction equality testing,')
+            logging.exception(e)
+            return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def __init__(self, rev, reactants, reac_nu, products, prod_nu, A, b, E):
         self.reac = reactants
@@ -338,7 +374,7 @@ class ReacInfo(CommonEqualityMixin):
         return True
 
 
-class SpecInfo(CommonEqualityMixin):
+class SpecInfo(object):
     """Species class.
 
     Contains all information about a single species.
@@ -360,6 +396,34 @@ class SpecInfo(CommonEqualityMixin):
         (low, middle, high), default ([300, 1000, 5000]).
 
     """
+
+    def __eq__(self, other):
+        # check equality to other spec info
+        try:
+            # check elements
+            assert type(self) == type(other)
+            assert len(self.elem) == len(other.elem)
+            for i in range(len(self.elem)):
+                assert self.elem[i][0] == other.elem[i][0]
+                assert self.elem[i][1] == other.elem[i][1]
+            # check mw
+            assert np.isclose(self.mw, other.mw)
+            # check thermo params
+            assert np.allclose(self.hi, other.hi)
+            assert np.allclose(self.lo, other.lo)
+            assert np.allclose(self.Trange, other.Trange)
+            return True
+
+        except AssertionError:
+            return False
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.warn('Unknown exception occured in species equality testing,')
+            logging.exception(e)
+            return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def __init__(self, name):
         self.name = name
