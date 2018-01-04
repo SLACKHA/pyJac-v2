@@ -39,3 +39,16 @@ def test_mech_interpret_runs():
     assert len(specs_ck) == len(specs_cti)
     for i in range(len(specs_ck)):
         specs_ck[i] == specs_cti[i]
+
+
+def test_equality_checking():
+    """ test species and reaction equality checking"""
+    _, specs_ck, reacs_ck = read_mech(ck_file, None)
+    _, specs_cti, reacs_cti = read_mech_ct(cti_file)
+
+    assert reacs_ck[0] == reacs_cti[0]
+    for i in range(1, len(reacs_ck)):
+        assert reacs_ck[0] != reacs_cti[i]
+    assert specs_ck[0] == specs_cti[0]
+    for i in range(1, len(specs_ck)):
+        assert specs_ck[0] != specs_cti[i]
