@@ -11,7 +11,7 @@ C2H6        c2h3oh      hocho       ch3cho
 ch2cho      ho2ch2co    C8H6        C2H
 C6H5        C4H2        CH2s        aC3H4
 aC3H5       C5H5        C5H4CH3     ch2co
-N2O         N2 !should be last
+N2O         C3H3		C6H6		N2 !should be last
 END
 THERMO ALL
    300.000  1000.000  5000.000
@@ -163,6 +163,14 @@ N2O               L 7/88N   2O   1          G   200.000  6000.000  1000.000    1
  0.48230729E+01 0.26270251E-02-0.95850874E-06 0.16000712E-09-0.97752303E-14    2
  0.80734048E+04-0.22017207E+01 0.22571502E+01 0.11304728E-01-0.13671319E-04    3
  0.96819806E-08-0.29307182E-11 0.87417744E+04 0.10757992E+02                   4
+C3H3              T 5/97C   3H   3    0    0G   200.000  6000.000              1
+ 7.14221880E+00 7.61902005E-03-2.67459950E-06 4.24914801E-10-2.51475415E-14    2
+ 3.89087427E+04-1.25848436E+01 1.35110927E+00 3.27411223E-02-4.73827135E-05    3
+ 3.76309808E-08-1.18540923E-11 4.01057783E+04 1.52058924E+01 4.16139977E+04    4
+C6H6              D11/99C   6H   6    0    0G   300.000  3000.000              1
+ 0.91381245E+01 0.23854433E-01-0.88127726E-05 0.12099021E-08-0.18221503E-13    2
+ 0.52043462E+04-0.29115665E+02-0.48437734E+01 0.58427613E-01-0.29485855E-04    3
+-0.69390440E-08 0.82125253E-11 0.91817773E+04 0.43889832E+02                   4
 N2                121286N   2               G   300.000  5000.000  1000.000    1
  0.02926640E+02 0.14879768E-02-0.05684760E-05 0.10097038E-09-0.06753351E-13    2
 -0.09227977E+04 0.05980528E+02 0.03298677E+02 0.14082404E-02-0.03963222E-04    3
@@ -288,4 +296,8 @@ H+O2+N2<=>HO2+N2                         2.800E+18    -.860        .00
 ! add a reaction to test the last species with non-zero net nu
 ! as this needs to be excluded during Jacobian calculation
 N2O+O<=>N2+O2                            1.400E+12     .000   10810.00
+! irreversible rxn with C6H6 not contributing to C3H3 in any other reaction
+! this tests that the jacobian index determination does not pick up false derivatives
+! of d_reactant / d_product in irreversible reactions
+C3H3+C3H3 => C6H6                            2.000E+12   0.0        0.0    !97WAN/FRE
 END
