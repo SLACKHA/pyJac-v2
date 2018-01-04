@@ -2353,13 +2353,18 @@ class SubTest(TestClass):
         # find FD jacobian
         jac = self.__get_full_jac(True)
         # find our non-zero indicies
-        ret = determine_jac_inds(self.store.reacs, self.store.specs,
-                                 RateSpecialization.fixed)['jac_inds']
+        inds = determine_jac_inds(self.store.reacs, self.store.specs,
+                                  RateSpecialization.fixed)
+        non_zero_specs = inds['net_per_spec']['map']
+        if self.store.gas.n_species - 1 in non_zero_specs:
+            # remove last species
+            non_zero_specs = non_zero_specs[:-1]
+        ret = inds['jac_inds']
         non_zero_inds = ret['flat_C']
         non_zero_inds = non_zero_inds.T
 
         # set all T and V derivatives to nonzero by assumption
-        jac[:, :, 0:2] = 1
+        jac[:, non_zero_specs + 2, 0:2] = 1
 
         jac_inds = np.where(jac != 0)[1:3]
         jac_inds = np.column_stack((jac_inds[0], jac_inds[1]))
