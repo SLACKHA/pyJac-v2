@@ -879,6 +879,8 @@ class jacobian_eval(eval):
         if check:
             # get check array as max(|jac|) down the IC axis
             check = np.amax(jac, axis=0)
+            # set T / parameter derivativs to non-zero by assumption
+            check[:, :, :2] = 1
             # get masked where > 0
             mask = np.asarray(np.where(ma.masked_where(check != 0, check).mask)).T
             # and check that all our non-zero entries are in the sparse indicies
