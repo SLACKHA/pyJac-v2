@@ -118,6 +118,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     thd_spec = val['thd']['spec']
     thd_eff = val['thd']['eff']
     thd_map = val['thd']['map']
+    rev_map = val['rev']['map']
+    nu_map = val['net']['nu']
     num_specs_in_thd = __offset(val['thd']['spec_num'])
     ns = val['Ns'] - 1
 
@@ -135,6 +137,10 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
                                    if x + species_offset < row_size])
 
         # add the temperature and extra var derivative
+        # note: this isn't _technically_ true, e.g., for a irreversible reaction
+        # with b = 0 and Ea = 0, the temperature derivative of the species is zero
+        # however it's not really worth writing a lot of complicated logic (e.g.,
+        # to test falloff, etc.) to check when it's true 95+% of the time.
         nonzero_derivs.update([0, 1])
 
         # now we go through the reactions for which this species is non-zero
@@ -153,9 +159,27 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
                 __add_specs(range(row_size))
                 break
 
+            # test reversible
+            deriv_specs = rxn_to_specs_map[
+                num_specs_in_rxn[rxn]:num_specs_in_rxn[rxn + 1]]
+            rev = rxn in rev_map
+            if not rev:
+                # forward irreversible -- need to look at nu
+                nu = nu_map[2 * num_specs_in_rxn[rxn]:2 * num_specs_in_rxn[rxn + 1]]
+                is_prod = [nu[2 * i] != 0 for i in range(len(deriv_specs))]
+                is_reac = [nu[2 * i + 1] != 0 for i in range(len(deriv_specs))]
+                # find out which this species is
+                spec_ind = np.where(deriv_specs == spec)[0][0]
+                if is_prod[spec_ind] and is_reac[spec_ind]:
+                    # both product and reactant, all species contribute to derivative
+                    pass
+                else:
+                    # only reactants contribute to the derivative
+                    deriv_specs = [x for i, x in enumerate(deriv_specs)
+                                   if is_reac[i]]
+
             # update species in the reaction
-            __add_specs(rxn_to_specs_map[
-                num_specs_in_rxn[rxn]:num_specs_in_rxn[rxn + 1]])
+            __add_specs(deriv_specs)
 
             if thd_ind is not None:
                 # update third body species in the reaction where the efficiency
