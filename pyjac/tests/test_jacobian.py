@@ -2358,6 +2358,9 @@ class SubTest(TestClass):
         non_zero_inds = ret['flat_C']
         non_zero_inds = non_zero_inds.T
 
+        # set all T and V derivatives to nonzero by assumption
+        jac[:, :, 0:2] = 1
+
         jac_inds = np.where(jac != 0)[1:3]
         jac_inds = np.column_stack((jac_inds[0], jac_inds[1]))
         jac_inds = np.unique(jac_inds, axis=0).T
