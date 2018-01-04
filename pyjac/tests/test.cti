@@ -11,7 +11,7 @@ ideal_gas(name='gas',
                      ch2cho      ho2ch2co    C8H6        C2H
                      C6H5        C4H2        CH2s        aC3H4
                      aC3H5       C5H5        C5H4CH3     ch2co
-                     N2O         N2""",
+                     N2O         C3H3        C6H6        N2""",
           reactions='all',
           initial_state=state(temperature=300.0, pressure=OneAtm))
 
@@ -461,6 +461,30 @@ species(name=u'N2O',
                       -2.20172070E+00])),
         note=u'L7/88')
 
+species(name=u'C3H3',
+        atoms='H:3 C:3',
+        thermo=(NASA([200.00, 1000.00],
+                     [ 1.35110927E+00,  3.27411223E-02, -4.73827135E-05,
+                       3.76309808E-08, -1.18540923E-11,  4.01057783E+04,
+                       1.52058924E+01]),
+                NASA([1000.00, 6000.00],
+                     [ 7.14221880E+00,  7.61902005E-03, -2.67459950E-06,
+                       4.24914801E-10, -2.51475415E-14,  3.89087427E+04,
+                      -1.25848436E+01])),
+        note=u'T5/97')
+
+species(name=u'C6H6',
+        atoms='H:6 C:6',
+        thermo=(NASA([300.00, 1000.00],
+                     [-4.84377340E+00,  5.84276130E-02, -2.94858550E-05,
+                      -6.93904400E-09,  8.21252530E-12,  9.18177730E+03,
+                       4.38898320E+01]),
+                NASA([1000.00, 3000.00],
+                     [ 9.13812450E+00,  2.38544330E-02, -8.81277260E-06,
+                       1.20990210E-09, -1.82215030E-14,  5.20434620E+03,
+                      -2.91156650E+01])),
+        note=u'D11/99')
+
 species(name=u'N2',
         atoms='N:2',
         thermo=(NASA([300.00, 1000.00],
@@ -665,3 +689,10 @@ reaction('H + O2 + N2 <=> HO2 + N2', [2.800000e+18, -0.86, 0.0])
 
 # Reaction 30
 reaction('N2O + O <=> N2 + O2', [1.400000e+12, 0.0, 10810.0])
+#  irreversible rxn with C6H6 not contributing to C3H3 in any other reaction
+#  this tests that the jacobian index determination does not pick up false derivatives
+#  of d_reactant / d_product in irreversible reactions
+
+# Reaction 31
+reaction('C3H3 + C3H3 => C6H6', [2.000000e+12, 0.0, 0.0])
+# 97WAN/FRE
