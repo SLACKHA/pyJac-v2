@@ -8,6 +8,7 @@ from __future__ import print_function
 # Standard libraries
 import os
 import subprocess
+import logging
 
 # Related modules
 import numpy as np
@@ -885,10 +886,22 @@ class jacobian_eval(eval):
             check = np.amax(jac, axis=0)
             # set T / parameter derivativs to non-zero by assumption
             check[:, self.non_zero_specs + 2, :2] = 1
+            # convert nan's or inf's to some non-zero number
+            jac[np.where(~np.isfinite(check))] = 1
             # get masked where > 0
             mask = np.asarray(np.where(ma.masked_where(check != 0, check).mask)).T
             # and check that all our non-zero entries are in the sparse indicies
-            assert inNd(mask, inds).size == mask.shape[0]
+            if inNd(mask, inds).size != mask.shape[0]:
+                logger = logging.getLogger(__name__)
+                logger.warn(
+                    "Autodifferentiated Jacobian sparsity pattern "
+                    "does not match pyJac's.  There are legitimate reasons"
+                    "why this might be the case -- e.g., matching "
+                    "arrhenius parameters for two reactions containing "
+                    "the same species, with one reaction involving the "
+                    "(selected) last species in the mechanism -- if you "
+                    "are not sure why this error is appearing, feel free to "
+                    "contact the developers to ensure this is not a bug.")
             del mask
             del check
 
