@@ -14,4 +14,13 @@ PLATFORM = 'test_platform.yaml'
 gas = os.path.join(home, 'pyjac', 'tests', 'test.cti')
 config['test_platform'] = os.path.join(home, PLATFORM)
 config['gas'] = gas
-# config['max_threads'] = None -- unused by default, uses # of hardware threads
+# unused by default, sets maximum # of hardware threads for testing
+# config['max_threads'] = None
+# unused by default, but allows the user to specify relative tolerance for unit tests
+# note that the default tolerances should work for the test mechanism, but you may
+# need to adjust for other (real) mechanisms
+# config['rtol'] = 1e-3
+# unused by default, but allows the user to specify absolute tolerance for unit tests
+# note that the default tolerances should work for the test mechanism, but you may
+# need to adjust for other (real) mechanisms
+# config['atol'] = 1
