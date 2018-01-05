@@ -748,6 +748,11 @@ class kernel_call(object):
         self.current_order = None
         self.allow_skip = allow_skip
         self.other_compare = other_compare
+        # pull any rtol / atol from env / test config as specified by user
+        from ..tests import _get_test_input
+        rtol = float(_get_test_input('rtol', rtol))
+        atol = float(_get_test_input('atol', atol))
+
         self.rtol = rtol
         self.atol = atol
         self.equal_nan = equal_nan
