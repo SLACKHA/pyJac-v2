@@ -21,10 +21,11 @@ from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
 from .test_utils import (kernel_runner, get_comparable, _generic_tester,
-                         _full_kernel_test, with_check_inds)
+                         _full_kernel_test, with_check_inds, inNd)
 from ..libgen import build_type
 
 import numpy as np
+import logging
 import six
 import loopy as lp
 import cantera as ct
@@ -2365,16 +2366,38 @@ class SubTest(TestClass):
 
         # set all T and V derivatives to nonzero by assumption
         jac[:, non_zero_specs + 2, 0:2] = 1
-
-        jac_inds = np.where(jac != 0)[1:3]
-        jac_inds = np.column_stack((jac_inds[0], jac_inds[1]))
-        jac_inds = np.unique(jac_inds, axis=0).T
-
-        assert np.allclose(jac_inds, non_zero_inds)
-
+        # convert nan's or inf's to some non-zero number
+        jac[np.where(~np.isfinite(jac))] = 1
         # create a jacobian of the max of all the FD's to avoid zeros due to
         # zero rates
         jac = np.max(np.abs(jac), axis=0)
+
+        # and get non-zero indicies
+        jac_inds = np.column_stack(np.where(jac)).T
+        if jac_inds.shape != non_zero_specs.shape:
+            logger = logging.getLogger(__name__)
+            logger.warn(
+                "Autodifferentiated Jacobian sparsity pattern "
+                "does not match pyJac's.  There are legitimate reasons"
+                "why this might be the case -- e.g., matching "
+                "arrhenius parameters for two reactions containing "
+                "the same species, with one reaction involving the "
+                "(selected) last species in the mechanism -- if you "
+                "are not sure why this error is appearing, feel free to "
+                "contact the developers to ensure this is not a bug.")
+            # get missing values
+            missing = np.where(~np.in1d(
+                # as those that are in our detected non-zero indicies
+                np.arange(non_zero_inds.shape[1]),
+                # and not in the auto-differentiated non-zero indicies
+                inNd(jac_inds.T, non_zero_inds.T)))[0]
+            # check that all missing values are zero in the jacobian
+            assert np.all(jac[non_zero_inds[0, missing],
+                              non_zero_inds[1, missing]] == 0)
+            # set them to non-zero for testing below
+            jac[non_zero_inds[0, missing], non_zero_inds[1, missing]] = 1
+        else:
+            assert np.allclose(jac_inds, non_zero_inds)
 
         # create a CRS
         crs = csr_matrix(jac)
