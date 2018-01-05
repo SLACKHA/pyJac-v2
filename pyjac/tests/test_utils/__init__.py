@@ -943,12 +943,11 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                     [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
                                     for i in range(1, test.ndim)])
                 copy_inds = np.array([0])
+            looser_tols = __get_looser_tols(ravel_ind, copy_inds,
+                                            looser_tols=looser_tols)
         else:
-            ravel_ind = np.empty((0,))
+            looser_tols = np.empty((0,))
             copy_inds = np.empty((0,))
-
-        looser_tols = __get_looser_tols(ravel_ind, copy_inds,
-                                        looser_tols=looser_tols)
 
         # number of devices is:
         #   number of threads for CPU
