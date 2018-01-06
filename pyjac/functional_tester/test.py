@@ -885,9 +885,9 @@ class jacobian_eval(eval):
             # get check array as max(|jac|) down the IC axis
             check = np.amax(jac, axis=0)
             # set T / parameter derivativs to non-zero by assumption
-            check[:, self.non_zero_specs + 2, :2] = 1
+            check[self.non_zero_specs + 2, :2] = 1
             # convert nan's or inf's to some non-zero number
-            jac[np.where(~np.isfinite(check))] = 1
+            check[np.where(~np.isfinite(check))] = 1
             # get masked where > 0
             mask = np.asarray(np.where(ma.masked_where(check != 0, check).mask)).T
             # and check that all our non-zero entries are in the sparse indicies
