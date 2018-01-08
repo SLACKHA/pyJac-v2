@@ -1633,7 +1633,8 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
         mw_lp, jac_lp, conc_lp, T_lp, V_lp] if x is not None])
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
+        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'],
+        split_size=mapstore.map_domain.size)
     return k_gen.knl_info(name='dTdotd{}'.format('V' if conp else 'P'),
                           instructions=instructions,
                           pre_instructions=pre_instructions,
@@ -1740,7 +1741,8 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     parameters = {'Ru': chem.RU}
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
+        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'],
+        split_size=mapstore.map_domain.size)
 
     return k_gen.knl_info(name='d{0}dotd{0}'.format('V' if conp else 'P'),
                           instructions=instructions,
@@ -1890,7 +1892,8 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     kernel_data.append(jac_lp)
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['jac'], split_ids=['split'])
+        loopy_opts, atomic_ids=['jac'], split_ids=['split'],
+        split_size=mapstore.map_domain.size)
 
     return k_gen.knl_info(name='dTdot_dT',
                           instructions=instructions,
@@ -1997,7 +2000,8 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
     kernel_data.append(jac_lp)
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
-        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'])
+        loopy_opts, atomic_ids=['jac'], split_ids=['jac_split'],
+        split_size=mapstore.map_domain.size)
 
     parameters = {'Ru': chem.RU}
     return k_gen.knl_info(name='d{}dotdT'.format('V' if conp else 'P'),

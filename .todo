@@ -18,3 +18,4 @@ misc tasks:
   ☐ Look into Cog or Jinja2 to simplify code generation
     ☐ In that vein, we can possibly use these to improve codegen for loopy
       psuedocode (i.e. the input to loopy)
+  ☐ Better tests of instruction creator
