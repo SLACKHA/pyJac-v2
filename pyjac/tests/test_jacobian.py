@@ -2461,7 +2461,6 @@ class SubTest(TestClass):
             mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_phi,
                                     namestore.net_nonzero_phi)
             mapstore.finalize()
-            base_index = mapstore.tree.parent.iname
             var_name = mapstore.tree.iname
             global_ind = arc.global_ind
 
