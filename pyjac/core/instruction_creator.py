@@ -16,6 +16,7 @@ import loopy as lp
 from loopy.types import AtomicType
 from .array_creator import var_name, jac_creator
 from pytools import UniqueNameGenerator
+import numpy as np
 
 
 def use_atomics(loopy_opts):
@@ -39,7 +40,8 @@ def use_atomics(loopy_opts):
 
 
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
-                         use_atomics=True, is_write_race=True):
+                         use_atomics=True, is_write_race=True,
+                         split_size=None):
     """
     Returns a deep specializer to enable deep vectorization using either
     atomic updates or a sequential (single-lane/thread) "dummy" deep
@@ -59,6 +61,10 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         the easiest way to handle it is to split it over all the threads /
         lanes and have them contribute equally to the final sum.
         These instructions ids should be passed as split_ids
+    split_size: int
+        The size of the loop that is being split -- this is important in the case
+        that the loop is smaller than the vector width, we must divide by only
+        the number of vector lanes contributing
     init_ids: list of str
         List of instructions that initialize atomic variables
     use_atomics: bool [True]
@@ -84,7 +90,8 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
     if loopy_opts.use_atomics and use_atomics:
         return True, atomic_deep_specialization(
             loopy_opts.depth, atomic_ids=atomic_ids,
-            split_ids=split_ids, init_ids=init_ids)
+            split_ids=split_ids, init_ids=init_ids,
+            split_size=split_size)
     elif not is_write_race:
         return True, write_race_silencer(
             write_races=atomic_ids + split_ids + init_ids)
@@ -150,7 +157,8 @@ class atomic_deep_specialization(within_inames_specializer):
         Lit of instruction id-names that require atomic inits for deep vectorization
     """
 
-    def __init__(self, vec_width, atomic_ids=[], split_ids=[], init_ids=[]):
+    def __init__(self, vec_width, atomic_ids=[], split_ids=[], init_ids=[],
+                 split_size=None):
         def _listify(x):
             if not isinstance(x, list):
                 return [x]
@@ -160,6 +168,9 @@ class atomic_deep_specialization(within_inames_specializer):
         self.atomic_ids = _listify(atomic_ids)[:]
         self.split_ids = _listify(split_ids)[:]
         self.init_ids = _listify(init_ids)[:]
+        if self.split_ids:
+            assert split_size is not None
+        self.split_size = split_size
 
         # and parent constructor
         super(atomic_deep_specialization, self).__init__(
@@ -184,6 +195,9 @@ class atomic_deep_specialization(within_inames_specializer):
                 (i for i, d in enumerate(data) if d.name == written), None)
             # make sure the dtype is atomic, if not update it
             if ind is not None and not isinstance(data[ind].dtype, AtomicType):
+                assert data[ind].dtype is not None, (
+                    "Change of dtype to atomic doesn't work if base dype is not"
+                    " populated")
                 data[ind] = data[ind].copy(for_atomic=True)
             elif ind is None:
                 assert written in temps, (
@@ -212,13 +226,15 @@ class atomic_deep_specialization(within_inames_specializer):
                     others = Sum(tuple(
                         x for x in insn.expression.children if x != insn.assignee))
                     # finally implement the split as a += sum(others) / vec_width
+                    div_size = np.minimum(self.vec_width, self.split_size)
                     insns[insn_ind] = insn.copy(
-                        expression=insn.assignee + others / self.vec_width,
+                        expression=insn.assignee + others / div_size,
                         atomicity=(lp.AtomicUpdate(written),))
                 else:
                     # otherwise can simply divide
+                    div_size = np.minimum(self.vec_width, self.split_size)
                     insns[insn_ind] = insn.copy(
-                        expression=insn.expression / self.vec_width)
+                        expression=insn.expression / div_size)
 
         # now force all instructions into inner loop
         return super(atomic_deep_specialization, self).__call__(

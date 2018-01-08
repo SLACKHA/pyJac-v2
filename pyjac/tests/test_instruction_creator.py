@@ -1,6 +1,7 @@
 from __future__ import division
 
 from ..core.array_creator import array_splitter
+from ..core.instruction_creator import get_deep_specializer
 import numpy as np
 import loopy as lp
 
@@ -100,6 +101,21 @@ def test_npy_array_splitter_f_deep():
     _test((16, 16, 16))
 
 
+def _create(order='C', target=lp.ExecutableCTarget()):
+    # create a test kernel
+    arg1 = lp.GlobalArg('a1', shape=(10, 10), order=order)
+    arg2 = lp.GlobalArg('a2', shape=(16, 16), order=order)
+
+    return lp.make_kernel(
+        '{[i]: 0 <= i < 10}',
+        """
+            a1[0, i] = 1 {id=a1}
+            a2[0, i] = 1 {id=a2}
+        """,
+        [arg1, arg2],
+        target=target)
+
+
 def test_lpy_array_splitter_c_wide():
     from pymbolic.primitives import Subscript, Variable
 
@@ -109,21 +125,7 @@ def test_lpy_array_splitter_c_wide():
     # create array split
     asplit = array_splitter(opts)
 
-    def _create():
-        # create a test kernel
-        arg1 = lp.GlobalArg('a1', shape=(10, 10))
-        arg2 = lp.GlobalArg('a2', shape=(16, 16))
-
-        return lp.make_kernel(
-            '{[i]: 0 <= i < 10}',
-            """
-                a1[i, 0] = 0 {id=a1}
-                a2[i, 0] = 0 {id=a2}
-            """,
-            [arg1, arg2],
-            target=lp.ExecutableCTarget())
-
-    k = lp.split_iname(_create(), 'i', 8)
+    k = lp.split_iname(_create('C'), 'i', 8)
     k = asplit.split_loopy_arrays(k)
 
     # test that it runs
@@ -154,21 +156,7 @@ def test_lpy_array_splitter_f_deep():
     # create array split
     asplit = array_splitter(opts)
 
-    def _create():
-        # create a test kernel
-        arg1 = lp.GlobalArg('a1', shape=(10, 10), order='F')
-        arg2 = lp.GlobalArg('a2', shape=(16, 16), order='F')
-
-        return lp.make_kernel(
-            '{[i]: 0 <= i < 10}',
-            """
-                a1[0, i] = 0 {id=a1}
-                a2[0, i] = 0 {id=a2}
-            """,
-            [arg1, arg2],
-            target=lp.ExecutableCTarget())
-
-    k = lp.split_iname(_create(), 'i', 8)
+    k = lp.split_iname(_create('F'), 'i', 8)
     k = asplit.split_loopy_arrays(k)
 
     # test that it runs
@@ -188,3 +176,39 @@ def test_lpy_array_splitter_f_deep():
     assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
     assert isinstance(assign, Subscript) and assign.index == (
         Variable('i_inner'), 0, Variable('i_outer'))
+
+
+def test_atomic_deep_vec_with_small_split():
+    # test that an :class:`atomic_deep_specialization` with split smaller than
+    # the vector width uses the correct splitting size
+
+    def __test(loop_size, vec_width):
+        knl = lp.make_kernel(
+            '{{[i]: 0 <= i < {}}}'.format(loop_size),
+            """
+            <> x = 1.0
+            a1[0] = a1[0] + x {id=set}
+            ... lbarrier {id=wait, dep=set}
+            for i
+                a1[0] = a1[0] + 1 {id=a1, dep=set:wait, nosync=set}
+            end
+            """,
+            [lp.GlobalArg('a1', shape=(loop_size,), order='C', dtype=np.float32)],
+            target=lp.PyOpenCLTarget())
+        loopy_opts = type('', (object,), {'depth': vec_width, 'order': 'C',
+                                          'use_atomics': True})
+        knl = lp.split_iname(knl, 'i', vec_width, inner_tag='l.0')
+
+        # feed through deep specializer
+        _, ds = get_deep_specializer(loopy_opts, atomic_ids=['a1'],
+                                     split_ids=['set'], use_atomics=True,
+                                     is_write_race=True, split_size=loop_size)
+        knl = ds(knl)
+
+        val = np.minimum(loop_size, vec_width)
+        assert 'x / {:.1f}f'.format(val) in lp.generate_code(knl)[0]
+
+    # test kernel w/ loop size smaller than split
+    __test(10, 16)
+    # test kernel w/ loop size larger than split
+    __test(16, 8)
