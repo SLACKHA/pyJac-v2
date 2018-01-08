@@ -725,6 +725,16 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             except:
                 infos = [infos]
 
+        if not infos:
+            logger = logging.getLogger(__name__)
+            logger.warn('Function {} returned no kernels for testing. '
+                        'This typically is caused by a reaction type '
+                        'being missing from the mechanism, e.g.: '
+                        'taking the deriviative of the net ROP w.r.t Pressure '
+                        'for a mechanism without PLOG or CHEB reactions.'.format(
+                            func.__name__))
+            continue
+
         # create a dummy kernel generator
         knl = k_gen.make_kernel_generator(
             name='spec_rates',
