@@ -462,6 +462,17 @@ def get_parser():
                         'compressed row or column storage format (for a data order '
                         'of "C" and "F" respectively).'
                         )
+    parser.add_argument('-m', '--memory_limits',
+                        required=False,
+                        type=str,
+                        default='',
+                        help='Path to a .yaml file indicating desired memory limits '
+                             'that control the desired maximum amount of global / '
+                             'local / or constant memory that the generated pyjac '
+                             'code may allocate.  Useful for testing, or otherwise '
+                             'limiting memory usage during runtime. '
+                             'The keys of this file are the members of '
+                             ':class:`pyjac.kernel_utils.memory_manager.mem_type`')
 
     args = parser.parse_args()
     return args

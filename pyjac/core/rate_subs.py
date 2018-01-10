@@ -2852,7 +2852,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
 
 def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
-                         auto_diff=False, output_full_rop=False):
+                         auto_diff=False, output_full_rop=False,
+                         mem_limits=''):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
@@ -2876,6 +2877,12 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         Useful in testing, as there are serious floating point errors for
         net production rates near equilibrium, invalidating direct comparison to
         Cantera
+    mem_limits: str ['']
+        Path to a .yaml file indicating desired memory limits that control the
+        desired maximum amount of global / local / or constant memory that
+        the generated pyjac code may allocate.  Useful for testing, or otherwise
+        limiting memory usage during runtime. The keys of this file are the
+        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
 
     Returns
     -------
@@ -3029,7 +3036,8 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                               output_arrays=['h', 'cp'] if conp else
                                                             ['u', 'cv'],
                                               auto_diff=auto_diff,
-                                              test_size=test_size
+                                              test_size=test_size,
+                                              mem_limits=mem_limits
                                               )
 
     barriers = []
@@ -3096,7 +3104,8 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         output_arrays=output_arrays,
         auto_diff=auto_diff,
         test_size=test_size,
-        barriers=barriers)
+        barriers=barriers,
+        mem_limits=mem_limits)
 
 
 def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
@@ -3210,7 +3219,8 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
 
 
 def write_chem_utils(reacs, specs, loopy_opts, conp=True,
-                     test_size=None, auto_diff=False):
+                     test_size=None, auto_diff=False,
+                     mem_limits=''):
     """Helper function that generates kernels for
        evaluation of species thermodynamic quantities
 
@@ -3229,6 +3239,12 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
         If not None, this kernel is being used for testing.
     auto_diff : bool
         If ``True``, generate files for Adept autodifferention library.
+    mem_limits: str ['']
+        Path to a .yaml file indicating desired memory limits that control the
+        desired maximum amount of global / local / or constant memory that
+        the generated pyjac code may allocate.  Useful for testing, or otherwise
+        limiting memory usage during runtime. The keys of this file are the
+        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
 
     Returns
     -------
@@ -3262,7 +3278,8 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
         input_arrays=['phi'],
         output_arrays=output,
         auto_diff=auto_diff,
-        test_size=test_size
+        test_size=test_size,
+        mem_limits=mem_limits
     )
 
 
@@ -3287,5 +3304,6 @@ if __name__ == "__main__":
                     split_rop_net_kernels=args.split_rop_net_kernels,
                     conp=args.conp,
                     use_atomics=args.use_atomics,
-                    skip_jac=True
+                    skip_jac=True,
+                    mem_limits=args.memory_limits
                     )

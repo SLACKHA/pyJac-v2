@@ -22,6 +22,18 @@ def main(args=None):
                                  'the test_platforms_example.yaml included with'
                                  'pyJac'
                             )
+        parser.add_argument('-m', '--memory_limits',
+                            required=False,
+                            type=str,
+                            default='',
+                            help='Path to a .yaml file indicating desired memory '
+                                 'limits that control the desired maximum amount of '
+                                 'global / local / or constant memory that the '
+                                 'generated pyjac code may allocate.  Useful for '
+                                 'testing, or otherwise limiting memory usage '
+                                 'during runtime. The keys of this file are the '
+                                 'members of :class:`pyjac.kernel_utils.'
+                                 'memory_manager.mem_type`')
         parser.add_argument('-r', '--runtype',
                             choices=['jac', 'spec', 'both'],
                             default='both',
@@ -44,7 +56,8 @@ def main(args=None):
             methods = [species_performance_tester, jacobian_performance_tester]
 
         for m in methods:
-            m(args.working_directory, args.test_platforms, args.prefix)
+            m(args.working_directory, args.test_platforms, args.prefix,
+              args.memory_limits)
 
 
 if __name__ == '__main__':

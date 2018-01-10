@@ -1097,7 +1097,7 @@ class runner(object):
         pass
 
 
-def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
+def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
                          raise_on_missing=True):
     """
     This method is used to consolidate looping for the :mod:`peformance_tester`
@@ -1317,7 +1317,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run,
                                     use_atomics=state['use_atomics'],
                                     jac_format=sparse,
                                     for_validation=for_validation,
-                                    seperate_kernels=state['seperate_kernels'])
+                                    seperate_kernels=state['seperate_kernels'],
+                                    mem_limits=mem_limits)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])

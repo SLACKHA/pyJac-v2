@@ -159,6 +159,16 @@ def get_platform_file():
     return _get_test_input('test_platform', 'test_platforms.yaml')
 
 
+def get_mem_limits_file():
+    """
+    Returns the user specied or empty memory limits file
+    This can be set in :file:`test_setup.py` or via the command line
+
+    For an example of this file format, see :file:`mem_limits_example.yaml`
+    """
+    return _get_test_input('mem_limits', '')
+
+
 def get_mechanism_file():
     """
     Returns the user specied or default Cantera mechanism to test
