@@ -17,8 +17,8 @@ from enum import Enum
 import six
 import logging
 from ..core.array_creator import problem_size as p_size
-import resource
-align_size = resource.getpagesize()
+#  import resource
+#  align_size = resource.getpagesize()
 
 try:
     from pyopencl import device_type
@@ -32,7 +32,7 @@ class memory_type(Enum):
     m_local = 1,
     m_global = 2,
     m_alloc = 3
-    m_pagesize = 4
+    #  m_pagesize = 4
 
     def __int__(self):
         return self.value
@@ -174,7 +174,7 @@ class memory_limits(object):
             An initialized :class:`memory_limits` that can determine the total
             'global', 'constant' and 'local' memory available on the device
         """
-        limits = {memory_type.m_pagesize: align_size}
+        limits = {}  #  {memory_type.m_pagesize: align_size}
         if loopy_opts.lang == 'opencl':
             try:
                 limits.update({
@@ -629,11 +629,10 @@ class mapped_memory(memory_strategy):
 
 
 class pinned_memory(mapped_memory):
-    def __init__(self, lang, order, have_split, align_size, **kwargs):
+    def __init__(self, lang, order, have_split, **kwargs):
 
         self.order = order
         self.have_split = have_split
-        self.align_size = align_size
 
         # copies in / out are not needed for pinned memory
         # If the value is an input or output, it will be be supplied as a host buffer
@@ -846,16 +845,9 @@ class memory_manager(object):
             kwargs['use_full'] = False
 
         if self.use_pinned:
-            # check if user supplied alignement size
-            # create dummy options
-            loopy_opts = type('', (object,), {'lang': host_langs[lang]})
-            align_size = memory_limits.get_limits(
-                loopy_opts, {}, mem_limits_file).limits[memory_type.m_pagesize]
-            self.mem = pinned_memory(lang, order, have_split, align_size,
-                                     **kwargs)
+            self.mem = pinned_memory(lang, order, have_split, **kwargs)
         else:
-            self.mem = mapped_memory(lang, order, have_split,
-                                     **kwargs)
+            self.mem = mapped_memory(lang, order, have_split, **kwargs)
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
