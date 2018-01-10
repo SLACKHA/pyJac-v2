@@ -281,8 +281,12 @@ class array_splitter(object):
 
         grow_axis = 0
         split_axis = None
-        array = self._split_numpy_array(
-            np.empty(array.shape, order=self.data_order))
+        # treat array as memmap'd temporary to avoid memory errors on large arrays
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w') as file:
+            array = self._split_numpy_array(
+                np.memmap(file.name, shape=array.shape, dtype=array.dtype,
+                          order=self.data_order))
         if self._have_split() and self.data_order == 'C':
             split_axis = -1
         elif self._have_split() and self.data_order == 'F':
