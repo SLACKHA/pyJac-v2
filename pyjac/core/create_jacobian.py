@@ -4356,7 +4356,7 @@ def dRopi_dnj(loopy_opts, namestore, allint, test_size=None):
 def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=None,
                                order=1, rtol=1e-8, atol=1e-15,
                                mode=FiniteDifferenceMode.forward,
-                               jac_create=None):
+                               jac_create=None, mem_limits=''):
     """
     Creates a wrapper around the species rates kernels that evaluates a central,
     forward or backwards finite difference Jacobian of the given :param:`order`,
@@ -4390,6 +4390,12 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         The mode of the Jacobian, forward ('f'), backwards ('b') or central ('c')
     jac_create: Callable
         The conditional Jacobian instruction creator from :mod:`instruction_creator`
+    mem_limits: str ['']
+        Path to a .yaml file indicating desired memory limits that control the
+        desired maximum amount of global / local / or constant memory that
+        the generated pyjac code may allocate.  Useful for testing, or otherwise
+        limiting memory usage during runtime. The keys of this file are the
+        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
 
     Returns
     -------
@@ -4402,7 +4408,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # first we create a species rates kernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
-                                     test_size=test_size)
+                                     test_size=test_size, mem_limits=mem_limits)
     sub_kernels = sgen.kernels[:]
 
     # figure out rates and info
@@ -4722,10 +4728,12 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         output_arrays=output_arrays,
         test_size=test_size,
         fake_calls={sgen: spec_rate_call},
-        barriers=barriers)
+        barriers=barriers,
+        mem_limits=mem_limits)
 
 
-def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None):
+def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
+                        mem_limits=''):
     """Helper function that generates kernels for
        evaluation of analytical jacobian
 
@@ -4742,6 +4750,12 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None):
         If false, use constant volume equations
     test_size : int
         If not None, this kernel is being used for testing.
+    mem_limits: str ['']
+        Path to a .yaml file indicating desired memory limits that control the
+        desired maximum amount of global / local / or constant memory that
+        the generated pyjac code may allocate.  Useful for testing, or otherwise
+        limiting memory usage during runtime. The keys of this file are the
+        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
 
     Returns
     -------
@@ -4947,7 +4961,8 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None):
         input_arrays=input_arrays,
         output_arrays=output_arrays,
         test_size=test_size,
-        barriers=barriers)
+        barriers=barriers,
+        mem_limits=mem_limits)
 
 
 def find_last_species(specs, last_spec=None, return_map=False):
@@ -5039,7 +5054,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     conp=True, data_filename='data.bin', output_full_rop=False,
                     use_atomics=True, jac_type='exact', jac_format='full',
                     for_validation=False, seperate_kernels=True,
-                    fd_order=1, fd_mode='forward'
+                    fd_order=1, fd_mode='forward', mem_limits=''
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5139,6 +5154,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     fd_mode: ['forward', 'backward', 'central']
         The mode of the finite difference Jacobian, forward, backwards or central
         used if :param:`jac_type` == 'finite_difference'
+    mem_limits: str ['']
+        Path to a .yaml file indicating desired memory limits that control the
+        desired maximum amount of global / local / or constant memory that
+        the generated pyjac code may allocate.  Useful for testing, or otherwise
+        limiting memory usage during runtime. The keys of this file are the
+        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
     Returns
     -------
     None
@@ -5233,15 +5254,18 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # now begin writing subroutines
     if not skip_jac:
         # get Jacobian subroutines
-        gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp)
+        gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
+                                  mem_limits=mem_limits)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
     elif jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
-                                         mode=fd_mode, order=fd_order)
+                                         mode=fd_mode, order=fd_order,
+                                         mem_limits=mem_limits)
     else:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
-                                        conp=conp, output_full_rop=output_full_rop)
+                                        conp=conp, output_full_rop=output_full_rop,
+                                        mem_limits=mem_limits)
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,
@@ -5271,5 +5295,6 @@ if __name__ == "__main__":
                     use_atomics=args.use_atomics,
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
-                    skip_jac=True
+                    skip_jac=False,
+                    mem_limits=args.memory_limits
                     )

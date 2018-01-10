@@ -15,7 +15,7 @@ from ..libgen import build_type, generate_library
 from ..loopy_utils.loopy_utils import JacobianFormat
 from ..utils import EnumType
 from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
-from ..tests import get_platform_file
+from ..tests import get_platform_file, get_mem_limits_file
 
 import loopy as lp
 lp.set_caching_enabled(False)
@@ -218,9 +218,8 @@ class performance_runner(runner):
 
 
 @nottest
-def species_performance_tester(work_dir='performance',
-                               test_platforms=None,
-                               prefix=''):
+def species_performance_tester(work_dir='performance', test_platforms=None,
+                               prefix='', mem_limits=''):
     """Runs performance testing of the species rates kernel for pyJac
 
     Parameters
@@ -239,21 +238,24 @@ def species_performance_tester(work_dir='performance',
     """
 
     raise_on_missing = True
-    if test_platforms is None:
+    if not test_platforms:
         # pull default test platforms if available
         test_platforms = get_platform_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
+    if not mem_limits:
+        # pull user specified memory limits if available
+        mem_limits = get_mem_limits_file()
 
     _run_mechanism_tests(work_dir, test_platforms, prefix,
                          performance_runner(build_type.species_rates),
+                         mem_limits=mem_limits,
                          raise_on_missing=raise_on_missing)
 
 
 @nottest
-def jacobian_performance_tester(work_dir='performance',
-                                test_platforms=None,
-                                prefix=''):
+def jacobian_performance_tester(work_dir='performance',  test_platforms=None,
+                                prefix='', mem_limits=''):
     """Runs performance testing of the jacobian kernel for pyJac
 
     Parameters
@@ -272,11 +274,14 @@ def jacobian_performance_tester(work_dir='performance',
     """
 
     raise_on_missing = True
-    if test_platforms is None:
+    if not test_platforms:
         # pull default test platforms if available
         test_platforms = get_platform_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
+    if not mem_limits:
+        # pull user specified memory limits if available
+        mem_limits = get_mem_limits_file()
 
     _run_mechanism_tests(work_dir, test_platforms, prefix,
                          performance_runner(build_type.jacobian),

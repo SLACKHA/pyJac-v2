@@ -25,7 +25,8 @@ import tables
 from ..core.mech_interpret import read_mech_ct
 
 from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
-from ..tests import test_utils, get_platform_file, _get_test_input
+from ..tests import test_utils, get_platform_file, _get_test_input, \
+    get_mem_limits_file
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
@@ -1147,8 +1148,10 @@ class jacobian_eval(eval):
         except:
             return False
 
+
 @nottest
-def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''):
+def species_rate_tester(work_dir='error_checking', test_platform=None, prefix='',
+                        mem_limits=''):
     """Runs validation testing on pyJac's species_rate kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
     a numpy zip file (.npz) with the error of various outputs (rhs vector, ROP, etc.)
@@ -1166,19 +1169,23 @@ def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''
     """
 
     raise_on_missing = True
-    if test_platform is None:
+    if not test_platform:
         # pull default test platforms if available
         test_platform = get_platform_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
+    if not mem_limits:
+        # pull user specified memory limits if available
+        mem_limits = get_mem_limits_file()
 
     valid = validation_runner(spec_rate_eval, build_type.species_rates)
     _run_mechanism_tests(work_dir, test_platform, prefix, valid,
-                         raise_on_missing=raise_on_missing)
+                         mem_limits, raise_on_missing=raise_on_missing)
 
 
 @nottest
-def jacobian_tester(work_dir='error_checking', test_platform=None, prefix=''):
+def jacobian_tester(work_dir='error_checking', test_platform=None, prefix='',
+                    mem_limits=''):
     """Runs validation testing on pyJac's jacobian kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
     a numpy zip file (.npz) with the error of Jacobian as compared to a
@@ -1196,12 +1203,15 @@ def jacobian_tester(work_dir='error_checking', test_platform=None, prefix=''):
     """
 
     raise_on_missing = True
-    if test_platform is None:
+    if not test_platform:
         # pull default test platforms if available
         test_platform = get_platform_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
+    if not mem_limits:
+        # pull user specified memory limits if available
+        mem_limits = get_mem_limits_file()
 
     valid = validation_runner(jacobian_eval, build_type.jacobian)
     _run_mechanism_tests(work_dir, test_platform, prefix, valid,
-                         raise_on_missing=raise_on_missing)
+                         mem_limits, raise_on_missing=raise_on_missing)

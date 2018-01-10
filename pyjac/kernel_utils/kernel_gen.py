@@ -103,7 +103,8 @@ class kernel_generator(object):
                  extra_kernel_data=[],
                  extra_preambles=[],
                  is_validation=False,
-                 fake_calls={}):
+                 fake_calls={},
+                 mem_limits=''):
         """
         Parameters
         ----------
@@ -145,6 +146,12 @@ class kernel_generator(object):
             In some cases, e.g. finite differnce jacobians, we need to place a dummy
             call in the kernel that loopy will accept as valid.  Then it needs to
             be substituted with an appropriate call to the kernel generator's kernel
+        mem_limits: str ['']
+            Path to a .yaml file indicating desired memory limits that control the
+            desired maximum amount of global / local / or constant memory that
+            the generated pyjac code may allocate.  Useful for testing, or otherwise
+            limiting memory usage during runtime. The keys of this file are the
+            members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
         """
 
         self.compiler = None
@@ -158,7 +165,8 @@ class kernel_generator(object):
 
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
                                   self.array_split._have_split(),
-                                  dev_type=self.loopy_opts.device_type)
+                                  dev_type=self.loopy_opts.device_type,
+                                  mem_limits_file=mem_limits)
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
