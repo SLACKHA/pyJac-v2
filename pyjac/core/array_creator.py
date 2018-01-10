@@ -281,18 +281,40 @@ class array_splitter(object):
 
         grow_axis = 0
         split_axis = None
-        # treat array as memmap'd temporary to avoid memory errors on large arrays
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w') as file:
-            array = self._split_numpy_array(
-                np.memmap(file.name, shape=array.shape, dtype=array.dtype,
-                          order=self.data_order))
+        shrink_axis = None
+        shape = tuple(x for x in array.shape)
+        vector_width = None
         if self._have_split() and self.data_order == 'C':
             split_axis = -1
+            shrink_axis = 0
+            vector_width = self.width
         elif self._have_split() and self.data_order == 'F':
             split_axis = 0
             grow_axis = 1
-        return array.shape, grow_axis, \
+            shrink_axis = -1
+            vector_width = self.depth
+        if vector_width:
+            # need to fix shape
+            new_shape = [-1] * (len(shape) + 1)
+            copy_ind = 0
+            for i in range(len(new_shape)):
+                if i == split_axis or (split_axis == -1 and i == len(new_shape) - 1):
+                    # the split axis becomes the size of the vector width
+                    new_shape[i] = vector_width
+                elif i == shrink_axis or (
+                        shrink_axis == -1 and i == len(new_shape) - 1):
+                    # the shring axis is divided in size by the vector width
+                    new_shape[i] = int(
+                        np.ceil(shape[shrink_axis] / float(vector_width)))
+                    copy_ind += 1
+                else:
+                    # copy old shape
+                    new_shape[i] = shape[copy_ind]
+                    copy_ind += 1
+            shape = tuple(new_shape)
+            assert not any(x == -1 for x in shape)
+
+        return shape, grow_axis, \
             split_axis
 
 

@@ -212,3 +212,62 @@ def test_atomic_deep_vec_with_small_split():
     __test(10, 16)
     # test kernel w/ loop size larger than split
     __test(16, 8)
+
+
+def test_get_split_shape():
+    # create opts
+    opts = dummy_loopy_opts(depth=8, order='F')
+
+    # create array split
+    asplit = array_splitter(opts)
+
+    def __test(splitter, shape):
+        arr = np.zeros(shape)
+        if splitter.data_order == 'F':
+            grow = 1
+            split = 0
+        else:
+            grow = 0
+            split = -1
+
+        sh, gr, sp = asplit.split_shape(arr)
+        assert gr == grow
+        assert sp == split
+        assert sh == asplit.split_numpy_arrays(arr)[0].shape
+
+    # test with small square
+    __test(asplit, (10, 10))
+
+    # now test with evenly sized
+    __test(asplit, (16, 16))
+
+    # finally, try with 3d arrays
+    __test(asplit, (10, 10, 10))
+    __test(asplit, (16, 16, 16))
+
+    # and finally test with some randomly sized arrays
+    for i in range(50):
+        shape = np.random.randint(1, 12, size=np.random.randint(2, 5))
+        __test(asplit, shape)
+
+    # now repeat with C split
+    # create opts
+    opts = dummy_loopy_opts(width=8, order='C')
+
+    # create array split
+    asplit = array_splitter(opts)
+
+    # test with small square
+    __test(asplit, (10, 10))
+
+    # now test with evenly sized
+    __test(asplit, (16, 16))
+
+    # finally, try with 3d arrays
+    __test(asplit, (10, 10, 10))
+    __test(asplit, (16, 16, 16))
+
+    # and finally test with some randomly sized arrays
+    for i in range(50):
+        shape = np.random.randint(1, 12, size=np.random.randint(2, 5))
+        __test(asplit, shape)
