@@ -174,7 +174,7 @@ class memory_limits(object):
             An initialized :class:`memory_limits` that can determine the total
             'global', 'constant' and 'local' memory available on the device
         """
-        limits = {}  #  {memory_type.m_pagesize: align_size}
+        limits = {}  # {memory_type.m_pagesize: align_size}
         if loopy_opts.lang == 'opencl':
             try:
                 limits.update({
