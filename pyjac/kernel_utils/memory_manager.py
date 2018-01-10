@@ -190,7 +190,7 @@ class memory_limits(object):
                 # load from file
                 lims = yaml.load(file.read())
                 mtype = utils.EnumType(memory_type)
-                limits = {}
+                user_limits = {}
                 choices = [mt.name.lower()[2:] for mt in memory_type] + ['alloc']
                 for key, value in six.iteritems(lims):
                     # check in memory type
@@ -198,9 +198,11 @@ class memory_limits(object):
                         msg = ', '.join(choices)
                         msg = '{0}: use one of {1}'.format(memory_type.name, msg)
                         raise Exception(msg)
-                    key += 'm_'
+                    key = 'm_' + key
                     # update with enum
-                    limits[mtype(key)] = value
+                    user_limits[mtype(key)] = value
+                # and overwrite default limits w/ user
+                limits.update(user_limits)
 
         return memory_limits(loopy_opts.lang, arrays,
                              {k: v for k, v in six.iteritems(limits)},
@@ -806,8 +808,7 @@ class memory_manager(object):
     """
 
     def __init__(self, lang, order, have_split,
-                 dev_type=None, mem_limits_file='',
-                 strided_c_copy=False):
+                 dev_type=None, strided_c_copy=False):
         """
         Parameters
         ----------

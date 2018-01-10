@@ -158,6 +158,7 @@ class kernel_generator(object):
         self.loopy_opts = loopy_opts
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
+        self.mem_limits = mem_limits
 
         # Used for pinned memory kernels to enable splitting evaluation over multiple
         # kernel calls
@@ -165,8 +166,7 @@ class kernel_generator(object):
 
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
                                   self.array_split._have_split(),
-                                  dev_type=self.loopy_opts.device_type,
-                                  mem_limits_file=mem_limits)
+                                  dev_type=self.loopy_opts.device_type)
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
@@ -1056,7 +1056,8 @@ ${name} : ${type}
 
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(
-            self.loopy_opts, mem_types, string_strides=self.mem.string_strides)
+            self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
+            input_file=self.mem_limits)
         data_size = len(kernel_data)
         read_size = len(read_only)
         if not mem_limits.can_fit():
@@ -1094,7 +1095,8 @@ ${name} : ${type}
                 mem_types[memory_type.m_global].append(v)
 
             mem_limits = memory_limits.get_limits(
-                self.loopy_opts, mem_types, string_strides=self.mem.string_strides)
+                self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
+                input_file=self.mem_limits)
 
         # update the memory manager with new args / input arrays
         if len(kernel_data) != data_size:

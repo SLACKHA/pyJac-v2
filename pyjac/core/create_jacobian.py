@@ -4945,7 +4945,8 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     output_arrays = ['jac']
 
     # create the specrates subkernel
-    sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp)
+    sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
+                                     mem_limits=mem_limits)
     sub_kernels = sgen.kernels[:]
     # and finally fix the barriers to account for the sub kernels
     offset = len(sub_kernels)
