@@ -884,7 +884,23 @@ class jacobian_eval(eval):
         inds = self.inds['flat_' + order]
         if check:
             # get check array as max(|jac|) down the IC axis
-            check = np.amax(jac, axis=0)
+            def __get_jac_chunk(start, end, compare=None):
+                # limit end to actual end
+                end = np.minimum(end, jac.shape[0])
+                # create indexer
+                index = tuple(
+                    [slice(start, end)] + [slice(None)] * (len(jac.shape) - 1))
+                # return abs of chunk
+                chunk = np.maximum(np.min(jac[index], axis=0),
+                                   np.max(jac[index], axis=0))
+                if compare is not None:
+                    return np.maximum(chunk, compare)
+                return chunk
+
+            check = None
+            for i in range(0, jac.shape[0], self.chunk_size):
+                # perform in chunks to avoid memory errors for huge arrays
+                check = __get_jac_chunk(i, i + self.chunk_size, check)
             # set T / parameter derivativs to non-zero by assumption
             check[self.non_zero_specs + 2, :2] = 1
             # convert nan's or inf's to some non-zero number
