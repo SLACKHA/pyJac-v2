@@ -1009,6 +1009,8 @@ class jacobian_eval(eval):
             jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
                                      pregen)
 
+            # temporary turn off NaN comparison warnings
+            settings = np.seterr(invalid='ignore')
             # check for NaN's
             if np.any(~np.isfinite(jtemp)) and all_finite:
                 logger = logging.getLogger(__name__)
@@ -1032,6 +1034,8 @@ class jacobian_eval(eval):
                 threshold += np.linalg.norm(jtemp[good_locs]) ** 2
             else:
                 threshold += np.linalg.norm(jtemp) ** 2
+            # restore numpy settings
+            np.seterr(**settings)
             # and add to data array
             jac.append(jtemp)
 
