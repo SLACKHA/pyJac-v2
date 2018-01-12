@@ -32,7 +32,7 @@ handlers:
 
 loggers:
     pyjac:
-        level: ERROR
+        level: INFO
         handlers: [console]
         propagate: no
 
