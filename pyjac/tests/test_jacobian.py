@@ -23,6 +23,7 @@ from ..kernel_utils import kernel_gen as k_gen
 from .test_utils import (kernel_runner, get_comparable, _generic_tester,
                          _full_kernel_test, with_check_inds, inNd)
 from ..libgen import build_type
+from .. import utils
 
 import numpy as np
 import logging
@@ -785,11 +786,10 @@ class SubTest(TestClass):
                 (np.min(np.abs(ref_vals[bad])) / fac) > 1e10)
 
             # and ensure all our values are 'large' but finite numbers
-            # (defined here by > 1e295)
             # _or_ allow_our_nans is True _and_ they're all nan's
             is_correct = is_correct and (
                 (allow_our_nans and np.all(np.isnan(our_vals[bad]))) or
-                np.all(np.abs(our_vals[bad]) >= 1e285))
+                np.all(np.abs(our_vals[bad]) >= utils.inf_cutoff))
 
             return is_correct
 
