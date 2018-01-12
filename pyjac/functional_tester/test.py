@@ -30,7 +30,7 @@ from ..tests import test_utils, get_platform_file, _get_test_input, \
 from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
 from ..libgen import build_type, generate_library
 from ..core.create_jacobian import determine_jac_inds
-from ..utils import EnumType
+from ..utils import EnumType, inf_cutoff
 
 # turn off cache
 import loopy as lp
@@ -901,7 +901,7 @@ class jacobian_eval(eval):
             for i in range(0, jac.shape[0], self.chunk_size):
                 # perform in chunks to avoid memory errors for huge arrays
                 check = __get_jac_chunk(i, i + self.chunk_size, check)
-            # set T / parameter derivativs to non-zero by assumption
+            # set T / parameter derivatives to non-zero by assumption
             check[self.non_zero_specs + 2, :2] = 1
             # convert nan's or inf's to some non-zero number
             check[np.where(~np.isfinite(check))] = 1
@@ -995,6 +995,7 @@ class jacobian_eval(eval):
                                   None, True)
         store_size = self.store.test_size
         threshold = 0
+        all_finite = True
         for offset in range(0, num_conds, self.chunk_size):
             self.store = __get_state(offset, offset + self.chunk_size)
             if self.store.test_size != store_size:
@@ -1007,8 +1008,30 @@ class jacobian_eval(eval):
             # and add to Jacobian
             jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
                                      pregen)
+
+            # check for NaN's
+            if np.any(~np.isfinite(jtemp)) and all_finite:
+                logger = logging.getLogger(__name__)
+                logger.warn("NaN's or Inf's detected in autodifferentiated Jacobian "
+                            "output, these typically result from derivatives of "
+                            "falloff reactions with a reduced pressure equal to "
+                            "zero, (normally as the result of a third-body "
+                            "concentration based on a species with "
+                            "zero-concentration).  These locations will be checked "
+                            "against pyJac's output to ensure they are similarly "
+                            "large (effectively infinite).")
+                all_finite = False
+
             # get threshold
-            threshold += np.linalg.norm(jtemp) ** 2
+            if np.any(jtemp >= inf_cutoff) or np.any(jtemp <= -inf_cutoff) \
+                    or np.any(~np.isfinite(jtemp)):
+                # have infinities / nan's -> need to remove them from the threshold
+                good_locs = np.where(np.logical_and(
+                    np.logical_and(jtemp < inf_cutoff, jtemp > -inf_cutoff),
+                    np.isfinite(jtemp)))
+                threshold += np.linalg.norm(jtemp[good_locs]) ** 2
+            else:
+                threshold += np.linalg.norm(jtemp) ** 2
             # and add to data array
             jac.append(jtemp)
 
@@ -1079,7 +1102,22 @@ class jacobian_eval(eval):
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
                 denom))
 
-            # thresholded error
+            # check we don't have any NaN's... these should all show up as merely
+            # a very large number
+            assert not np.any(~np.isfinite(out)), (
+                "NaN's or Inf's detected in pyJac jacobian...")
+            if np.any(out > inf_cutoff):
+                # find bad locations
+                bad_locs = np.where(out >= inf_cutoff)
+                # next check that the answer is similarly either huge here or
+                # isn't finite
+                assert np.all(np.logical_or(ans[bad_locs] >= inf_cutoff,
+                                            ~np.isfinite(ans[bad_locs]))), (
+                    "Effectively infinite values in pyJac jacobian do not "
+                    "correspond to Inf's / NaN's / or huge values in the "
+                    "autodifferentiated Jacobian...")
+
+            #  thresholded error
             locs = np.where(out > threshold / 1.e20)
             thresholded_err = err[locs] / denom[locs]
             amax = np.argmax(thresholded_err)

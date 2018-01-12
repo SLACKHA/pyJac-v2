@@ -39,6 +39,11 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
                   )
 """dict: exp10 functions for various languages"""
 
+inf_cutoff = 1e285
+"""float: A cutoff above which values are considered infinite.
+          Used in testing and validation to filter values that should only
+          be compared as 'large numbers'"""
+
 
 # https://fangpenlin.com/posts/2012/08/26/good-logging-practice-in-python/
 def setup_logging(
