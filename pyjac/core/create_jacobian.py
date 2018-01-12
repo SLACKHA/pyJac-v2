@@ -2243,8 +2243,10 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                 ${Pr_str} * dFcent * (2 * ${Atroe_str} * \
                 (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent \
                 - ${Btroe_str} * absq * logten)) / \
-                (${Fcent_str} * ${Pr_str} * absqsq * logten) {id=dFi_final}
+                (${Fcent_str} * fmax(${Pr_str}, 1e-300d) * absqsq * logten) \
+                    {id=dFi_final}
             """).safe_substitute(**locals())
+            manglers.append(lp_pregen.fmax())
             parameters['logten'] = log(10)
         elif rxn_type == falloff_form.sri:
             X_lp, X_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
