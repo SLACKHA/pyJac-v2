@@ -912,7 +912,7 @@ class jacobian_eval(eval):
                 logger = logging.getLogger(__name__)
                 logger.warn(
                     "Autodifferentiated Jacobian sparsity pattern "
-                    "does not match pyJac's.  There are legitimate reasons"
+                    "does not match pyJac's.  There are legitimate reasons "
                     "why this might be the case -- e.g., matching "
                     "arrhenius parameters for two reactions containing "
                     "the same species, with one reaction involving the "
@@ -1108,6 +1108,9 @@ class jacobian_eval(eval):
 
             # check we don't have any NaN's... these should all show up as merely
             # a very large number
+
+            # temporary turn off NaN comparison warnings
+            settings = np.seterr(invalid='ignore')
             assert not np.any(~np.isfinite(out)), (
                 "NaN's or Inf's detected in pyJac jacobian...")
             if np.any(out > inf_cutoff):
@@ -1120,6 +1123,9 @@ class jacobian_eval(eval):
                     "Effectively infinite values in pyJac jacobian do not "
                     "correspond to Inf's / NaN's / or huge values in the "
                     "autodifferentiated Jacobian...")
+
+            # restore numpy settings
+            np.seterr(**settings)
 
             #  thresholded error
             locs = np.where(out > threshold / 1.e20)
