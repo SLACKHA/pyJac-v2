@@ -538,9 +538,11 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 <> dFi = -2 * ${Atroe_str} * ${Btroe_str} * log(${Fcent_str}) \
                 * (0.14 * ${Atroe_str} + ${Btroe_str}) * \
                 (mod ${conp_theta_pr_fac}) / \
-                (${Pr_str} * absqsq * logten) {id=dFi_final, dep=ab_fin}
+                (fmax(${Pr_str}, 1e-300) * absqsq * logten) \
+                    {id=dFi_final, dep=ab_fin}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
+            manglers.append(lp_pregen.fmax())
         elif rxn_type == falloff_form.sri:
             X_lp, X_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
             a_lp, a_str = mapstore.apply_maps(namestore.sri_a, var_name)
