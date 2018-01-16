@@ -1089,11 +1089,49 @@ class jacobian_eval(eval):
         threshold = self.threshold(state)
         # load output
         for out, ans in zip(*(outputs, answers)):
-            # get err
-            err = np.abs(out - ans)
+            # temporary turn off NaN comparison warnings
+            settings = np.seterr(invalid='ignore')
+
+            # check we don't have any NaN's... these should all show up as merely
+            # a very large number
+            assert not np.any(~np.isfinite(out)), (
+                "NaN's or Inf's detected in pyJac jacobian...")
+            if np.any(np.logical_or(out >= inf_cutoff,
+                                    out <= -inf_cutoff)):
+                # find bad locations
+                bad_locs = np.where(np.logical_or(out >= inf_cutoff,
+                                                  out <= -inf_cutoff))
+                # next check that the answer is similarly either huge here or
+                # isn't finite
+                assert np.all(np.logical_or(
+                        np.logical_or(ans[bad_locs] <= -inf_cutoff,
+                                      ans[bad_locs] >= inf_cutoff),
+                        ~np.isfinite(ans[bad_locs]))), (
+                    "Effectively infinite values in pyJac jacobian do not "
+                    "correspond to Inf's / NaN's / or huge values in the "
+                    "autodifferentiated Jacobian...")
+                del bad_locs
+                # check that there are no huge or infinite answers in good locations
+                good_locs = np.where(out <= inf_cutoff)
+                assert not np.any(np.logical_or(
+                        np.logical_or(ans[good_locs] <= -inf_cutoff,
+                                      ans[good_locs] >= inf_cutoff),
+                        ~np.isfinite(ans[good_locs]))), (
+                    "Infinite (or effectively infinite) values found in "
+                    "autodifferentiated Jacobian in locations non-considered "
+                    "infinite in pyJac...")
+                # filter these, as we don't want to compare them
+                out = out[good_locs]
+                ans = ans[good_locs]
+
+            # restore numpy settings
+            np.seterr(**settings)
+
             # do these once
+            err = np.abs(out - ans)
             out = np.abs(out)
             denom = np.abs(ans)
+            # get err
             # regular frobenieus norm, have to filter out zero entries for our
             # norm here
             non_zero = np.where(denom > 0)
@@ -1105,27 +1143,6 @@ class jacobian_eval(eval):
             # norm suggested by lapack
             __update_key('jac_lapack', np.linalg.norm(err) / np.linalg.norm(
                 denom))
-
-            # check we don't have any NaN's... these should all show up as merely
-            # a very large number
-
-            # temporary turn off NaN comparison warnings
-            settings = np.seterr(invalid='ignore')
-            assert not np.any(~np.isfinite(out)), (
-                "NaN's or Inf's detected in pyJac jacobian...")
-            if np.any(out > inf_cutoff):
-                # find bad locations
-                bad_locs = np.where(out >= inf_cutoff)
-                # next check that the answer is similarly either huge here or
-                # isn't finite
-                assert np.all(np.logical_or(ans[bad_locs] >= inf_cutoff,
-                                            ~np.isfinite(ans[bad_locs]))), (
-                    "Effectively infinite values in pyJac jacobian do not "
-                    "correspond to Inf's / NaN's / or huge values in the "
-                    "autodifferentiated Jacobian...")
-
-            # restore numpy settings
-            np.seterr(**settings)
 
             #  thresholded error
             locs = np.where(out > threshold / 1.e20)
