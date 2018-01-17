@@ -137,14 +137,14 @@ def test_lpy_array_splitter_c_wide():
     # and indexing
     assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
     assert isinstance(assign, Subscript) and assign.index == (
-        Variable('i_outer'), 0, Variable('i_inner'))
+        0, Variable('i_inner') + Variable('i_outer') * 8, 0)
 
     # now test with evenly sized
     a2 = next(x for x in k.args if x.name == 'a2')
     assert a2.shape == (2, 16, 8)
     assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
     assert isinstance(assign, Subscript) and assign.index == (
-        Variable('i_outer'), 0, Variable('i_inner'))
+        0, Variable('i_inner') + Variable('i_outer') * 8, 0)
 
 
 def test_lpy_array_splitter_f_deep():
