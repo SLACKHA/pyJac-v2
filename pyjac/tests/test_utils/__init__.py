@@ -1037,7 +1037,7 @@ def with_check_inds(check_inds={}, custom_checks={}):
                 __fix_callables()
                 axes = []
                 inds = []
-                for ax, ind in six.iteritems(check_inds):
+                for ax, ind in sorted(six.iteritems(check_inds), key=lambda x: x[0]):
                     axes.append(ax)
                     inds.append(ind)
                 return get_comparable([inds], [answer], tuple(axes))
