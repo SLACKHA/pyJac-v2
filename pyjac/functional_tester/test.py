@@ -932,7 +932,12 @@ class jacobian_eval(eval):
             end = np.minimum(num_conds, offset + self.chunk_size)
             # need to preslice the pytables array to get numpy indexing
             jtemp = jac[offset:end][:, inds[:, 0], inds[:, 1]]
-            threshold += np.linalg.norm(jtemp) ** 2
+            # filter out any nan's / infinites for tresholding
+            good_locs = np.where(np.logical_and(
+                np.logical_and(jtemp < inf_cutoff,
+                               jtemp > -inf_cutoff),
+                np.isfinite(jtemp)))
+            threshold += np.linalg.norm(jtemp[good_locs]) ** 2
             out.append(jtemp)
         return out, np.sqrt(threshold)
 
@@ -1112,7 +1117,10 @@ class jacobian_eval(eval):
                     "autodifferentiated Jacobian...")
                 del bad_locs
                 # check that there are no huge or infinite answers in good locations
-                good_locs = np.where(out <= inf_cutoff)
+                good_locs = np.where(np.logical_and(
+                    np.logical_and(out < inf_cutoff,
+                                   out > -inf_cutoff),
+                    np.isfinite(out)))
                 assert not np.any(np.logical_or(
                         np.logical_or(ans[good_locs] <= -inf_cutoff,
                                       ans[good_locs] >= inf_cutoff),
