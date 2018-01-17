@@ -5266,7 +5266,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     'This may result in very large Jacobian entries '
                     '(approaching infinite) if the concentrations of these species'
                     'are zero.  You may want to comment these reactions out of your'
-                    'mechanism'.format(', '.join(irxns),
+                    'mechanism'.format(', '.join([str(x) for x in irxns]),
                                        ', '.join([rxn.pdep_sp for rxn in bad_rxns])))
 
     # write headers
