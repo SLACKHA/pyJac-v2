@@ -564,8 +564,7 @@ class get_comparable(object):
         if outv.ndim == ndim:
             # return the default, as it can handle it
             return kernel_call('', [], compare_mask=[mask],
-                               compare_axis=axis)._get_comparable(
-                               outv, 0, is_answer=is_answer)
+                               compare_axis=axis)._get_comparable(outv, 0)
         elif axis != -1:
             # get the split indicies
             masking = parse_split_index(
