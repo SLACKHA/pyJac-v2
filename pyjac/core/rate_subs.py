@@ -2274,7 +2274,7 @@ else
     k0 = ${kf_fall_str} {id=k0_f}
 end
 # prevent reduced pressure from ever being truly zero
-${Pr_str} = fmax(${thd_conc_str} * k0 / kinf, 1e-300d) {id=set, dep=k*}
+${Pr_str} = fmax(1e-300d, ${thd_conc_str} * k0 / kinf) {id=set, dep=k*}
 """)
 
     # sub in strings

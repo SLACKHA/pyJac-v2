@@ -538,7 +538,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 <> dFi = -2 * ${Atroe_str} * ${Btroe_str} * log(${Fcent_str}) \
                 * (0.14 * ${Atroe_str} + ${Btroe_str}) * \
                 (mod ${conp_theta_pr_fac}) / \
-                (fmax(${Pr_str}, 1e-300) * absqsq * logten) \
+                (fmax(1e-300d, ${Pr_str}) * absqsq * logten) \
                     {id=dFi_final, dep=ab_fin}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
@@ -566,8 +566,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 <> cinv = 1 / ${c_str}
                 <> dFi = -2 * ${X_str} * ${X_str} * (\
                     mod ${conp_theta_pr_fac}) * ${sri_fac} * \
-                    log(fmax(${Pr_str}, 1e-300d)) / \
-                    (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
+                    log(fmax(1e-300d, ${Pr_str}) / \
+                    (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
         else:
@@ -2245,7 +2245,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                 ${Pr_str} * dFcent * (2 * ${Atroe_str} * \
                 (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent \
                 - ${Btroe_str} * absq * logten)) / \
-                (${Fcent_str} * fmax(${Pr_str}, 1e-300d) * absqsq * logten) \
+                (${Fcent_str} * fmax(1e-300d, ${Pr_str} * absqsq * logten) \
                     {id=dFi_final}
             """).safe_substitute(**locals())
             manglers.append(lp_pregen.fmax())
@@ -2272,8 +2272,8 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                 2 * ${X_str} * ${X_str} * \
                 log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) * \
                 (${Pr_str} * theta_Pr + theta_no_Pr) * \
-                log(fmax(${Pr_str}, 1e-300d)) / \
-                (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi_final}
+                log(fmax(1e-300d, ${Pr_str})) / \
+                (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
         else:
@@ -3667,8 +3667,8 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
                 """
         <> dFi = -2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * \
            exp(-${sri_b_str} / ${T_str}) + exp(-${T_str} / ${sri_c_str})) * \
-           log(fmax(${Pr_str}, 1e-300d)) / \
-           (fmax(${Pr_str}, 1e-300d) * logtensquared) {id=dFi}
+           log(fmax(1e-300d, ${Pr_str})) / \
+           (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi}
         """).substitute(
                 sri_X_str=sri_X_str,
                 sri_a_str=sri_a_str,
