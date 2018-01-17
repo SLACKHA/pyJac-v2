@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import difflib
+import re
 
 ck_file = os.path.join(script_dir, 'test.inp')
 cti_file = os.path.join(script_dir, 'test.cti')
@@ -22,6 +23,10 @@ def test_ck_is_cti():
         # read
         file.seek(0)
         ck = file.readlines()
+
+    # process unicodes
+    for i in range(len(cti)):
+        cti[i] = re.sub("u'", "'", cti[i])
 
     # check diff
     assert not len([x for x in difflib.unified_diff(ck, cti)])
