@@ -927,6 +927,8 @@ class jacobian_eval(eval):
         num_conds = jac.shape[0]
         shape = (0, inds[:, 0].size)
         out = self.open_for_chunked_write(name + '.hdf5', shape, num_conds)
+        # temporarily turn off nan warnings
+        settings = np.seterr(invalid='ignore')
         threshold = 0
         for offset in range(0, num_conds, self.chunk_size):
             end = np.minimum(num_conds, offset + self.chunk_size)
@@ -939,6 +941,8 @@ class jacobian_eval(eval):
                 np.isfinite(jtemp)))
             threshold += np.linalg.norm(jtemp[good_locs]) ** 2
             out.append(jtemp)
+        # and turn back on
+        settings = np.seterr(**settings)
         return out, np.sqrt(threshold)
 
     def __fast_jac(self, conp, sparse, order):
