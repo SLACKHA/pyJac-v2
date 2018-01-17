@@ -5253,6 +5253,22 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # find and move last species to end
     specs = find_last_species(specs, last_spec=last_spec)
 
+    # check for reactions with potentially bad derivatives
+    bad_rxns = []
+    for irxn, reac in enumerate(reacs):
+        if reac.pdep_sp and reac.pdep_sp != last_spec:
+            bad_rxns.append((irxn, reac))
+    if bad_rxns:
+        logger = logging.getLogger(__name__)
+        irxns, rxns = zip(*bad_rxns)
+        logger.warn('Reactions ({}) have third-body concentrations based on a '
+                    'species ({}) that are not the selected last species (bath-gas). '
+                    'This may result in very large Jacobian entries '
+                    '(approaching infinite) if the concentrations of these species'
+                    'are zero.  You may want to comment these reactions out of your'
+                    'mechanism'.format(', '.join(irxns),
+                                       ', '.join([rxn.pdep_sp for rxn in bad_rxns])))
+
     # write headers
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
