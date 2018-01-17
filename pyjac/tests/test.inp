@@ -299,5 +299,5 @@ N2O+O<=>N2+O2                            1.400E+12     .000   10810.00
 ! irreversible rxn with C6H6 not contributing to C3H3 in any other reaction
 ! this tests that the jacobian index determination does not pick up false derivatives
 ! of d_reactant / d_product in irreversible reactions
-C3H3+C3H3 => C6H6                            2.000E+12   0.0        0.0    !97WAN/FRE
+C3H3+C3H3 => C6H6                            2.000E+12   1.0        0.0    !97WAN/FRE
 END
