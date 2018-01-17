@@ -5261,11 +5261,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     if bad_rxns:
         logger = logging.getLogger(__name__)
         irxns, rxns = zip(*bad_rxns)
-        logger.warn('Reactions ({}) have third-body concentrations based on a '
+        logger.warn('Reactions ({}) have third-body concentrations based on '
                     'species ({}) that are not the selected last species (bath-gas).'
                     ' This may result in very large Jacobian entries '
-                    '(approaching infinite) if the concentrations of these species'
-                    'are zero.  You may want to comment these reactions out of your'
+                    '(approaching infinite) if the concentrations of these species '
+                    'are zero.  You may want to comment these reactions out of your '
                     'mechanism'.format(', '.join([str(x) for x in irxns]),
                                        ', '.join([specs[rxn.pdep_sp].name
                                                   for rxn in rxns])))
