@@ -2273,7 +2273,8 @@ else
     kinf = ${kf_str} {id=kinf_f}
     k0 = ${kf_fall_str} {id=k0_f}
 end
-${Pr_str} = ${thd_conc_str} * k0 / kinf {id=set, dep=k*}
+# prevent reduced pressure from ever being truly zero
+${Pr_str} = fmax(${thd_conc_str} * k0 / kinf, 1e-300d) {id=set, dep=k*}
 """)
 
     # sub in strings
@@ -2286,7 +2287,8 @@ ${Pr_str} = ${thd_conc_str} * k0 / kinf {id=set, dep=k*}
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           vectorization_specializer=vec_spec)]
+                           vectorization_specializer=vec_spec,
+                           manglers=[lp_pregen.fmax()])]
 
 
 def get_troe_kernel(loopy_opts, namestore, test_size=None):
