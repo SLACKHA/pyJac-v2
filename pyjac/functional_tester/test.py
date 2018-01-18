@@ -1000,7 +1000,7 @@ class jacobian_eval(eval):
 
         def __get_state(offset, end):
             end = np.minimum(end, num_conds)
-            return type('', (object,), {
+            retval = type('', (object,), {
                 'reacs': self.reacs,
                 'specs': self.specs,
                 'phi_cp': (phi[offset:end, phi_mask].copy() if state['conp']
@@ -1011,6 +1011,13 @@ class jacobian_eval(eval):
                 'V': V[offset:end],
                 'test_size': end - offset
                 })
+            # seed all 'zero' concentrations with a tiny epsilon to avoid NaN's
+            # and enable valid comparison
+            if retval.phi_cp is not None:
+                retval.phi_cp[:, 2:] = np.maximum(retval.phi_cp[:, 2:], 1e-300)
+            if retval.phi_cv is not None:
+                retval.phi_cv[:, 2:] = np.maximum(retval.phi_cv[:, 2:], 1e-300)
+            return retval
 
         # pregenerated kernel for speed
         self.store = __get_state(0, self.chunk_size)
