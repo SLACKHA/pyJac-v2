@@ -831,6 +831,7 @@ class spec_rate_eval(eval):
         """
 
         try:
+            warn = False
             err = np.load(filename)
             names = ['rop_fwd', 'rop_rev', 'rop_net', 'dphi']
             mods = ['', '_value', '_store']
@@ -849,8 +850,21 @@ class spec_rate_eval(eval):
                 err, [x for x in names if 'phi' in x], mods, Ns + 1,
                 current_vecwidth)
             return allclear
-        except:
-            return False
+        except (OSError, IOError) as e:
+            # check for simple file not found error
+            import errno
+            if e.errno == errno.ENOENT:
+                return False
+            warn = e
+        except Exception as e:
+            warn = True
+            return e
+        finally:
+            if warn:
+                logger = logging.getLogger(__name__)
+                logger.warn('Error checking species validation file {}'.format(
+                    filename))
+                logger.exception(warn)
 
 
 class jacobian_eval(eval):
@@ -1218,6 +1232,7 @@ class jacobian_eval(eval):
         """
 
         try:
+            warn = False
             err = np.load(filename)
             # check basic error stats
             names = ['jac']
@@ -1238,8 +1253,21 @@ class jacobian_eval(eval):
             mods = ['max_value', 'threshold_value']
             allclear = allclear and self._check_file(err, names, mods)
             return allclear
-        except:
-            return False
+        except (OSError, IOError) as e:
+            # check for simple file not found error
+            import errno
+            if e.errno == errno.ENOENT:
+                return False
+            warn = e
+        except Exception as e:
+            warn = True
+            return e
+        finally:
+            if warn:
+                logger = logging.getLogger(__name__)
+                logger.warn('Error checking jacobian validation file {}'.format(
+                    filename))
+                logger.exception(warn)
 
 
 @nottest
