@@ -81,7 +81,8 @@ class kf_wrapper(object):
             runner = test_utils.kernel_runner(
                 get_simple_arrhenius_rates,
                 self.store.test_size,
-                {'phi': self.kwargs['phi']},
+                {'phi': self.kwargs['phi'],
+                 'kf_fall': np.zeros_like(self.store.ref_Pr)},
                 {'falloff': True})
 
             kf = runner(opts, namestore, test_size)
@@ -93,7 +94,8 @@ class kf_wrapper(object):
             runner = test_utils.kernel_runner(
                 get_simple_arrhenius_rates,
                 self.store.test_size,
-                {'phi': self.kwargs['phi']})
+                {'phi': self.kwargs['phi'],
+                 'kf': np.zeros_like(self.store.fwd_rate_constants)})
 
             kf = runner(opts, namestore, test_size)
             if isinstance(kf, list):
