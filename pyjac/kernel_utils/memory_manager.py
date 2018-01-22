@@ -576,7 +576,7 @@ class mapped_memory(memory_strategy):
         if (${name} == NULL)
         {
             // open temporary file for backing mmap
-            fmap_${name} = open("/tmp/${name}.bin", O_RDWR | O_CREAT | O_TRUNC);
+            fmap_${name} = open("${name}_temp.bin", O_RDWR | O_CREAT | O_TRUNC);
             ${open_guard}
             // strech file size to match expected
             int result = lseek(fmap_${name}, ${buff_size} - 1, SEEK_SET);
