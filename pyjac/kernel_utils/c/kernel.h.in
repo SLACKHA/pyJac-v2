@@ -22,6 +22,7 @@ Nicholas Curtis - 2017
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
+${extra_headers}
 
 #ifdef _OPENMP
  #include <omp.h>
