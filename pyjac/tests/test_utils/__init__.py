@@ -1267,6 +1267,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
             conp = state['conp']
             par_check = tuple(state[x] for x in state if x != 'vecsize')
             sparse = state['sparse']
+            jac_type = state['jac_type']
             if platform in bad_platforms:
                 continue
             if not (deep or wide) and done_parallel[par_check]:
@@ -1316,6 +1317,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
                                     conp=conp,
                                     use_atomics=state['use_atomics'],
                                     jac_format=sparse,
+                                    jac_type=jac_type,
                                     for_validation=for_validation,
                                     seperate_kernels=state['seperate_kernels'],
                                     mem_limits=mem_limits)
