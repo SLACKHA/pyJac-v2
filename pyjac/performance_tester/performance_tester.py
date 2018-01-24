@@ -12,7 +12,7 @@ from nose.tools import nottest
 
 # Local imports
 from ..libgen import build_type, generate_library
-from ..loopy_utils.loopy_utils import JacobianFormat
+from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
 from ..utils import EnumType
 from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
 from ..tests import get_platform_file, get_mem_limits_file
@@ -70,6 +70,9 @@ class performance_runner(runner):
         if self.rtype == build_type.jacobian:
             desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
                  == JacobianFormat.sparse else '_full'
+        if EnumType(JacobianType)(state['jac_type']) == \
+                JacobianType.finite_difference:
+            desc = 'fd' + desc
         return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
                 desc, state['lang'], state['vecsize'], state['order'],
                 'w' if state['wide'] else 'd' if state['deep'] else 'par',
