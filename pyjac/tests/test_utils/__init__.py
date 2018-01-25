@@ -1268,6 +1268,10 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
             par_check = tuple(state[x] for x in state if x != 'vecsize')
             sparse = state['sparse']
             jac_type = state['jac_type']
+            if for_validation and jac_type == 'finite_difference':
+                # no need
+                continue
+
             if platform in bad_platforms:
                 continue
             if not (deep or wide) and done_parallel[par_check]:
