@@ -229,6 +229,24 @@ class loopy_options(object):
                             'vectorization. Use at your own risk.')
 
     @property
+    def is_simd(self):
+        """
+        Utility to determine whether to tell Loopy to apply explicit-simd
+        vectorization or not
+
+        Returns
+        -------
+        is_simd: bool
+            True if we should attempt to explicitly vectorize the data / arrays
+        """
+
+        if utils.can_vectorize_lang[self.lang]:
+            if self.lang == 'opencl':
+                return self.device_type != cl.device_type.GPU
+            return True
+        return False
+
+    @property
     def has_scatter(self):
         """
         Utility to determine whether the target supports scatter writes

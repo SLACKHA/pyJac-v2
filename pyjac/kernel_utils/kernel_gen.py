@@ -1135,7 +1135,7 @@ ${name} : ${type}
                              name=self.name,
                              target=self.target)
         # force vector width
-        if self.vec_width != 0:
+        if self.vec_width != 0 and not self.loopy_opts.is_simd:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
@@ -1630,7 +1630,8 @@ ${defn}
         # apply specified optimizations
         if to_split and can_vectorize:
             # and assign the l0 axis to the correct variable
-            knl = lp.split_iname(knl, to_split, vec_width, inner_tag='vec')
+            tag = 'vec' if loopy_opts.is_simd else 'l.0'
+            knl = lp.split_iname(knl, to_split, vec_width, inner_tag=tag)
 
         if utils.can_vectorize_lang[loopy_opts.lang]:
             # tag 'global_ind' as g0, use simple parallelism
@@ -1640,7 +1641,7 @@ ${defn}
         if vecspec:
             knl = vecspec(knl)
 
-        if vec_width is not None:
+        if vec_width is not None and not loopy_opts.is_simd:
             # finally apply the vector width fix above
             ggs = vecwith_fixer(knl.copy(), vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)

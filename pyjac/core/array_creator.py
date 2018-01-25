@@ -37,6 +37,7 @@ class array_splitter(object):
         self.width = loopy_opts.width
         self.vector_width = self.depth if self.depth is not None else self.width
         self.data_order = loopy_opts.order
+        self.is_simd = loopy_opts.is_simd
 
     def _have_split(self):
         """
@@ -48,7 +49,7 @@ class array_splitter(object):
             self.data_order == 'F' and self.depth))
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
-                                count, order='C'):
+                                count, order='C', vec=False):
         if count == 1:
             return kernel
 
@@ -89,12 +90,15 @@ class array_splitter(object):
 
         old_dim_tag = ary.dim_tags[split_axis]
 
-        from loopy.kernel.array import FixedStrideArrayDimTag
+        from loopy.kernel.array import FixedStrideArrayDimTag, VectorArrayDimTag
         if not isinstance(old_dim_tag, FixedStrideArrayDimTag):
             raise RuntimeError("axis %d of '%s' is not tagged fixed-stride".format(
                 split_axis, array_name))
 
-        new_dim_tags.insert(dest_axis, FixedStrideArrayDimTag(1))
+        tag = FixedStrideArrayDimTag(1)
+        if vec:
+            tag = VectorArrayDimTag()
+        new_dim_tags.insert(dest_axis, tag)
         # fix strides
         toiter = reversed(list(enumerate(new_shape))) if order == 'C' \
             else enumerate(new_shape)
@@ -167,7 +171,17 @@ class array_splitter(object):
             The kernel with the array splittings applied
         """
 
-        if not self._have_split():
+        if not self._have_split() and not self.is_simd:
+            return kernel
+        elif (self.depth or self.width) and self.is_simd:
+            # still need to tag the array indicies as vec
+            arrays = [(x.name, x) for x in kernel.args] + \
+                     [(k, v) for k, v in six.iteritems(kernel.temporary_variables)]
+            for array_name, arr in [x for x in arrays if len(x[1].shape) >= 2]:
+                tags = list(arr.dim_tags)
+                axis = -1 if self.data_order == 'C' else 0
+                tags[axis] = 'vec'
+                kernel = lp.tag_array_axes(kernel, array_name, tags)
             return kernel
 
         for array_name, arr in [(x.name, x) for x in kernel.args
@@ -182,7 +196,7 @@ class array_splitter(object):
 
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, dest_axis,
-                self.vector_width, self.data_order)
+                self.vector_width, self.data_order, self.is_simd)
 
         return kernel
 
