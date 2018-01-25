@@ -233,18 +233,16 @@ device_prefix = 'd_'
 
 
 class memory_strategy(object):
-    def __init__(self, lang, alloc_host={}, alloc_device={}, sync={}, copy_in_1d={},
-                 copy_in_2d={}, copy_out_1d={}, copy_out_2d={}, memset={},
-                 alloc_flags={}, host_const_in={}, free_host={}, free_device={}):
-        self.alloc_host_template = alloc_host
-        self.alloc_device_template = alloc_device
+    def __init__(self, lang, alloc={}, sync={}, copy_in_1d={},
+                 copy_in_2d={}, copy_out_1d={}, copy_out_2d={}, free={}, memset={},
+                 alloc_flags={}, host_const_in={}):
+        self.alloc_template = alloc
         self.sync_template = sync
         self.copy_in_1d = copy_in_1d
         self.copy_in_2d = copy_in_2d
         self.copy_out_1d = copy_out_1d
         self.copy_out_2d = copy_out_2d
-        self.free_host_template = free_host
-        self.free_device_template = free_device
+        self.free_template = free
         self.memset_template = memset
         self.host_lang = host_langs[lang]
         self.device_lang = lang
@@ -282,9 +280,6 @@ class memory_strategy(object):
             The resulting allocation instrucitons
         """
 
-        # get correct template
-        template = self.alloc_device_template if device else self.alloc_host_template
-
         flags = kwargs.pop('flags', '')
         if self.lang(device) in self.alloc_flags:
             flags = [self.alloc_flags[self.lang(device)][readonly]] \
@@ -301,7 +296,7 @@ class memory_strategy(object):
         if device:
             dtype_host = ''
 
-        return template[self.lang(device)].safe_substitute(
+        return self.alloc_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, memflag=flags,
             dtype=dtype, dtype_host=dtype_host, **kwargs)
 
@@ -404,9 +399,7 @@ class memory_strategy(object):
         free_str: str
             The resulting free instructions
         """
-
-        template = self.free_device_template if device else self.free_host_template
-        return template[self.lang(device)].safe_substitute(name=name)
+        return self.free_template[self.lang(device)].safe_substitute(name=name)
 
 
 class mapped_memory(memory_strategy):
@@ -577,15 +570,13 @@ class mapped_memory(memory_strategy):
                 overrides[key] = val
 
         self.allow_mmap = allow_mmap
-        c_alloc_fail_device = guarded_call('c', '${name} != NULL', 'malloc failed')
         if self.allow_mmap:
-            c_alloc_fail_host = dedent(Template("""
+            c_alloc_fail = dedent(Template("""
         int fmap_${name} = 0;
         if (${name} == NULL)
         {
             // open temporary file for backing mmap
-            fmap_${name} = open("${name}_temp.bin", O_RDWR | O_CREAT | O_TRUNC,
-                                0600);
+            fmap_${name} = open("${name}_temp.bin", O_RDWR | O_CREAT | O_TRUNC);
             ${open_guard}
             // strech file size to match expected
             int result = lseek(fmap_${name}, ${buff_size} - 1, SEEK_SET);
@@ -598,7 +589,7 @@ class mapped_memory(memory_strategy):
                                      MAP_PRIVATE, fmap_${name}, 0);
             ${map_guard}
             ${name}_is_mmap = ${buff_size};
-            printf("%s has been mmap'd due to memory constraints.\\n", "${name}");
+            printf("%s has been mmap'd due to memory constraints.\\n", ${name});
         }
         """).safe_substitute(
                 open_guard=guarded_call(
@@ -611,24 +602,19 @@ class mapped_memory(memory_strategy):
                     'c', '${name} != MAP_FAILED', 'mmap failed.')))
 
         else:
-            c_alloc_fail_host = c_alloc_fail_device
+            c_alloc_fail = guarded_call('c', '${name} != NULL', 'malloc failed')
 
-        alloc_device = {
-            'opencl': Template(Template(
-                '${name} = clCreateBuffer(context, ${memflag}, '
-                '${buff_size}, NULL, &return_code);\n'
-                '${guard}\n').safe_substitute(guard=guarded_call(
-                    'opencl', 'return_code'))),
-            'c': Template(Template(
-                '${dtype_host} ${name} = (${dtype})malloc(${buff_size});\n'
-                '${guard}').safe_substitute(guard=c_alloc_fail_device))}
-        __update('alloc_device', alloc_device)
-        alloc_host = {
-            'c': Template(Template(
-                'size_t ${name}_is_mmap = 0;\n'
-                '${dtype_host} ${name} = (${dtype})malloc(${buff_size});\n'
-                '${guard}').safe_substitute(guard=c_alloc_fail_host))}
-        __update('alloc_host', alloc_host)
+        alloc = {'opencl': Template(Template(
+                    '${name} = clCreateBuffer(context, ${memflag}, '
+                    '${buff_size}, NULL, &return_code);\n'
+                    '${guard}\n').safe_substitute(guard=guarded_call(
+                        'opencl', 'return_code'))),
+                 'c': Template(Template(
+                    'size_t ${name}_is_mmap = 0;\n'
+                    '${dtype_host} ${name} = (${dtype})malloc(${buff_size});\n'
+
+                    '${guard}').safe_substitute(guard=c_alloc_fail))}
+        __update('alloc', alloc)
 
         # we use blocking read / writes here, so no need to sync currently
         # in the future this would be a convenient place to put in multiple-device
@@ -654,9 +640,9 @@ class mapped_memory(memory_strategy):
             lang, to_device=True, use_full=True)
         __update('host_const_in', host_constant_template)
 
-        c_free_device = 'free(${name});'
+        c_free = 'free(${name});'
         if self.allow_mmap:
-            c_free_host = dedent(Template("""
+            c_free = dedent(Template("""
         if (${name}_is_mmap == 0)
         {
             ${c_free}
@@ -668,21 +654,13 @@ class mapped_memory(memory_strategy):
             // close file
             close(fmap_${name});
         }
-        """).safe_substitute(c_free=c_free_device, unmap_guard=guarded_call(
+        """).safe_substitute(c_free=c_free, unmap_guard=guarded_call(
                              'c', 'munmap(${name}, ${name}_is_mmap) != -1')))
-        else:
-            c_free_host = c_free_device
 
-        free_device = {
-            'opencl': Template(guarded_call(
-                'opencl', 'clReleaseMemObject(${name})')),
-            'c': Template(c_free_device)}
-        __update('free_device', free_device)
-        free_host = {
-            'c': Template(c_free_host)
-        }
-        __update('free_host', free_host)
-
+        free = {'opencl': Template(guarded_call(
+                         'opencl', 'clReleaseMemObject(${name})')),
+                'c': Template(c_free)}
+        __update('free', free)
         memset = {'opencl': Template(Template(
             """
             #if CL_LEVEL >= 120
