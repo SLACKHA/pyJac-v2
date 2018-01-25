@@ -5274,12 +5274,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     # now begin writing subroutines
-    if not skip_jac:
+    if not skip_jac and jac_type == JacobianType.exact:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
                                   mem_limits=mem_limits)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
-    elif jac_type == JacobianType.finite_difference:
+    elif not skip_jac and jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
                                          mem_limits=mem_limits)
