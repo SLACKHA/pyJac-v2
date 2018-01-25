@@ -1074,7 +1074,7 @@ class runner(object):
     def pre(self, gas, data, num_conditions, max_vec_width):
         raise NotImplementedError
 
-    def run(self, state, asplit, dirs, data_output):
+    def run(self, state, asplit, dirs, data_output, limits):
         raise NotImplementedError
 
     def get_filename(self, state):
@@ -1338,7 +1338,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
             asplit = array_splitter(type('', (object,), {
                 'width': width, 'depth': depth, 'order': order}))
 
-            run.run(state.copy(), asplit, dirs, phi_path, data_output)
+            run.run(state.copy(), asplit, dirs, phi_path, data_output,
+                    mech_info['limits'])
 
             # store the old state
             old_state = state.copy()
