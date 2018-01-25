@@ -432,7 +432,7 @@ class validation_runner(runner, hdf5_store):
         answers = asplit.split_numpy_arrays(answers)
         return answers, out
 
-    def run(self, state, asplit, dirs, phi_path, data_output):
+    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -451,6 +451,9 @@ class validation_runner(runner, hdf5_store):
             phi to be saved in (as a binary file)
         data_output: str
             The file to output the results to
+        limits: dict
+            If supplied, a limit on the number of conditions that may be tested
+            at once. Important for larger mechanisms that may cause memory overflows
 
         Returns
         -------
@@ -472,9 +475,14 @@ class validation_runner(runner, hdf5_store):
 
         # store phi array to file
         np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
+
+        num_conditions = self.num_conditions
+        if limits and state['sparse'] in limits:
+            num_conditions = limits[state['sparse']]
+
         # call
         subprocess.check_call([os.path.join(my_test, lib),
-                               str(self.num_conditions), str(state['num_cores'])],
+                               str(num_conditions), str(state['num_cores'])],
                               cwd=my_test)
 
         answers = self.helper.ref_answers(state)
@@ -489,9 +497,9 @@ class validation_runner(runner, hdf5_store):
         offset = 0
         # store the error dict
         err_dict = {}
-        while offset < self.num_conditions:
+        while offset < num_conditions:
             this_run = np.minimum(
-                self.chunk_size, self.num_conditions - offset)
+                self.chunk_size, num_conditions - offset)
 
             # convert our chunks to workable numpy arrays
             ans, out = self.arrays_per_run(

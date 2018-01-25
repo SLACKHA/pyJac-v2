@@ -2,12 +2,13 @@ import os
 import psutil
 import sys
 import cantera as ct
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from optionloop import OptionLoop
 from .. import get_test_platforms, _get_test_input
 from . import platform_is_gpu
 from ...libgen import build_type
 import logging
+import yaml
 
 
 def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False):
@@ -32,7 +33,11 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
             mech_name : {'mech' : file path
                          'chemkin' : chemkin file path
                          'ns' : number of species in the mechanism
-                         'thermo' : the thermo file if avaialable}
+                         'thermo' : the thermo file if avaialable
+                         'limits' : {'full': XXX, 'sparse': XXX}}: a dictionary of
+                            limits on the number of conditions that can be evaluated
+                            for this mechanism (full & sparse jacobian respectively)
+                            due to memory constraints
     params  : OrderedDict
         The parameters to put in an oploop
     max_vec_width : int
@@ -51,19 +56,27 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     for name in os.listdir(work_dir):
         if os.path.isdir(os.path.join(work_dir, name)):
             # check for cti
-            files = [f for f in os.listdir(os.path.join(work_dir, name)) if
-                     os.path.isfile(os.path.join(work_dir, name, f))]
-            for f in files:
-                if f.endswith('.cti'):
-                    mechanism_list[name] = {}
-                    mechanism_list[name]['mech'] = f
-                    mechanism_list[name]['chemkin'] = f.replace('.cti', '.dat')
-                    gas = ct.Solution(os.path.join(work_dir, name, f))
-                    mechanism_list[name]['ns'] = gas.n_species
-
-                    thermo = next((tf for tf in files if 'therm' in tf), None)
-                    if thermo is not None:
-                        mechanism_list[name]['thermo'] = thermo
+            mech_file = [os.path.join(work_dir, name, f)
+                         for f in os.listdir(os.path.join(work_dir, name)) if
+                         os.path.isfile(os.path.join(work_dir, name, f))
+                         and f.endswith('.yaml')]
+            assert mech_file, 'YaML file describing mechanism {} not found'.format(
+                name)
+            with open(mech_file[0], 'r') as file:
+                mech_file = yaml.load(file.read())
+            mechanism_list[name] = defaultdict(lambda: None)
+            mechanism_list[name]['mech'] = mech_file['mech']
+            gas = ct.Solution(os.path.join(work_dir, name, mech_file['mech']))
+            mechanism_list[name]['ns'] = gas.n_species
+            del gas
+            if 'limits' in mech_file:
+                mechanism_list[name]['limits'] = defaultdict(lambda: None)
+                if 'full' in mech_file['limits']:
+                    mechanism_list[name]['limits']['full'] = \
+                        mech_file['limits']['full']
+                if 'sparse' in mech_file['limits']:
+                    mechanism_list[name]['limits']['sparse'] = \
+                        mech_file['limits']['sparse']
 
     assert isinstance(test_type, build_type)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
