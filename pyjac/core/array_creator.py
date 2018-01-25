@@ -44,9 +44,12 @@ class array_splitter(object):
         Returns True if there is anything for this :class:`array_splitter` to do
         """
 
-        return self.vector_width is not None and ((
-            self.data_order == 'C' and self.width) or (
-            self.data_order == 'F' and self.depth))
+        if self.vector_width is not None:
+            if self.is_simd:
+                return True
+            return (self.data_order == 'C' and self.width) or (
+                    self.data_order == 'F' and self.depth)
+        return False
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
                                 count, order='C', vec=False):
@@ -173,16 +176,6 @@ class array_splitter(object):
 
         if not self._have_split() and not self.is_simd:
             return kernel
-        elif (self.depth or self.width) and self.is_simd:
-            # still need to tag the array indicies as vec
-            arrays = [(x.name, x) for x in kernel.args] + \
-                     [(k, v) for k, v in six.iteritems(kernel.temporary_variables)]
-            for array_name, arr in [x for x in arrays if len(x[1].shape) >= 2]:
-                tags = list(arr.dim_tags)
-                axis = -1 if self.data_order == 'C' else 0
-                tags[axis] = 'vec'
-                kernel = lp.tag_array_axes(kernel, array_name, tags)
-            return kernel
 
         for array_name, arr in [(x.name, x) for x in kernel.args
                                 if isinstance(x, lp.GlobalArg)
@@ -190,8 +183,14 @@ class array_splitter(object):
             if self.data_order == 'C' and self.width:
                 split_axis = 0
                 dest_axis = len(arr.shape)
-            else:
+            elif self.data_order:
                 split_axis = len(arr.shape) - 1
+                dest_axis = len(arr.shape)
+            elif self.data_order == 'F' and self.depth:
+                split_axis = len(arr.shape) - 1
+                dest_axis = 0
+            else:
+                split_axis = 0
                 dest_axis = 0
 
             kernel = self._split_array_axis_inner(
@@ -328,8 +327,7 @@ class array_splitter(object):
             shape = tuple(new_shape)
             assert not any(x == -1 for x in shape)
 
-        return shape, grow_axis, \
-            split_axis
+        return shape, grow_axis, split_axis
 
 
 problem_size = lp.ValueArg('problem_size', dtype=np.int32)
