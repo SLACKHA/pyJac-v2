@@ -1630,7 +1630,7 @@ ${defn}
         # apply specified optimizations
         if to_split and can_vectorize:
             # and assign the l0 axis to the correct variable
-            knl = lp.split_iname(knl, to_split, vec_width, inner_tag='l.0')
+            knl = lp.split_iname(knl, to_split, vec_width, inner_tag='vec')
 
         if utils.can_vectorize_lang[loopy_opts.lang]:
             # tag 'global_ind' as g0, use simple parallelism
