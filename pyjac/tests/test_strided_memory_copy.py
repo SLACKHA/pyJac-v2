@@ -111,8 +111,7 @@ def test_strided_copy(state):
     # now create a simple library
     mem = memory_manager(opts.lang, opts.order, asplit._have_split(),
                          dev_type=state['device_type'],
-                         strided_c_copy=lang == 'c',
-                         allow_mmap=False)
+                         strided_c_copy=lang == 'c')
     mem.add_arrays([x for x in lp_arrays],
                    in_arrays=[x.name for x in lp_arrays if x not in const],
                    out_arrays=[x.name for x in lp_arrays if x not in const],
