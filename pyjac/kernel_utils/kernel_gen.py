@@ -519,22 +519,12 @@ class kernel_generator(object):
                                         + utils.header_ext[self.lang])
         with filew.get_file(os.path.join(self.header_name), self.lang,
                             use_filter=False) as file:
-            extra_headers = ''
-            if self.mem.mem.allow_mmap:
-                # need to include mmap/open/close header's
-                extra_headers = '\n'.join(
-                    ['#include <sys/mman.h>',
-                     '#include <fcntl.h>',
-                     '#include <unistd.h>']
-                )
-
             file.add_lines(file_src.safe_substitute(
                 input_args=', '.join([self._get_pass(next(
                     x for x in self.mem.arrays if x.name == a))
                     for a in self.mem.host_arrays
                     if not any(x.name == a for x in self.mem.host_constants)]),
-                knl_name=self.name,
-                extra_headers=extra_headers))
+                knl_name=self.name))
 
     def _special_kernel_subs(self, file_src):
         """
@@ -1396,7 +1386,6 @@ ${defn}
         # and the header file (only include self now, as we're using embedded
         # kernels)
         headers = [self.__get_kernel_defn() + utils.line_end[self.lang]]
-
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + self.name +
                          utils.header_ext[self.lang]), self.lang) as file:

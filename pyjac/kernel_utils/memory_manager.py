@@ -16,7 +16,6 @@ import yaml
 from enum import Enum
 import six
 import logging
-from textwrap import dedent
 from ..core.array_creator import problem_size as p_size
 #  import resource
 #  align_size = resource.getpagesize()
@@ -556,7 +555,7 @@ class mapped_memory(memory_strategy):
                 else:
                     return __f_unsplit(ctype)
 
-    def __init__(self, lang, order, have_split, allow_mmap=True, **overrides):
+    def __init__(self, lang, order, have_split, **overrides):
 
         self.order = order
         self.have_split = have_split
@@ -565,51 +564,15 @@ class mapped_memory(memory_strategy):
             if key not in overrides:
                 overrides[key] = val
 
-        self.allow_mmap = allow_mmap
-        if self.allow_mmap:
-            c_alloc_fail = dedent(Template("""
-        int fmap_${name} = 0;
-        if (${name} == NULL)
-        {
-            // open temporary file for backing mmap
-            fmap_${name} = open("/tmp/${name}.bin", O_RDWR | O_CREAT | O_TRUNC);
-            ${open_guard}
-            // strech file size to match expected
-            int result = lseek(fmap_${name}, ${buff_size} - 1, SEEK_SET);
-            ${seek_guard}
-            // now write zero to the end of the file to set the file to the correct
-            // size
-            result = write(fmap_${name}, "", 1);
-            ${write_guard}
-            ${name} = (${dtype})mmap(NULL, ${buff_size}, PROT_READ | PROT_WRITE,
-                                     MAP_PRIVATE, fmap_${name}, 0);
-            ${map_guard}
-            ${name}_is_mmap = ${buff_size};
-            printf("%s has been mmap'd due to memory constraints.\\n", ${name});
-        }
-        """).safe_substitute(
-                open_guard=guarded_call(
-                    'c', 'fmap_${name} != -1', "mmap'd file open failed."),
-                seek_guard=guarded_call(
-                    'c', 'result != -1', 'Error calling lseek to stretch mmap file'),
-                write_guard=guarded_call(
-                    'c', 'result != -1', "Error writing to mmap'd file"),
-                map_guard=guarded_call(
-                    'c', '${name} != MAP_FAILED', 'mmap failed.')))
-
-        else:
-            c_alloc_fail = guarded_call('c', '${name} != NULL', 'malloc failed')
-
         alloc = {'opencl': Template(Template(
                     '${name} = clCreateBuffer(context, ${memflag}, '
                     '${buff_size}, NULL, &return_code);\n'
                     '${guard}\n').safe_substitute(guard=guarded_call(
                         'opencl', 'return_code'))),
                  'c': Template(Template(
-                    'size_t ${name}_is_mmap = 0;\n'
-                    '${dtype} ${name} = (${dtype})malloc(${buff_size});\n'
-
-                    '${guard}').safe_substitute(guard=c_alloc_fail))}
+                    '${name} = (${dtype})malloc(${buff_size});\n'
+                    '${guard}').safe_substitute(guard=guarded_call(
+                        'c', '${name} != NULL', 'malloc failed')))}
         __update('alloc', alloc)
 
         # we use blocking read / writes here, so no need to sync currently
@@ -635,27 +598,9 @@ class mapped_memory(memory_strategy):
         host_constant_template = self._get_2d_templates(
             lang, to_device=True, use_full=True)
         __update('host_const_in', host_constant_template)
-
-        c_free = 'free(${name});'
-        if self.allow_mmap:
-            c_free = dedent(Template("""
-        if (${name}_is_mmap == 0)
-        {
-            ${c_free}
-        }
-        else
-        {
-            // unmap
-            ${unmap_guard}
-            // close file
-            close(fmap_${name});
-        }
-        """).safe_substitute(c_free=c_free, unmap_guard=guarded_call(
-                             'c', 'munmap(${name}, ${name}_is_mmap) != -1')))
-
         free = {'opencl': Template(guarded_call(
                          'opencl', 'clReleaseMemObject(${name})')),
-                'c': Template(c_free)}
+                'c': Template('free(${name});')}
         __update('free', free)
         memset = {'opencl': Template(Template(
             """
@@ -1065,6 +1010,11 @@ class memory_manager(object):
                                    per_run_size=per_run_size,
                                    dtype=self.memory_types[
                                         self._handle_type(dev_arr)][self.host_lang])
+
+            if host:
+                # add a type
+                alloc = self.memory_types[self._handle_type(dev_arr)][
+                    self.host_lang] + ' ' + alloc
 
             # generate allocs
             return_list = [alloc]
