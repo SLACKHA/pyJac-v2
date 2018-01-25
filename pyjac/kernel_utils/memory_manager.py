@@ -292,13 +292,9 @@ class memory_strategy(object):
 
         assert 'buff_size' not in kwargs
 
-        dtype_host = dtype
-        if device:
-            dtype_host = ''
-
         return self.alloc_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, memflag=flags,
-            dtype=dtype, dtype_host=dtype_host, **kwargs)
+            dtype=dtype, **kwargs)
 
     def copy(self, to_device, host_name, dev_name, buff_size, dim,
              host_constant=False, **kwargs):
@@ -611,7 +607,7 @@ class mapped_memory(memory_strategy):
                         'opencl', 'return_code'))),
                  'c': Template(Template(
                     'size_t ${name}_is_mmap = 0;\n'
-                    '${dtype_host} ${name} = (${dtype})malloc(${buff_size});\n'
+                    '${dtype} ${name} = (${dtype})malloc(${buff_size});\n'
 
                     '${guard}').safe_substitute(guard=c_alloc_fail))}
         __update('alloc', alloc)
@@ -690,7 +686,7 @@ class mapped_memory(memory_strategy):
 
 
 class pinned_memory(mapped_memory):
-    def __init__(self, lang, order, have_split, allow_mmap=True, **kwargs):
+    def __init__(self, lang, order, have_split, **kwargs):
 
         self.order = order
         self.have_split = have_split
@@ -762,7 +758,6 @@ class pinned_memory(mapped_memory):
 
         # get the defaults from :class:`mapped_memory`
         super(pinned_memory, self).__init__(lang, order, have_split,
-                                            allow_mmap=allow_mmap,
                                             memset=memset, **copies)
 
     def alloc(self, device, name, buff_size='', per_run_size='',
@@ -868,8 +863,7 @@ class memory_manager(object):
     """
 
     def __init__(self, lang, order, have_split,
-                 dev_type=None, strided_c_copy=False,
-                 allow_mmap=True):
+                 dev_type=None, strided_c_copy=False):
         """
         Parameters
         ----------
@@ -885,9 +879,6 @@ class memory_manager(object):
             output variables
         strided_c_copy: bool [False]
             Used in testing strided memory copies for c-targets
-        allow_mmap: bool [True]
-            If true, allow for mmap'd arrays on malloc failure.
-            Useful for very large arrays sometimes encountered during testing.
         """
         self.arrays = []
         self.in_arrays = []
@@ -910,11 +901,9 @@ class memory_manager(object):
             kwargs['use_full'] = False
 
         if self.use_pinned:
-            self.mem = pinned_memory(lang, order, have_split, allow_mmap=allow_mmap,
-                                     **kwargs)
+            self.mem = pinned_memory(lang, order, have_split, **kwargs)
         else:
-            self.mem = mapped_memory(lang, order, have_split, allow_mmap=allow_mmap,
-                                     **kwargs)
+            self.mem = mapped_memory(lang, order, have_split, **kwargs)
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
