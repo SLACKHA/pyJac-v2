@@ -1335,8 +1335,10 @@ ${name} : ${type}
         # fix extra fake kernels
         for gen in self.fake_calls:
             dep = self.fake_calls[gen]
+            # update host constants in subkernel
+            knl = _update_for_host_constants(gen.kernel)
             # replace call in instructions to call to kernel
-            knl_call = gen._get_kernel_call(passed_locals=local_decls)
+            knl_call = gen._get_kernel_call(knl=knl, passed_locals=local_decls)
             instructions = [x.replace(dep, knl_call[:-2]) for x in instructions]
             # and put the kernel in the extra's
             sub_instructions = extra_fake_kernels[gen]
@@ -1346,7 +1348,8 @@ ${name} : ${type}
 ${defn}
 {
     ${insns}
-}""", defn=gen.__get_kernel_defn(passed_locals=local_decls),
+}""", defn=gen.__get_kernel_defn(knl=knl,
+                                 passed_locals=local_decls),
                                  insns='\n'.join(sub_instructions))
             # and place within a single extra kernel
             extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
