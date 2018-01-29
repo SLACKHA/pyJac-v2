@@ -1,5 +1,6 @@
 import os
 from ..core.rate_subs import get_specrates_kernel
+from ..core.create_jacobian import get_jacobian_kernel, finite_difference_jacobian
 from . import TestClass
 from ..loopy_utils.loopy_utils import loopy_options
 from ..libgen import generate_library, build_type
@@ -15,7 +16,7 @@ import sys
 import subprocess
 import numpy as np
 from .. import utils
-from parameterized import parameterized
+from parameterized import parameterized, param
 
 
 class SubTest(TestClass):
@@ -82,6 +83,53 @@ class SubTest(TestClass):
             # test wrapper generation
             generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
                              btype=build_type.species_rates)
+
+            # create the test importer, and run
+            imp = test_utils.get_import_source()
+            with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
+                file.write(imp.substitute(path=lib_dir, package=packages[lang]))
+
+            python_str = 'python{}.{}'.format(
+                sys.version_info[0], sys.version_info[1])
+            subprocess.check_call([python_str,
+                                   os.path.join(lib_dir, 'test_import.py')])
+
+    def __test_cases():
+        for state in OptionLoop(OrderedDict(
+                [('lang', ['opencl', 'c']),
+                 (('jac_type'), ['exact', 'approximate', 'finite_difference'])])):
+            yield param(state)
+
+    @parameterized.expand(__test_cases,
+                          testcase_func_name=lambda x, y, z:
+                          '{0}_{1}_{2}'.format(x.__name__, z[0][0]['lang'],
+                                               z[0][0]['jac_type']))
+    def test_compile_jacobian(self, state):
+        lang = state['lang']
+        jac_type = state['jac_type']
+        opts, oploop = self.__get_objs(lang=lang)
+        build_dir = self.store.build_dir
+        obj_dir = self.store.obj_dir
+        lib_dir = self.store.lib_dir
+        packages = {'c': 'pyjac_c', 'opencl': 'pyjac_ocl'}
+        for state in oploop:
+            # clean old
+            self.__cleanup()
+            # create / write files
+            build_dir = self.store.build_dir
+            conp = state['conp']
+            method = get_jacobian_kernel
+            if jac_type == 'finite_difference':
+                method = finite_difference_jacobian
+            kgen = method(self.store.reacs, self.store.specs, opts,
+                          conp=conp)
+            # generate
+            kgen.generate(build_dir)
+            # write header
+            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+            # test wrapper generation
+            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
+                             btype=build_type.jacobian)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()

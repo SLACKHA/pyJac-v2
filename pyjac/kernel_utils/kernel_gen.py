@@ -1148,7 +1148,7 @@ ${name} : ${type}
         instructions = []
         local_decls = []
 
-        def _update_for_host_constants(kernel):
+        def _update_for_host_constants(kernel, return_new_args=False):
             """
             Moves temporary variables to global arguments based on the
             host constants for this kernel
@@ -1166,9 +1166,12 @@ ${name} : ${type}
                     dim_tags=v.dim_tags)
                     for t, v in six.iteritems(kernel.temporary_variables)
                     if t in transferred]
+                if return_new_args:
+                    return new_args
                 kernel = kernel.copy(
                     args=kernel.args + new_args, temporary_variables=new_temps)
-            return kernel
+            elif not return_new_args:
+                return kernel
 
         def _get_func_body(cgr, subs={}):
             """
@@ -1222,9 +1225,16 @@ ${name} : ${type}
                                            subs)
 
                 if self.fake_calls:
+                    # update host constants in subkernel
+                    new_args = _update_for_host_constants(k, True)
                     # find out which kernel this belongs to
                     sub = next(x for x in self.depends_on
                                if k.name in [y.name for y in x.kernels])
+                    # update sub for host constants
+                    if new_args:
+                        sub.kernel = sub.kernel.copy(args=sub.kernel.args + [
+                            x for x in new_args if x.name not in
+                            set([y.name for y in sub.kernel.args])])
                     # and add the instructions to this fake kernel
                     extra_fake_kernels[sub].append(insns)
                     # and clear insns
@@ -1335,8 +1345,10 @@ ${name} : ${type}
         # fix extra fake kernels
         for gen in self.fake_calls:
             dep = self.fake_calls[gen]
+            # update host constants in subkernel
+            knl = _update_for_host_constants(gen.kernel)
             # replace call in instructions to call to kernel
-            knl_call = gen._get_kernel_call(passed_locals=local_decls)
+            knl_call = gen._get_kernel_call(knl=knl, passed_locals=local_decls)
             instructions = [x.replace(dep, knl_call[:-2]) for x in instructions]
             # and put the kernel in the extra's
             sub_instructions = extra_fake_kernels[gen]
@@ -1346,7 +1358,8 @@ ${name} : ${type}
 ${defn}
 {
     ${insns}
-}""", defn=gen.__get_kernel_defn(passed_locals=local_decls),
+}""", defn=gen.__get_kernel_defn(knl=knl,
+                                 passed_locals=local_decls),
                                  insns='\n'.join(sub_instructions))
             # and place within a single extra kernel
             extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
