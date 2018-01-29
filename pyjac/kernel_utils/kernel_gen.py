@@ -1148,7 +1148,7 @@ ${name} : ${type}
         instructions = []
         local_decls = []
 
-        def _update_for_host_constants(kernel):
+        def _update_for_host_constants(kernel, return_new_args=False):
             """
             Moves temporary variables to global arguments based on the
             host constants for this kernel
@@ -1166,9 +1166,12 @@ ${name} : ${type}
                     dim_tags=v.dim_tags)
                     for t, v in six.iteritems(kernel.temporary_variables)
                     if t in transferred]
+                if return_new_args:
+                    return new_args
                 kernel = kernel.copy(
                     args=kernel.args + new_args, temporary_variables=new_temps)
-            return kernel
+            elif not return_new_args:
+                return kernel
 
         def _get_func_body(cgr, subs={}):
             """
@@ -1222,9 +1225,16 @@ ${name} : ${type}
                                            subs)
 
                 if self.fake_calls:
+                    # update host constants in subkernel
+                    new_args = _update_for_host_constants(k, True)
                     # find out which kernel this belongs to
                     sub = next(x for x in self.depends_on
                                if k.name in [y.name for y in x.kernels])
+                    # update sub for host constants
+                    if new_args:
+                        sub.kernel = sub.kernel.copy(args=sub.kernel.args + [
+                            x for x in new_args if x.name not in
+                            set([y.name for y in sub.kernel.args])])
                     # and add the instructions to this fake kernel
                     extra_fake_kernels[sub].append(insns)
                     # and clear insns
