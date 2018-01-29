@@ -93,14 +93,12 @@ class array_splitter(object):
 
         old_dim_tag = ary.dim_tags[split_axis]
 
-        from loopy.kernel.array import FixedStrideArrayDimTag, VectorArrayDimTag
+        from loopy.kernel.array import FixedStrideArrayDimTag
         if not isinstance(old_dim_tag, FixedStrideArrayDimTag):
             raise RuntimeError("axis %d of '%s' is not tagged fixed-stride".format(
                 split_axis, array_name))
 
         tag = FixedStrideArrayDimTag(1)
-        if vec:
-            tag = VectorArrayDimTag()
         new_dim_tags.insert(dest_axis, tag)
         # fix strides
         toiter = reversed(list(enumerate(new_shape))) if order == 'C' \
@@ -155,6 +153,13 @@ class array_splitter(object):
         aash = ArrayAxisSplitHelper(rule_mapping_context,
                                     set([array_name]), split_access_axis)
         kernel = rule_mapping_context.finish_kernel(aash.map_kernel(kernel))
+
+        if vec:
+            achng = ArrayChanger(kernel, array_name)
+            new_strides = [t.layout_nesting_level for t in achng.get().dim_tags]
+            tag = ['N{}'.format(s) if i != dest_axis else 'vec'
+                   for i, s in enumerate(new_strides)]
+            kernel = lp.tag_array_axes(kernel, [array_name], tag)
 
         return kernel
 
