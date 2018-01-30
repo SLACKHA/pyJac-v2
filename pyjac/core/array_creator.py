@@ -160,6 +160,8 @@ class array_splitter(object):
             tag = ['N{}'.format(s) if i != dest_axis else 'vec'
                    for i, s in enumerate(new_strides)]
             kernel = lp.tag_array_axes(kernel, [array_name], tag)
+            import pdb; pdb.set_trace()
+            print(lp.generate_code(kernel)[0])
 
         return kernel
 
