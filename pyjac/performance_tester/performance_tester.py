@@ -9,6 +9,7 @@ from __future__ import print_function
 import os
 import subprocess
 from nose.tools import nottest
+import six
 
 # Local imports
 from ..libgen import build_type, generate_library
@@ -60,6 +61,7 @@ class performance_runner(runner):
         self.steplist = []
         # initialize steplist
         step = max_vec_width
+        self.max_vec_width = max_vec_width
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
@@ -179,7 +181,7 @@ class performance_runner(runner):
         except:
             return 0
 
-    def run(self, state, asplit, dirs, phi_path, data_output):
+    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -199,11 +201,25 @@ class performance_runner(runner):
             Not used
         data_output: str
             The file to output the results to
+        limits: dict
+            If supplied, a limit on the number of conditions that may be tested
+            at once. Important for larger mechanisms that may cause memory overflows
 
         Returns
         -------
         None
         """
+
+        if limits and state['sparse'] in limits:
+            num_conditions = limits[state['sparse']]
+            # ensure it's divisible by the maximum vector width
+            num_conditions = int((num_conditions // self.max_vec_width)
+                                 * self.max_vec_width)
+            # remove any todo's over the maximum # of conditions
+            self.todo = {k: v for k, v in six.iteritems(self.todo)
+                         if k <= num_conditions}
+            if num_conditions not in self.todo:
+                self.todo[num_conditions] = self.repeats
 
         # first create the executable (via libgen)
         tester = generate_library(state['lang'], dirs['build'],

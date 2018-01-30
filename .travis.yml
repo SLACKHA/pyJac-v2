@@ -3,7 +3,7 @@ sudo: required
 dist: trusty
 
 # safelist
-brances:
+branches:
   only:
     - spyJac
 
@@ -63,18 +63,10 @@ before_install:
   - conda config --add channels conda-forge
   - conda config --add channels cantera
   # create env
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl=1.0
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl=1.0 adept
   - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
-  # get Adept
-  - cd ~
-  - git clone https://github.com/rjhogan/Adept
-  - cd Adept
-  - autoreconf -fi
-  - ./configure --prefix=$CONDA_PREFIX
-  - make -j4
-  - make install
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
 # install pyjac

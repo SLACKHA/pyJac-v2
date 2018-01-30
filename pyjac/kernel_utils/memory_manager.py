@@ -16,7 +16,6 @@ import yaml
 from enum import Enum
 import six
 import logging
-from textwrap import dedent
 from ..core.array_creator import problem_size as p_size
 #  import resource
 #  align_size = resource.getpagesize()
@@ -233,18 +232,16 @@ device_prefix = 'd_'
 
 
 class memory_strategy(object):
-    def __init__(self, lang, alloc_host={}, alloc_device={}, sync={}, copy_in_1d={},
-                 copy_in_2d={}, copy_out_1d={}, copy_out_2d={}, memset={},
-                 alloc_flags={}, host_const_in={}, free_host={}, free_device={}):
-        self.alloc_host_template = alloc_host
-        self.alloc_device_template = alloc_device
+    def __init__(self, lang, alloc={}, sync={}, copy_in_1d={},
+                 copy_in_2d={}, copy_out_1d={}, copy_out_2d={}, free={}, memset={},
+                 alloc_flags={}, host_const_in={}):
+        self.alloc_template = alloc
         self.sync_template = sync
         self.copy_in_1d = copy_in_1d
         self.copy_in_2d = copy_in_2d
         self.copy_out_1d = copy_out_1d
         self.copy_out_2d = copy_out_2d
-        self.free_host_template = free_host
-        self.free_device_template = free_device
+        self.free_template = free
         self.memset_template = memset
         self.host_lang = host_langs[lang]
         self.device_lang = lang
@@ -282,9 +279,6 @@ class memory_strategy(object):
             The resulting allocation instrucitons
         """
 
-        # get correct template
-        template = self.alloc_device_template if device else self.alloc_host_template
-
         flags = kwargs.pop('flags', '')
         if self.lang(device) in self.alloc_flags:
             flags = [self.alloc_flags[self.lang(device)][readonly]] \
@@ -297,13 +291,9 @@ class memory_strategy(object):
 
         assert 'buff_size' not in kwargs
 
-        dtype_host = dtype
-        if device:
-            dtype_host = ''
-
-        return template[self.lang(device)].safe_substitute(
+        return self.alloc_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, memflag=flags,
-            dtype=dtype, dtype_host=dtype_host, **kwargs)
+            dtype=dtype, **kwargs)
 
     def copy(self, to_device, host_name, dev_name, buff_size, dim,
              host_constant=False, **kwargs):
@@ -404,9 +394,7 @@ class memory_strategy(object):
         free_str: str
             The resulting free instructions
         """
-
-        template = self.free_device_template if device else self.free_host_template
-        return template[self.lang(device)].safe_substitute(name=name)
+        return self.free_template[self.lang(device)].safe_substitute(name=name)
 
 
 class mapped_memory(memory_strategy):
@@ -567,7 +555,7 @@ class mapped_memory(memory_strategy):
                 else:
                     return __f_unsplit(ctype)
 
-    def __init__(self, lang, order, have_split, allow_mmap=True, **overrides):
+    def __init__(self, lang, order, have_split, **overrides):
 
         self.order = order
         self.have_split = have_split
@@ -576,59 +564,16 @@ class mapped_memory(memory_strategy):
             if key not in overrides:
                 overrides[key] = val
 
-        self.allow_mmap = allow_mmap
-        c_alloc_fail_device = guarded_call('c', '${name} != NULL', 'malloc failed')
-        if self.allow_mmap:
-            c_alloc_fail_host = dedent(Template("""
-        int fmap_${name} = 0;
-        if (${name} == NULL)
-        {
-            // open temporary file for backing mmap
-            fmap_${name} = open("${name}_temp.bin", O_RDWR | O_CREAT | O_TRUNC,
-                                0600);
-            ${open_guard}
-            // strech file size to match expected
-            int result = lseek(fmap_${name}, ${buff_size} - 1, SEEK_SET);
-            ${seek_guard}
-            // now write zero to the end of the file to set the file to the correct
-            // size
-            result = write(fmap_${name}, "", 1);
-            ${write_guard}
-            ${name} = (${dtype})mmap(NULL, ${buff_size}, PROT_READ | PROT_WRITE,
-                                     MAP_PRIVATE, fmap_${name}, 0);
-            ${map_guard}
-            ${name}_is_mmap = ${buff_size};
-            printf("%s has been mmap'd due to memory constraints.\\n", "${name}");
-        }
-        """).safe_substitute(
-                open_guard=guarded_call(
-                    'c', 'fmap_${name} != -1', "mmap'd file open failed."),
-                seek_guard=guarded_call(
-                    'c', 'result != -1', 'Error calling lseek to stretch mmap file'),
-                write_guard=guarded_call(
-                    'c', 'result != -1', "Error writing to mmap'd file"),
-                map_guard=guarded_call(
-                    'c', '${name} != MAP_FAILED', 'mmap failed.')))
-
-        else:
-            c_alloc_fail_host = c_alloc_fail_device
-
-        alloc_device = {
-            'opencl': Template(Template(
-                '${name} = clCreateBuffer(context, ${memflag}, '
-                '${buff_size}, NULL, &return_code);\n'
-                '${guard}\n').safe_substitute(guard=guarded_call(
-                    'opencl', 'return_code'))),
-            'c': Template(Template(
-                '${dtype_host} ${name} = (${dtype})malloc(${buff_size});\n'
-                '${guard}').safe_substitute(guard=c_alloc_fail_device))}
-        __update('alloc_device', alloc_device)
-        alloc_host = {
-            'c': Template(Template(
-                'size_t ${name}_is_mmap = 0;\n'
-                '${dtype_host} ${name} = (${dtype})malloc(${buff_size});\n'
-                '${guard}').safe_substitute(guard=c_alloc_fail_host))}
-        __update('alloc_host', alloc_host)
+        alloc = {'opencl': Template(Template(
+                    '${name} = clCreateBuffer(context, ${memflag}, '
+                    '${buff_size}, NULL, &return_code);\n'
+                    '${guard}\n').safe_substitute(guard=guarded_call(
+                        'opencl', 'return_code'))),
+                 'c': Template(Template(
+                    '${name} = (${dtype})malloc(${buff_size});\n'
+                    '${guard}').safe_substitute(guard=guarded_call(
+                        'c', '${name} != NULL', 'malloc failed')))}
+        __update('alloc', alloc)
 
         # we use blocking read / writes here, so no need to sync currently
         # in the future this would be a convenient place to put in multiple-device
@@ -653,36 +598,10 @@ class mapped_memory(memory_strategy):
         host_constant_template = self._get_2d_templates(
             lang, to_device=True, use_full=True)
         __update('host_const_in', host_constant_template)
-
-        c_free_device = 'free(${name});'
-        if self.allow_mmap:
-            c_free_host = dedent(Template("""
-        if (${name}_is_mmap == 0)
-        {
-            ${c_free}
-        }
-        else
-        {
-            // unmap
-            ${unmap_guard}
-            // close file
-            close(fmap_${name});
-        }
-        """).safe_substitute(c_free=c_free_device, unmap_guard=guarded_call(
-                             'c', 'munmap(${name}, ${name}_is_mmap) != -1')))
-        else:
-            c_free_host = c_free_device
-
-        free_device = {
-            'opencl': Template(guarded_call(
-                'opencl', 'clReleaseMemObject(${name})')),
-            'c': Template(c_free_device)}
-        __update('free_device', free_device)
-        free_host = {
-            'c': Template(c_free_host)
-        }
-        __update('free_host', free_host)
-
+        free = {'opencl': Template(guarded_call(
+                         'opencl', 'clReleaseMemObject(${name})')),
+                'c': Template('free(${name});')}
+        __update('free', free)
         memset = {'opencl': Template(Template(
             """
             #if CL_LEVEL >= 120
@@ -712,7 +631,7 @@ class mapped_memory(memory_strategy):
 
 
 class pinned_memory(mapped_memory):
-    def __init__(self, lang, order, have_split, allow_mmap=True, **kwargs):
+    def __init__(self, lang, order, have_split, **kwargs):
 
         self.order = order
         self.have_split = have_split
@@ -784,7 +703,6 @@ class pinned_memory(mapped_memory):
 
         # get the defaults from :class:`mapped_memory`
         super(pinned_memory, self).__init__(lang, order, have_split,
-                                            allow_mmap=allow_mmap,
                                             memset=memset, **copies)
 
     def alloc(self, device, name, buff_size='', per_run_size='',
@@ -890,8 +808,7 @@ class memory_manager(object):
     """
 
     def __init__(self, lang, order, have_split,
-                 dev_type=None, strided_c_copy=False,
-                 allow_mmap=True):
+                 dev_type=None, strided_c_copy=False):
         """
         Parameters
         ----------
@@ -907,9 +824,6 @@ class memory_manager(object):
             output variables
         strided_c_copy: bool [False]
             Used in testing strided memory copies for c-targets
-        allow_mmap: bool [True]
-            If true, allow for mmap'd arrays on malloc failure.
-            Useful for very large arrays sometimes encountered during testing.
         """
         self.arrays = []
         self.in_arrays = []
@@ -932,11 +846,9 @@ class memory_manager(object):
             kwargs['use_full'] = False
 
         if self.use_pinned:
-            self.mem = pinned_memory(lang, order, have_split, allow_mmap=allow_mmap,
-                                     **kwargs)
+            self.mem = pinned_memory(lang, order, have_split, **kwargs)
         else:
-            self.mem = mapped_memory(lang, order, have_split, allow_mmap=allow_mmap,
-                                     **kwargs)
+            self.mem = mapped_memory(lang, order, have_split, **kwargs)
         self.host_constant_template = Template(
             'const ${type} h_${name} [${size}] = {${init}}'
             )
@@ -1098,6 +1010,11 @@ class memory_manager(object):
                                    per_run_size=per_run_size,
                                    dtype=self.memory_types[
                                         self._handle_type(dev_arr)][self.host_lang])
+
+            if host:
+                # add a type
+                alloc = self.memory_types[self._handle_type(dev_arr)][
+                    self.host_lang] + ' ' + alloc
 
             # generate allocs
             return_list = [alloc]

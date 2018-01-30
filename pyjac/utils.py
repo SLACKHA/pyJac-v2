@@ -446,7 +446,7 @@ def get_parser():
                         'resulting in suboptimal deep vectorizations.'
                         )
     parser.add_argument('-jt', '--jac_type',
-                        choices=['exact', 'approximate'],
+                        choices=['exact', 'approximate', 'finite_difference'],
                         required=False,
                         default='exact',
                         help='The type of Jacobian kernel to generate.  An '
@@ -481,3 +481,29 @@ def get_parser():
 
     args = parser.parse_args()
     return args
+
+
+def create():
+    args = get_parser()
+    from .core.create_jacobian import create_jacobian
+    create_jacobian(lang=args.lang,
+                    mech_name=args.input,
+                    therm_name=args.thermo,
+                    vector_size=args.vector_size,
+                    wide=args.wide,
+                    deep=args.deep,
+                    unr=args.unroll,
+                    build_path=args.build_path,
+                    last_spec=args.last_species,
+                    skip_jac=args.skip_jac,
+                    platform=args.platform,
+                    data_order=args.data_order,
+                    rate_specialization=args.rate_specialization,
+                    split_rate_kernels=args.split_rate_kernels,
+                    split_rop_net_kernels=args.split_rop_net_kernels,
+                    conp=args.conp,
+                    use_atomics=args.use_atomics,
+                    jac_type=args.jac_type,
+                    jac_format=args.jac_format,
+                    mem_limits=args.memory_limits
+                    )

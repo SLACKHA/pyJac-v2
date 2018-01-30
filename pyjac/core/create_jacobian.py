@@ -5274,12 +5274,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     # now begin writing subroutines
-    if not skip_jac:
+    if not skip_jac and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
                                   mem_limits=mem_limits)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
-    elif jac_type == JacobianType.finite_difference:
+    elif not skip_jac and jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
                                          mem_limits=mem_limits)
@@ -5297,26 +5297,4 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 if __name__ == "__main__":
     utils.setup_logging()
-    args = utils.get_parser()
-
-    create_jacobian(lang=args.lang,
-                    mech_name=args.input,
-                    therm_name=args.thermo,
-                    vector_size=args.vector_size,
-                    wide=args.wide,
-                    deep=args.deep,
-                    unr=args.unroll,
-                    build_path=args.build_path,
-                    last_spec=args.last_species,
-                    platform=args.platform,
-                    data_order=args.data_order,
-                    rate_specialization=args.rate_specialization,
-                    split_rate_kernels=args.split_rate_kernels,
-                    split_rop_net_kernels=args.split_rop_net_kernels,
-                    conp=args.conp,
-                    use_atomics=args.use_atomics,
-                    jac_type=args.jac_type,
-                    jac_format=args.jac_format,
-                    skip_jac=False,
-                    mem_limits=args.memory_limits
-                    )
+    utils.create()

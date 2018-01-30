@@ -173,7 +173,8 @@ class hdf5_store(object):
         self.handles.clear()
 
     def output_to_pytables(self, name, dirname, ref_ans, order, asplit,
-                           filename=None, pytables_name=None):
+                           filename=None, pytables_name=None,
+                           num_conditions=None):
         """
         Converts the binary output file in :param:`filename` to a HDF5 pytables file
         in order to avoid memory errors
@@ -203,6 +204,9 @@ class hdf5_store(object):
             The filename of the pytables_output.  If not supplied, it will be the
             same as :param:`filename` with the '.bin' prefix replaced with
             '.hdf5'
+        num_conditions: int [None]
+            If specified, a limit on the number of conditions that were tested
+            due to memory constraints
 
         Returns
         -------
@@ -231,8 +235,14 @@ class hdf5_store(object):
         hdf5_file = tables.open_file(pytables_name, mode='w')
         # add compression
         filters = tables.Filters(complevel=5, complib='blosc')
+        # get the reference answer shape
+        ref_ans_shape = list(ref_ans.shape)
+        # check for limits
+        if num_conditions:
+            ref_ans_shape[0] = num_conditions
         # get the reference answer in order to get shape, etc.
-        shape, grow_axis, split_axis = asplit.split_shape(ref_ans)
+        shape, grow_axis, split_axis = asplit.split_shape(
+            type('', (object,), {'shape': ref_ans_shape}))
 
         # and set the enlargable shape for the pytables array
         eshape = tuple(shape[i] if i != grow_axis else 0
@@ -432,7 +442,7 @@ class validation_runner(runner, hdf5_store):
         answers = asplit.split_numpy_arrays(answers)
         return answers, out
 
-    def run(self, state, asplit, dirs, phi_path, data_output):
+    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -451,6 +461,9 @@ class validation_runner(runner, hdf5_store):
             phi to be saved in (as a binary file)
         data_output: str
             The file to output the results to
+        limits: dict
+            If supplied, a limit on the number of conditions that may be tested
+            at once. Important for larger mechanisms that may cause memory overflows
 
         Returns
         -------
@@ -472,9 +485,14 @@ class validation_runner(runner, hdf5_store):
 
         # store phi array to file
         np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
+
+        num_conditions = self.num_conditions
+        if limits and state['sparse'] in limits:
+            num_conditions = limits[state['sparse']]
+
         # call
         subprocess.check_call([os.path.join(my_test, lib),
-                               str(self.num_conditions), str(state['num_cores'])],
+                               str(num_conditions), str(state['num_cores'])],
                               cwd=my_test)
 
         answers = self.helper.ref_answers(state)
@@ -483,15 +501,15 @@ class validation_runner(runner, hdf5_store):
         for name, ref_ans in zip(*(self.helper.output_names, answers)):
             outputs.append(
                 self.output_to_pytables(name, my_test, ref_ans, state['order'],
-                                        asplit))
+                                        asplit, num_conditions=num_conditions))
 
         # now loop through the output in error chunks increments to get error
         offset = 0
         # store the error dict
         err_dict = {}
-        while offset < self.num_conditions:
+        while offset < num_conditions:
             this_run = np.minimum(
-                self.chunk_size, self.num_conditions - offset)
+                self.chunk_size, num_conditions - offset)
 
             # convert our chunks to workable numpy arrays
             ans, out = self.arrays_per_run(
