@@ -5274,7 +5274,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     # now begin writing subroutines
-    if not skip_jac and jac_type == JacobianType.exact:
+    if not skip_jac and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
                                   mem_limits=mem_limits)
