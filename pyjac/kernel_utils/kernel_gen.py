@@ -1168,7 +1168,7 @@ ${name} : ${type}
                     if t in transferred]
                 if return_new_args:
                     return new_args
-                kernel = kernel.copy(
+                return kernel.copy(
                     args=kernel.args + new_args, temporary_variables=new_temps)
             elif not return_new_args:
                 return kernel
