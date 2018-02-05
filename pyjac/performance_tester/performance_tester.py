@@ -127,7 +127,7 @@ class performance_runner(runner):
             Dictionary with number of runs left for each step
         """
 
-        runs = defaultdict(lambda x: self.repeats)
+        runs = defaultdict(lambda: self.repeats)
         for step in self.steplist:
             runs[step] = self.repeats
 
