@@ -10,6 +10,9 @@ import os
 import subprocess
 from nose.tools import nottest
 import six
+# import io open to ignore any utf-8 characters in file output
+# (e.g., from error'd OpenCL builds)
+from io import open
 
 # Local imports
 from ..libgen import build_type, generate_library
@@ -128,7 +131,7 @@ class performance_runner(runner):
             runs[step] = self.repeats
 
         try:
-            with open(filename, 'r') as file:
+            with open(filename, 'r', encoding="utf8", errors='ignore') as file:
                 lines = [line.strip() for line in file.readlines()]
             for line in lines:
                 try:
@@ -157,7 +160,7 @@ class performance_runner(runner):
 
         """
         try:
-            with open(filename, 'r') as file:
+            with open(filename, 'r', encoding="utf8", errors='ignore') as file:
                 lines = [line.strip() for line in file.readlines()]
             num_completed = 0
             to_find = 4
