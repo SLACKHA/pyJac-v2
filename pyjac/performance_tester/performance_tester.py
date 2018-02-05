@@ -13,6 +13,7 @@ import six
 # import io open to ignore any utf-8 characters in file output
 # (e.g., from error'd OpenCL builds)
 from io import open
+from collections import defaultdict
 
 # Local imports
 from ..libgen import build_type, generate_library
@@ -126,7 +127,7 @@ class performance_runner(runner):
             Dictionary with number of runs left for each step
         """
 
-        runs = {}
+        runs = defaultdict(lambda x: self.repeats)
         for step in self.steplist:
             runs[step] = self.repeats
 
