@@ -1228,7 +1228,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         if 'limits' in mech_info:
             for sparse_type in mech_info['limits']:
                 lim = int(
-                    np.floor(mech_info['limits'] / max_vec_width) * max_vec_width)
+                    np.floor(mech_info['limits'][sparse_type] / max_vec_width)
+                    * max_vec_width)
                 if lim != mech_info['limits'][sparse_type]:
                     logger = logging.getLogger(__name__)
                     logger.info('Changing limit for mech {name} ({jtype}) from '
