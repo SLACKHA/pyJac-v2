@@ -1224,6 +1224,22 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
 
+        # check limits
+        if 'limits' in mech_info:
+            for sparse_type in mech_info['limits']:
+                lim = int(
+                    np.floor(mech_info['limits'] / max_vec_width) * max_vec_width)
+                if lim != mech_info['limits'][sparse_type]:
+                    logger = logging.getLogger(__name__)
+                    logger.info('Changing limit for mech {name} ({jtype}) from '
+                                '{old} to {new} to ensure even divisbility by '
+                                'vector width'.format(
+                                    name=mech_name,
+                                    jtype=sparse_type,
+                                    old=mech_info['limits'][sparse_type],
+                                    new=lim))
+                    mech_info['limits'][sparse_type] = lim
+
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
         P = data[:num_conditions, 1].flatten()
