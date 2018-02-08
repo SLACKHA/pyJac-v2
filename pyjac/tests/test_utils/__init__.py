@@ -1093,7 +1093,7 @@ class runner(object):
                                np.reshape(extra, (-1, 1)),
                                moles[:, :-1]), axis=1)
 
-    def have_limit(state, limits):
+    def have_limit(self, state, limits):
         """
         Returns the appropriate limit on the number of initial conditions
         based on the runtype
