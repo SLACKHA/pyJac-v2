@@ -212,7 +212,10 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
     if os.path.exists(os.path.join(out_dir, libname + lib_ext(not shared))):
         os.remove(os.path.join(out_dir, libname + lib_ext(not shared)))
 
-    libname += lib_ext(shared)
+    # add optimization / debug flags
+    command.extend(compile_flags)
+
+    command += lib_ext(shared)
 
     if not shared and lang != 'cuda':
         command += [os.path.join(out_dir, libname)]
