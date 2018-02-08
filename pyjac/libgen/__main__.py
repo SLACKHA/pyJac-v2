@@ -44,7 +44,14 @@ if __name__ == '__main__':
                         default='jacobian',
                         help='The type of library to build: {type}'.format(
                             type=str(utils.EnumType(build_type))))
+    parser.add_argument('-e', '--executable',
+                        required=False,
+                        default=False,
+                        action='store_true',
+                        help='If supplied, convert the generated library to an '
+                             'executable shared library (cannot be supplied w/ '
+                             '--static switch)')
 
     args = parser.parse_args()
     generate_library(args.lang, args.source_dir, args.obj_dir, args.out_dir,
-                     not args.static, args.build_type)
+                     not args.static, args.build_type, args.executable)
