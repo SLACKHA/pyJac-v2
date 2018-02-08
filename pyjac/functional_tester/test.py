@@ -486,9 +486,9 @@ class validation_runner(runner, hdf5_store):
         # store phi array to file
         np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
 
-        num_conditions = self.num_conditions
-        if limits and state['sparse'] in limits:
-            num_conditions = limits[state['sparse']]
+        limited_num_conditions = self.have_limit(state, limits)
+        if limited_num_conditions is not None:
+            num_conditions = limited_num_conditions
 
         # call
         subprocess.check_call([os.path.join(my_test, lib),

@@ -1093,6 +1093,37 @@ class runner(object):
                                np.reshape(extra, (-1, 1)),
                                moles[:, :-1]), axis=1)
 
+    def have_limit(state, limits):
+        """
+        Returns the appropriate limit on the number of initial conditions
+        based on the runtype
+
+        Parameters
+        ----------
+        state: dict
+            The current run's parameters
+        limits: dict
+            If supplied, a limit on the number of conditions that may be tested
+            at once. Important for larger mechanisms that may cause memory overflows
+
+        Returns
+        -------
+        num_conditions: int or None
+            The limit on the number of initial conditions for this runtype
+            If None is returned, the limit is not supplied
+        """
+
+        # check rtype
+        if str(self.rtype) in limits:
+            if self.rtype == build_type.jacobian:
+                # check sparsity
+                if state['sparse'] in limits[str(self.rtype)]:
+                    return limits[str(self.rtype)][state['sparse']]
+            else:
+                return limits[str(self.rtype)]
+
+        return None
+
     def post(self):
         pass
 
@@ -1226,20 +1257,47 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
 
         # check limits
         if 'limits' in mech_info:
-            for sparse_type in mech_info['limits']:
-                lim = int(
-                    np.floor(mech_info['limits'][sparse_type] / max_vec_width)
-                    * max_vec_width)
-                if lim != mech_info['limits'][sparse_type]:
+            def __try_convert(enumtype, value):
+                try:
+                    value = utils.EnumType(enumtype)(value)
+                except KeyError:
                     logger = logging.getLogger(__name__)
-                    logger.info('Changing limit for mech {name} ({jtype}) from '
-                                '{old} to {new} to ensure even divisbility by '
-                                'vector width'.format(
+                    logger.warn('Unknown limit type {} found in mechanism info file '
+                                'for mech {}'.format(value, mech_name))
+                    return False
+                return value
+
+            def __change_limit(keylist):
+                subdict = mech_info['limits']
+                keylist = [str(key) for key in keylist]
+                for i, key in enumerate(keylist):
+                    if key not in subdict:
+                        return
+                    if i < len(keylist) - 1:
+                        # recurse
+                        subdict = subdict[key]
+                    else:
+                        lim = int(np.floor(subdict[key] / max_vec_width)
+                                  * max_vec_width)
+                        if lim != subdict[key]:
+                            logger = logging.getLogger(__name__)
+                            logger.info(
+                                'Changing limit for mech {name} ({keys}) '
+                                'from {old} to {new} to ensure even '
+                                'divisbility by vector width'.format(
                                     name=mech_name,
-                                    jtype=sparse_type,
-                                    old=mech_info['limits'][sparse_type],
+                                    jtype='.'.join(keylist),
+                                    old=subdict[key],
                                     new=lim))
-                    mech_info['limits'][sparse_type] = lim
+
+            for btype in mech_info['limits']:
+                btype = __try_convert(btype)
+                if btype == build_type.jacobian:
+                    __change_limit([btype, JacobianFormat.sparse])
+                    __change_limit([btype, JacobianFormat.full])
+                else:
+                    __change_limit([btype])
+
 
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()

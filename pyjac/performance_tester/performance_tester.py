@@ -191,8 +191,6 @@ class performance_runner(runner):
 
         Parameters
         ----------
-        Parameters
-        ----------
         state: dict
             A dictionary containing the state of the current optimization / language
             / vectorization patterns, etc.
@@ -214,11 +212,9 @@ class performance_runner(runner):
         None
         """
 
-        if limits and state['sparse'] in limits:
-            num_conditions = limits[state['sparse']]
-            # ensure it's divisible by the maximum vector width
-            num_conditions = int((num_conditions // self.max_vec_width)
-                                 * self.max_vec_width)
+        limited_num_conditions = self.have_limit(state, limits)
+        if limited_num_conditions is not None:
+            num_conditions = limited_num_conditions
             # remove any todo's over the maximum # of conditions
             self.todo = {k: v for k, v in six.iteritems(self.todo)
                          if k <= num_conditions}
