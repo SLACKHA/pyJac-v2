@@ -87,7 +87,7 @@ class EnumType(object):
 
     def __repr__(self):
         astr = ', '.join([t.name.lower() for t in self.enums])
-        return '{0}({1})' % (self.enums.__name__, astr)
+        return '{0}({1})'.format(self.enums.__name__, astr)
 
 
 def get_species_mappings(num_specs, last_species):
