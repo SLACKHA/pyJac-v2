@@ -12,6 +12,7 @@ from math import log
 from string import Template
 import logging
 import re
+import os
 
 # Local imports
 from .. import utils
