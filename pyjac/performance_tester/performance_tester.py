@@ -214,12 +214,11 @@ class performance_runner(runner):
 
         limited_num_conditions = self.have_limit(state, limits)
         if limited_num_conditions is not None:
-            num_conditions = limited_num_conditions
             # remove any todo's over the maximum # of conditions
             self.todo = {k: v for k, v in six.iteritems(self.todo)
-                         if k <= num_conditions}
-            if num_conditions not in self.todo:
-                self.todo[num_conditions] = self.repeats
+                         if k <= limited_num_conditions}
+            if limited_num_conditions not in self.todo:
+                self.todo[limited_num_conditions] = self.repeats
 
         # first create the executable (via libgen)
         tester = generate_library(state['lang'], dirs['build'],
