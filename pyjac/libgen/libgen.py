@@ -214,8 +214,9 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
 
     libname += lib_ext(shared)
 
-    # add optimization / debug flags
-    command.extend(compile_flags)
+    if shared:
+        # add optimization / debug flags
+        command.extend(compile_flags)
 
     if not shared and lang != 'cuda':
         command += [os.path.join(out_dir, libname)]
