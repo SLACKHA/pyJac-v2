@@ -34,6 +34,7 @@ void compiler()
     {
         fp = fopen(filename[i], "r");
         if (!fp) {
+            printf("Kernel source: %s could not be opened.", filename[i]);
             exit(-1);
         }
         //find file size

@@ -12,6 +12,7 @@ from math import log
 from string import Template
 import logging
 import re
+import os
 
 # Local imports
 from .. import utils
@@ -5231,6 +5232,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         seperate_kernels=seperate_kernels)
 
     # create output directory if none exists
+    build_path = os.path.abspath(build_path)
     utils.create_dir(build_path)
 
     assert mech_name is not None or gas is not None, 'No mechanism specified!'

@@ -31,7 +31,8 @@ if __name__ == '__main__':
                         required=False,
                         type=utils.EnumType(build_type),
                         default='jacobian',
-                        help='The type of library to build: {type}')
+                        help='The type of library to build: {type}'.format(
+                            type=str(utils.EnumType(build_type))))
 
     args = parser.parse_args()
     generate_wrapper(args.lang, args.source_dir, args.out_dir, btype=args.build_type)

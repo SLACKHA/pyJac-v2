@@ -10,6 +10,10 @@ import os
 import subprocess
 from nose.tools import nottest
 import six
+# import io open to ignore any utf-8 characters in file output
+# (e.g., from error'd OpenCL builds)
+from io import open
+from collections import defaultdict
 
 # Local imports
 from ..libgen import build_type, generate_library
@@ -123,12 +127,12 @@ class performance_runner(runner):
             Dictionary with number of runs left for each step
         """
 
-        runs = {}
+        runs = defaultdict(lambda: self.repeats)
         for step in self.steplist:
             runs[step] = self.repeats
 
         try:
-            with open(filename, 'r') as file:
+            with open(filename, 'r', encoding="utf8", errors='ignore') as file:
                 lines = [line.strip() for line in file.readlines()]
             for line in lines:
                 try:
@@ -157,7 +161,7 @@ class performance_runner(runner):
 
         """
         try:
-            with open(filename, 'r') as file:
+            with open(filename, 'r', encoding="utf8", errors='ignore') as file:
                 lines = [line.strip() for line in file.readlines()]
             num_completed = 0
             to_find = 4
@@ -187,8 +191,6 @@ class performance_runner(runner):
 
         Parameters
         ----------
-        Parameters
-        ----------
         state: dict
             A dictionary containing the state of the current optimization / language
             / vectorization patterns, etc.
@@ -210,16 +212,13 @@ class performance_runner(runner):
         None
         """
 
-        if limits and state['sparse'] in limits:
-            num_conditions = limits[state['sparse']]
-            # ensure it's divisible by the maximum vector width
-            num_conditions = int((num_conditions // self.max_vec_width)
-                                 * self.max_vec_width)
+        limited_num_conditions = self.have_limit(state, limits)
+        if limited_num_conditions is not None:
             # remove any todo's over the maximum # of conditions
             self.todo = {k: v for k, v in six.iteritems(self.todo)
-                         if k <= num_conditions}
-            if num_conditions not in self.todo:
-                self.todo[num_conditions] = self.repeats
+                         if k <= limited_num_conditions}
+            if limited_num_conditions not in self.todo:
+                self.todo[limited_num_conditions] = self.repeats
 
         # first create the executable (via libgen)
         tester = generate_library(state['lang'], dirs['build'],
