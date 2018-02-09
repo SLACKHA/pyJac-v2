@@ -1114,7 +1114,7 @@ class runner(object):
         """
 
         # check rtype
-        if str(self.rtype) in limits:
+        if limits is not None and str(self.rtype) in limits:
             if self.rtype == build_type.jacobian:
                 # check sparsity
                 if state['sparse'] in limits[str(self.rtype)]:
