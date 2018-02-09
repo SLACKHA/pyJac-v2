@@ -1291,13 +1291,12 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
                                     new=lim))
 
             for btype in mech_info['limits']:
-                btype = __try_convert(btype)
+                btype = __try_convert(build_type, btype)
                 if btype == build_type.jacobian:
                     __change_limit([btype, JacobianFormat.sparse])
                     __change_limit([btype, JacobianFormat.full])
                 else:
                     __change_limit([btype])
-
 
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
