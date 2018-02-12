@@ -1251,6 +1251,9 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         # rewrite data to file in 'C' order
         dbw.write(this_dir, num_conditions=num_conditions, data=data)
 
+        # apply species mapping to data
+        data[:, 2:] = data[:, 2 + gas_map]
+
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
@@ -1305,9 +1308,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         V = np.ones_like(P)
 
         # resize data
-        moles = data[:num_conditions, 2:]
-        # and reorder
-        moles = moles[:, gas_map].copy()
+        moles = data[:num_conditions, 2:].copy()
 
         run.pre(gas, {'T': T, 'P': P, 'V': V, 'moles': moles},
                 num_conditions, max_vec_width)
@@ -1317,6 +1318,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         del T
         del P
         del V
+        del moles
 
         # begin iterations
         from collections import defaultdict
