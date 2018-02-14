@@ -631,7 +631,7 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    do_sparse=False, langs=['opencl'],
+                    do_sparse=False, langs=['opencl', 'c'],
                     sparse_only=False, **kw_args):
     """
     A generic testing method that can be used for to test the correctness of
@@ -669,7 +669,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     """
 
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                         do_conp=do_conp, do_sparse=do_sparse,
+                         langs=langs, do_conp=do_conp, do_sparse=do_sparse,
                          sparse_only=sparse_only)
 
     reacs = owner.store.reacs
@@ -741,7 +741,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             loopy_opts=opt,
             kernels=infos,
             namestore=namestore,
-            test_size=owner.store.test_size
+            test_size=owner.store.test_size,
+            for_testing=True
         )
 
         knl._make_kernels()
