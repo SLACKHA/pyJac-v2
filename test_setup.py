@@ -2,6 +2,8 @@
 # a) the test platforms file
 # b) the chemical mechanism to test
 # c) the maximum number of threads to test
+# d) the relative / absolute tolerances
+# e) the languages to test
 # note that both can be specified on the command line via ENV variables if desired
 # e.g. GAS=mymech.cti TEST_PLATFORMS=my_platform.yaml nosetests ...
 # or simply feel free to modify the below...
@@ -14,6 +16,8 @@ PLATFORM = 'test_platform.yaml'
 gas = os.path.join(home, 'pyjac', 'tests', 'test.cti')
 config['test_platform'] = os.path.join(home, PLATFORM)
 config['gas'] = gas
+# set test languages to opencl & c
+config['test_langs'] = 'opencl,c'
 # unused by default, sets maximum # of hardware threads for testing
 # config['max_threads'] = None
 # unused by default, but allows the user to specify relative tolerance for unit tests

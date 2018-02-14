@@ -587,7 +587,7 @@ class get_comparable(object):
 
 
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
-                langs=['opencl'], do_vector=True, do_sparse=False,
+                langs=['c', 'opencl'], do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False):
 
@@ -631,7 +631,7 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    do_sparse=False, langs=['opencl', 'c'],
+                    do_sparse=False, langs=None,
                     sparse_only=False, **kw_args):
     """
     A generic testing method that can be used for to test the correctness of
@@ -667,6 +667,10 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     kwargs: dict
         Any additional arguements to pass to the :param:`func`
     """
+
+    if langs is None:
+        from .. import get_test_langs
+        langs = get_test_langs()
 
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
                          langs=langs, do_conp=do_conp, do_sparse=do_sparse,
