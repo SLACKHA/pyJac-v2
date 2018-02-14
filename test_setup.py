@@ -4,9 +4,11 @@
 # c) the maximum number of threads to test
 # d) the relative / absolute tolerances
 # e) the languages to test
-# note that both can be specified on the command line via ENV variables if desired
-# e.g. GAS=mymech.cti TEST_PLATFORMS=my_platform.yaml nosetests ...
+# All test configuration variables  can be specified on the command line via
+# ENV variables if desired
+# e.g. GAS=mymech.cti TEST_PLATFORM=my_platform.yaml nosetests ...
 # or simply feel free to modify the below...
+# NOTE: supplied enviroment variables with override variables set in this test config
 
 import os
 home = os.getcwd()
