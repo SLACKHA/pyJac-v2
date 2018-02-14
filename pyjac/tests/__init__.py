@@ -177,6 +177,14 @@ def get_mechanism_file():
     return _get_test_input('gas', 'test.cti')
 
 
+def get_test_langs():
+    """
+    Returns the languages to use in unit testing, defaults to OpenCL & C
+    """
+
+    return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
+
+
 class storage(object):
 
     def __init__(self, test_platforms, gas, specs, reacs):
