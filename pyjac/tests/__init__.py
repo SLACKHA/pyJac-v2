@@ -13,7 +13,6 @@ import os
 from ..core.mech_interpret import read_mech_ct
 from .. import utils
 import logging
-from nose.tools import nottest
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
@@ -42,7 +41,7 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
             allowed_langs = langs[:]
             if 'lang' in p:
                 # pull from platform languages if possible
-                allowed_langs = [p['lang']] if p['lang'] in allowed_langs else []
+                allowed_langs = p['lang'] if p['lang'] in allowed_langs else []
             else:
                 allowed_langs = []
 
@@ -55,10 +54,13 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
                 return oploop
 
             # set lang
-            inner_loop.extend([('lang', l) for l in allowed_langs])
+            inner_loop.append(('lang', allowed_langs))
 
             # get vectorization type and size
-            vectype = None if ('vectype' not in p or not do_vector) else p['vectype']
+            vectype = None if (
+                'vectype' not in p or not do_vector or not
+                utils.can_vectorize_lang[allowed_langs]) \
+                else p['vectype']
             vecsize = 4 if 'vecsize' not in p else int(p['vecsize'])
             if vectype is not None:
                 for v in [x.lower() for x in vectype]:
@@ -98,8 +100,9 @@ def get_test_platforms(test_platforms, do_vector=True, langs=['opencl'],
             # file not found, or no appropriate targets for specified languages
             for lang in langs:
                 inner_loop = []
-                vectypes = [4, None] if do_vector else [None]
-                inner_loop = [('lang', langs[:])]
+                vectypes = [4, None] if do_vector and \
+                    utils.can_vectorize_lang[lang] else [None]
+                inner_loop = [('lang', lang)]
                 if lang == 'opencl':
                     import pyopencl as cl
                     inner_loop += [('width', vectypes[:]),
