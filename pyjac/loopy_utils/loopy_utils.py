@@ -859,7 +859,8 @@ class kernel_call(object):
         if isinstance(knl.target, lp.PyOpenCLTarget):
             evt, out = knl(queue, out_host=True, **self.kernel_args)
         elif isinstance(knl.target, lp.CTarget):
-            evt, out = knl(**self.kernel_args)
+            evt, out = knl(**{k: v.copy(order=self.current_order)
+                              for k, v in self.kernel_args.items()})
         else:
             raise NotImplementedError
 
