@@ -117,7 +117,8 @@ class kernel_runner(object):
             loopy_opts=loopy_opts,
             kernels=infos,
             namestore=namestore,
-            test_size=self.test_size
+            test_size=self.test_size,
+            for_testing=True
         )
         gen._make_kernels()
         # setup kernel call and output names
