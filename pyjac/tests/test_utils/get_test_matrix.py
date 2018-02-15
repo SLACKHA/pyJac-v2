@@ -4,7 +4,7 @@ import sys
 import cantera as ct
 from collections import OrderedDict, defaultdict
 from optionloop import OptionLoop
-from .. import get_test_platforms, _get_test_input
+from .. import get_test_platforms, _get_test_input, get_test_langs
 from . import platform_is_gpu
 from ...libgen import build_type
 import logging
@@ -155,10 +155,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
             params[i] = platform[:]
         return params
 
-    ocl_params = _fix_params(get_test_platforms(test_platforms,
-                                                raise_on_missing=raise_on_missing))
-    c_params = _fix_params(get_test_platforms(test_platforms, langs=['c'],
-                                              raise_on_missing=raise_on_missing))
+    params = _fix_params(get_test_platforms(test_platforms, get_test_langs(),
+                                            raise_on_missing=raise_on_missing))
 
     def reduce(params):
         out = []
@@ -170,10 +168,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
                 out = out + val
         return out
 
-    max_vec_width = max(max(dict(p)['vecsize']) for p in ocl_params
+    max_vec_width = max(max(dict(p)['vecsize']) for p in params
                         if 'vecsize' in dict(p))
-    oclloop = reduce(ocl_params)
-    cloop = reduce(c_params)
-    if cloop:
-        oclloop += cloop
-    return mechanism_list, oclloop, max_vec_width
+    loop = reduce(params)
+    return mechanism_list, loop, max_vec_width
