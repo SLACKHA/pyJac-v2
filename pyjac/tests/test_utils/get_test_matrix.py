@@ -89,11 +89,14 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     split_kernels = [False]
     num_cores = []
     nc = 1
-    max_threads = int(_get_test_input('max_threads',
-                                      psutil.cpu_count(logical=False)))
-    while nc <= max_threads:
-        num_cores.append(nc)
-        nc *= 2
+    if _get_test_input('num_threads', None) is not None:
+        num_cores = [_get_test_input('num_threads', None)]
+    else:
+        max_threads = int(_get_test_input('max_threads',
+                                          psutil.cpu_count(logical=False)))
+        while nc <= max_threads:
+            num_cores.append(nc)
+            nc *= 2
 
     def _get_key(params, key):
         for i, val in enumerate(params):
