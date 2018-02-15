@@ -104,7 +104,8 @@ class kernel_generator(object):
                  extra_preambles=[],
                  is_validation=False,
                  fake_calls={},
-                 mem_limits=''):
+                 mem_limits='',
+                 for_testing=False):
         """
         Parameters
         ----------
@@ -152,6 +153,8 @@ class kernel_generator(object):
             the generated pyjac code may allocate.  Useful for testing, or otherwise
             limiting memory usage during runtime. The keys of this file are the
             members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        for_testing: bool [False]
+            If true, this kernel generator will be used for unit testing
         """
 
         self.compiler = None
@@ -236,6 +239,8 @@ class kernel_generator(object):
 
         # set kernel attribute
         self.kernel = None
+        # set testing
+        self.for_testing = for_testing
 
     def apply_barriers(self, instructions, use_sub_barriers=True):
         """
@@ -1679,7 +1684,19 @@ class c_kernel_generator(kernel_generator):
 
         self.extern_defn_template = Template(
             'extern ${type}* ${name}' + utils.line_end[self.lang])
-        self.skeleton = """
+
+        if not self.for_testing:
+            # add 'global_ind' to the list of extra kernel data to be added to
+            # subkernels
+            self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
+            # clear list of inames added to sub kernels, as the OpenMP loop over
+            # the states is implemented in the wrapping kernel
+            self.inames = []
+            # clear list of inames domains added to sub kernels, as the OpenMP loop
+            # over the states is implemented in the wrapping kernel
+            self.iname_domains = []
+            # and modify the skeleton to remove the outer loop
+            self.skeleton = """
         ${pre}
         for ${var_name}
             ${main}
@@ -1687,21 +1704,15 @@ class c_kernel_generator(kernel_generator):
         ${post}
         """
 
-        # clear list of inames added to sub kernels, as the OpenMP loop over
-        # the states is implemented in the wrapping kernel
-        self.inames = []
-
-        # clear list of inames domains added to sub kernels, as the OpenMP loop
-        # over the states is implemented in the wrapping kernel
-        self.iname_domains = []
-
-        # add 'global_ind' to the list of extra kernel data to be added to subkernels
-        self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
-
     def get_inames(self, test_size):
         """
         Returns the inames and iname_ranges for subkernels created using
-        this generator
+        this generator.
+
+        This is an override of the base :func:`get_inames` that decides which form
+        of the inames to return based on :attr:`for_testing`.  If False, the
+        complete iname set will be returned.  If True, the outer loop iname
+        will be removed from the inames / domain
 
         Parameters
         ----------
@@ -1717,6 +1728,10 @@ class c_kernel_generator(kernel_generator):
         iname_domains : list of str
             The iname domains to add to created subkernels by default
         """
+
+        if self.for_testing:
+            return super(c_kernel_generator, self).get_inames(test_size)
+
         return self.inames, self.iname_domains
 
     def get_assumptions(self, test_size):
@@ -1783,6 +1798,9 @@ class autodiff_kernel_generator(c_kernel_generator):
 
     def __init__(self, *args, **kw_args):
 
+        # no matter the 'testing' status, the autodiff always needs the outer loop
+        # migrated out
+        kw_args['for_testing'] = False
         super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
 
         from ..loopy_utils.loopy_utils import AdeptCompiler

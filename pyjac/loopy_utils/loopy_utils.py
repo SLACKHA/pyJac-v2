@@ -756,6 +756,7 @@ class kernel_call(object):
         self.rtol = rtol
         self.atol = atol
         self.equal_nan = equal_nan
+        self.do_not_copy = set()
 
     def is_my_kernel(self, knl):
         """
@@ -859,7 +860,10 @@ class kernel_call(object):
         if isinstance(knl.target, lp.PyOpenCLTarget):
             evt, out = knl(queue, out_host=True, **self.kernel_args)
         elif isinstance(knl.target, lp.CTarget):
-            evt, out = knl(**self.kernel_args)
+            evt, out = knl(**{
+                k: v.copy(order=self.current_order) if (
+                    isinstance(v, np.ndarray) and k not in self.do_not_copy)
+                else v for k, v in self.kernel_args.items()})
         else:
             raise NotImplementedError
 

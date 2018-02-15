@@ -60,10 +60,13 @@ class kf_wrapper(object):
             # ensure the loopy opts don't have a split in them, otherwise the
             # shape of the base kf / kf_fall will be wrong
             try:
-                opts = loopy_options(order=loopy_opts.order,
-                                     rate_spec=loopy_opts.rate_spec,
-                                     rate_spec_kernels=loopy_opts.rate_spec_kernels,
-                                     platform=loopy_opts.platform.name)
+                opts = dict(lang=loopy_opts.lang,
+                            order=loopy_opts.order,
+                            rate_spec=loopy_opts.rate_spec,
+                            rate_spec_kernels=loopy_opts.rate_spec_kernels)
+                if loopy_opts.lang == 'opencl':
+                    opts['platform'] = loopy_opts.platform.name
+                opts = loopy_options(**opts)
             except BrokenPlatformError:
                 # bad platform
                 # currently only for non-vectorized nvidia

@@ -117,7 +117,8 @@ class kernel_runner(object):
             loopy_opts=loopy_opts,
             kernels=infos,
             namestore=namestore,
-            test_size=self.test_size
+            test_size=self.test_size,
+            for_testing=True
         )
         gen._make_kernels()
         # setup kernel call and output names
@@ -587,7 +588,7 @@ class get_comparable(object):
 
 
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
-                langs=['opencl'], do_vector=True, do_sparse=False,
+                langs=['c', 'opencl'], do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False):
 
@@ -631,7 +632,7 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    do_sparse=False, langs=['opencl'],
+                    do_sparse=False, langs=None,
                     sparse_only=False, **kw_args):
     """
     A generic testing method that can be used for to test the correctness of
@@ -668,8 +669,12 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         Any additional arguements to pass to the :param:`func`
     """
 
+    if langs is None:
+        from .. import get_test_langs
+        langs = get_test_langs()
+
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                         do_conp=do_conp, do_sparse=do_sparse,
+                         langs=langs, do_conp=do_conp, do_sparse=do_sparse,
                          sparse_only=sparse_only)
 
     reacs = owner.store.reacs
@@ -741,7 +746,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             loopy_opts=opt,
             kernels=infos,
             namestore=namestore,
-            test_size=owner.store.test_size
+            test_size=owner.store.test_size,
+            for_testing=True
         )
 
         knl._make_kernels()
@@ -1251,6 +1257,9 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         # rewrite data to file in 'C' order
         dbw.write(this_dir, num_conditions=num_conditions, data=data)
 
+        # apply species mapping to data
+        data[:, 2:] = data[:, 2 + gas_map]
+
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
@@ -1305,9 +1314,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         V = np.ones_like(P)
 
         # resize data
-        moles = data[:num_conditions, 2:]
-        # and reorder
-        moles = moles[:, gas_map].copy()
+        moles = data[:num_conditions, 2:].copy()
 
         run.pre(gas, {'T': T, 'P': P, 'V': V, 'moles': moles},
                 num_conditions, max_vec_width)
@@ -1317,6 +1324,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         del T
         del P
         del V
+        del moles
 
         # begin iterations
         from collections import defaultdict

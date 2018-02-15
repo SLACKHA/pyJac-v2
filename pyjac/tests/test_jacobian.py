@@ -443,6 +443,8 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     kernel_call.kernel_args[editor.output.name] = np.zeros(
         editor.output.shape,
         order=editor.output.order)
+    # and finally tell us not to copy
+    kernel_call.do_not_copy.add(editor.output.name)
 
     if return_kernel:
         def __pregen(kernel_call):
@@ -455,6 +457,8 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
             kernel_call.kernel_args[editor.output.name] = np.zeros(
                 editor.output.shape,
                 order=editor.output.order)
+            # and finally tell us not to copy
+            kernel_call.do_not_copy.add(editor.output.name)
             # run
             populate([knl[0]], kernel_call, editor=editor)
             # get result
