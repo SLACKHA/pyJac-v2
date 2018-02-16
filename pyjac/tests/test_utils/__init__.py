@@ -1120,13 +1120,15 @@ class runner(object):
         """
 
         # check rtype
-        if limits is not None and str(self.rtype) in limits:
+        rtype_str = str(self.rtype)
+        rtype_str = rtype_str[rtype_str.index('.') + 1:]
+        if limits is not None and rtype_str in limits:
             if self.rtype == build_type.jacobian:
                 # check sparsity
-                if state['sparse'] in limits[str(self.rtype)]:
-                    return limits[str(self.rtype)][state['sparse']]
+                if state['sparse'] in limits[rtype_str]:
+                    return limits[rtype_str][state['sparse']]
             else:
-                return limits[str(self.rtype)]
+                return limits[rtype_str]
 
         return None
 
@@ -1278,7 +1280,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
 
             def __change_limit(keylist):
                 subdict = mech_info['limits']
-                keylist = [str(key) for key in keylist]
+                keylist = [str(key)[str(key).index('.') + 1:].lower()
+                           for key in keylist]
                 for i, key in enumerate(keylist):
                     if key not in subdict:
                         return
