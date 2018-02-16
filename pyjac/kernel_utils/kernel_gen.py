@@ -1895,11 +1895,13 @@ class opencl_kernel_generator(kernel_generator):
         kernel_paths = ', '.join('"{}"'.format(x)
                                  for x in kernel_paths if x.strip())
 
-        # find maximum size of device arrays
+        # find maximum size of device arrays (that are allocated per-run)
+        from pymbolic.primitives import Variable
+        p_var = Variable(p_size.name)
         max_size = str(max(np.prod(np.fromstring(
             self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
-            for a in self.mem.arrays))
-        max_size = str(max_size) + ' * {}'.format(p_size.name)
+            for a in self.mem.arrays if p_var in a.shape))
+        max_size = str(max_size) + ' * {}'.format(self.arg_name_maps[p_size])
 
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
