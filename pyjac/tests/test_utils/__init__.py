@@ -1292,13 +1292,14 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
                         lim = int(np.floor(subdict[key] / max_vec_width)
                                   * max_vec_width)
                         if lim != subdict[key]:
+                            subdict[key] = lim
                             logger = logging.getLogger(__name__)
                             logger.info(
                                 'Changing limit for mech {name} ({keys}) '
                                 'from {old} to {new} to ensure even '
                                 'divisbility by vector width'.format(
                                     name=mech_name,
-                                    jtype='.'.join(keylist),
+                                    keys='.'.join(keylist),
                                     old=subdict[key],
                                     new=lim))
 
