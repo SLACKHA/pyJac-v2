@@ -542,11 +542,13 @@ class eval(hdf5_store):
         raise NotImplementedError
 
     def _check_file(self, err, names, mods):
-        try:
-            return all(n + mod in err and np.all(np.isfinite(err[n + mod]))
-                       for n in names for mod in mods)
-        except:
-            return False
+        allclear = all(n + mod in err for n in names for mod in mods)
+        if allclear and not all(np.all(np.isfinite(err[n + mod]))
+                                for n in names for mod in mods):
+            raise Exception('Infinite/NaN data detected in {}'.format(
+                next(n for n in names for mod in mods if not np.all(np.isfinite(
+                    err[n + mod])))))
+        return allclear
 
 
 class spec_rate_eval(eval):
@@ -876,14 +878,14 @@ class spec_rate_eval(eval):
                 return False
             warn = e
         except Exception as e:
-            warn = True
-            return e
+            warn = e
         finally:
             if warn:
                 logger = logging.getLogger(__name__)
                 logger.warn('Error checking species validation file {}'.format(
                     filename))
                 logger.exception(warn)
+                return False
 
 
 class jacobian_eval(eval):
@@ -1286,14 +1288,14 @@ class jacobian_eval(eval):
                 return False
             warn = e
         except Exception as e:
-            warn = True
-            return e
+            warn = e
         finally:
             if warn:
                 logger = logging.getLogger(__name__)
                 logger.warn('Error checking jacobian validation file {}'.format(
                     filename))
                 logger.exception(warn)
+                return False
 
 
 @nottest
