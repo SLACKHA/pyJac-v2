@@ -70,13 +70,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
             mechanism_list[name]['ns'] = gas.n_species
             del gas
             if 'limits' in mech_file:
-                mechanism_list[name]['limits'] = defaultdict(lambda: None)
-                if 'full' in mech_file['limits']:
-                    mechanism_list[name]['limits']['full'] = \
-                        mech_file['limits']['full']
-                if 'sparse' in mech_file['limits']:
-                    mechanism_list[name]['limits']['sparse'] = \
-                        mech_file['limits']['sparse']
+                mechanism_list[name]['limits'] = mech_file['limits'].copy()
 
     assert isinstance(test_type, build_type)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
