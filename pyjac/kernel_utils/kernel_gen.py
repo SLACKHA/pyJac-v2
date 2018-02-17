@@ -1902,7 +1902,8 @@ class opencl_kernel_generator(kernel_generator):
             p_var in str(x) for x in a.shape)]
         # next convert to size
         arrays = [np.prod(np.fromstring(
-            self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))]
+            self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
+            for a in arrays]
         # and get max size
         max_size = str(max(arrays)) + ' * {}'.format(self.arg_name_maps[p_size])
 
