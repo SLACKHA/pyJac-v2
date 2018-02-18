@@ -167,7 +167,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
                            ('split_kernels', split_kernels),
                            ('conp', [True, False]),
                            ('sparse', sparse),
-                           ('jac_type', jtype)]
+                           ('jac_type', [jac_type])]
                 out_params.append(outplat[:])
         return out_params
 
