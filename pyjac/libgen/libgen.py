@@ -55,7 +55,7 @@ shared_flags = dict(c=['-fPIC'],
 shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
                          opencl=['-pie', '-Wl,-E'])
 
-opt_flags = ['-O3']
+opt_flags = ['-O3', '-mtune=native', '-march=native']
 debug_flags = ['-O0', '-g']
 compile_flags = debug_flags if 'PYJAC_DEBUG' in os.environ else opt_flags
 
