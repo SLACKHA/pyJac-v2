@@ -147,6 +147,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
             # place cores as first changing thing in oploop so we can avoid
             # regenerating code if possible
             for jac_type in jtype:
+                outplat = platform[:]
                 if jtype == 'finite_difference':
                     cores = [1]
                     # and go through platform to change vecsize to only the
@@ -160,14 +161,14 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
                         # and add new
                         platform.append(('vecsize', [vws[0]]))
 
-                platform = [('num_cores', cores)] + platform + \
-                           [('order', ['C', 'F']),
-                            ('rate_spec', rate_spec),
-                            ('split_kernels', split_kernels),
-                            ('conp', [True, False]),
-                            ('sparse', sparse),
-                            ('jac_type', jtype)]
-                out_params.append(platform[:])
+                outplat = [('num_cores', cores)] + outplat + \
+                          [('order', ['C', 'F']),
+                           ('rate_spec', rate_spec),
+                           ('split_kernels', split_kernels),
+                           ('conp', [True, False]),
+                           ('sparse', sparse),
+                           ('jac_type', jtype)]
+                out_params.append(outplat[:])
         return out_params
 
     params = _fix_params(get_test_platforms(test_platforms, get_test_langs(),
