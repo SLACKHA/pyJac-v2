@@ -152,14 +152,14 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
                     cores = [1]
                     # and go through platform to change vecsize to only the
                     # minimum as currently the FD jacobian doesn't vectorize
-                    if (_get_key(platform, 'lang') == 'opencl' and not
-                            platform_is_gpu(_get_key(platform, 'platform'))):
+                    if (_get_key(outplat, 'lang') == 'opencl' and not
+                            platform_is_gpu(_get_key(outplat, 'platform'))):
                         # get old vector widths
-                        vws = _get_key(platform, 'vecsize')
+                        vws = _get_key(outplat, 'vecsize')
                         # delete
-                        _del_key(platform, 'vecsize')
+                        _del_key(outplat, 'vecsize')
                         # and add new
-                        platform.append(('vecsize', [vws[0]]))
+                        outplat.append(('vecsize', [vws[0]]))
 
                 outplat = [('num_cores', cores)] + outplat + \
                           [('order', ['C', 'F']),
