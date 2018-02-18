@@ -148,7 +148,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
             # regenerating code if possible
             for jac_type in jtype:
                 outplat = platform[:]
-                if jtype == 'finite_difference':
+                if jac_type == 'finite_difference':
                     cores = [1]
                     # and go through platform to change vecsize to only the
                     # minimum as currently the FD jacobian doesn't vectorize
