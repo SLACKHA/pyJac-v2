@@ -11,7 +11,8 @@ import logging
 import yaml
 
 
-def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False):
+def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
+                    raise_on_missing=False):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -23,6 +24,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
         Controls some testing options (e.g., whether to do a sparse matrix or not)
     test_platforms: str ['']
         The platforms to test
+    for_validation: bool
+        If True, do not run finite difference Jacobians
     raise_on_missing: bool
         Raise an exception of the specified :param:`test_platforms` file is not found
     Returns
@@ -76,8 +79,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
         else ['fixed']
     sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
-    jtype = ['exact', 'finite_difference'] if test_type == build_type.jacobian else \
-        ['exact']
+    jtype = ['exact', 'finite_difference'] if (
+        test_type == build_type.jacobian and not for_validation) else ['exact']
     vec_widths = [4, 8, 16]
     gpu_width = [64, 128]
     split_kernels = [False]
@@ -113,6 +116,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     def _fix_params(params):
         if params is None:
             return []
+        out_params = []
         for i in range(len(params)):
             platform = params[i][:]
             cores = num_cores
@@ -142,15 +146,29 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
 
             # place cores as first changing thing in oploop so we can avoid
             # regenerating code if possible
-            platform = [('num_cores', cores)] + platform + \
-                       [('order', ['C', 'F']),
-                        ('rate_spec', rate_spec),
-                        ('split_kernels', split_kernels),
-                        ('conp', [True, False]),
-                        ('sparse', sparse),
-                        ('jac_type', jtype)]
-            params[i] = platform[:]
-        return params
+            for jac_type in jtype:
+                if jtype == 'finite_difference':
+                    cores = [1]
+                    # and go through platform to change vecsize to only the
+                    # minimum as currently the FD jacobian doesn't vectorize
+                    if (_get_key(platform, 'lang') == 'opencl' and not
+                            platform_is_gpu(_get_key(platform, 'platform'))):
+                        # get old vector widths
+                        vws = _get_key(platform, 'vecsize')
+                        # delete
+                        _del_key(platform, 'vecsize')
+                        # and add new
+                        platform.append(('vecsize', [vws[0]]))
+
+                platform = [('num_cores', cores)] + platform + \
+                           [('order', ['C', 'F']),
+                            ('rate_spec', rate_spec),
+                            ('split_kernels', split_kernels),
+                            ('conp', [True, False]),
+                            ('sparse', sparse),
+                            ('jac_type', jtype)]
+                out_params.append(platform[:])
+        return out_params
 
     params = _fix_params(get_test_platforms(test_platforms, get_test_langs(),
                                             raise_on_missing=raise_on_missing))
