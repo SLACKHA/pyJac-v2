@@ -1193,8 +1193,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         return True
 
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(
-        work_dir, run.rtype, test_platforms, raise_on_missing,
-        for_validation)
+        work_dir, run.rtype, test_platforms, for_validation,
+        raise_on_missing)
 
     if len(mechanism_list) == 0:
         logger = logging.getLogger(__name__)
