@@ -1354,8 +1354,14 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
             par_check = tuple(state[x] for x in state if x != 'vecsize')
             sparse = state['sparse']
             jac_type = state['jac_type']
-            if for_validation and jac_type == 'finite_difference':
-                # no need
+            if jac_type == 'finite_difference' and (
+                    for_validation or (vecsize and vecsize > 4) or
+                    (state['num_cores'] and state['num_cores'] > 1)):
+                # currently the finite difference jacobian doesn't vectorize and
+                # takes a _long_ time to run (especially w/ all the various vector
+                # widths)
+                # hence, if we're doing validation, a vector width > 4 or more than
+                # 1 core, simply ignore this run
                 continue
 
             if platform in bad_platforms:
