@@ -4,14 +4,15 @@ import sys
 import cantera as ct
 from collections import OrderedDict, defaultdict
 from optionloop import OptionLoop
-from .. import get_test_platforms, _get_test_input
+from .. import get_test_platforms, _get_test_input, get_test_langs
 from . import platform_is_gpu
 from ...libgen import build_type
 import logging
 import yaml
 
 
-def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False):
+def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
+                    raise_on_missing=False):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -23,6 +24,8 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
         Controls some testing options (e.g., whether to do a sparse matrix or not)
     test_platforms: str ['']
         The platforms to test
+    for_validation: bool
+        If True, do not run finite difference Jacobians
     raise_on_missing: bool
         Raise an exception of the specified :param:`test_platforms` file is not found
     Returns
@@ -70,30 +73,27 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
             mechanism_list[name]['ns'] = gas.n_species
             del gas
             if 'limits' in mech_file:
-                mechanism_list[name]['limits'] = defaultdict(lambda: None)
-                if 'full' in mech_file['limits']:
-                    mechanism_list[name]['limits']['full'] = \
-                        mech_file['limits']['full']
-                if 'sparse' in mech_file['limits']:
-                    mechanism_list[name]['limits']['sparse'] = \
-                        mech_file['limits']['sparse']
+                mechanism_list[name]['limits'] = mech_file['limits'].copy()
 
     assert isinstance(test_type, build_type)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
         else ['fixed']
     sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
-    jtype = ['exact', 'finite_difference'] if test_type == build_type.jacobian else \
-        ['exact']
+    jtype = ['exact', 'finite_difference'] if (
+        test_type == build_type.jacobian and not for_validation) else ['exact']
     vec_widths = [4, 8, 16]
     gpu_width = [64, 128]
     split_kernels = [False]
     num_cores = []
     nc = 1
-    max_threads = int(_get_test_input('max_threads',
-                                      psutil.cpu_count(logical=False)))
-    while nc <= max_threads:
-        num_cores.append(nc)
-        nc *= 2
+    if _get_test_input('num_threads', None) is not None:
+        num_cores = [_get_test_input('num_threads', None)]
+    else:
+        max_threads = int(_get_test_input('max_threads',
+                                          psutil.cpu_count(logical=False)))
+        while nc <= max_threads:
+            num_cores.append(nc)
+            nc *= 2
 
     def _get_key(params, key):
         for i, val in enumerate(params):
@@ -116,6 +116,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
     def _fix_params(params):
         if params is None:
             return []
+        out_params = []
         for i in range(len(params)):
             platform = params[i][:]
             cores = num_cores
@@ -145,20 +146,33 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
 
             # place cores as first changing thing in oploop so we can avoid
             # regenerating code if possible
-            platform = [('num_cores', cores)] + platform + \
-                       [('order', ['C', 'F']),
-                        ('rate_spec', rate_spec),
-                        ('split_kernels', split_kernels),
-                        ('conp', [True, False]),
-                        ('sparse', sparse),
-                        ('jac_type', jtype)]
-            params[i] = platform[:]
-        return params
+            for jac_type in jtype:
+                outplat = platform[:]
+                if jac_type == 'finite_difference':
+                    cores = [1]
+                    # and go through platform to change vecsize to only the
+                    # minimum as currently the FD jacobian doesn't vectorize
+                    if (_get_key(outplat, 'lang') == 'opencl' and not
+                            platform_is_gpu(_get_key(outplat, 'platform'))):
+                        # get old vector widths
+                        vws = _get_key(outplat, 'vecsize')
+                        # delete
+                        _del_key(outplat, 'vecsize')
+                        # and add new
+                        outplat.append(('vecsize', [vws[0]]))
 
-    ocl_params = _fix_params(get_test_platforms(test_platforms,
-                                                raise_on_missing=raise_on_missing))
-    c_params = _fix_params(get_test_platforms(test_platforms, langs=['c'],
-                                              raise_on_missing=raise_on_missing))
+                outplat = [('num_cores', cores)] + outplat + \
+                          [('order', ['C', 'F']),
+                           ('rate_spec', rate_spec),
+                           ('split_kernels', split_kernels),
+                           ('conp', [True, False]),
+                           ('sparse', sparse),
+                           ('jac_type', [jac_type])]
+                out_params.append(outplat[:])
+        return out_params
+
+    params = _fix_params(get_test_platforms(test_platforms, get_test_langs(),
+                                            raise_on_missing=raise_on_missing))
 
     def reduce(params):
         out = []
@@ -170,10 +184,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, raise_on_missing=False)
                 out = out + val
         return out
 
-    max_vec_width = max(max(dict(p)['vecsize']) for p in ocl_params
+    max_vec_width = max(max(dict(p)['vecsize']) for p in params
                         if 'vecsize' in dict(p))
-    oclloop = reduce(ocl_params)
-    cloop = reduce(c_params)
-    if cloop:
-        oclloop += cloop
-    return mechanism_list, oclloop, max_vec_width
+    loop = reduce(params)
+    return mechanism_list, loop, max_vec_width

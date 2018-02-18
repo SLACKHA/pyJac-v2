@@ -1895,11 +1895,17 @@ class opencl_kernel_generator(kernel_generator):
         kernel_paths = ', '.join('"{}"'.format(x)
                                  for x in kernel_paths if x.strip())
 
-        # find maximum size of device arrays
-        max_size = str(max(np.prod(np.fromstring(
+        # find maximum size of device arrays (that are allocated per-run)
+        p_var = p_size.name
+        # filter arrays to those depending on problem size
+        arrays = [a for a in self.mem.arrays if any(
+            p_var in str(x) for x in a.shape)]
+        # next convert to size
+        arrays = [np.prod(np.fromstring(
             self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
-            for a in self.mem.arrays))
-        max_size = str(max_size) + ' * {}'.format(p_size.name)
+            for a in arrays]
+        # and get max size
+        max_size = str(max(arrays)) + ' * {}'.format(self.arg_name_maps[p_size])
 
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
