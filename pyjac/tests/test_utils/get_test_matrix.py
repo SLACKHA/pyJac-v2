@@ -148,6 +148,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
             # regenerating code if possible
             for jac_type in jtype:
                 outplat = platform[:]
+                conp = [True, False]
                 if jac_type == 'finite_difference':
                     cores = [1]
                     # and go through platform to change vecsize to only the
@@ -160,12 +161,15 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
                         _del_key(outplat, 'vecsize')
                         # and add new
                         outplat.append(('vecsize', [vws[0]]))
+                    # and change conp / conv to only conp, as again we don't really
+                    # care
+                    conp = [True]
 
                 outplat = [('num_cores', cores)] + outplat + \
                           [('order', ['C', 'F']),
                            ('rate_spec', rate_spec),
                            ('split_kernels', split_kernels),
-                           ('conp', [True, False]),
+                           ('conp', conp),
                            ('sparse', sparse),
                            ('jac_type', [jac_type])]
                 out_params.append(outplat[:])
