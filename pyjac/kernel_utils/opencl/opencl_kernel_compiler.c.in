@@ -63,6 +63,7 @@ void compiler()
             break;
         }
     }
+    cassert(pid != NULL, "Platform not found");
 
 
     //get the device to compile for
