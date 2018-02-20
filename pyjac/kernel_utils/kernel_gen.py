@@ -1886,11 +1886,7 @@ class opencl_kernel_generator(kernel_generator):
 
     def _preamble_fixes(self, preamble, max_per_run):
         """
-        An overrideable method that allows specific languages to "fix" issues
-        with the preamble.
-
-        Currently only used by OpenCL to deal with integer overflow issues in
-        gid() / lid()
+        Deal with integer overflow issues in gid() / lid()
 
         Parameters
         ----------
@@ -1905,7 +1901,6 @@ class opencl_kernel_generator(kernel_generator):
             The fixed preamble
         """
 
-        # TODO -- fix this, very hacky but works for the moment
         # the goal is to automatically promote the gid / lid calls in loopy
         # to long's if we can possibly go out of bounds.
 
@@ -1925,24 +1920,26 @@ class opencl_kernel_generator(kernel_generator):
         arrays = [a for a in self.mem.arrays if any(
             p_var in str(x) for x in a.shape) and len(a.shape) >= 2]
         # next find maximum stride
-        stride_inds = 0 if self.loopy_opts.order == 'C' else -1
-        strides = [a.dim_tags[stride_inds].stride for a in arrays]
-        # next convert problem_size -> max per run
-        for i, stride in enumerate(strides):
-            if not isinstance(stride, int):
+        stride_ind = 0 if self.loopy_opts.order == 'C' else -1
+        strides = [(a.dim_tags[stride_ind].stride, a.shape[stride_ind])
+                   for a in arrays]
+
+        def floatify(val):
+            if not (isinstance(val, float) or isinstance(val, int)):
                 ss = next((s for s in self.mem.string_strides if s.search(
-                    str(stride))), None)
+                    str(val))), None)
                 assert ss is not None, 'malformed strides'
-                match = ss.search(str(stride))
-                if len(match.groups()) > 1:
-                    # have vector width floor div
-                    stride = max_per_run // self.vec_width
-                else:
-                    stride = float(str(stride).replace(p_var, str(max_per_run)))
-            strides[i] = stride
+                from pymbolic import parse
+                val = parse(str(val).replace(p_var, str(max_per_run)))
+                assert isinstance(val, float) or isinstance(val, int)
+            return val
+        # next convert problem_size -> max per run
+        strides = [floatify(x[0]) * floatify(x[1]) for x in strides]
         # test for integer overflow
-        if max(strides) * max_per_run >= np.iinfo(np.int32).max and \
-                self.name == 'jacobian_kernel':
+        if max(strides) >= np.iinfo(np.int32).max:
+            logger = logging.getLogger(__name__)
+            logger.warn('Promoting gid/lid type to long int to avoid integer '
+                        'overflow')
             preamble = re.sub(r'#define (\w{3})\(N\) \(\(int\) ([\w_]+)\(N\)\)',
                               r'#define \1(N) ((long) \2(N))',
                               preamble)
