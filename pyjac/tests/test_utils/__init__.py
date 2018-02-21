@@ -9,6 +9,7 @@ from multiprocessing import cpu_count
 import subprocess
 import sys
 from functools import wraps
+from nose import SkipTest
 
 from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
                                         auto_run, RateSpecialization, loopy_options,
@@ -29,7 +30,6 @@ except:
     csc_matrix = None
 
 
-from unittest.case import SkipTest
 from optionloop import OptionLoop
 import numpy as np
 try:
@@ -1066,6 +1066,29 @@ def with_check_inds(check_inds={}, custom_checks={}):
             return func(self, *args, **kwargs)
         return wrapped
     return check_inds_decorator
+
+
+# xfail based on https://stackoverflow.com/a/9615578/1667311
+def xfail(condition=None, msg=''):
+    """
+        An implementation of an expected fail for Nose w/ an optional condition
+    """
+    def xfail_decorator(test):
+        # check that condition is valid
+        if condition is not None and not condition:
+            return test
+
+        @wraps(test)
+        def inner(*args, **kwargs):
+            try:
+                test(*args, **kwargs)
+            except Exception:
+                raise SkipTest(msg)
+            else:
+                raise AssertionError('Failure expected')
+        return inner
+
+    return xfail_decorator
 
 
 class runner(object):

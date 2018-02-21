@@ -1,0 +1,15 @@
+---
+
+
+# A schema to validate platform specification for pyJac
+platform:
+    # the platform name -- on OpenCL this doubles as a string identifier
+    # to passed to the ICD loader to use the correct OpenCL library at
+    # runtime
+    name: str(required=True)
+    lang: str(required=True, lang())
+    vectype: list(str(), required=True, vectype())
+    vecwidth: list(int(), required=False)
+    # If True, the platform / language support atomics for deep-vectorization
+    # Default: True
+    atomics: bool(required=False)
