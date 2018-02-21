@@ -303,7 +303,7 @@ class validation_runner(runner, hdf5_store):
         self.eval_class = eval_class
         self.mod_test = test_utils.get_run_source()
 
-    def check_file(self, filename, _):
+    def check_file(self, filename, _, __):
         """Checks file for existing data, returns number of completed runs
 
         Parameters
