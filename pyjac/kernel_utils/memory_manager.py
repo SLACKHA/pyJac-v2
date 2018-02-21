@@ -127,7 +127,7 @@ class memory_limits(object):
                 if is_ic_dep:
                     per_alloc_ic_limit = np.minimum(
                         per_alloc_ic_limit,
-                        np.floor(self.limits[memory_type.m_alloc] / per_ic))
+                        np.floor(self.limits[memory_type.m_alloc] / size))
                 else:
                     if static >= self.limits[memory_type.m_alloc]:
                         logger.warn(

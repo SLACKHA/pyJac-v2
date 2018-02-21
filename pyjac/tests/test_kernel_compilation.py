@@ -42,10 +42,10 @@ class SubTest(TestClass):
         # write header
         write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
-    def __get_objs(self, lang='opencl'):
+    def __get_objs(self, lang='opencl', depth=None, width=None, order='C'):
         opts = loopy_options(lang=lang,
-                             width=None, depth=None, ilp=False,
-                             unr=None, order='C', platform='CPU')
+                             width=width, depth=depth, ilp=False,
+                             unr=None, order=order, platform='CPU')
 
         oploop = OptionLoop(OrderedDict([
             ('conp', [True]),
