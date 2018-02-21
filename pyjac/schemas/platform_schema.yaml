@@ -1,10 +1,15 @@
 # A schema to validate platform specification for pyJac
-test-platforms: include('test-platform')
-codegen-platform: include('platform')
----
-# The test platform allows specification of multiple values, e.g., for vector-widths
+
+# The variable-platform allows specification of multiple values, e.g., for vector-widths
 # this allows easy specification for say unit testing, or validation/performance
-test-platform:
+test-platform: include('variable-platform', required=False)
+# The codegen-platform allows specification of a single set of values -- (e.g., for the
+# vector width or vector type).
+# This is useful for code-generation w/ pyJac -- it is similar in structure otherwise
+# to the test-platform
+codegen-platform: include('single-platform', required=False)
+---
+variable-platform:
     # the platform name -- on OpenCL this doubles as a string identifier
     # to passed to the ICD loader to use the correct OpenCL library at
     # runtime
@@ -18,12 +23,7 @@ test-platform:
     memory_limits: include('memory_limits', required=False)
 
 ---
-# The platform key allows specification of a single set of values -- (e.g., for the
-# vector width or vector type)
-#
-# This is useful for code-generation w/ pyJac -- it is similar in structure otherwise
-# to the test-platform
-platform:
+single-platform:
     name: str(required=True)
     lang: str(lang, required=True)
     vectype: str(vectype, required=True)
