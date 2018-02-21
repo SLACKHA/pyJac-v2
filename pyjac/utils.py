@@ -19,6 +19,14 @@ langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
 
 
+def stringify_args(arglist, kwd=False):
+    if kwd:
+        return ', '.join('{}={}'.format(str(k), str(v))
+                         for k, v in six.iteritems(arglist))
+    else:
+        return ', '.join(str(a) for a in arglist)
+
+
 def func_logger(*args, **kwargs):
     # This wrapper is to be used to provide a simple function decorator that logs
     # function exit / entrance, as well as optional logging of arguements, etc.
@@ -26,12 +34,6 @@ def func_logger(*args, **kwargs):
     cname = kwargs.pop('name', '')
     log_args = kwargs.pop('log_args', False)
 
-    def stringify_args(arglist, kwd=False):
-        if kwd:
-            return ', '.join('{}={}'.format(str(k), str(v))
-                             for k, v in six.iteritems(arglist))
-        else:
-            return ', '.join(str(a) for a in arglist)
     assert not len(kwargs), 'Unknown keyword args passed to @func_logger: {}'.format(
         stringify_args(kwargs, True))
 
@@ -64,7 +66,7 @@ def func_logger(*args, **kwargs):
                 # re-raise the exception
                 raise
             finally:
-                logging.info('Exiting function {}'.format(func.__name__))
+                logging.info('Exiting function {}'.format(name))
         return wrapper
     if len(args):
         assert len(args) == 1, (

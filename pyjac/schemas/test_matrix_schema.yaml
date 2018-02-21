@@ -1,0 +1,11 @@
+# A schema to validate test matrix specification for pyJac
+mechanism:
+    # the name of the mechanism, if not specified defaults to the provided file name
+    # (minus the .cti suffix)
+    name: str(required=False)
+    # the Cantera format mechanism to test
+    mech: str(required=True)
+    # if not specified, the mechanism is assumed to be in either validation/name/
+    # or performance/name/, depending on the run type
+    path: str(required=False)
+    limits:
