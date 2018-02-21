@@ -1086,7 +1086,7 @@ class runner(object):
     def get_filename(self, state):
         raise NotImplementedError
 
-    def check_file(self, file, state):
+    def check_file(self, file, state, limits={}):
         raise NotImplementedError
 
     @property
@@ -1378,7 +1378,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
 
             # if already run, continue
             data_output = os.path.join(this_dir, data_output)
-            if run.check_file(data_output, state.copy()):
+            if run.check_file(data_output, state.copy(), mech_info['limits']):
                 continue
 
             # store phi path

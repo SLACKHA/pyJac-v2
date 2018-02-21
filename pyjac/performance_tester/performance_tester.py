@@ -87,7 +87,7 @@ class performance_runner(runner):
                 'split' if state['split_kernels'] else 'single',
                 state['num_cores'], 'conp' if state['conp'] else 'conv') + '.txt'
 
-    def check_file(self, filename, state):
+    def check_file(self, filename, state, limits={}):
         """
         Checks file for existing data and determines the number of runs left
         for this file / state
@@ -105,15 +105,20 @@ class performance_runner(runner):
             If true, the test case is complete and can be skipped
         """
 
+        # get limited number of conditions, if available
+        limited_num_conditions = self.have_limit(state, limits)
+        num_conditions = self.num_conditions if limited_num_conditions is None else \
+            limited_num_conditions
+
         # first, get platform
         if platform_is_gpu(state['platform']):
-            self.todo = self.check_step_file(filename)
+            self.todo = self.check_step_file(filename, num_conditions)
         else:
-            num_completed = self.check_full_file(filename)
-            self.todo = {self.num_conditions: self.repeats - num_completed}
+            num_completed = self.check_full_file(filename, num_conditions)
+            self.todo = {num_conditions: self.repeats - num_completed}
         return not any(self.todo[x] > 0 for x in self.todo)
 
-    def check_step_file(self, filename):
+    def check_step_file(self, filename, _):
         """checks file for existing data and returns number of runs left to do
         for each step in :attr:`steplist`
         Parameters
@@ -141,7 +146,7 @@ class performance_runner(runner):
                     if len(vals) == 4:
                         vals = [float(v) for v in vals]
                         runs[vals[0]] -= 1
-                except:
+                except ValueError:
                     pass
             return runs
         except:
@@ -149,13 +154,15 @@ class performance_runner(runner):
             logger.exception('Error reading performance file {}'.format(filename))
             return runs
 
-    def check_full_file(self, filename):
+    def check_full_file(self, filename, num_conditions):
         """Checks a file for existing data, returns number of completed runs
 
         Parameters
         ----------
         filename : str
             Name of file with data
+        num_conditions: int
+            The number of conditions (possibly limited) to check for.
 
         Returns
         -------
@@ -173,7 +180,7 @@ class performance_runner(runner):
                     vals = line.split(',')
                     if len(vals) == to_find:
                         nc = int(vals[0])
-                        if nc != self.num_conditions:
+                        if nc != num_conditions:
                             # TODO: remove file and return 0?
                             raise Exception(
                                 'Wrong number of conditions in performance test')
@@ -182,7 +189,7 @@ class performance_runner(runner):
                         float(vals[2])
                         float(vals[3])
                         num_completed += 1
-                except:
+                except ValueError:
                     pass
             return num_completed
         except:
