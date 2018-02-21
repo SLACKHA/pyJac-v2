@@ -8,13 +8,73 @@ import errno
 import argparse
 import logging.config
 import yaml
+import functools
+import six
 
 __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
            'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
 
-langs = ['c', 'opencl', 'ispc']  # , 'cuda'
+langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
+
+
+def func_logger(*args, **kwargs):
+    # This wrapper is to be used to provide a simple function decorator that logs
+    # function exit / entrance, as well as optional logging of arguements, etc.
+
+    cname = kwargs.pop('name', '')
+    log_args = kwargs.pop('log_args', False)
+
+    def stringify_args(arglist, kwd=False):
+        if kwd:
+            return ', '.join('{}={}'.format(str(k), str(v))
+                             for k, v in six.iteritems(arglist))
+        else:
+            return ', '.join(str(a) for a in arglist)
+    assert not len(kwargs), 'Unknown keyword args passed to @func_logger: {}'.format(
+        stringify_args(kwargs, True))
+
+    def decorator(func):
+        """
+        A decorator that wraps the passed in function and logs
+        exceptions should one occur
+        """
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            import pdb; pdb.set_trace()
+            logger = logging.getLogger(__name__)
+            try:
+                name = func.__name__
+                if cname:
+                    name = cname + '::' + name
+                msg = 'Entering function {}'.format(name)
+                if log_args:
+                    msg += ', with arguments: {}\t and keyword args{}'.format(
+                        stringify_args(args),
+                        stringify_args(kwargs, True))
+                logger.info(msg)
+                return func(*args, **kwargs)
+            except Exception:
+                # log the exception
+                err = "There was an unhandled exception in  "
+                err += func.__name__
+                logger.exception(err)
+
+                # re-raise the exception
+                raise
+            finally:
+                logging.info('Exiting function {}'.format(func.__name__))
+        return wrapper
+    if len(args):
+        assert len(args) == 1, (
+            ('Unknown arguements passed to @func_logger: {}.'
+             ' Was expecting a function and possible keywords.'.format(
+                stringify_args(args))))
+        return decorator(args[0])
+    return decorator
+
 
 file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
 """dict: source code file extensions based on language"""
