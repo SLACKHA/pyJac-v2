@@ -45,5 +45,9 @@ def runschema(schema, source, validators=get_validators(),
     assert _internal(source, schema, validators)
 
 
+def test_testplatform_schema():
+    runschema('platform_schema.yaml', 'test_platforms.yaml')
+
+
 def test_platform_schema():
-    runschema('platform_schema.yaml', 'test_platforms_example.yaml')
+    runschema('platform_schema.yaml', 'codegen_platform.yaml')
