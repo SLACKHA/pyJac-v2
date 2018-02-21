@@ -3,19 +3,20 @@ platform-CPU-opencl:
     type: amd
     lang: opencl
     vectype: [wide, deep]
+    # use a vector width of 2 & 4
+    vecwidth: [2, 4]
     atomics: [True]
 
 # a CPU platform using C and no vectorizations
 platform-CPU-c:
     type: CPU
     lang: c
-    vectype: []
 
 # a GPU platform using OpenCL, wide vectorizations and a vector width of 64
 # without atomics
 platform-GPU:
     type: nvidia
     lang: opencl
-    vectype: [wide]
-    vecsize: 64
+    vectype: wide
+    vecwidth: 64
     atomics: [False]

@@ -95,6 +95,7 @@ setup(
         'loo.py>=2016.2',
         'six',
         'pyyaml',
+        'yamale',
         'cgen',
         'enum34;python_version<"3.4"'],
 
@@ -104,7 +105,6 @@ setup(
           'nose-exclude',
           'nose-testconfig',
           'Cython',
-          'PyYAML',
           'parameterized',
           'optionloop >= 1.0.7',
           'cantera >= 2.3.0',

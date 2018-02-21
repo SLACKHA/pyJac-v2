@@ -43,7 +43,6 @@ def func_logger(*args, **kwargs):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            import pdb; pdb.set_trace()
             logger = logging.getLogger(__name__)
             try:
                 name = func.__name__
