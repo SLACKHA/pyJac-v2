@@ -28,7 +28,7 @@ def runschema(schema, source, validators=get_validators(),
     assert isinstance(schema, six.string_types), 'Schema file should be string'
     schema = __prefixify(schema, schema_dir)
     assert isinstance(source, six.string_types), 'Source file should be string'
-    schema = __prefixify(source, examples_dir)
+    source = __prefixify(source, examples_dir)
 
     # define inner tester
     @xfail(should_fail)
@@ -37,6 +37,8 @@ def runschema(schema, source, validators=get_validators(),
             assert isfile(f), 'File {} not found.'.format(f)
         # make schema
         schema = yamale.make_schema(schema, validators=validators)
+        # make data
+        source = yamale.make_data(source)
         # and validate
         return yamale.validate(schema, source) is not None
 
@@ -44,5 +46,4 @@ def runschema(schema, source, validators=get_validators(),
 
 
 def test_platform_schema():
-    import pdb; pdb.set_trace()
     runschema('platform_schema.yaml', 'test_platforms_example.yaml')

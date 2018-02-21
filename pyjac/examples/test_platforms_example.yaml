@@ -1,22 +1,22 @@
 # a CPU platform using AMD-OpenCL, wide/deep vectorizations and atomics
-platform-CPU-opencl:
-    type: amd
+platform:
+    name: amd
     lang: opencl
-    vectype: [wide, deep]
+    vectype: [wide, deep, par]
     # use a vector width of 2 & 4
     vecwidth: [2, 4]
-    atomics: [True]
+    atomics: True
 
 # a CPU platform using C and no vectorizations
-platform-CPU-c:
-    type: CPU
+platform:
+    name: CPU
     lang: c
 
 # a GPU platform using OpenCL, wide vectorizations and a vector width of 64
 # without atomics
-platform-GPU:
-    type: nvidia
+platform:
+    name: nvidia
     lang: opencl
-    vectype: wide
-    vecwidth: 64
-    atomics: [False]
+    vectype: [wide]
+    vecwidth: [64]
+    atomics: False

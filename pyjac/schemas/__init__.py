@@ -6,20 +6,24 @@ from ..utils import func_logger, langs, can_vectorize_lang
 schema_dir = os.path.abspath(os.path.dirname(__file__))
 
 
-def get_map_validator(tag, validmap):
+def get_map_validator(tagname, validmap):
     class MapValidator(Validator):
-        @func_logger(name=tag)
+        tag = tagname
+
+        @func_logger(name=tagname)
         def _is_valid(self, value):
-            return tag in validmap and validmap[tag]
+            return value in validmap and validmap[value]
 
     return MapValidator()
 
 
-def get_list_validator(tag, validlist):
+def get_list_validator(tagname, validlist):
     class ListValidator(Validator):
-        @func_logger(name=tag)
+        tag = tagname
+
+        @func_logger(name=tagname)
         def _is_valid(self, value):
-            return tag in validlist
+            return value in validlist
 
     return ListValidator()
 
