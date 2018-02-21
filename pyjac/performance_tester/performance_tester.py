@@ -14,6 +14,7 @@ import six
 # (e.g., from error'd OpenCL builds)
 from io import open
 from collections import defaultdict
+import logging
 
 # Local imports
 from ..libgen import build_type, generate_library
@@ -144,6 +145,8 @@ class performance_runner(runner):
                     pass
             return runs
         except:
+            logger = logging.getLogger(__name__)
+            logger.exception('Error reading performance file {}'.format(filename))
             return runs
 
     def check_full_file(self, filename):
@@ -183,6 +186,8 @@ class performance_runner(runner):
                     pass
             return num_completed
         except:
+            logger = logging.getLogger(__name__)
+            logger.exception('Error reading performance file {}'.format(filename))
             return 0
 
     def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
