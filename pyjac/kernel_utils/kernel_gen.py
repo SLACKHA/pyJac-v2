@@ -184,6 +184,7 @@ class kernel_generator(object):
         from loopy.types import to_loopy_type
         self.type_map[to_loopy_type(np.float64)] = 'double'
         self.type_map[to_loopy_type(np.int32)] = 'int'
+        self.type_map[to_loopy_type(np.int64)] = 'long int'
 
         self.filename = ''
         self.bin_name = ''
@@ -1883,6 +1884,7 @@ class opencl_kernel_generator(kernel_generator):
         # these don't need to be volatile, as they are on the host side
         self.type_map[to_loopy_type(np.float64, for_atomic=True)] = 'double'
         self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
+        self.type_map[to_loopy_type(np.int64, for_atomic=True)] = 'long int'
 
     def _preamble_fixes(self, preamble, max_per_run):
         """
@@ -1943,6 +1945,15 @@ class opencl_kernel_generator(kernel_generator):
             preamble = re.sub(r'#define (\w{3})\(N\) \(\(int\) ([\w_]+)\(N\)\)',
                               r'#define \1(N) ((long) \2(N))',
                               preamble)
+
+            # finally, if F-ordered we need to change the problem-size from an int
+            # to a long
+            if self.loopy_opts.order == 'F':
+                from loopy import ArrayChanger
+                arychng = ArrayChanger(self.kernel, p_var)
+                p_var = arychng.get()
+                p_var = p_var.copy(dtype=np.int64)
+                self.kernel = arychng.with_changed_array(p_var)
 
         return preamble
 
