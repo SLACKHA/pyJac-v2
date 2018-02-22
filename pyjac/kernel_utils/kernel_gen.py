@@ -184,6 +184,7 @@ class kernel_generator(object):
         from loopy.types import to_loopy_type
         self.type_map[to_loopy_type(np.float64)] = 'double'
         self.type_map[to_loopy_type(np.int32)] = 'int'
+        self.type_map[to_loopy_type(np.int64)] = 'long int'
 
         self.filename = ''
         self.bin_name = ''
@@ -567,28 +568,6 @@ class kernel_generator(object):
             parameters into
         """
         return file_src
-
-    def _preamble_fixes(self, preamble, max_per_run):
-        """
-        An overrideable method that allows specific languages to "fix" issues
-        with the preamble.
-
-        Currently only used by OpenCL to deal with integer overflow issues in
-        gid() / lid()
-
-        Parameters
-        ----------
-        preamble: str
-            The preamble to fix
-        max_per_run: int
-            The number of conditions allowed per run
-
-        Returns
-        -------
-        fixed_preamble: str
-            The fixed preamble
-        """
-        return preamble
 
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
@@ -1402,13 +1381,6 @@ ${defn}
         instructions = '\n'.join(instructions)
         preamble = '\n'.join(textwrap.dedent(x) for x in preambles + inits)
 
-        max_per_run = mem_limits.can_fit(memory_type.m_global)
-        # normalize to divide evenly into vec_width
-        if self.vec_width != 0:
-            max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
-
-        preamble = self._preamble_fixes(preamble, max_per_run)
-
         file_src = self._special_wrapper_subs(file_src)
 
         self.filename = os.path.join(
@@ -1443,6 +1415,11 @@ ${defn}
                 file.add_lines('using adept::adouble;\n')
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
+
+        max_per_run = mem_limits.can_fit(memory_type.m_global)
+        # normalize to divide evenly into vec_width
+        if self.vec_width != 0:
+            max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
 
         return int(max_per_run)
 
@@ -1883,68 +1860,7 @@ class opencl_kernel_generator(kernel_generator):
         # these don't need to be volatile, as they are on the host side
         self.type_map[to_loopy_type(np.float64, for_atomic=True)] = 'double'
         self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
-
-    def _preamble_fixes(self, preamble, max_per_run):
-        """
-        Deal with integer overflow issues in gid() / lid()
-
-        Parameters
-        ----------
-        preamble: str
-            The preamble to fix
-        max_per_run: int
-            The number of conditions allowed per run
-
-        Returns
-        -------
-        fixed_preamble: str
-            The fixed preamble
-        """
-
-        # the goal is to automatically promote the gid / lid calls in loopy
-        # to long's if we can possibly go out of bounds.
-
-        # Currently this only happens for the wide vectorized full Jacobian
-        # for isopentanol, but it will likely happen for any large enough mechanism
-        # (or alternatively, a large enough # of initial conditions)
-
-        # The strategy is to check the maximum stride size, and see if that * the
-        # maximum run size is > int32 max -- if so, trigger the promotion
-
-        # A better strategy would be to allow the user to specify the desired
-        # behaviour here (e.g., limiting the maximum per run size)
-
-        # find maximum size of device arrays (that are allocated per-run)
-        p_var = p_size.name
-        # filter arrays to those depending on problem size
-        arrays = [a for a in self.mem.arrays if any(
-            p_var in str(x) for x in a.shape) and len(a.shape) >= 2]
-        # next find maximum stride
-        stride_ind = 0 if self.loopy_opts.order == 'C' else -1
-        strides = [(a.dim_tags[stride_ind].stride, a.shape[stride_ind])
-                   for a in arrays]
-
-        def floatify(val):
-            if not (isinstance(val, float) or isinstance(val, int)):
-                ss = next((s for s in self.mem.string_strides if s.search(
-                    str(val))), None)
-                assert ss is not None, 'malformed strides'
-                from pymbolic import parse
-                val = parse(str(val).replace(p_var, str(max_per_run)))
-                assert isinstance(val, float) or isinstance(val, int)
-            return val
-        # next convert problem_size -> max per run
-        strides = [floatify(x[0]) * floatify(x[1]) for x in strides]
-        # test for integer overflow
-        if max(strides) >= np.iinfo(np.int32).max:
-            logger = logging.getLogger(__name__)
-            logger.warn('Promoting gid/lid type to long int to avoid integer '
-                        'overflow')
-            preamble = re.sub(r'#define (\w{3})\(N\) \(\(int\) ([\w_]+)\(N\)\)',
-                              r'#define \1(N) ((long) \2(N))',
-                              preamble)
-
-        return preamble
+        self.type_map[to_loopy_type(np.int64, for_atomic=True)] = 'long int'
 
     def _special_kernel_subs(self, file_src):
         """
