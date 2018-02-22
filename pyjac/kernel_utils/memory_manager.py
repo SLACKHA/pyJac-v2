@@ -55,13 +55,15 @@ class memory_limits(object):
     string_strides: list of compiled regular expressions
         A list of regular expression that may be used as array sizes (i.e.,
         for the 'problem_size' variable)
+    dtype: np.dtype [np.int32]
+            The index type of the kernel to be generated. Default is a 32-bit int
     limit_to_overflow: bool
         If true, limit the maximum number of conditions that can be run to avoid
         int32 overflow
     """
 
     def __init__(self, lang, order, arrays, limits, string_strides=[],
-                 limit_to_overflow=True):
+                 dtype=np.int32, limit_int_overflow=True):
         """
         Initializes a :class:`memory_limits`
         """
@@ -71,6 +73,9 @@ class memory_limits(object):
         self.limits = limits
         self.string_strides = [re.compile(re.escape(s)) if isinstance(s, str)
                                else s for s in string_strides]
+        self.dtype = dtype
+        self.limit_int_overflow = limit_int_overflow
+        self.integer_warned = False
 
     def integer_limited_problem_size(self, arry, dtype=np.int32):
         """
@@ -94,10 +99,8 @@ class memory_limits(object):
             without integer overflow in addressing
         """
 
-        # next find maximum stride
-        stride_ind = 0 if self.order == 'C' else -1
-        stride, shape = arry.dim_tags[stride_ind].stride, arry.shape[stride_ind]
-
+        # convert problem_size -> 1 in order to determine max per-run size
+        # from array shape
         def floatify(val):
             if not (isinstance(val, float) or isinstance(val, int)):
                 ss = next((s for s in self.string_strides if s.search(
@@ -108,10 +111,9 @@ class memory_limits(object):
                 # hence, we substitute '1' for the problem size, and divide the
                 # array stisize by the # of
                 val = parse(str(val).replace(p_size.name, '1'))
-                assert isinstance(val, float) or isinstance(val, int)
+                assert isinstance(val, (float, int)), (arry.name, val)
             return val
-        # next convert problem_size -> max per run
-        return int(np.iinfo(dtype).max // (floatify(stride) * floatify(shape)))
+        return int(np.iinfo(dtype).max // np.prod([floatify(x) for x in arry.shape]))
 
     def can_fit(self, type=memory_type.m_constant, with_type_changes={}):
         """
@@ -177,6 +179,26 @@ class memory_limits(object):
                     per_alloc_ic_limit = np.minimum(
                         per_alloc_ic_limit,
                         np.floor(self.limits[memory_type.m_alloc] / size))
+
+                    if self.limit_int_overflow:
+                        old = per_alloc_ic_limit
+                        per_alloc_ic_limit = np.minimum(
+                            per_alloc_ic_limit, self.integer_limited_problem_size(
+                                array, self.dtype))
+                        if old != per_alloc_ic_limit and not self.integer_warned:
+                            stype = str(type)
+                            stype = stype[stype.index('.') + 1:]
+                            logger.warn(
+                                'Allocation of {} memory array {}'
+                                ' may result in integer overflow in indexing, and '
+                                'cause OpenCL (particularly, Intel) to fail on '
+                                'execution, limiting per-run size.'
+                                'Note: only the first such array will be displayed '
+                                'there may be more arrays that would result in '
+                                'overflow.'
+                                .format(stype, array.name)
+                                )
+                            self.integer_warned = True
                 else:
                     if static >= self.limits[memory_type.m_alloc]:
                         logger.warn(
@@ -196,7 +218,8 @@ class memory_limits(object):
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',
-                   string_strides=[p_size.name]):
+                   string_strides=[p_size.name],
+                   dtype=np.int32):
         """
         Utility method to load shared / constant memory limits from a file or
         :mod:`pyopencl` as needed
@@ -216,6 +239,8 @@ class memory_limits(object):
         string_strides: str
             The strides of host & device buffers dependent on user input
             Need special handling in size determination
+        dtype: np.dtype [np.int32]
+            The index type of the kernel to be generated. Default is a 32-bit int
 
         Returns
         -------
@@ -255,7 +280,7 @@ class memory_limits(object):
 
         return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
                              {k: v for k, v in six.iteritems(limits)},
-                             string_strides)
+                             string_strides, dtype)
 
 
 asserts = {'c': Template('cassert(${call}, "${message}");'),
