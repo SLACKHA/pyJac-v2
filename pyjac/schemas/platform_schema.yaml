@@ -1,13 +1,6 @@
 # A schema to validate platform specification for pyJac
 
-# The variable-platform allows specification of multiple values, e.g., for vector-widths
-# this allows easy specification for say unit testing, or validation/performance
-test-platform: include('variable-platform', required=False)
-# The codegen-platform allows specification of a single set of values -- (e.g., for the
-# vector width or vector type).
-# This is useful for code-generation w/ pyJac -- it is similar in structure otherwise
-# to the test-platform
-codegen-platform: include('single-platform', required=False)
+platform: any(include('variable-platform'), include('single-platform'), required=True)
 ---
 variable-platform:
     # the platform name -- on OpenCL this doubles as a string identifier
