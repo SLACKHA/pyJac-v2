@@ -18,7 +18,7 @@ from ..schemas import schema_dir, get_validators
 
 @func_logger
 def runschema(schema, source, validators=get_validators(),
-              should_fail=False, includes=[]):
+              should_fail=False, includes=['common_schema.yaml']):
     def __prefixify(file, dirname):
         if dirname not in file:
             return join(dirname, file)
@@ -59,11 +59,15 @@ def runschema(schema, source, validators=get_validators(),
     assert _internal(source, schema, validators, includes)
 
 
-def test_platform_schema_validation():
-    runschema('platform_schema.yaml', 'test_platforms.yaml')
-    runschema('platform_schema.yaml', 'codegen_platform.yaml')
+def test_test_platform_schema():
+    runschema('test_platform_schema.yaml', 'test_platforms.yaml')
+
+
+def test_codegen_platform_schema():
+    runschema('codegen_platform.yaml', 'codegen_platform.yaml')
 
 
 def test_mechanism_schema():
+    import pdb; pdb.set_trace()
     runschema('test_matrix_schema.yaml', 'test_matrix.yaml',
               includes=['platform_schema.yaml'])

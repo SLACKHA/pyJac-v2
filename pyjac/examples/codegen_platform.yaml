@@ -9,19 +9,19 @@
 
 # a CPU platform using Intel-OpenCL, wide vectorization and no atomics
 platform:
-    name: intel
-    lang: opencl
-    # use a wide vectorization
-    vectype: wide
-    # use a vector width of 2 & 4
-    vecwidth: 4
-    # no atomics present in the Intel OpenCL runtime
-    atomics: False
-    # limit memory usage
-    limits:
-        # 1 gb of total global memory
-        global: 1gb
-        # 1 mb of total constant memory
-        constant: 1mb
-        # and a maximum global array size of 100 mb
-        alloc: 100 Mb
+  name: intel
+  lang: opencl
+  # use a wide vectorization
+  vectype: wide
+  # use a vector width of 2 & 4
+  vecwidth: 4
+  # no atomics present in the Intel OpenCL runtime
+  atomics: False
+  # limit memory usage
+  limits:
+      # 1 gb of total global memory
+      global: 1gb
+      # 1 mb of total constant memory
+      constant: 1mb
+      # and a maximum global array size of 100 mb
+      alloc: 100 Mb
