@@ -1949,11 +1949,12 @@ class opencl_kernel_generator(kernel_generator):
             # finally, if F-ordered we need to change the problem-size from an int
             # to a long
             if self.loopy_opts.order == 'F':
-                from loopy import ArrayChanger
-                arychng = ArrayChanger(self.kernel, p_var)
-                p_var = arychng.get()
-                p_var = p_var.copy(dtype=np.int64)
-                self.kernel = arychng.with_changed_array(p_var)
+                p_var = p_size.copy(dtype=np.int64)
+                self.kernel = self.kernel.copy(args=[
+                    a if a != p_size else p_var for a in self.kernel.args])
+                # and replace in kernel data
+                self.kernel_data = [a if a != p_size else p_var
+                                    for a in self.kernel_data]
 
         return preamble
 
