@@ -2,8 +2,8 @@
 
 
 # mechanisms are specified by a name and cantera format mechanism and optional path
-model:
-    name: IC5H11OH
+models:
+  - name: IC5H11OH
     mech: Sarathy_ic5_mech_rev.cti
     # if not specified, the mechanism is assumed to be in either validation/name/
     # or performance/name/
@@ -17,18 +17,17 @@ model:
                 100000
             full:
                 1000
+  - name: CH4
+    mech: grimech30.cti
 
-platform:
-    name: intel
+platform-list:
+  - name: intel
     lang: opencl
     vectype: [wide, par]
     # use a vector width of 2, 4 & 8
     vecwidth: [2, 4, 8]
     atomics: False
-
-
-platform:
-    name: OpenMP
+  - name: OpenMP
     lang: c
     vectype: [par]
 
