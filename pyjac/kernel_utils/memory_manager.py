@@ -52,17 +52,66 @@ class memory_limits(object):
     limits: dict
         A dictionary with keys 'shared', 'constant' and 'local' indicated the
         total amount of each memory type available on the device
+    string_strides: list of compiled regular expressions
+        A list of regular expression that may be used as array sizes (i.e.,
+        for the 'problem_size' variable)
+    limit_to_overflow: bool
+        If true, limit the maximum number of conditions that can be run to avoid
+        int32 overflow
     """
 
-    def __init__(self, lang, arrays, limits, string_strides=[]):
+    def __init__(self, lang, order, arrays, limits, string_strides=[],
+                 limit_to_overflow=True):
         """
         Initializes a :class:`memory_limits`
         """
         self.lang = lang
+        self.order = order
         self.arrays = arrays
         self.limits = limits
         self.string_strides = [re.compile(re.escape(s)) if isinstance(s, str)
                                else s for s in string_strides]
+
+    def integer_limited_problem_size(self, arry, dtype=np.int32):
+        """
+        A convenience method to determine the maximum problem size that will not
+        result in an integer overflow in index (mainly, Intel OpenCL).
+
+        This is calculated by determining the maximum index of the array, and then
+        dividing the maximum value of :param:`dtype` by this stride
+
+        Parameters
+        ----------
+        arry: lp.ArrayBase
+            The array to test
+        dtype: np.dtype [np.int32]
+            The integer type to use
+
+        Returns
+        -------
+        num_ics: int
+            The number of initial conditions that can be tested for this array
+            without integer overflow in addressing
+        """
+
+        # next find maximum stride
+        stride_ind = 0 if self.order == 'C' else -1
+        stride, shape = arry.dim_tags[stride_ind].stride, arry.shape[stride_ind]
+
+        def floatify(val):
+            if not (isinstance(val, float) or isinstance(val, int)):
+                ss = next((s for s in self.string_strides if s.search(
+                    str(val))), None)
+                assert ss is not None, 'malformed strides'
+                from pymbolic import parse
+                # we're interested in the number of conditions we can test
+                # hence, we substitute '1' for the problem size, and divide the
+                # array stisize by the # of
+                val = parse(str(val).replace(p_size.name, '1'))
+                assert isinstance(val, float) or isinstance(val, int)
+            return val
+        # next convert problem_size -> max per run
+        return int(np.iinfo(dtype).max // (floatify(stride) * floatify(shape)))
 
     def can_fit(self, type=memory_type.m_constant, with_type_changes={}):
         """
@@ -204,7 +253,7 @@ class memory_limits(object):
                 # and overwrite default limits w/ user
                 limits.update(user_limits)
 
-        return memory_limits(loopy_opts.lang, arrays,
+        return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
                              {k: v for k, v in six.iteritems(limits)},
                              string_strides)
 
@@ -840,7 +889,6 @@ class memory_manager(object):
                          np.dtype('float64'): 'double'}
         self.dev_type = dev_type
         self.use_pinned = self.dev_type is not None and self.dev_type == DTYPE_CPU
-        self.string_strides = [p_size.name]
         kwargs = {}
         if not utils.can_vectorize_lang[lang] and strided_c_copy:
             kwargs['use_full'] = False
@@ -853,17 +901,25 @@ class memory_manager(object):
             'const ${type} h_${name} [${size}] = {${init}}'
             )
 
+        self.string_strides, self.div_mod_strides = \
+            memory_manager.get_string_strides()
+
+    @staticmethod
+    def get_string_strides():
+        string_strides = [p_size.name]
         # convert string strides to regex, and include the div/mod form
-        ss_size = len(self.string_strides)
-        self.div_mod_strides = []
+        ss_size = len(string_strides)
+        div_mod_strides = []
         for i in range(ss_size):
-            name = self.string_strides[i]
+            name = string_strides[i]
             div_mod_re = re.compile(
                 r'\(-1\)\*\(\(\(-1\)\*{}\) // (\d+)\)'.format(name))
             # convert the name to a regex
-            self.string_strides[i] = re.compile(re.escape(name))
+            string_strides[i] = re.compile(re.escape(name))
             # and add the divmod
-            self.div_mod_strides.append(div_mod_re)
+            div_mod_strides.append(div_mod_re)
+
+        return string_strides, div_mod_strides
 
     def add_arrays(self, arrays=[], in_arrays=[], out_arrays=[],
                    host_constants=[]):

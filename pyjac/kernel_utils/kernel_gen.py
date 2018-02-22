@@ -1413,7 +1413,7 @@ ${defn}
             max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
 
         extra_kernels, preamble = self._special_kernel_fixes(extra_kernels, preamble,
-                                                            max_per_run)
+                                                             max_per_run)
 
         file_src = self._special_wrapper_subs(file_src)
 
@@ -1965,7 +1965,7 @@ class opencl_kernel_generator(kernel_generator):
                 self.kernel_data = [a if a != p_size else p_var
                                     for a in self.kernel_data]
                 extra_kernels = [re.sub(r'int const {}'.format(p_var.name),
-                                      r'long const {}'.format(p_var.name),
+                                        r'long const {}'.format(p_var.name),
                                         knl) for knl in extra_kernels]
 
         return extra_kernels, preamble
