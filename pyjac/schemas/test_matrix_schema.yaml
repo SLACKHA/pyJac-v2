@@ -1,13 +1,13 @@
 # A schema to validate test matrix specification for pyJac
 
 # stub for chemical models
-model: include('mechanism', required=True)
+models: list(include('mechanism'), required=True)
 
 # allow for specification of memory limits from platform schema
 memory_limit: include('memory_limits', required=False)
 
 # allow for specification of testing platforms from platform schema
-platform: include('variable-platform', required=True)
+platform-list: list(include('variable-platform'), required=True)
 
 ---
 mechanism:
