@@ -569,7 +569,7 @@ class kernel_generator(object):
         """
         return file_src
 
-    def _preamble_fixes(self, preamble, max_per_run):
+    def _special_kernel_fixes(self, instructions, preamble, max_per_run):
         """
         An overrideable method that allows specific languages to "fix" issues
         with the preamble.
@@ -579,6 +579,8 @@ class kernel_generator(object):
 
         Parameters
         ----------
+        instructions: str
+            The instructions to fix
         preamble: str
             The preamble to fix
         max_per_run: int
@@ -586,10 +588,12 @@ class kernel_generator(object):
 
         Returns
         -------
+        fixed_instructions: str
+            The fixed instructions
         fixed_preamble: str
             The fixed preamble
         """
-        return preamble
+        return instructions, preamble
 
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
@@ -1408,7 +1412,8 @@ ${defn}
         if self.vec_width != 0:
             max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
 
-        preamble = self._preamble_fixes(preamble, max_per_run)
+        instructions, preamble = self._special_kernel_fixes(instructions, preamble,
+                                                            max_per_run)
 
         file_src = self._special_wrapper_subs(file_src)
 
@@ -1886,12 +1891,14 @@ class opencl_kernel_generator(kernel_generator):
         self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
         self.type_map[to_loopy_type(np.int64, for_atomic=True)] = 'long int'
 
-    def _preamble_fixes(self, preamble, max_per_run):
+    def _special_kernel_fixes(self, instructions, preamble, max_per_run):
         """
         Deal with integer overflow issues in gid() / lid()
 
         Parameters
         ----------
+        instructions: str
+            The instructions to fix
         preamble: str
             The preamble to fix
         max_per_run: int
@@ -1899,6 +1906,8 @@ class opencl_kernel_generator(kernel_generator):
 
         Returns
         -------
+        fixed_instructions: str
+            The fixed instructions
         fixed_preamble: str
             The fixed preamble
         """
@@ -1955,8 +1964,11 @@ class opencl_kernel_generator(kernel_generator):
                 # and replace in kernel data
                 self.kernel_data = [a if a != p_size else p_var
                                     for a in self.kernel_data]
+                instructions = re.sub(r'int const {}'.format(p_var.name),
+                                      r'long const {}'.format(p_var.name),
+                                      instructions)
 
-        return preamble
+        return instructions, preamble
 
     def _special_kernel_subs(self, file_src):
         """
