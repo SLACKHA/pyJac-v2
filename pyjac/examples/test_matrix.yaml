@@ -27,6 +27,12 @@ platform:
     atomics: False
 
 
+platform:
+    name: OpenMP
+    lang: c
+    vectype: [par]
+
+
 
 # testing
 #cpu:

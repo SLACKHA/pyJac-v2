@@ -55,7 +55,7 @@ def func_logger(*args, **kwargs):
                     msg += ', with arguments: {}\t and keyword args{}'.format(
                         stringify_args(args),
                         stringify_args(kwargs, True))
-                logger.info(msg)
+                logger.debug(msg)
                 return func(*args, **kwargs)
             except Exception:
                 # log the exception
@@ -66,7 +66,7 @@ def func_logger(*args, **kwargs):
                 # re-raise the exception
                 raise
             finally:
-                logging.info('Exiting function {}'.format(name))
+                logging.debug('Exiting function {}'.format(name))
         return wrapper
     if len(args):
         assert len(args) == 1, (
