@@ -8,13 +8,13 @@
 
 
 # a CPU platform using Intel-OpenCL, wide vectorization and no atomics
-intel-platform:
+platform:
     name: intel
     lang: opencl
     # use a wide vectorization
     vectype: wide
     # use a vector width of 2 & 4
-    vecwidth: [4]
+    vecwidth: 4
     # no atomics present in the Intel OpenCL runtime
     atomics: False
     # limit memory usage

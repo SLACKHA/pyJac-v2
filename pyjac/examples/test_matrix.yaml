@@ -2,21 +2,38 @@
 
 
 # mechanisms are specified by a name and cantera format mechanism and optional path
-isopentanol:
+model:
     name: IC5H11OH
     mech: Sarathy_ic5_mech_rev.cti
     # if not specified, the mechanism is assumed to be in either validation/name/
     # or performance/name/
     path: ~/mechs/
+    # limit the number of initial conditions tested (usually, due to memory
+    # limitations)
+    limits:
+        source_rates: 10000000
+        jacobian:
+            sparse:
+                100000
+            full:
+                1000
+
+platform:
+    name: intel
+    lang: opencl
+    vectype: [wide, par]
+    # use a vector width of 2, 4 & 8
+    vecwidth: [2, 4, 8]
+    atomics: False
 
 
 
 # testing
-cpu:
+#cpu:
     # allowed keys are 'validation' and 'performance' or 'template'
     # a template can be loaded via the 'inherits' key in a validation or performance
     # test
-    type: 'template'
+#    type: 'template'
 
     # Currently the recognized keys that can be placed in a template are the
     # the arguements that may be passed via command line to pyJac
@@ -24,12 +41,12 @@ cpu:
     # :func:`utils.get_parser`
 
     # define common parameters
-    vecwidth: [2, 4, 8]
-    conp: [True, False]
+#    vecwidth: [2, 4, 8]
+#    conp: [True, False]
 
 
 # any
-test:
-    inherits: cpu
-    type: validation # allowed keys are 'validation' and 'performance'
-    runtype: [species, jacobian]
+#test:
+#    inherits: cpu
+#    type: validation # allowed keys are 'validation' and 'performance'
+#    runtype: [species, jacobian]
