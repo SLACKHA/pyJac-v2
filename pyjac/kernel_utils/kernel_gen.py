@@ -1964,9 +1964,9 @@ class opencl_kernel_generator(kernel_generator):
                 # and replace in kernel data
                 self.kernel_data = [a if a != p_size else p_var
                                     for a in self.kernel_data]
-                extra_kernels = re.sub(r'int const {}'.format(p_var.name),
+                extra_kernels = [re.sub(r'int const {}'.format(p_var.name),
                                       r'long const {}'.format(p_var.name),
-                                      extra_kernels)
+                                        knl) for knl in extra_kernels]
 
         return extra_kernels, preamble
 
