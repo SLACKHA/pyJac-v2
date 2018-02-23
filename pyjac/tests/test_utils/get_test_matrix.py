@@ -4,7 +4,7 @@ import sys
 import cantera as ct
 from collections import OrderedDict, defaultdict
 from optionloop import OptionLoop
-from .. import get_test_platforms, _get_test_input, get_test_langs
+from .. import get_test_platforms, _get_test_input
 from . import platform_is_gpu
 from ...libgen import build_type
 import logging
@@ -175,7 +175,7 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
                 out_params.append(outplat[:])
         return out_params
 
-    params = _fix_params(get_test_platforms(test_platforms, get_test_langs(),
+    params = _fix_params(get_test_platforms(test_platforms,
                                             raise_on_missing=raise_on_missing))
 
     def reduce(params):
