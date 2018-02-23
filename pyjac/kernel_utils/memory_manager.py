@@ -115,7 +115,7 @@ class memory_limits(object):
             return val
         return int(np.iinfo(dtype).max // np.prod([floatify(x) for x in arry.shape]))
 
-    def can_fit(self, type=memory_type.m_constant, with_type_changes={}):
+    def can_fit(self, mtype=memory_type.m_constant, with_type_changes={}):
         """
         Determines whether the supplied :param:`arrays` of type :param:`type`
         can fit on the device
@@ -137,17 +137,15 @@ class memory_limits(object):
             can be fit
         """
 
-        if self.lang == 'c':
-            return True
-
         # filter arrays by type
-        arrays = self.arrays[type]
+        arrays = self.arrays[mtype]
         arrays = [a for a in arrays if not any(
-            a in v for k, v in six.iteritems(with_type_changes) if k != type)]
+            a in v for k, v in six.iteritems(with_type_changes) if k != mtype)]
 
         per_alloc_ic_limit = np.iinfo(np.int).max
         per_ic = 0
         static = 0
+        logger = logging.getLogger(__name__)
         for array in arrays:
             size = 1
             is_ic_dep = False
@@ -172,33 +170,34 @@ class memory_limits(object):
             else:
                 static += size
 
+            # check for integer overflow -- this does not depend on any particular
+            # memory limit
+            if is_ic_dep and self.limit_int_overflow:
+                old = per_alloc_ic_limit
+                per_alloc_ic_limit = np.minimum(
+                    per_alloc_ic_limit, self.integer_limited_problem_size(
+                        array, self.dtype))
+                if old != per_alloc_ic_limit and not self.integer_warned:
+                    stype = str(mtype)
+                    stype = stype[stype.index('.') + 3:]
+                    logger.warn(
+                        'Allocation of {} memory array {}'
+                        ' may result in integer overflow in indexing, and '
+                        'cause OpenCL (particularly, Intel) to fail on '
+                        'execution, limiting per-run size.'
+                        'Note: only the first such array will be displayed '
+                        'there may be more arrays that would result in '
+                        'overflow.'
+                        .format(stype, array.name)
+                        )
+                    self.integer_warned = True
+
             # also need to check the maximum allocation size for opencl
-            logger = logging.getLogger(__name__)
-            if self.lang == 'opencl':
+            if memory_type.m_alloc in self.limits:
                 if is_ic_dep:
                     per_alloc_ic_limit = np.minimum(
                         per_alloc_ic_limit,
                         np.floor(self.limits[memory_type.m_alloc] / size))
-
-                    if self.limit_int_overflow:
-                        old = per_alloc_ic_limit
-                        per_alloc_ic_limit = np.minimum(
-                            per_alloc_ic_limit, self.integer_limited_problem_size(
-                                array, self.dtype))
-                        if old != per_alloc_ic_limit and not self.integer_warned:
-                            stype = str(type)
-                            stype = stype[stype.index('.') + 1:]
-                            logger.warn(
-                                'Allocation of {} memory array {}'
-                                ' may result in integer overflow in indexing, and '
-                                'cause OpenCL (particularly, Intel) to fail on '
-                                'execution, limiting per-run size.'
-                                'Note: only the first such array will be displayed '
-                                'there may be more arrays that would result in '
-                                'overflow.'
-                                .format(stype, array.name)
-                                )
-                            self.integer_warned = True
                 else:
                     if static >= self.limits[memory_type.m_alloc]:
                         logger.warn(
@@ -212,9 +211,14 @@ class memory_limits(object):
         if per_ic == 0:
             per_ic = 1
 
-        # return the number of times we can fit these array
-        return int(np.maximum(np.minimum(
-            np.floor((self.limits[type] - static) / per_ic), per_alloc_ic_limit), 0))
+        # finally, check the number of times we can fit these array in the memory
+        # limits of this type
+
+        if mtype in self.limits:
+            per_alloc_ic_limit = np.minimum(np.floor((
+                self.limits[mtype] - static) / per_ic), per_alloc_ic_limit)
+
+        return int(np.maximum(per_alloc_ic_limit, 0))
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',
