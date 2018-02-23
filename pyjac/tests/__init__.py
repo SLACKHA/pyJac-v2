@@ -131,7 +131,7 @@ def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
             # fill in missing vectypes
             for x in ['width', 'depth']:
                 if next((y for y in inner_loop if y[0] == x), None) is None:
-                    inner_loop.append((x, None))
+                    inner_loop.append((x, False))
 
             # check for atomics
             if 'atomics' in p:
