@@ -11,7 +11,6 @@ import os
 
 # local imports
 from ..core.mech_interpret import read_mech_ct
-from . import get_test_langs
 from .. import utils
 import logging
 
@@ -25,7 +24,7 @@ utils.create_dir(build_dir)
 
 
 @nottest
-def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
+def get_test_platforms(test_platforms, do_vector=True, langs=_get_test_langs(),
                        raise_on_missing=False):
     try:
         oploop = []
