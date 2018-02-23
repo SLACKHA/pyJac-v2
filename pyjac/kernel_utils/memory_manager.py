@@ -659,7 +659,7 @@ class mapped_memory(memory_strategy):
         sync = {}
         __update('sync', sync)
 
-        __update('use_full', not utils.can_vectorize_lang[lang])
+        __update('use_full', False)
         use_full = overrides['use_full']
         copy_in_2d = self._get_2d_templates(
             lang, to_device=True, ndim=2, use_full=use_full)

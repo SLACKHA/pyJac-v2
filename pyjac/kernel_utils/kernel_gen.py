@@ -101,6 +101,7 @@ class kernel_generator(object):
                  array_props={},
                  barriers=[],
                  extra_kernel_data=[],
+                 extra_global_kernel_data=[],
                  extra_preambles=[],
                  is_validation=False,
                  fake_calls={},
@@ -138,6 +139,9 @@ class kernel_generator(object):
             List of global memory barriers needed, (knl1, knl2, barrier_type)
         extra_kernel_data : list of :class:`loopy.ArrayBase`
             Extra kernel arguements to add to this kernel
+        extra_global_kernel_data : list of :class:`loopy.ArrayBase`
+            Extra kernel arguements to add _only_ to this kernel (and not any
+            subkernels)
         extra_preambles: list of :class:`PreambleGen`
             Preambles to add to subkernels
         is_validation: bool [False]
@@ -215,6 +219,8 @@ class kernel_generator(object):
 
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = extra_kernel_data[:]
+        # extra kernel parameters to be added only to this subkernel
+        self.extra_global_kernel_data = extra_global_kernel_data[:]
 
         self.extra_preambles = extra_preambles[:]
         # check for Jacobian type
@@ -836,6 +842,8 @@ ${name} : ${type}
 
         if knl is None:
             knl = self.kernel
+            if self.extra_global_kernel_data:
+                knl = knl.copy(args=self.extra_global_kernel_data + self.kernel.args)
         if passed_locals:
             knl = self.__migrate_locals(knl, passed_locals)
         defn_str = lp_utils.get_header(knl)
@@ -866,8 +874,9 @@ ${name} : ${type}
 
         # default is the generated kernel
         if knl is None:
-            args = self.kernel_data + [x for x in self.extra_kernel_data
-                                       if isinstance(x, lp.KernelArgument)]
+            args = self.kernel_data + [
+                x for x in self.extra_global_kernel_data + self.extra_kernel_data
+                if isinstance(x, lp.KernelArgument)]
             if passed_locals:
                 # put a dummy object that we can reference the name of in the
                 # arguements
@@ -1687,9 +1696,14 @@ class c_kernel_generator(kernel_generator):
             'extern ${type}* ${name}' + utils.line_end[self.lang])
 
         if not self.for_testing:
+            # add the 'this_run' arguement to the list of kernel args for the
+            # wrapping kernel
+            self.extra_global_kernel_data.append(lp.ValueArg(
+                'this_run', dtype=np.int32))
             # add 'global_ind' to the list of extra kernel data to be added to
             # subkernels
             self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
+            # add the number of conditions to solve (which may be )
             # clear list of inames added to sub kernels, as the OpenMP loop over
             # the states is implemented in the wrapping kernel
             self.inames = []
