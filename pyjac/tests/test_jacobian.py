@@ -20,6 +20,7 @@ from ..core.create_jacobian import (
 from ..core import array_creator as arc
 from ..core.reaction_types import reaction_type, falloff_form
 from ..kernel_utils import kernel_gen as k_gen
+from . import get_test_langs
 from .test_utils import (kernel_runner, get_comparable, _generic_tester,
                          _full_kernel_test, with_check_inds, inNd)
 from ..libgen import build_type
@@ -2669,14 +2670,14 @@ class SubTest(TestClass):
         return self._generic_jac_tester(__kernel_creator, kc,
                                         sparse_only=True)
 
-    @parameterized.expand([('opencl',), ('c',)])
+    @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
                           btype=build_type.jacobian, call_name='jacobian')
 
-    @parameterized.expand([('opencl',), ('c',)])
+    @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
     def test_fd_jacobian(self, lang):
         def __looser_tol_finder(arr, order, have_split, conp):

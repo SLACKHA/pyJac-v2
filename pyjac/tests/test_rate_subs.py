@@ -16,6 +16,7 @@ from ..loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
 from . import TestClass
 from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
 from . import test_utils as test_utils
+from . import get_test_langs
 from .test_utils import (get_comparable, indexer, _generic_tester, _full_kernel_test)
 from ..libgen import build_type
 
@@ -966,7 +967,7 @@ class SubTest(TestClass):
         # test conp
         self.__generic_rate_tester(reset_arrays, kc)
 
-    @parameterized.expand([('opencl',), ('c',)])
+    @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
     def test_specrates(self, lang):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
