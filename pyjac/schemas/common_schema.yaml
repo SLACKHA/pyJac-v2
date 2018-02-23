@@ -1,0 +1,11 @@
+memory_limits:
+  # limit on total global memory allocation by pyJac
+  global: str(bytes, required=False)
+  # limit on total __local/ shared memory allocation by pyJac, only applies to OpenCL /
+  # CUDA
+  local: str(bytes, required=False)
+  # limit on total __constant memory allocation by pyJac, only applies to OpenCL / CUDA
+  constant: str(bytes, required=False)
+  # limit on the maximum global memory allocation per array by pyJac,
+  # only applies to OpenCL
+  alloc: str(bytes, required=False)

@@ -1,0 +1,11 @@
+# A schema to validate platform specification for pyJac
+
+platform:
+  name: str(required=True)
+  lang: str(lang, required=True)
+  vectype: str(vectype, required=True)
+  vecwidth: int(pow2, required=False, min=2)
+  # If True, the platform / language support atomics for deep-vectorization
+  # Default: True
+  atomics: bool(required=False)
+  memory_limits: include('memory_limits', required=False)
