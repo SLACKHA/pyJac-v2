@@ -92,4 +92,4 @@ def test_stride_limiter(dtype):
         assert max_index < np.iinfo(dtype).max
 
         # finally, test that we get the same limit from can_fit
-        assert limit == limits.can_fit(type=memory_type.m_global)
+        assert limit == limits.can_fit(mtype=memory_type.m_global)
