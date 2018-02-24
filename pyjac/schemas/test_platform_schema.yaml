@@ -8,8 +8,8 @@ variable-platform:
   # runtime
   name: str(required=True)
   lang: str(lang, required=True)
-  vectype: list(vectype, required=True)
-  vecwidth: list(pow2, required=False, min=2)
+  vectype: any(list(vectype), vectype, required=True)
+  vecwidth: any(list(pow2), pow2, required=False, min=2)
   # If True, the platform / language support atomics for deep-vectorization
   # Default: True
   atomics: bool(required=False)

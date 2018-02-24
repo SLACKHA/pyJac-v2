@@ -44,5 +44,7 @@ test:
     type: enum('validation', 'performance', required=True)
     # defaults to 'both'
     eval-type: enum('jacobian', 'species_rates', 'both', required=False)
-    # allow overrides of playform defaults
+    # allow overrides of platform defaults
     overrides: map(override, required=False)
+    # specify which platforms to use, defaults to whole list
+    platforms: any(list(str()), str(), required=False)
