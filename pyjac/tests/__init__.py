@@ -108,10 +108,6 @@ def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
                 # empty
                 continue
 
-            if 'do_not_run' in p and p['do_not_run']:
-                oploop = None
-                return oploop
-
             # set lang
             inner_loop.append(('lang', allowed_langs))
 
