@@ -1,16 +1,19 @@
 import os
+from os.path import join, abspath, exists, isdir, isfile
 import psutil
 import sys
 import cantera as ct
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 from optionloop import OptionLoop
+import logging
+import re
+
 from .. import get_test_platforms, _get_test_input
 from . import platform_is_gpu
 from ...libgen import build_type
 from ...utils import enum_to_string
 from ...loopy_utils.loopy_utils import JacobianType, JacobianFormat
-import logging
-import yaml
+from ...schemas import build_and_validate
 
 
 allowed_override_keys = [enum_to_string(JacobianType.exact),
@@ -26,8 +29,65 @@ allowed_overrides = {'num_cores': int,
                      'vectype': ['par', 'w', 'd']}
 
 
-def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
-                    raise_on_missing=False):
+def load_models(work_dir, matrix):
+    """
+    Load models from parsed test matrix
+
+    Parameters
+    ----------
+    work_dir : str
+        Working directory with mechanisms and for data
+    matrix: dict
+        The parsed test matrix, i.e., output of :func:`build_and_validate`
+
+    Returns
+    -------
+    models : dict
+        A dictionary indicating which models are available for testing,
+        The structure is as follows:
+            mech_name : {'mech' : file path to the Cantera mechanism
+                         'ns' : number of species in the mechanism
+                         'limits' : {
+                                'species_rates': XXX,
+                                'jacobian': {
+                                    'sparse': XXX
+                                    'full' : XXX}
+                                }
+                            A dictionary of limits on the number of conditions that
+                            can be evaluated for this mechanism for various
+                            eval-types due to memory constraints
+    """
+
+    models = [matrix[x] for x in matrix if re.search(r'^models\.\d+$', x)]
+    # find the mechanisms to test
+    mechanism_list = {}
+
+    for model in models:
+        # load
+        mech = model['mech']
+        name = model['name']
+        # default path
+        path = model['path'] if 'path' in model else join(work_dir, name)
+
+        # load mechanism
+        if path is not None:
+            mech = join(path, mech)
+        gas = ct.Solution(mech)
+        # get stats
+        mechanism_list[name] = {}
+        mechanism_list[name]['mech'] = mech
+        # num species
+        mechanism_list[name]['ns'] = gas.n_species
+        del gas
+        # if we have limits
+        if 'limits' in model:
+            mechanism_list[name]['limits'] = model['limits'].copy()
+
+    return mechanism_list
+
+
+def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
+                    raise_on_missing=True):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -37,21 +97,20 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
         Working directory with mechanisms and for data
     test_type: :class:`build_type.jacobian`
         Controls some testing options (e.g., whether to do a sparse matrix or not)
-    test_platforms: str ['']
-        The platforms to test
+    test_matrix: str
+        The test matrix file to load
     for_validation: bool
-        If True, do not run finite difference Jacobians
+        If determines which test type to load from the test matrix,
+        validation or performance
     raise_on_missing: bool
-        Raise an exception of the specified :param:`test_platforms` file is not found
+        Raise an exception of the specified :param:`test_matrix` file is not found
     Returns
     -------
     mechanisms : dict
         A dictionary indicating which mechanism are available for testing,
         The structure is as follows:
-            mech_name : {'mech' : file path
-                         'chemkin' : chemkin file path
+            mech_name : {'mech' : file path to the Cantera mechanism
                          'ns' : number of species in the mechanism
-                         'thermo' : the thermo file if avaialable
                          'limits' : {'full': XXX, 'sparse': XXX}}: a dictionary of
                             limits on the number of conditions that can be evaluated
                             for this mechanism (full & sparse jacobian respectively)
@@ -62,34 +121,20 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
         The maximum vector width to test
 
     """
-    work_dir = os.path.abspath(work_dir)
+    work_dir = abspath(work_dir)
 
-    # find the mechanisms to test
-    mechanism_list = {}
-    if not os.path.exists(work_dir):
+    # validate the test matrix
+    test_matrix = build_and_validate('test_matrix_schema.yaml', test_matrix)
+
+    # check that we have the working directory
+    if not exists(work_dir):
         logger = logging.getLogger(__name__)
         logger.error('Work directory {} for '.format(work_dir) +
                      'testing not found, exiting...')
         sys.exit(-1)
-    for name in os.listdir(work_dir):
-        if os.path.isdir(os.path.join(work_dir, name)):
-            # check for cti
-            mech_file = [os.path.join(work_dir, name, f)
-                         for f in os.listdir(os.path.join(work_dir, name)) if
-                         os.path.isfile(os.path.join(work_dir, name, f))
-                         and f.endswith('.yaml')]
-            assert mech_file, 'YaML file describing mechanism {} not found'.format(
-                name)
-            with open(mech_file[0], 'r') as file:
-                mech_file = yaml.load(file.read())
-            mechanism_list[name] = defaultdict(lambda: None)
-            mechanism_list[name]['mech'] = mech_file['mech']
-            gas = ct.Solution(os.path.join(work_dir, name, mech_file['mech']))
-            mechanism_list[name]['ns'] = gas.n_species
-            del gas
-            if 'limits' in mech_file:
-                mechanism_list[name]['limits'] = mech_file['limits'].copy()
 
+    # load the models
+    models = load_models(work_dir, test_matrix)
     assert isinstance(test_type, build_type)
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
         else ['fixed']
@@ -208,4 +253,4 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
     if vector_params:
         max_vec_width = max(max_vec_width, max(vector_params))
     loop = reduce(params)
-    return mechanism_list, loop, max_vec_width
+    return models, loop, max_vec_width
