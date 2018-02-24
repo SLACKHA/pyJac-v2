@@ -1153,7 +1153,7 @@ class jacobian_eval(eval):
         name = 'threshold_' + 'cp' if state['conp'] else 'cv'
         if state['sparse'] == 'sparse':
             name += '_sp'
-        name += '_{}'.format(state['order'])
+            name += '_{}'.format(state['order'])
         return getattr(self, name)
 
     @property
