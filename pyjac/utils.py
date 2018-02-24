@@ -151,6 +151,25 @@ class EnumType(object):
         return '{0}({1})'.format(self.enums.__name__, astr)
 
 
+def enum_to_string(enum):
+    """
+    Convenience method that converts an IntEnum/Enum to string
+
+    Parameters
+    ----------
+    enum: Enum
+        The enum to convert
+
+    Returns
+    -------
+    name: str
+        The stringified enum
+    """
+
+    enum = str(enum)
+    return enum[enum.index('.') + 1:]
+
+
 def get_species_mappings(num_specs, last_species):
     """
     Maps species indices around species moved to last position.
