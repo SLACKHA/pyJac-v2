@@ -11,7 +11,6 @@ import os
 
 # local imports
 from ..core.mech_interpret import read_mech_ct
-from . import get_test_langs
 from .. import utils
 import logging
 
