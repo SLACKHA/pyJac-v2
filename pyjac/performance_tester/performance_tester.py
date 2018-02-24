@@ -20,8 +20,8 @@ import logging
 from ..libgen import build_type, generate_library
 from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
 from ..utils import EnumType
-from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
-from ..tests import get_platform_file, get_mem_limits_file
+from ..tests.test_utils import _run_mechanism_tests, runner
+from ..tests import get_platform_file, get_mem_limits_file, platform_is_gpu
 
 import loopy as lp
 lp.set_caching_enabled(False)

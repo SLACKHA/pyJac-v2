@@ -3,17 +3,23 @@ A unit tester that loads the schemas packaged with :mod:`pyJac` and validates
 the given example specifications against them.
 """
 
+# system
 from os.path import isfile, join
+from collections import OrderedDict
+
+# external
 import six
 import cantera as ct
+from optionloop import OptionLoop
 
 # internal
 from ..libgen.libgen import build_type
 from ..loopy_utils.loopy_utils import JacobianFormat
 from ..utils import func_logger, enum_to_string, listify
-from .test_utils import xfail
+from .test_utils import xfail, reduce_oploop
 from . import script_dir as test_mech_dir
-from .test_utils.get_test_matrix import load_models
+from .test_utils.get_test_matrix import load_models, load_from_key, model_key, \
+    load_platforms
 from ..examples import examples_dir
 from ..schemas import schema_dir, get_validators, build_schema, validate, \
     __prefixify, build_and_validate
@@ -60,10 +66,13 @@ def test_matrix_schema_specification():
               includes=['platform_schema.yaml'])
 
 
-def test_parse_models():
-    matrix = build_and_validate('test_matrix_schema.yaml', __prefixify(
+def __get_test_matrix():
+    return build_and_validate('test_matrix_schema.yaml', __prefixify(
         'test_matrix.yaml', examples_dir), includes=['platform_schema.yaml'])
-    models = load_models('', matrix)
+
+
+def test_parse_models():
+    models = load_models('', __get_test_matrix())
 
     # test the test mechanism
     assert 'TestMech' in models
@@ -89,3 +98,26 @@ def test_parse_models():
     assert 'CH4' in models
     gas = ct.Solution(models['CH4']['mech'])
     assert models['CH4']['ns'] == gas.n_species
+
+
+def test_load_from_key():
+    matrix = __get_test_matrix()
+    # test that we have 2 models
+    assert len(load_from_key(matrix, model_key)) == 2
+    assert len(load_from_key(matrix, '^$')) == 0
+
+
+def test_load_platform():
+    platforms = load_platforms(__get_test_matrix(), raise_on_empty=True)
+    platforms = [OrderedDict(p) for p in platforms]
+
+    intel = next(p for p in platforms if p['platform'] == 'intel')
+    assert intel['lang'] == 'opencl'
+    assert intel['use_atomics'] is False
+    assert intel['width'] == [2, 4, 8, None]
+    assert intel['depth'] is None
+
+    openmp = next(p for p in platforms if p['platform'] == 'OpenMP')
+    assert openmp['lang'] == 'c'
+    assert openmp['width'] is None
+    assert openmp['depth'] is None
