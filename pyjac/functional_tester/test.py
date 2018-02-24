@@ -1016,14 +1016,14 @@ class jacobian_eval(eval):
         if hasattr(self, name):
             jac = getattr(self, name)
 
-        assert not require or jac is not None
+        assert (not require) or jac is not None
         if jac is None:
             return None
 
         if sparse == 'sparse':
             # check for stored sparse matrix
             name += '_sp_{}'.format(order)
-            assert not require or hasattr(self, name)
+            assert (not require) or hasattr(self, name)
             if hasattr(self, name):
                 return getattr(self, name)
         return jac

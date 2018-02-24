@@ -1,5 +1,4 @@
-import os
-from os.path import join, abspath, exists, isdir, isfile
+from os.path import join, abspath, exists
 import psutil
 import sys
 import cantera as ct
@@ -7,11 +6,12 @@ from collections import OrderedDict
 from optionloop import OptionLoop
 import logging
 import re
+import six
 
-from .. import get_test_platforms, _get_test_input
-from . import platform_is_gpu
+from .. import _get_test_input, get_test_langs
+from .. import platform_is_gpu
 from ...libgen import build_type
-from ...utils import enum_to_string
+from ...utils import enum_to_string, can_vectorize_lang, listify
 from ...loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from ...schemas import build_and_validate
 
@@ -27,6 +27,30 @@ allowed_overrides = {'num_cores': int,
                      'conp': ['conp', 'conv'],
                      'vecsize': int,
                      'vectype': ['par', 'w', 'd']}
+
+model_key = r'^models\.\d+$'
+platform_list_key = r'^platform-list\.\d+$'
+platform_key = r'^platform\.\d+$'
+
+
+def load_from_key(matrix, key):
+    """
+    Loads all keys from the parsed test matrix that match the key
+
+    matrix: dict
+        The parsed test matrix, i.e., output of :func:`build_and_validate`
+    key: str or compiled regex
+        The key to search
+
+    Returns
+    -------
+    submatrix: list of dict
+        The matching test matrix values
+    """
+
+    if isinstance(key, six.string_types):
+        key = re.compile(key)
+    return [matrix[x] for x in matrix if key.search(x)]
 
 
 def load_models(work_dir, matrix):
@@ -58,7 +82,7 @@ def load_models(work_dir, matrix):
                             eval-types due to memory constraints
     """
 
-    models = [matrix[x] for x in matrix if re.search(r'^models\.\d+$', x)]
+    models = load_from_key(matrix, model_key)
     # find the mechanisms to test
     mechanism_list = {}
 
@@ -84,6 +108,117 @@ def load_models(work_dir, matrix):
             mechanism_list[name]['limits'] = model['limits'].copy()
 
     return mechanism_list
+
+
+def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
+    try:
+        platforms = load_from_key(matrix, platform_key) + load_from_key(
+            matrix, platform_list_key)
+        # try to use user-specified platforms
+        oploop = []
+        # put into oploop form, and make repeatable
+        for p in sorted(platforms, key=lambda x: x['name']):
+
+            # limit to supplied languages
+            inner_loop = []
+            allowed_langs = langs[:]
+            if 'lang' in p:
+                # pull from platform languages if possible
+                allowed_langs = p['lang'] if p['lang'] in allowed_langs else []
+            else:
+                # can't use language
+                continue
+
+            # set lang
+            inner_loop.append(('lang', allowed_langs))
+
+            # get vectorization type and size
+            vectype = listify('par' if (
+                'vectype' not in p or not can_vectorize_lang[allowed_langs])
+                else p['vectype'])
+            # check if we have a vectorization
+            if not (len(vectype) == 1 and vectype[0] == 'par'):
+                # try load the vecwidth, fail on missing
+                try:
+                    vecwidth = [x for x in listify(p['vecwidth'])]
+                except TypeError:
+                    raise Exception(
+                        'Platform {} has non-parallel vectype(s) {} but no supplied '
+                        'vecwidth.'.format(
+                            p['name'], [x for x in vectype if x != 'par']))
+
+                add_none = 'par' in vectype
+                for v in [x.lower() for x in vectype]:
+                    def _get(add_none):
+                        if add_none:
+                            return vecwidth + [None]
+                        return vecwidth
+                    if v == 'wide':
+                        inner_loop.append(('width', _get(add_none)))
+                        add_none = False
+                    elif v == 'deep':
+                        inner_loop.append(('depth', _get(add_none)))
+                        add_none = False
+                    elif v != 'par':
+                        raise Exception('Platform {} has invalid supplied vectype '
+                                        '{}'.format(p['name'], v))
+
+            # fill in missing vectypes
+            for x in ['width', 'depth']:
+                if next((y for y in inner_loop if y[0] == x), None) is None:
+                    inner_loop.append((x, None))
+
+            # check for atomics
+            if 'atomics' in p:
+                inner_loop.append(('use_atomics', p['atomics']))
+
+            # and store platform
+            inner_loop.append(('platform', p['name']))
+
+            # finally check for seperate_kernels
+            sep_knl = True
+            if 'seperate_kernels' in p and not p['seperate_kernels']:
+                sep_knl = False
+            inner_loop.append(('seperate_kernels', sep_knl))
+
+            # create option loop and add
+            oploop += [inner_loop]
+    except TypeError:
+        if raise_on_empty:
+            raise Exception('Supplied test matrix has no platforms.')
+    finally:
+        if not oploop and oploop is not None:
+            # file not found, or no appropriate targets for specified languages
+            for lang in langs:
+                inner_loop = []
+                vecwidths = [4, None] if can_vectorize_lang[lang] else [None]
+                inner_loop = [('lang', lang)]
+                if lang == 'opencl':
+                    import pyopencl as cl
+                    inner_loop += [('width', vecwidths[:]),
+                                   ('depth', vecwidths[:])]
+                    # add all devices
+                    device_types = [cl.device_type.CPU, cl.device_type.GPU,
+                                    cl.device_type.ACCELERATOR]
+                    platforms = cl.get_platforms()
+                    platform_list = []
+                    for p in platforms:
+                        for dev_type in device_types:
+                            devices = p.get_devices(dev_type)
+                            if devices:
+                                plist = [('platform', p.name)]
+                                use_atomics = False
+                                if 'cl_khr_int64_base_atomics' in \
+                                        devices[0].extensions:
+                                    use_atomics = True
+                                plist.append(('use_atomics', use_atomics))
+                                platform_list.append(plist)
+                    for p in platform_list:
+                        # create option loop and add
+                        oploop += [inner_loop + p]
+                else:
+                    oploop += [inner_loop]
+    return oploop
 
 
 def get_test_matrix(work_dir, test_type, test_matrix, for_validation,

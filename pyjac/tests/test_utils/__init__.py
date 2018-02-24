@@ -18,11 +18,11 @@ from ...core.exceptions import MissingPlatformError, BrokenPlatformError
 from ...kernel_utils import kernel_gen as k_gen
 from ...core import array_creator as arc
 from ...core.mech_auxiliary import write_aux
-from .. import get_test_platforms
 from ...pywrap import generate_wrapper
 from ... import utils
 from ...libgen import build_type
-
+from .. import platform_is_gpu
+from .get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix
 except:
@@ -587,13 +587,42 @@ class get_comparable(object):
         return outv[masking]
 
 
+def reduce_oploop(base, add=None):
+    """
+    Convenience method to turn :param:`base` into an :class:`oploopconcat`
+
+    Parameters
+    ----------
+    base: list of list of tuples
+        Each list inside of base should be convertible to an OrderedDict
+    add: list of tuples [None]
+        If specified, add this list of tuples to each internal :class:`OptionLoop`
+
+    Returns
+    -------
+    concat: :class:`oploopconcat`
+        The concatentated option loops
+    """
+
+    out = None
+    for b in base:
+        if add is not None:
+            b += add
+        val = OptionLoop(OrderedDict(b))
+        if out is None:
+            out = val
+        else:
+            out = out + val
+
+    return out
+
+
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=['c', 'opencl'], do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False):
 
-    platforms = get_test_platforms(owner.store.test_platforms,
-                                   do_vector=do_vector, langs=langs)
+    platforms = load_platforms(owner.store.test_platforms, langs=langs)
     oploop = [('order', ['C', 'F']),
               ('auto_diff', [False])
               ]
@@ -619,15 +648,8 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
     else:
         oploop += [('jac_type', [JacobianType.exact])]
     oploop += [('knl_type', ['map'])]
-    out = None
-    for p in platforms:
-        val = OptionLoop(OrderedDict(p + oploop))
-        if out is None:
-            out = val
-        else:
-            out = out + val
 
-    return out
+    return reduce_oploop(platforms, oploop)
 
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
@@ -1459,42 +1481,3 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         # mechanism
         run.post()
     del run
-
-
-def platform_is_gpu(platform):
-    """
-    Attempts to determine if the given platform name corresponds to a GPU
-
-    Parameters
-    ----------
-    platform_name: str or :class:`pyopencl.platform`
-        The name of the platform to check
-
-    Returns
-    -------
-    is_gpu: bool or None
-        True if platform found and the device type is GPU
-        False if platform found and the device type is not GPU
-        None otherwise
-    """
-    # filter out C or other non pyopencl platforms
-    if not platform:
-        return False
-    try:
-        import pyopencl as cl
-        if isinstance(platform, cl.Platform):
-            return platform.get_devices()[0].type == cl.device_type.GPU
-
-        for p in cl.get_platforms():
-            if platform.lower() in p.name.lower():
-                # match, get device type
-                dtype = set(d.type for d in p.get_devices())
-                assert len(dtype) == 1, (
-                    "Mixed device types on platform {}".format(p.name))
-                # fix cores for GPU
-                if cl.device_type.GPU in dtype:
-                    return True
-                return False
-    except ImportError:
-        pass
-    return None
