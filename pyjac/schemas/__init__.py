@@ -1,10 +1,17 @@
+# system
 from os.path import abspath, dirname, join
-import six
-import yamale
-from yamale.validators import DefaultValidators, Validator, Integer, String
-from ..utils import func_logger, langs, can_vectorize_lang, stringify_args
 import re
 import logging
+
+# external
+import six
+import yamale
+from yamale.validators import DefaultValidators, Validator, Integer, String, Map
+
+# internal
+from ..utils import func_logger, langs, can_vectorize_lang, stringify_args, listify
+from ..tests.test_utils.get_test_matrix import allowed_overrides, \
+    allowed_override_keys
 
 # define path to schemas
 schema_dir = abspath(dirname(__file__))
@@ -73,6 +80,38 @@ class BytesValidator(String):
         return unit * size
 
 
+
+class OverrideValidator(Map):
+    tag = 'override'
+
+    @func_logger(name=tag)
+    def _is_valid(self, value):
+        logger = logging.getLogger(__name__)
+
+        if not isinstance(value, dict):
+            logger.debug('Override improperly specified: {}'.format(value))
+            return False
+
+        # next check for valid keys
+        if not all(k in allowed_override_keys for k in value.keys()):
+            logger.error('Invalid override key specified: {}'.format(
+                next(k for k in value.keys() if k not in allowed_override_keys)))
+            return False
+
+        # next, check that all subkeys are allowed
+        for key in value.keys():
+            for k, v in value[key]:
+                if k not in allowed_overrides:
+                    logger.error('Invalid override {} specified for key {}. '
+                                 'Allowed values are: {}'.format(
+                                    k, key, ', '.join(allowed_overrides.keys())))
+                    return False
+                override, values = allowed_overrides[k]
+                v = __listify(v)
+                if isinstance(values, type):
+
+
+
 def get_validators():
     validators = DefaultValidators.copy()  # This is a dictionary
 
@@ -90,6 +129,9 @@ def get_validators():
 
     byte = BytesValidator()
     validators[byte.tag] = byte
+
+    override = OverrideValidator()
+    validators[override.tag] = override
 
     return validators
 
