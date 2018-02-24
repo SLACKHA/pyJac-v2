@@ -170,6 +170,31 @@ def enum_to_string(enum):
     return enum[enum.index('.') + 1:]
 
 
+def listify(value):
+    """
+    Convert value to list
+
+    Parameters
+    ----------
+    value: object
+        The value to convert
+
+    Returns
+    -------
+    listified: list
+        If string, return [string]
+        If tuple or other iterable, convert to lsit
+        If not iterable, return [value]
+    """
+    if isinstance(value, six.string_types):
+        return [value]
+
+    try:
+        return [vi for vi in value]
+    except TypeError:
+        return [value]
+
+
 def get_species_mappings(num_specs, last_species):
     """
     Maps species indices around species moved to last position.
