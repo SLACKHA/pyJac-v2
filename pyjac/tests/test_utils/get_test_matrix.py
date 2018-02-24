@@ -188,7 +188,9 @@ def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
                 out = out + val
         return out
 
-    max_vec_width = max(max(dict(p)['vecsize']) for p in params
-                        if 'vecsize' in dict(p))
+    max_vec_width = 1
+    vector_params = [max(dict(p)['vecsize']) for p in params if 'vecsize' in dict(p)]
+    if vector_params:
+        max_vec_width = max(max_vec_width, max(vector_params))
     loop = reduce(params)
     return mechanism_list, loop, max_vec_width

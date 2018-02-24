@@ -24,6 +24,65 @@ lib_dir = os.path.join(script_dir, 'lib')
 utils.create_dir(build_dir)
 
 
+def _get_test_input(key, default=''):
+    try:
+        from testconfig import config
+    except ImportError:
+        # not nose
+        config = {}
+
+    value = default
+    in_config = False
+    if key in config:
+        logger = logging.getLogger(__name__)
+        in_config = True
+        logger.info('Loading value {} = {} from testconfig'.format(
+            key, config[key.lower()]))
+        value = config[key.lower()]
+    if key.upper() in os.environ:
+        logger = logging.getLogger(__name__)
+        logger.info('{}Loading value {} = {} from environment'.format(
+            'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
+        value = os.environ[key.upper()]
+    return value
+
+
+def get_platform_file():
+    """
+    Returns the user specied or default test platform file.
+    This can be set in :file:`test_setup.py` or via the command line
+
+    For an example of this file format, see :file:`test_platforms_example.py`
+    """
+    return _get_test_input('test_platform', 'test_platforms.yaml')
+
+
+def get_mem_limits_file():
+    """
+    Returns the user specied or empty memory limits file
+    This can be set in :file:`test_setup.py` or via the command line
+
+    For an example of this file format, see :file:`mem_limits_example.yaml`
+    """
+    return _get_test_input('mem_limits', '')
+
+
+def get_mechanism_file():
+    """
+    Returns the user specied or default Cantera mechanism to test
+    This can be set in :file:`test_setup.py` or via the command line
+    """
+    return _get_test_input('gas', 'test.cti')
+
+
+def get_test_langs():
+    """
+    Returns the languages to use in unit testing, defaults to OpenCL & C
+    """
+
+    return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
+
+
 @nottest
 def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
                        raise_on_missing=False):
@@ -49,10 +108,6 @@ def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
             if not allowed_langs:
                 # empty
                 continue
-
-            if 'do_not_run' in p and p['do_not_run']:
-                oploop = None
-                return oploop
 
             # set lang
             inner_loop.append(('lang', allowed_langs))
@@ -130,65 +185,6 @@ def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
                 else:
                     oploop += [inner_loop]
     return oploop
-
-
-def _get_test_input(key, default=''):
-    try:
-        from testconfig import config
-    except ImportError:
-        # not nose
-        config = {}
-
-    value = default
-    in_config = False
-    if key in config:
-        logger = logging.getLogger(__name__)
-        in_config = True
-        logger.info('Loading value {} = {} from testconfig'.format(
-            key, config[key.lower()]))
-        value = config[key.lower()]
-    if key.upper() in os.environ:
-        logger = logging.getLogger(__name__)
-        logger.info('{}Loading value {} = {} from environment'.format(
-            'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
-        value = os.environ[key.upper()]
-    return value
-
-
-def get_platform_file():
-    """
-    Returns the user specied or default test platform file.
-    This can be set in :file:`test_setup.py` or via the command line
-
-    For an example of this file format, see :file:`test_platforms_example.py`
-    """
-    return _get_test_input('test_platform', 'test_platforms.yaml')
-
-
-def get_mem_limits_file():
-    """
-    Returns the user specied or empty memory limits file
-    This can be set in :file:`test_setup.py` or via the command line
-
-    For an example of this file format, see :file:`mem_limits_example.yaml`
-    """
-    return _get_test_input('mem_limits', '')
-
-
-def get_mechanism_file():
-    """
-    Returns the user specied or default Cantera mechanism to test
-    This can be set in :file:`test_setup.py` or via the command line
-    """
-    return _get_test_input('gas', 'test.cti')
-
-
-def get_test_langs():
-    """
-    Returns the languages to use in unit testing, defaults to OpenCL & C
-    """
-
-    return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
 
 
 class storage(object):

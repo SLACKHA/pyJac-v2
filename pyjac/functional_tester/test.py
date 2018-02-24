@@ -914,6 +914,35 @@ class jacobian_eval(eval):
 
         super(jacobian_eval, self).__init__()
 
+    def release(self):
+        """
+        Force remove old hdf5 files out of paranoia
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        # ensure that the FD jacobians are removed
+        def try_delete(file):
+            try:
+                os.remove(file)
+            except (IOError, OSError):
+                pass
+
+        try_delete('fd_jac_cp.hdf5')
+        try_delete('fd_jac_cp_sp_C.hdf5')
+        try_delete('fd_jac_cp_sp_F.hdf5')
+        try_delete('fd_jac_cv.hdf5')
+        try_delete('fd_jac_cv_sp.hdf5')
+        try_delete('fd_jac_cv_sp_C.hdf5')
+        try_delete('fd_jac_cv_sp_F.hdf5')
+        super(jacobian_eval, self).release()
+
     def __sparsify(self, jac, name, order, check=True):
         # get the sparse indicies
         inds = self.inds['flat_' + order]
@@ -980,19 +1009,21 @@ class jacobian_eval(eval):
         settings = np.seterr(**settings)
         return out, np.sqrt(threshold)
 
-    def __fast_jac(self, conp, sparse, order):
+    def __fast_jac(self, conp, sparse, order, require=False):
         jac = None
         # check for stored jacobian
         name = 'fd_jac_' + ('cp' if conp else 'cv')
         if hasattr(self, name):
             jac = getattr(self, name)
 
+        assert not require or jac is not None
         if jac is None:
             return None
 
         if sparse == 'sparse':
             # check for stored sparse matrix
-            name += '_sp'
+            name += '_sp_{}'.format(order)
+            assert not require or hasattr(self, name)
             if hasattr(self, name):
                 return getattr(self, name)
         return jac
@@ -1101,10 +1132,19 @@ class jacobian_eval(eval):
 
         if state['sparse'] == 'sparse':
             name += '_sp'
-            jac, threshold = self.__sparsify(jac, name, state['order'], check=True)
-            # store
-            setattr(self, name, jac)
-            setattr(self, thresh_name + '_sp', threshold)
+            thresh_name += '_sp'
+
+            def __sparsify_order(order):
+                order_name = name + '_{}'.format(order)
+                order_thresh_name = thresh_name + '_{}'.format(order)
+                sjac, threshold = self.__sparsify(
+                    jac, order_name, order, check=True)
+                setattr(self, order_name, sjac)
+                setattr(self, order_thresh_name, threshold)
+
+            # do C-order
+            __sparsify_order('C')
+            __sparsify_order('F')
 
         return jac
 
@@ -1113,6 +1153,7 @@ class jacobian_eval(eval):
         name = 'threshold_' + 'cp' if state['conp'] else 'cv'
         if state['sparse'] == 'sparse':
             name += '_sp'
+            name += '_{}'.format(state['order'])
         return getattr(self, name)
 
     @property
@@ -1121,7 +1162,8 @@ class jacobian_eval(eval):
         return ['jac']
 
     def ref_answers(self, state):
-        return [self.__fast_jac(state['conp'], state['sparse'], state['order'])]
+        return [self.__fast_jac(state['conp'], state['sparse'], state['order'],
+                                require=True)]
 
     def eval_error(self, offset, this_run, state, outputs, answers, err_dict):
         def __update_key(key, value, op='norm'):
