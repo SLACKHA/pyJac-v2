@@ -80,7 +80,6 @@ class BytesValidator(String):
         return unit * size
 
 
-
 class OverrideValidator(Map):
     tag = 'override'
 
@@ -101,14 +100,31 @@ class OverrideValidator(Map):
         # next, check that all subkeys are allowed
         for key in value.keys():
             for k, v in value[key]:
+                # check that the override type is valid
                 if k not in allowed_overrides:
                     logger.error('Invalid override {} specified for key {}. '
                                  'Allowed values are: {}'.format(
                                     k, key, ', '.join(allowed_overrides.keys())))
                     return False
                 override, values = allowed_overrides[k]
-                v = __listify(v)
+                v = listify(v)
+                # if the 'values' is a type,
                 if isinstance(values, type):
+                    bad = next((vi for vi in v if not isinstance(vi, values)), None)
+                    if bad is not None:
+                        logger.error('Invalid value type specified for key {}. '
+                                     'Allowed values type is: {}'.format(
+                                        '.'.join([key, k]), str(value)))
+                    # and convert to type
+                    value[key][k] = [values(vi) for vi in v]
+                else:
+                    bad = next((vi for vi in v if not values), None)
+                    if bad is not None:
+                        logger.error('Invalid value type specified for key {}. '
+                                     'Allowed values are: {}'.format(
+                                        '.'.join([key, k]), ', '.join(
+                                            str(vi) for vi in value)))
+        return value
 
 
 
