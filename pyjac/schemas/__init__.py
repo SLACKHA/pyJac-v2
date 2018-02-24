@@ -21,12 +21,15 @@ def get_list_validator(tagname, validlist):
 
         @func_logger(name=tagname)
         def _is_valid(self, value):
-            if value not in validlist:
+            value = listify(value)
+            badvals = [x for x in value if x not in validlist]
+            if badvals:
                 logger = logging.getLogger(__name__)
-                logger.error('Value {} not in allowed mapping {}.'
+                logger.error('Value(s) {} not in allowed mapping {}. '
                              'Allowed values: {}'.format(
-                                value, tagname, stringify_args(validlist)))
-            return value in validlist
+                                badvals, tagname, stringify_args(validlist)))
+                return False
+            return True
 
     return ListValidator()
 
