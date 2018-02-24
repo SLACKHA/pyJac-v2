@@ -11,15 +11,16 @@ models:
     # limit the number of initial conditions tested (usually, due to memory
     # limitations)
     limits:
-        source_rates: 10000000
-        jacobian:
-            sparse:
-                100000
-            full:
-                1000
+      species_rates: 10000000
+      jacobian:
+        sparse:
+          100000
+        full:
+          1000
   - name: CH4
     mech: grimech30.cti
 
+# list of platforms to use
 platform-list:
   - name: intel
     lang: opencl
@@ -32,26 +33,29 @@ platform-list:
     vectype: [par]
 
 
-
-# testing
-#cpu:
-    # allowed keys are 'validation' and 'performance' or 'template'
-    # a template can be loaded via the 'inherits' key in a validation or performance
-    # test
-#    type: 'template'
-
-    # Currently the recognized keys that can be placed in a template are the
-    # the arguements that may be passed via command line to pyJac
-    # If not specified, an arguement defaults to the value given in
-    # :func:`utils.get_parser`
-
-    # define common parameters
-#    vecwidth: [2, 4, 8]
-#    conp: [True, False]
-
-
-# any
-#test:
-#    inherits: cpu
-#    type: validation # allowed keys are 'validation' and 'performance'
-#    runtype: [species, jacobian]
+# test list
+test-list:
+  # a validation test for both spurce rates & jacobian
+  - type: validation
+    eval-type: both
+  # source rate performance test
+  - type: performance
+    eval-type: species_rates
+  # a performance test for the jacobian
+  - type: performance
+    eval-type: jacobian
+    # overrides, controlling the finite_difference tests
+    finite_difference:
+      # limit number of cores
+      num_cores: 1
+      # use only parallel FD-evaluation
+      vecwidth: []
+      vectype: 'par'
+      # C-order only
+      order: 'C'
+      # conp-only
+      conp: 'conp'
+    # overrides for the exact jacobian
+    exact:
+      # only test vector width of 4
+      vecwidth: 4

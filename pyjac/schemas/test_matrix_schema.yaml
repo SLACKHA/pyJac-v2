@@ -9,6 +9,8 @@ memory_limit: include('memory_limits', required=False)
 # allow for specification of testing platforms from platform schema
 platform-list: list(include('variable-platform'), required=True)
 
+test-list: list(include('test'), required=True)
+
 ---
 mechanism:
     # the name of the mechanism, if not specified defaults to the provided file name
@@ -24,7 +26,8 @@ mechanism:
 ---
 # limits on # of conditions evaluation of specific mechanism
 source-ic-limit:
-    source_rates: int(min=0, required=True)
+    # todo: species_rates -> source_rates
+    species_rates: int(min=0, required=True)
 
 jacobian-limit:
     jacobian: map(include('sparse-ic-limit'), include('dense-ic-limit'), required=True)
@@ -40,6 +43,6 @@ test:
     # test type specification
     type: enum('validation', 'performance', required=True)
     # defaults to 'both'
-    eval-type: enum('jac', 'spec', 'both', required=False)
+    eval-type: enum('jacobian', 'species_rates', 'both', required=False)
     # allow overrides of playform defaults
     overrides: map(override, required=False)
