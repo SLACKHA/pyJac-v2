@@ -37,5 +37,9 @@ dense-ic-limit:
 ---
 # schema specifying test type
 test:
+    # test type specification
     type: enum('validation', 'performance', required=True)
-    overrides: map(include('override'), required=False)
+    # defaults to 'both'
+    eval-type: enum('jac', 'spec', 'both', required=False)
+    # allow overrides of playform defaults
+    overrides: map(override, required=False)

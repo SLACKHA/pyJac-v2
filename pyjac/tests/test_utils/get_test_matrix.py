@@ -7,8 +7,22 @@ from optionloop import OptionLoop
 from .. import get_test_platforms, _get_test_input
 from . import platform_is_gpu
 from ...libgen import build_type
+from ...utils import enum_to_string
+from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat
 import logging
 import yaml
+
+
+allowed_override_keys = [enum_to_string(JacobianType.exact),
+                         enum_to_string(JacobianType.finite_difference),
+                         enum_to_string(JacobianFormat.sparse),
+                         enum_to_string(JacobianFormat.sparse),
+                         enum_to_string(build_type.species_rates)]
+
+allowed_overrides = {'num_cores': int,
+                     'order': ['C', 'F'],
+                     'conp': ['conp', 'conv'],
+                     'vecsize': int}
 
 
 def get_test_matrix(work_dir, test_type, test_platforms, for_validation,
