@@ -10,8 +10,6 @@ from yamale.validators import DefaultValidators, Validator, Integer, String, Map
 
 # internal
 from ..utils import func_logger, langs, can_vectorize_lang, stringify_args, listify
-from ..tests.test_utils.get_test_matrix import allowed_overrides, \
-    allowed_override_keys
 
 # define path to schemas
 schema_dir = abspath(dirname(__file__))
@@ -85,6 +83,8 @@ class OverrideValidator(Map):
 
     @func_logger(name=tag)
     def _is_valid(self, value):
+        from ..tests.test_utils.get_test_matrix import (
+            allowed_overrides, allowed_override_keys)
         logger = logging.getLogger(__name__)
 
         if not isinstance(value, dict):
@@ -178,6 +178,7 @@ def build_schema(schema, validators=get_validators(), includes=[]):
     """
 
     # add common
+    includes = [__prefixify(x) for x in listify(includes)]
     includes.append(__prefixify('common_schema.yaml'))
 
     # ensure schema is properly path'd
@@ -248,4 +249,4 @@ def build_and_validate(schema, source, validators=get_validators(), includes=[])
         The validated data
     """
     schema = build_schema(schema, validators=validators, includes=includes)
-    return validate(schema, source)
+    return validate(schema, source)[0]

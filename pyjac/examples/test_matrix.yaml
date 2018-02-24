@@ -3,11 +3,13 @@
 
 # mechanisms are specified by a name and cantera format mechanism and optional path
 models:
-  - name: IC5H11OH
-    mech: Sarathy_ic5_mech_rev.cti
-    # if not specified, the mechanism is assumed to be in either validation/name/
-    # or performance/name/
-    path: ~/mechs/
+  - name: TestMech
+    mech: test.cti
+
+    # specify the path to the model -- if not specified, the model is assumed to
+    # be in either validation/name/ or performance/name/ depending on the test type
+    path: 'pyjac/tests/'
+
     # limit the number of initial conditions tested (usually, due to memory
     # limitations)
     limits:
@@ -18,7 +20,10 @@ models:
         full:
           1000
   - name: CH4
-    mech: grimech30.cti
+    # alternatively, one can specify the path to Null in order to load default
+    # cantera mechnisms
+    path:
+    mech: gri30.cti
 
 # list of platforms to use
 platform-list:
