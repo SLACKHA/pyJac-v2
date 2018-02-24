@@ -48,6 +48,8 @@ test-list:
     eval-type: species_rates
   # a performance test for the jacobian
   - type: performance
+    # limit to intel
+    platforms: intel
     eval-type: jacobian
     # overrides, controlling the finite_difference tests
     finite_difference:
