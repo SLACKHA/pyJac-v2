@@ -51,6 +51,6 @@ def test_codegen_platform_schema():
     runschema('codegen_platform.yaml', 'codegen_platform.yaml')
 
 
-def test_mechanism_schema():
+def test_matrix_schema():
     runschema('test_matrix_schema.yaml', 'test_matrix.yaml',
               includes=['platform_schema.yaml'])
