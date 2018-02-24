@@ -112,10 +112,10 @@ def load_models(work_dir, matrix):
 
 def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     try:
-        platforms = load_from_key(matrix, platform_key) + load_from_key(
-            matrix, platform_list_key)
         # try to use user-specified platforms
         oploop = []
+        platforms = load_from_key(matrix, platform_key) + load_from_key(
+            matrix, platform_list_key)
         # put into oploop form, and make repeatable
         for p in sorted(platforms, key=lambda x: x['name']):
 
@@ -216,7 +216,8 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                     for p in platform_list:
                         # create option loop and add
                         oploop += [inner_loop + p]
-                else:
+                elif lang == 'c':
+                    inner_loop += [('platform', 'OpenMP')]
                     oploop += [inner_loop]
     return oploop
 

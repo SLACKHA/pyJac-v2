@@ -121,3 +121,16 @@ def test_load_platform():
     assert openmp['lang'] == 'c'
     assert openmp['width'] is None
     assert openmp['depth'] is None
+
+    # test empty platform w/ raise -> assert
+    from nose.tools import assert_raises
+    with assert_raises(Exception):
+        load_platforms(None, raise_on_empty=True)
+
+    # test empty platform
+    platforms = load_platforms(None, langs=['c'], raise_on_empty=False)
+    assert len(platforms) == 1
+    openmp = OrderedDict(platforms[0])
+    assert openmp['lang'] == 'c'
+    assert openmp['platform'] == 'OpenMP'
+    assert len(platforms[0]) == 2
