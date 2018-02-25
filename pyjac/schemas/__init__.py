@@ -94,13 +94,7 @@ class OverrideValidator(Map):
             logger.debug('Override improperly specified: {}'.format(value))
             return False
 
-        # next check for valid keys
-        if not all(k in allowed_override_keys for k in value.keys()):
-            logger.error('Invalid override key specified: {}'.format(
-                next(k for k in value.keys() if k not in allowed_override_keys)))
-            return False
-
-        # next, check that all subkeys are allowed
+        # check that all subkeys are allowed
         for key in value.keys():
             for k, v in value[key]:
                 # check that the override type is valid

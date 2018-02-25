@@ -46,23 +46,28 @@ test-list:
   # source rate performance test
   - type: performance
     eval-type: species_rates
+    overrides:
+      # overrides, controlling the species_rates test
+      species-rates:
+        order: 'F'
   # a performance test for the jacobian
   - type: performance
     # limit to intel
     platforms: intel
     eval-type: jacobian
-    # overrides, controlling the finite_difference tests
-    finite_difference:
-      # limit number of cores
-      num_cores: 1
-      # use only parallel FD-evaluation
-      vecwidth: []
-      vectype: 'par'
-      # C-order only
-      order: 'C'
-      # conp-only
-      conp: 'conp'
-    # overrides for the exact jacobian
-    exact:
-      # only test vector width of 4
-      vecwidth: 4
+    overrides:
+      # overrides, controlling the finite_difference tests
+      finite-difference:
+        # limit number of cores
+        num_cores: 1
+        # use only parallel FD-evaluation
+        vecwidth: []
+        vectype: 'par'
+        # C-order only
+        order: 'C'
+        # conp-only
+        conp: 'conp'
+      # overrides for the exact jacobian
+      exact:
+        # only test vector width of 4
+        vecwidth: 4

@@ -45,6 +45,10 @@ test:
     # defaults to 'both'
     eval-type: enum('jacobian', 'species_rates', 'both', required=False)
     # allow overrides of platform defaults
-    overrides: map(override, required=False)
+    finite-difference: any(override, list(override), required=False)
+    exact: any(override, list(override), required=False)
+    species-rates: any(override, list(override), required=False)
+    sparse: any(override, list(override), required=False)
+    full: any(override, list(override), required=False)
     # specify which platforms to use, defaults to whole list
     platforms: any(list(str()), str(), required=False)

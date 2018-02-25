@@ -6,20 +6,21 @@ the given example specifications against them.
 # system
 from os.path import isfile, join
 from collections import OrderedDict
+from tempfile import NamedTemporaryFile
 
 # external
 import six
 import cantera as ct
-from optionloop import OptionLoop
+from nose.tools import assert_raises
 
 # internal
 from ..libgen.libgen import build_type
 from ..loopy_utils.loopy_utils import JacobianFormat
 from ..utils import func_logger, enum_to_string, listify
-from .test_utils import xfail, reduce_oploop
+from .test_utils import xfail
 from . import script_dir as test_mech_dir
 from .test_utils.get_test_matrix import load_models, load_from_key, model_key, \
-    load_platforms
+    load_platforms, load_tests, get_test_matrix
 from ..examples import examples_dir
 from ..schemas import schema_dir, get_validators, build_schema, validate, \
     __prefixify, build_and_validate
@@ -123,7 +124,6 @@ def test_load_platform():
     assert openmp['depth'] is None
 
     # test empty platform w/ raise -> assert
-    from nose.tools import assert_raises
     with assert_raises(Exception):
         load_platforms(None, raise_on_empty=True)
 
@@ -134,3 +134,8 @@ def test_load_platform():
     assert openmp['lang'] == 'c'
     assert openmp['platform'] == 'OpenMP'
     assert len(platforms[0]) == 2
+
+
+def test_load_tests():
+    tests = load_tests(__get_test_matrix(), 'test_matrix_schema.yaml')
+    assert len(tests) == 3

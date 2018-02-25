@@ -1,12 +1,11 @@
 from os.path import join, abspath, exists
 import psutil
-import sys
 import cantera as ct
-from collections import OrderedDict
-from optionloop import OptionLoop
 import logging
 import re
 import six
+from collections import OrderedDict
+from nose.tools import nottest
 
 from .. import _get_test_input, get_test_langs
 from .. import platform_is_gpu
@@ -31,9 +30,10 @@ allowed_overrides = {'num_cores': int,
 model_key = r'^models\.\d+$'
 platform_list_key = r'^platform-list\.\d+$'
 platform_key = r'^platform\.\d+$'
+test_matrix_key = r'^test-list\.\d+$'
 
 
-def load_from_key(matrix, key):
+def load_from_key(matrix, key, raw=False):
     """
     Loads all keys from the parsed test matrix that match the key
 
@@ -41,6 +41,8 @@ def load_from_key(matrix, key):
         The parsed test matrix, i.e., output of :func:`build_and_validate`
     key: str or compiled regex
         The key to search
+    raw: bool [False]
+        If True, the key is a raw string, and should be regexified
 
     Returns
     -------
@@ -48,6 +50,8 @@ def load_from_key(matrix, key):
         The matching test matrix values
     """
 
+    if raw:
+        key = '^' + key + '$'
     if isinstance(key, six.string_types):
         key = re.compile(key)
     return [matrix[x] for x in matrix if key.search(x)]
@@ -222,6 +226,35 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     return oploop
 
 
+@nottest
+def load_tests(matrix, filename):
+    """
+    Load the tests from the pre-parsed test matrix file and check for duplicates
+
+    Parameters
+    ----------
+    matrix: dict
+        The parsed test matrix, i.e., output of :func:`build_and_validate`
+
+    Returns
+    -------
+    tests: list
+        The list of valid tests
+    """
+
+    tests = load_from_key(matrix, test_matrix_key)
+    dupes = set()
+    for test in tests:
+        descriptor = test['type'] + ' - ' + test['eval-type']
+        if descriptor in dupes:
+            raise Exception('Multiple test types of {} for evaluation type {} '
+                            'detected in test matrix file {}'.format(
+                                test['type'], test['eval-type'], filename))
+        dupes.add(descriptor)
+    return tests
+
+
+@nottest
 def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     raise_on_missing=True):
     """Runs a set of mechanisms and an ordered dictionary for
@@ -260,35 +293,51 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     work_dir = abspath(work_dir)
 
     # validate the test matrix
+    matrix_name = test_matrix
     test_matrix = build_and_validate('test_matrix_schema.yaml', test_matrix)
 
     # check that we have the working directory
     if not exists(work_dir):
-        logger = logging.getLogger(__name__)
-        logger.error('Work directory {} for '.format(work_dir) +
-                     'testing not found, exiting...')
-        sys.exit(-1)
+        raise Exception('Work directory {} for '.format(work_dir) +
+                        'testing not found, exiting...')
 
     # load the models
     models = load_models(work_dir, test_matrix)
     assert isinstance(test_type, build_type)
+
+    # load tests
+    tests = load_tests(test_matrix, matrix_name)
+    # filter those that match the test type
+    valid_str = 'validation' if for_validation else 'performance'
+    tests = [test for test in tests if test['type'] == valid_str]
+    tests = [test for test in tests if test['eval-type'] == enum_to_string(
+        test_type)]
+    # and dictify
+    tests = [OrderedDict(test) for test in tests]
+    if not tests:
+        raise Exception('No tests found in matrix {} for {} test of {}, '
+                        'exiting...'.format(matrix_name, valid_str, enum_to_string(
+                         test_type)))
+
+    # get defaults we haven't migrated to schema yet
     rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
         else ['fixed']
     sparse = ['sparse', 'full'] if test_type == build_type.jacobian else ['full']
     jtype = ['exact', 'finite_difference'] if (
         test_type == build_type.jacobian and not for_validation) else ['exact']
-    vec_widths = [4, 8, 16]
-    gpu_width = [64, 128]
     split_kernels = [False]
-    num_cores = []
+
+    # and default # of cores, this may be overriden
+    default_num_cores = []
     nc = 1
     if _get_test_input('num_threads', None) is not None:
-        num_cores = [_get_test_input('num_threads', None)]
+        can_override_cores = False
+        default_num_cores = [_get_test_input('num_threads', None)]
     else:
         max_threads = int(_get_test_input('max_threads',
                                           psutil.cpu_count(logical=False)))
         while nc <= max_threads:
-            num_cores.append(nc)
+            default_num_cores.append(nc)
             nc *= 2
 
     def _get_key(params, key):
@@ -309,13 +358,26 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             if params[i][0] == key:
                 return params.pop(i)
 
-    def _fix_params(params):
-        if params is None:
-            return []
-        out_params = []
-        for i in range(len(params)):
-            platform = params[i][:]
-            cores = num_cores
+    # load platforms
+    platforms = load_platforms(test_matrix, raise_on_missing=raise_on_missing)
+    platform_lookups = [OrderedDict(platform) for platform in platforms]
+    out_params = []
+    for test in tests:
+        # filter platforms
+        plats = platforms.copy()
+        lookups = platform_lookups.copy()
+        if 'platforms' in test:
+            plats, lookups = [(plats[i], lookups[i]) for i in range(len(plats))
+                              if lookups['platform'] in test['platforms']]
+        if not len(plats):
+            logger = logging.getLogger(__name__)
+            logger.warn('No platforms found for test {}, skipping...'.format(
+                test))
+            continue
+
+        for p, plookup in zip(plats, lookups):
+            cores = default_num_cores
+
             widths = vec_widths
             if _get_key(platform, 'lang') == 'opencl':
                 # test platform type
@@ -369,20 +431,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                            ('sparse', sparse),
                            ('jac_type', [jac_type])]
                 out_params.append(outplat[:])
-        return out_params
-
-    params = _fix_params(get_test_platforms(test_platforms,
-                                            raise_on_missing=raise_on_missing))
-
-    def reduce(params):
-        out = []
-        for p in params:
-            val = OptionLoop(OrderedDict(p), lambda: False)
-            if out == []:
-                out = val
-            else:
-                out = out + val
-        return out
 
     max_vec_width = 1
     vector_params = [max(dict(p)['vecsize']) for p in params if 'vecsize' in dict(p)]
