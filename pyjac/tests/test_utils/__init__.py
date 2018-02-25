@@ -608,7 +608,7 @@ def reduce_oploop(base, add=None):
     for b in base:
         if add is not None:
             b += add
-        val = OptionLoop(OrderedDict(b))
+        val = OptionLoop(OrderedDict(b), lambda: False)
         if out is None:
             out = val
         else:
