@@ -53,3 +53,31 @@ variable-platform:
         atomics:
             type: boolean
             default: True
+
+# overrides for individual tests
+override:
+    type: dict
+    schema:
+        num_cores:
+            type: list
+            schema:
+                type: integer
+        order:
+            type: list
+            schema:
+                type: string
+                allowed: ['C', 'F']
+        conp:
+            type: list
+            schema:
+                type: string
+                allowed: ['conp', 'conv']
+        vecsize:
+            type: list
+            schema:
+                type: integer
+        vectype:
+            type: list
+            schema:
+                type: string
+                allowed: ['par', 'wide', 'deep']
