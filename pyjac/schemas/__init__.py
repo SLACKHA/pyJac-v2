@@ -78,13 +78,13 @@ class CustomValidator(Validator):
         :param value: field value.
         """
         # first split value
-        match = re.search(r'^\s*(\d+)\s*([mMkKgG]?[bB])\s*$')
+        match = re.search(r'^\s*(\d+)\s*([mMkKgG]?[bB])\s*$', value)
         if not match:
             self._error('String {} specified for type "bytes" could '
                         'not be parsed.  Expected format example: 10 GB'.format(
                             value))
 
-        size, unit = match.groups()[1:]
+        size, unit = match.groups()
         size = int(size)
         if size < 0:
             self._error('Size {} specified for type "bytes" less than zero'.format(
@@ -171,7 +171,6 @@ def validate(validator, source, filename=''):
     with open(source, 'r') as file:
         sourcedict = yaml.load(file)
     # and validate
-    import pdb; pdb.set_trace()
     if not validator.validate(sourcedict):
         logger = logging.getLogger(__name__)
         for error in validator._errors:
