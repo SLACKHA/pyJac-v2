@@ -1,5 +1,5 @@
 # system
-from os.path import abspath, dirname, join
+from os.path import abspath, dirname, join, isfile
 import re
 import logging
 
@@ -113,9 +113,9 @@ def __prefixify(file, dirname=schema_dir):
     return file
 
 
-@func_logger()
+@func_logger
 def build_schema(schema, includes=['common_schema.yaml'],
-                 validatorclass=CustomValidator):
+                 validatorclass=CustomValidator, allow_unknown=False):
     """
     Creates a schema / parses a schema and adds the additonal given includes
 
@@ -129,6 +129,8 @@ def build_schema(schema, includes=['common_schema.yaml'],
         Additional schema to use for includes
     validatorclass: :class:`Validator` [:class:`CustomValidator`]
         The type of validator to build
+    allow_unknown: bool [False]
+        Allow unknown keys
 
     Returns
     -------
@@ -137,7 +139,10 @@ def build_schema(schema, includes=['common_schema.yaml'],
     """
 
     for include in includes:
-        with open(__prefixify(include), 'r') as file:
+        include = __prefixify(include)
+        if not isfile(include):
+            raise IOError('Schema file {} does not exist.'.format(include))
+        with open(include, 'r') as file:
             common = yaml.load(file)
 
         # and add to schema registry
@@ -147,7 +152,7 @@ def build_schema(schema, includes=['common_schema.yaml'],
     with open(__prefixify(schema), 'r') as file:
         schema = yaml.load(file)
 
-    return validatorclass(schema)
+    return validatorclass(schema, allow_unknown=allow_unknown)
 
 
 @func_logger
@@ -175,16 +180,15 @@ def validate(validator, source, filename=''):
     # and validate
     if not validator.validate(sourcedict):
         logger = logging.getLogger(__name__)
-        for error in validator._errors:
-            logger.error(validation_error_to_string(error))
+        logger.error(validation_error_to_string(validator.errors))
         raise ValidationError(source, filename)
 
     return validator.validated(sourcedict)
 
 
 @func_logger
-def build_and_validate(schema, source, validator=CustomValidator, includes=[
-                       'common_schema.yaml']):
+def build_and_validate(schema, source, validator=CustomValidator, includes=[],
+                       allow_unknown=False):
     """
     Builds schema from file, validates source from file and returns results.
     Convience method for :func:`build_schema` and :func:`validate`
@@ -201,11 +205,16 @@ def build_and_validate(schema, source, validator=CustomValidator, includes=[
         The validators to use, by defaut use the output of get_validators()
     includes: list of str
         Additional schema to use for includes
+    allow_unknown: bool [False]
+        Allow unknown keys
 
     Returns
     -------
     data: dict
         The validated data
     """
-    built = build_schema(schema, validatorclass=validator, includes=includes)
+    includes = listify(includes)
+    includes.append('common_schema.yaml')
+    built = build_schema(schema, validatorclass=validator, includes=includes,
+                         allow_unknown=allow_unknown)
     return validate(built, source, filename=schema)

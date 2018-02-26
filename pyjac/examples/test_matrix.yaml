@@ -2,14 +2,12 @@
 
 
 # mechanisms are specified by a name and cantera format mechanism and optional path
-models:
+model-list:
   - name: TestMech
     mech: test.cti
-
     # specify the path to the model -- if not specified, the model is assumed to
     # be in either validation/name/ or performance/name/ depending on the test type
     path: 'pyjac/tests/'
-
     # limit the number of initial conditions tested (usually, due to memory
     # limitations)
     limits:
@@ -37,7 +35,6 @@ platform-list:
     lang: c
     vectype: [par]
 
-
 # test list
 test-list:
   # a validation test for both spurce rates & jacobian
@@ -46,11 +43,10 @@ test-list:
   # source rate performance test
   - type: performance
     eval-type: species_rates
-    overrides:
-      # overrides, controlling the species_rates test
-      species-rates:
-        order: 'F'
-  # a performance test for the jacobian
+    # overrides, controlling the species_rates test
+    species_rates:
+      order: 'F'
+# a performance test for the jacobian
   - type: performance
     # limit to intel
     platforms: intel
