@@ -62,11 +62,12 @@ def test_codegen_platform_schema_specification():
 
 def test_load_codegen():
     from ..loopy_utils.loopy_utils import load_platform
+    from pyopencl import Platform
     platform = load_platform(__prefixify(
             'codegen_platform.yaml', examples_dir))
-    assert platform.platform == 'intel'
+    assert isinstance(platform.platform, Platform) or platform.platform == 'intel'
     assert platform.width == 4
-    assert platform.depth is None
+    assert not platform.depth
     assert platform.use_atomics is False
 
 
