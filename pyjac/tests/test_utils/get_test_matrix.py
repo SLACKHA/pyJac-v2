@@ -11,7 +11,7 @@ from ...libgen import build_type
 from ...utils import enum_to_string, can_vectorize_lang, listify, EnumType
 from ...loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from ...schemas import build_and_validate
-from ...core.exceptions import OverrideCollisionException
+from ...core.exceptions import OverrideCollisionException, DuplicateTestException
 
 model_key = r'model-list'
 platform_list_key = r'platform-list'
@@ -231,9 +231,7 @@ def load_tests(matrix, filename):
                            test['type'] + ' - ' + enum_to_string(
                                 build_type.species_rates)]
         if set(descriptors) & dupes:
-            raise Exception('Multiple test types of {} for evaluation type {} '
-                            'detected in test matrix file {}'.format(
-                                test['type'], test['eval-type'], filename))
+            raise DuplicateTestException(test['type'], test['eval-type'], filename)
 
         # overrides only need to be checked within a test
         overridedupes = defaultdict(lambda: [])

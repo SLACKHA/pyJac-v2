@@ -101,4 +101,13 @@ class OverrideCollisionException(Exception):
     def __init__(self, override_type, type1, type2):
         self.message = ('Conflicting overrides of type {} specified'
                         'for evaluation types {} and {}'.format(
-                                override_type, type1, type1))
+                            override_type, type1, type1))
+        super(OverrideCollisionException, self).__init__(self.message)
+
+
+class DuplicateTestException(Exception):
+    def __init__(self, rtype, etype, filename):
+        self.message = ('Multiple test types of {} for evaluation type {} '
+                        'detected in test matrix file {}'.format(
+                            rtype, etype, filename))
+        super(DuplicateTestException, self).__init__(self.message)
