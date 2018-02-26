@@ -95,3 +95,10 @@ class ValidationError(Exception):
             'File {} failed to validate against schema {}, see '
             'debug output for more info.'.format(file, schemaname))
         super(ValidationError, self).__init__(self.message)
+
+
+class OverrideCollisionException(Exception):
+    def __init__(self, override_type, type1, type2):
+        self.message = ('Conflicting overrides of type {} specified'
+                        'for evaluation types {} and {}'.format(
+                                override_type, type1, type1))

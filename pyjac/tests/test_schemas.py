@@ -22,6 +22,7 @@ from . import script_dir as test_mech_dir
 from .test_utils.get_test_matrix import load_models, load_platforms, load_tests
 from ..examples import examples_dir
 from ..schemas import schema_dir, __prefixify, build_and_validate
+from ..core.exceptions import OverrideCollisionException
 
 
 @func_logger
@@ -225,7 +226,7 @@ def test_duplicate_tests_fails():
         """)
         file.seek(0)
 
-        with assert_raises(Exception):
+        with assert_raises(OverrideCollisionException):
             tests = build_and_validate('test_matrix_schema.yaml', file.name)
             load_tests(tests, file.name)
 
