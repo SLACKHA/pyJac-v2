@@ -11,6 +11,7 @@ from ...libgen import build_type
 from ...utils import enum_to_string, can_vectorize_lang, listify, EnumType
 from ...loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from ...schemas import build_and_validate
+from ...core.exceptions import OverrideCollisionException
 
 model_key = r'model-list'
 platform_list_key = r'platform-list'
@@ -246,19 +247,15 @@ def load_tests(matrix, filename):
                 # next loop over the actual overides (
                 # i.e., :attr:`allowed_overrides`)
                 for override in test[override_key]:
-                    # convert previously specified to enum
-                    current_types = [__getenumtype(co) for co in overridedupes[
-                        override]]
                     # check for collisions
-                    bad = next((ct for ct in current_types if ct != override_type),
+                    bad = next((ct for ct in overridedupes[override]
+                                if __getenumtype(ct) != override_type),
                                None)
                     if bad is not None:
-                        raise Exception(
-                            'Conflicting overrides of type {} specified'
-                            'for evaluation types {} and {}'.format(
-                                override_key, bad, override_key))
+                        raise OverrideCollisionException(
+                            override_key, bad, override_key)
                     # nad mark duplicate
-                    overridedupes[override].append(override_type)
+                    overridedupes[override].append(override_key)
 
     return tests
 
