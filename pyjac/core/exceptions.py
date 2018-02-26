@@ -1,3 +1,11 @@
+"""
+Contains custom errors / exceptions / error processing
+"""
+
+
+import six
+
+
 class MissingPlatformError(Exception):
     """
     The pyopencl platform requested for testing could not be found
@@ -49,7 +57,7 @@ class BrokenPlatformError(Exception):
         super(BrokenPlatformError, self).__init__(self.message)
 
 
-def validation_error_to_string(error, document=True):
+def validation_error_to_string(error):
     """
     Responsible for converting a :class:`cerberus.ValidatonError` to something human
     readable
@@ -60,19 +68,19 @@ def validation_error_to_string(error, document=True):
         The stringified error
     """
 
-    from ..utils import stringify_args
+    def __stringify(root):
+        error_list = []
+        for k, v in six.iteritems(root):
+            if isinstance(v, dict):
+                error_list.extend(__stringify(v))
+            else:
+                error_list.append('{}: {}'.format(k, ' | '.join(
+                    vi for vi in v)))
+        return error_list
 
-    message = 'Error validating document at path {}. '.format(
-        stringify_args(error.document_path if document else error.schema_path,
-                       joiner='.'))
-    if error.rule is None:
-        return message + 'Path does not match any known rule!'
-    message = 'Failed while evaluating rule {} '.format(error.rule)
-    if error.constraint:
-        message += 'with constraint {} and'.format(error.constraint)
-    message += 'with value {}. '.format(error.value)
-    if error.info:
-        message += 'Additional info: {}'.format(error.info)
+    message = 'Error validating document:\n'
+    message += '\n'.join(['\t{}'.format(e) for e in __stringify(error)])
+
     return message
 
 

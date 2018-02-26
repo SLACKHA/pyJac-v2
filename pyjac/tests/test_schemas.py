@@ -84,7 +84,7 @@ def test_load_test_platforms():
     assert openmp['lang'] == 'opencl'
     assert openmp['width'] == [64, 128, 256]
     assert openmp['depth'] is None
-    assert openmp['use_atomics'] == False
+    assert openmp['use_atomics'] is False
 
     # test empty platform w/ raise -> assert
     with assert_raises(Exception):
@@ -119,13 +119,14 @@ def test_matrix_schema_specification():
               includes=['platform_schema.yaml'])
 
 
-def __get_test_matrix():
+def __get_test_matrix(**kwargs):
     return build_and_validate('test_matrix_schema.yaml', __prefixify(
-        'test_matrix.yaml', examples_dir), includes=['platform_schema.yaml'])
+        'test_matrix.yaml', examples_dir), includes=['test_platform_schema.yaml'],
+        **kwargs)
 
 
 def test_parse_models():
-    models = load_models('', __get_test_matrix())
+    models = load_models('', __get_test_matrix(allow_unknown=True))
 
     # test the test mechanism
     assert 'TestMech' in models

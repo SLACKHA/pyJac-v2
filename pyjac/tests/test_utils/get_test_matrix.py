@@ -2,8 +2,6 @@ from os.path import join, abspath, exists
 import psutil
 import cantera as ct
 import logging
-import re
-import six
 from collections import OrderedDict
 from nose.tools import nottest
 
@@ -27,9 +25,9 @@ allowed_overrides = {'num_cores': int,
                      'vecsize': int,
                      'vectype': ['par', 'w', 'd']}
 
-model_key = r'^models\.\d+$'
+model_key = r'model-list'
 platform_list_key = r'platform-list'
-test_matrix_key = r'^test-list\.\d+$'
+test_matrix_key = r'test-list'
 
 
 def load_models(work_dir, matrix):
@@ -61,7 +59,7 @@ def load_models(work_dir, matrix):
                             eval-types due to memory constraints
     """
 
-    models = load_from_key(matrix, model_key)
+    models = matrix[model_key]
     # find the mechanisms to test
     mechanism_list = {}
 
