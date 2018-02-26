@@ -24,6 +24,7 @@ from ..utils import check_lang
 from .loopy_edit_script import substitute as codefix
 from ..core.exceptions import (MissingPlatformError, MissingDeviceError,
                                BrokenPlatformError)
+from ..schemas import build_and_validate
 from string import Template
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
@@ -77,6 +78,45 @@ class FiniteDifferenceMode(IntEnum):
     forward = 0,
     central = 1,
     backward = 2
+
+
+def load_platform(codegen):
+    """
+    Loads a code-generation platform from a file, and returns the corresponding
+    :class:`loopy_options`
+
+    Parameters
+    ----------
+    codegen: str
+        The user-specified code-generation platform yaml file
+
+    Returns
+    -------
+    :class:`loopy_options`
+        The loaded platform
+
+    Raises
+    ------
+    :class:`cerberus.ValidationError`: A validation error if the supplied codegen
+        platform doesn't comply with the :doc:`../schemas/codegen_platform.yaml`
+    """
+
+    platform = build_and_validate('codegen_platform.yaml', codegen)
+    width = platform['vectype'] == 'wide'
+    depth = platform['vectype'] == 'deep'
+    if width:
+        width = platform['vecwidth']
+    elif depth:
+        depth = platform['vecwidth']
+    # TODO: implement memory limits loading here
+    # optional params get passed as kwargs
+    kwargs = {}
+    if 'order' in platform and platform['order'] is not None:
+        kwargs['order'] = platform['order']
+    if 'atomics' in platform:
+        kwargs['use_atomics'] = platform['atomics']
+    return loopy_options(width=width, depth=depth, lang=platform['lang'],
+                         platform=platform['name'], **kwargs)
 
 
 class loopy_options(object):

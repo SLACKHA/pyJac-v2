@@ -6,7 +6,6 @@ the given example specifications against them.
 # system
 from os.path import isfile, join
 from collections import OrderedDict
-from tempfile import NamedTemporaryFile
 
 # external
 import six
@@ -20,10 +19,9 @@ from ..utils import func_logger, enum_to_string, listify
 from .test_utils import xfail
 from . import script_dir as test_mech_dir
 from .test_utils.get_test_matrix import load_models, load_from_key, model_key, \
-    load_platforms, load_tests, get_test_matrix
+    load_platforms, load_tests
 from ..examples import examples_dir
-from ..schemas import schema_dir, build_schema, validate, \
-    __prefixify, build_and_validate
+from ..schemas import schema_dir, __prefixify, build_and_validate
 
 
 @func_logger
@@ -47,10 +45,11 @@ def runschema(schema, source, should_fail=False, includes=[]):
     @xfail(should_fail)
     def _internal(source, schema, includes):
         # make schema
-        schema = build_schema(schema, includes=includes)
-        return validate(schema, source) is not None
+        built = build_and_validate(schema, source, includes=includes)
+        assert built is not None
+        return built
 
-    assert _internal(source, schema, includes)
+    return _internal(source, schema, includes)
 
 
 def test_test_platform_schema_specification():
@@ -59,6 +58,16 @@ def test_test_platform_schema_specification():
 
 def test_codegen_platform_schema_specification():
     runschema('codegen_platform.yaml', 'codegen_platform.yaml')
+
+
+def test_load_codegen():
+    from ..loopy_utils.loopy_utils import load_platform
+    platform = load_platform(__prefixify(
+            'codegen_platform.yaml', examples_dir))
+    assert platform.platform == 'intel'
+    assert platform.width == 4
+    assert platform.depth is None
+    assert platform.use_atomics is False
 
 
 def test_matrix_schema_specification():
