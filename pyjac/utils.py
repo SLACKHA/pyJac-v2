@@ -22,7 +22,7 @@ langs = ['c', 'opencl']  # ispc' , 'cuda'
 def stringify_args(arglist, kwd=False, joiner=', '):
     if kwd:
         return joiner.join('{}={}'.format(str(k), str(v))
-                         for k, v in six.iteritems(arglist))
+                           for k, v in six.iteritems(arglist))
     else:
         return joiner.join(str(a) for a in arglist)
 
@@ -52,7 +52,7 @@ def func_logger(*args, **kwargs):
                     name = cname + '::' + name
                 msg = 'Entering function {}'.format(name)
                 if log_args:
-                    msg += ', with arguments: {}\t and keyword args{}'.format(
+                    msg += ', with arguments: {} and keyword args: {}'.format(
                         stringify_args(args),
                         stringify_args(kwargs, True))
                 logger.debug(msg)

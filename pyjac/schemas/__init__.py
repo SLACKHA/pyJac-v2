@@ -112,6 +112,7 @@ def __prefixify(file, dirname=schema_dir):
     return file
 
 
+@func_logger()
 def build_schema(schema, includes=['common_schema.yaml'],
                  validatorclass=CustomValidator):
     """
@@ -177,11 +178,12 @@ def validate(validator, source, filename=''):
             logger.error(validation_error_to_string(error))
         raise ValidationError(source, filename)
 
-    return validator.validated(source)
+    return validator.validated(sourcedict)
 
 
 @func_logger
-def build_and_validate(schema, source, validator=CustomValidator, includes=[]):
+def build_and_validate(schema, source, validator=CustomValidator, includes=[
+                       'common_schema.yaml']):
     """
     Builds schema from file, validates source from file and returns results.
     Convience method for :func:`build_schema` and :func:`validate`

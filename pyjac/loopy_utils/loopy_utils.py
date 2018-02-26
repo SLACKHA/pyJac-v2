@@ -101,7 +101,7 @@ def load_platform(codegen):
         platform doesn't comply with the :doc:`../schemas/codegen_platform.yaml`
     """
 
-    platform = build_and_validate('codegen_platform.yaml', codegen)
+    platform = build_and_validate('codegen_platform.yaml', codegen)['platform']
     width = platform['vectype'] == 'wide'
     depth = platform['vectype'] == 'deep'
     if width:
@@ -190,10 +190,10 @@ class loopy_options(object):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
-            assert width is None and depth is None, (
+            assert not (width or depth), (
                 "Can't use a vectorized form with unvectorizable language,"
                 " {}".format(lang))
-        assert not (self.depth is not None and self.width is not None), (
+        assert not (width and depth), (
             'Cannot use deep and wide vectorizations simulataneously')
         self.ilp = ilp
         self.unr = unr
