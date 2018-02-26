@@ -18,7 +18,7 @@ from ..loopy_utils.loopy_utils import JacobianFormat
 from ..utils import func_logger, enum_to_string, listify
 from .test_utils import xfail
 from . import script_dir as test_mech_dir
-from .test_utils.get_test_matrix import load_models, load_from_key, model_key, \
+from .test_utils.get_test_matrix import load_models, model_key, \
     load_platforms, load_tests
 from ..examples import examples_dir
 from ..schemas import schema_dir, __prefixify, build_and_validate
@@ -54,6 +54,49 @@ def runschema(schema, source, should_fail=False, includes=[]):
 
 def test_test_platform_schema_specification():
     runschema('test_platform_schema.yaml', 'test_platforms.yaml')
+
+
+def test_load_test_platforms():
+    platforms = load_platforms(
+        runschema('test_platform_schema.yaml', 'test_platforms.yaml'),
+        raise_on_empty=True)
+    platforms = [OrderedDict(p) for p in platforms]
+
+    # amd
+    amd = next(p for p in platforms if 'amd' in p['platform'].lower())
+    assert amd['lang'] == 'opencl'
+    assert amd['use_atomics'] is True
+
+    def __fuzz_equal(arr):
+        return arr == [2, 4, None] or arr == [2, 4]
+    assert __fuzz_equal(amd['width'])
+    assert __fuzz_equal(amd['depth'])
+    assert amd['depth'] != amd['width']
+
+    # openmp
+    openmp = next(p for p in platforms if 'openmp' in p['platform'].lower())
+    assert openmp['lang'] == 'c'
+    assert openmp['width'] is None
+    assert openmp['depth'] is None
+
+    # nvidia
+    openmp = next(p for p in platforms if 'nvidia' in p['platform'].lower())
+    assert openmp['lang'] == 'opencl'
+    assert openmp['width'] == [64, 128, 256]
+    assert openmp['depth'] is None
+    assert openmp['use_atomics'] == False
+
+    # test empty platform w/ raise -> assert
+    with assert_raises(Exception):
+        load_platforms(None, raise_on_empty=True)
+
+    # test empty platform
+    platforms = load_platforms(None, langs=['c'], raise_on_empty=False)
+    assert len(platforms) == 1
+    openmp = OrderedDict(platforms[0])
+    assert openmp['lang'] == 'c'
+    assert openmp['platform'] == 'OpenMP'
+    assert len(platforms[0]) == 2
 
 
 def test_codegen_platform_schema_specification():
@@ -117,7 +160,7 @@ def test_load_from_key():
     assert len(load_from_key(matrix, '^$')) == 0
 
 
-def test_load_platform():
+def test_load_matrix():
     platforms = load_platforms(__get_test_matrix(), raise_on_empty=True)
     platforms = [OrderedDict(p) for p in platforms]
 

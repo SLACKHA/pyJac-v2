@@ -11,6 +11,7 @@ platform:
         lang:
             type: string
             isvalidlang: True
+            required: True
         # vectorization type
         vectype:
             type: string

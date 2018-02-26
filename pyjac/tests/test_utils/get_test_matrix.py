@@ -28,33 +28,8 @@ allowed_overrides = {'num_cores': int,
                      'vectype': ['par', 'w', 'd']}
 
 model_key = r'^models\.\d+$'
-platform_list_key = r'^platform-list\.\d+$'
-platform_key = r'^platform\.\d+$'
+platform_list_key = r'platform-list'
 test_matrix_key = r'^test-list\.\d+$'
-
-
-def load_from_key(matrix, key, raw=False):
-    """
-    Loads all keys from the parsed test matrix that match the key
-
-    matrix: dict
-        The parsed test matrix, i.e., output of :func:`build_and_validate`
-    key: str or compiled regex
-        The key to search
-    raw: bool [False]
-        If True, the key is a raw string, and should be regexified
-
-    Returns
-    -------
-    submatrix: list of dict
-        The matching test matrix values
-    """
-
-    if raw:
-        key = '^' + key + '$'
-    if isinstance(key, six.string_types):
-        key = re.compile(key)
-    return [matrix[x] for x in matrix if key.search(x)]
 
 
 def load_models(work_dir, matrix):
@@ -118,8 +93,7 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     try:
         # try to use user-specified platforms
         oploop = []
-        platforms = load_from_key(matrix, platform_key) + load_from_key(
-            matrix, platform_list_key)
+        platforms = matrix[platform_list_key]
         # put into oploop form, and make repeatable
         for p in sorted(platforms, key=lambda x: x['name']):
 
