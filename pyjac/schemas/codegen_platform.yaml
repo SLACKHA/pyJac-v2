@@ -17,6 +17,11 @@ platform:
             isvectype: True
             # default is parallel
             default: par
+        # order
+        order:
+            type: string
+            nullable: True
+            allowed: ['C', 'F']
         # vector width
         vecwidth:
             type: integer

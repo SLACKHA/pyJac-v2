@@ -1,6 +1,7 @@
 # system
 from os.path import abspath, dirname, join
 import re
+import logging
 
 # external
 import six
@@ -9,6 +10,7 @@ from cerberus import schema_registry, Validator
 
 # internal
 from ..utils import func_logger, langs, stringify_args, listify
+from ..core.exceptions import ValidationError, validation_error_to_string
 
 # define path to schemas
 schema_dir = abspath(dirname(__file__))
@@ -146,7 +148,8 @@ def build_schema(schema, includes=['common_schema.yaml'],
     return validatorclass(schema)
 
 
-def validate(validator, source):
+@func_logger
+def validate(validator, source, filename=''):
     """
     Validates the passed source file from the pre-built schema, and returns the
     result
@@ -166,11 +169,19 @@ def validate(validator, source):
 
     # make data
     with open(source, 'r') as file:
-        source = yaml.load(file)
+        sourcedict = yaml.load(file)
     # and validate
-    return validator.validate(source)
+    import pdb; pdb.set_trace()
+    if not validator.validate(sourcedict):
+        logger = logging.getLogger(__name__)
+        for error in validator._errors:
+            logger.error(validation_error_to_string(error))
+        raise ValidationError(source, filename)
+
+    return validator.validated(source)
 
 
+@func_logger
 def build_and_validate(schema, source, validator=CustomValidator, includes=[]):
     """
     Builds schema from file, validates source from file and returns results.
@@ -194,5 +205,5 @@ def build_and_validate(schema, source, validator=CustomValidator, includes=[]):
     data: dict
         The validated data
     """
-    schema = build_schema(schema, validatorclass=validator, includes=includes)
-    return validate(schema, source)
+    built = build_schema(schema, validatorclass=validator, includes=includes)
+    return validate(built, source, filename=schema)
