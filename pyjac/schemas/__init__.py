@@ -27,6 +27,7 @@ class CustomValidator(Validator):
             args = (badvals,)
             if not six.callable(valid):
                 args = (badvals, valid)
+
             self._error(field, message.format(
                 *tuple(stringify_args(x) for x in args)))
 
@@ -40,8 +41,7 @@ class CustomValidator(Validator):
         # TODO: implement per-platform vecwidth checks
         # valid values include any power of two (or 3 for OpenCL)
         self.__internal_validator(
-            field,
-            value, lambda x: x == 3 or (x & (x - 1)) == 0,
+            field, value, lambda x: x == 3 or (x & (x - 1)) == 0,
             'Value(s) {} not valid vector widths.'
             'Must be a power of two (or the value three, for OpenCL)')
 
@@ -67,9 +67,10 @@ class CustomValidator(Validator):
         """
 
         self.__internal_validator(
-            field, langs, value,
-            'Value(s) {} not valid vector vectorization types.'
+            field, value, langs,
+            'Value(s) {} not valid language.'
             'Allowed values are: {}.')
+        return True
 
     @func_logger
     def _validate_type_bytestr(self, value):
