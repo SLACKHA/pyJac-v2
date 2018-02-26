@@ -31,7 +31,7 @@ platform-list:
     # use a vector width of 2, 4 & 8
     vecwidth: [2, 4, 8]
     atomics: False
-  - name: OpenMP
+  - name: openmp
     lang: c
     vectype: [par]
 

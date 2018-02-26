@@ -37,5 +37,5 @@ platform:
             type: boolean
             default: True
         # optional memory limits
-        memory_limits:
-            schema: memory_limits
+        memory-limits:
+            schema: memory-limits
