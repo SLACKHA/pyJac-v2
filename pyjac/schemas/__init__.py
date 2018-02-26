@@ -1,73 +1,93 @@
 # system
 from os.path import abspath, dirname, join
 import re
-import logging
 
 # external
 import six
-import yamale
-from yamale.validators import DefaultValidators, Validator, Integer, String, Map
+import yaml
+from cerberus import schema_registry, Validator
 
 # internal
-from ..utils import func_logger, langs, can_vectorize_lang, stringify_args, listify
+from ..utils import func_logger, langs, stringify_args, listify
 
 # define path to schemas
 schema_dir = abspath(dirname(__file__))
 
 
-def get_list_validator(tagname, validlist):
-    class ListValidator(Validator):
-        tag = tagname
+class CustomValidator(Validator):
+    def __internal_validator(self, field, valuelist, valid, message, necessary=True):
+        valuelist = listify(valuelist)
+        if six.callable(valid):
+            badvals = [x for x in valuelist if not valid(x)]
+        else:
+            badvals = [x for x in valuelist if x not in valid]
+        if badvals and necessary:
+            args = (badvals,)
+            if not six.callable(valid):
+                args = (badvals, valid)
+            self._error(field, message.format(
+                *tuple(stringify_args(x) for x in args)))
 
-        @func_logger(name=tagname)
-        def _is_valid(self, value):
-            value = listify(value)
-            badvals = [x for x in value if x not in validlist]
-            if badvals:
-                logger = logging.getLogger(__name__)
-                logger.error('Value(s) {} not in allowed mapping {}. '
-                             'Allowed values: {}'.format(
-                                badvals, tagname, stringify_args(validlist)))
-                return False
-            return True
+    @func_logger
+    def _validate_isvecwidth(self, isvecwidth, field, value):
+        """ Test that the specified value is a proper vector width
 
-    return ListValidator()
+        The rule's arguments are validated against this schema:
+        {'type': 'boolean'}
+        """
+        # TODO: implement per-platform vecwidth checks
+        # valid values include any power of two (or 3 for OpenCL)
+        self.__internal_validator(
+            field,
+            value, lambda x: x == 3 or (x & (x - 1)) == 0,
+            'Value(s) {} not valid vector widths.'
+            'Must be a power of two (or the value three, for OpenCL)')
 
+    @func_logger
+    def _validate_isvectype(self, isvectype, field, value):
+        """ Test that the specified value is a proper vector width
 
-class Pow2Validator(Integer):
-    tag = 'pow2'
+        The rule's arguments are validated against this schema:
+        {'type': 'boolean'}
+        """
+        allowed = ['par', 'wide', 'deep']
+        self.__internal_validator(
+            field, value, allowed,
+            'Value(s) {} not valid vector vectorization types.'
+            'Allowed values are: {}.')
 
-    @func_logger(name=tag)
-    def _is_valid(self, value):
-        rv = super(Pow2Validator, self)._is_valid(value) and \
-            (value != 0) and ((value & (value - 1)) == 0)
-        if not rv:
-            logger = logging.getLogger(__name__)
-            logger.error('Value {} not a power of two.'.format(
-                          value))
-        return rv
+    @func_logger
+    def _validate_isvalidlang(self, isvalidlang, field, value):
+        """ Test that the specified value is a proper vector width
 
+        The rule's arguments are validated against this schema:
+        {'type': 'boolean'}
+        """
 
-class BytesValidator(String):
-    tag = 'bytes'
+        self.__internal_validator(
+            field, langs, value,
+            'Value(s) {} not valid vector vectorization types.'
+            'Allowed values are: {}.')
 
-    @func_logger(name=tag)
-    def _is_valid(self, value):
-        logger = logging.getLogger(__name__)
+    @func_logger
+    def _validate_type_bytestr(self, value):
+        """
+        Enables validation for `bytestr` schema attribute.
+        :param value: field value.
+        """
         # first split value
         match = re.search(r'^\s*(\d+)\s*([mMkKgG]?[bB])\s*$')
         if not match:
-            logger.error('String {} specified for type "bytes" could '
-                         'not be parsed.  Expected format example: 10 GB'.format(
+            self._error('String {} specified for type "bytes" could '
+                        'not be parsed.  Expected format example: 10 GB'.format(
                             value))
-            return False
 
         size, unit = match.groups()[1:]
         size = int(size)
         if size < 0:
-            logger.error('Size {} specified for type "bytes" less than zero'.format(
-                         value))
-            return False
+            self._error('Size {} specified for type "bytes" less than zero'.format(
+                        value))
+
         unit = unit.lower()
         if unit == 'b':
             unit = 1
@@ -77,75 +97,11 @@ class BytesValidator(String):
             unit = 1e6
         elif unit == 'gb':
             unit = 1e9
+        else:
+            self._error('Unknown unit type {}. Allowed types are (case-insensative)'
+                        'B, KB, MB, GB.'.format(unit))
 
         return unit * size
-
-
-class OverrideValidator(Map):
-    tag = 'override'
-
-    @func_logger(name=tag)
-    def _is_valid(self, value):
-        from ..tests.test_utils.get_test_matrix import (
-            allowed_overrides, allowed_override_keys)
-        logger = logging.getLogger(__name__)
-
-        if not isinstance(value, dict):
-            logger.debug('Override improperly specified: {}'.format(value))
-            return False
-
-        # check that all subkeys are allowed
-        for key in value.keys():
-            for k, v in value[key]:
-                # check that the override type is valid
-                if k not in allowed_overrides:
-                    logger.error('Invalid override {} specified for key {}. '
-                                 'Allowed values are: {}'.format(
-                                    k, key, ', '.join(allowed_overrides.keys())))
-                    return False
-                override, values = allowed_overrides[k]
-                v = listify(v)
-                # if the 'values' is a type,
-                if isinstance(values, type):
-                    bad = next((vi for vi in v if not isinstance(vi, values)), None)
-                    if bad is not None:
-                        logger.error('Invalid value type specified for key {}. '
-                                     'Allowed values type is: {}'.format(
-                                        '.'.join([key, k]), str(value)))
-                    # and convert to type
-                    value[key][k] = [values(vi) for vi in v]
-                else:
-                    bad = next((vi for vi in v if not values), None)
-                    if bad is not None:
-                        logger.error('Invalid value type specified for key {}. '
-                                     'Allowed values are: {}'.format(
-                                        '.'.join([key, k]), ', '.join(
-                                            str(vi) for vi in value)))
-        return value
-
-
-def get_validators():
-    validators = DefaultValidators.copy()  # This is a dictionary
-
-    lang = get_list_validator('lang', langs)
-    validators[lang.tag] = lang
-
-    can_vectorize = get_list_validator('can_vectorize', can_vectorize_lang)
-    validators[can_vectorize.tag] = can_vectorize
-
-    vectype = get_list_validator('vectype', ['wide', 'deep', 'par'])
-    validators[vectype.tag] = vectype
-
-    pow2 = Pow2Validator()
-    validators[pow2.tag] = pow2
-
-    byte = BytesValidator()
-    validators[byte.tag] = byte
-
-    override = OverrideValidator()
-    validators[override.tag] = override
-
-    return validators
 
 
 def __prefixify(file, dirname=schema_dir):
@@ -154,7 +110,8 @@ def __prefixify(file, dirname=schema_dir):
     return file
 
 
-def build_schema(schema, validators=get_validators(), includes=[]):
+def build_schema(schema, includes=['common_schema.yaml'],
+                 validatorclass=CustomValidator):
     """
     Creates a schema / parses a schema and adds the additonal given includes
 
@@ -166,46 +123,38 @@ def build_schema(schema, validators=get_validators(), includes=[]):
         The validators to use, by defaut use the output of get_validators()
     includes: list of str
         Additional schema to use for includes
+    validatorclass: :class:`Validator` [:class:`CustomValidator`]
+        The type of validator to build
 
     Returns
     -------
-        schema: :class:`yamale.Schema`
-            The constructed schema
+        validator: :class:`Validator`
+            The constructed validator
     """
 
-    # add common
-    includes = [__prefixify(x) for x in listify(includes)]
-    includes.append(__prefixify('common_schema.yaml'))
+    for include in includes:
+        with open(__prefixify(include), 'r') as file:
+            common = yaml.load(file)
 
-    # ensure schema is properly path'd
-    schema = __prefixify(schema)
+        # and add to schema registry
+        for key, value in six.iteritems(common):
+            schema_registry.add(key, value)
 
-    # build base schema
-    schema = yamale.make_schema(schema, validators=validators)
-    # next, go through additional includes and add to schema
-    for inc in includes:
-        # parse other schema
-        inc = yamale.readers.parse_file(inc, 'PyYAML')
-        for i in inc:
-            for k, v in six.iteritems(i):
-                try:
-                    schema[k]
-                except KeyError:
-                    # new include
-                    schema.add_include({k: v})
+    with open(__prefixify(schema), 'r') as file:
+        schema = yaml.load(file)
 
-    return schema
+    return validatorclass(schema)
 
 
-def validate(schema, source):
+def validate(validator, source):
     """
     Validates the passed source file from the pre-built schema, and returns the
     result
 
     Parameters
     ----------
-    schema: :class:`yamale.Schema`
-        The built schema
+    validator: :class:`CustomValidator`
+        The built validator
     source: str
         Path to the source file
 
@@ -216,12 +165,13 @@ def validate(schema, source):
     """
 
     # make data
-    source = yamale.make_data(source)
+    with open(source, 'r') as file:
+        source = yaml.load(file)
     # and validate
-    return yamale.validate(schema, source)
+    return validator.validate(source)
 
 
-def build_and_validate(schema, source, validators=get_validators(), includes=[]):
+def build_and_validate(schema, source, validator=CustomValidator, includes=[]):
     """
     Builds schema from file, validates source from file and returns results.
     Convience method for :func:`build_schema` and :func:`validate`
@@ -244,5 +194,5 @@ def build_and_validate(schema, source, validators=get_validators(), includes=[])
     data: dict
         The validated data
     """
-    schema = build_schema(schema, validators=validators, includes=includes)
-    return validate(schema, source)[0]
+    schema = build_schema(schema, validatorclass=validator, includes=includes)
+    return validate(schema, source)

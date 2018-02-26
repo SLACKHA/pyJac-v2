@@ -338,6 +338,7 @@ class storage(object):
         self.ref_pres_mod[:, replace_inds] = Fall_pres_mod[:, :]
 
 
+@nottest
 class TestClass(unittest.TestCase):
     # global setup var
     _is_setup = False
@@ -384,7 +385,6 @@ class TestClass(unittest.TestCase):
                             'default OpenCL / C platforms...')
             else:
                 from ..schemas import build_and_validate
-                platform = build_and_validate(
-                    'test_platform_schema.yaml', platform)
+                platform = build_and_validate('test_platform_schema.yaml', platform)
             self.store = storage(platform, gas, specs, reacs)
             self.is_setup = True
