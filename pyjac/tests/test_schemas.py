@@ -22,13 +22,12 @@ from . import script_dir as test_mech_dir
 from .test_utils.get_test_matrix import load_models, load_from_key, model_key, \
     load_platforms, load_tests, get_test_matrix
 from ..examples import examples_dir
-from ..schemas import schema_dir, get_validators, build_schema, validate, \
+from ..schemas import schema_dir, build_schema, validate, \
     __prefixify, build_and_validate
 
 
 @func_logger
-def runschema(schema, source, validators=get_validators(),
-              should_fail=False, includes=[]):
+def runschema(schema, source, should_fail=False, includes=[]):
 
     # add common
     includes.append('common_schema.yaml')
@@ -46,12 +45,12 @@ def runschema(schema, source, validators=get_validators(),
 
     # define inner tester
     @xfail(should_fail)
-    def _internal(source, schema, validators, includes):
+    def _internal(source, schema, includes):
         # make schema
         schema = build_schema(schema, includes=includes)
         return validate(schema, source) is not None
 
-    assert _internal(source, schema, validators, includes)
+    assert _internal(source, schema, includes)
 
 
 def test_test_platform_schema_specification():
