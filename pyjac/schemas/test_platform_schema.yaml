@@ -1,16 +1,46 @@
 # A schema to validate platform specification for pyJac
 
-platform-list: list(include('variable-platform'), required=True)
----
-variable-platform:
-  # the platform name -- on OpenCL this doubles as a string identifier
-  # to passed to the ICD loader to use the correct OpenCL library at
-  # runtime
-  name: str(required=True)
-  lang: str(lang, required=True)
-  vectype: any(list(vectype), vectype, required=True)
-  vecwidth: any(list(pow2), pow2, required=False, min=2)
-  # If True, the platform / language support atomics for deep-vectorization
-  # Default: True
-  atomics: bool(required=False)
-  memory_limits: include('memory_limits', required=False)
+platform-list:
+    type: list
+    schema:
+        type: dict
+        schema:
+            # platform name
+            name:
+                type: string
+                required: True
+            # language
+            lang:
+                type: string
+                isvalidlang: True
+                required: True
+            # vectorization type
+            vectype:
+                type: list
+                schema:
+                    type: string
+                    isvectype: True
+                required: True
+            # order
+            order:
+                type: list
+                schema:
+                    type: string
+                    allowed: ['C', 'F']
+                nullable: True
+                default: ['C', 'F']
+            # vector width
+            vecwidth:
+                type: list
+                schema:
+                    type: integer
+                    isvecwidth: True
+                # can only be specifed for wide / deep vecs
+                dependencies: vectype
+            # #If True, the platform / language support atomics for deep-vectorization
+            atomics:
+                type: boolean
+                default: True
+            # optional memory limits
+            memory_limits:
+                schema: memory_limits
