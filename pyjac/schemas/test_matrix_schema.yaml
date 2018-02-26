@@ -48,66 +48,64 @@ platform-list:
     schema: variable-platform
     required: True
 
-# test-list:
-#     type: list
-#     schema:
-#         # test type specification
-#         test-type:
-#             type: string
-#             required: True
-#             allowed:
-#                 - validation
-#                 - performance
-#         # evaluation type
-#         eval-type:
-#             type: string
-#             default: both
-#             allowed:
-#                 - jacobian
-#                 - species_rates
-#                 - both
-
-#         # allow overrides of platform defaults
-#         species-rates:
-#             type: map
-#             dependencies:
-#                 eval-type:
-#                     - species_rates
-#                     - both
-#             is_override: True
-#         finite-difference:
-#             type: map
-#             dependencies:
-#                 eval-type:
-#                     - jacobian
-#                     - both
-#             is_override: True
-#         exact:
-#             type: map
-#             dependencies:
-#                 eval-type:
-#                     - jacobian
-#                     - both
-#             is_override: True
-#         sparse:
-#             type: map
-#             dependencies:
-#                 eval-type:
-#                     - jacobian
-#                     - both
-#             is_override: True
-#         full:
-#             type: map
-#             dependencies:
-#                 eval-type:
-#                     - jacobian
-#                     - both
-#             is_override: True
-
-#         # specify which platforms to use, defaults to whole list
-#         platforms:
-#             type: list
-#             schema:
-#                 type: string
-#                 is_platform: True
-#             nullable: True
+test-list:
+    type: list
+    schema:
+        # test type specification
+        test-type:
+            type: string
+            required: True
+            allowed:
+                - validation
+                - performance
+        # evaluation type
+        eval-type:
+            type: string
+            default: both
+            allowed:
+                - jacobian
+                - species_rates
+                - both
+        # # allow overrides of platform defaults
+        species-rates:
+            type: dict
+            dependencies:
+                eval-type:
+                    - species_rates
+                    - both
+            schema: override
+        finite-difference:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        exact:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        sparse:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        full:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        # specify which platforms to use, defaults to whole list
+        platforms:
+            type: list
+            schema:
+                type: string
+                is_platform: True
+            nullable: True

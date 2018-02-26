@@ -106,6 +106,16 @@ class CustomValidator(Validator):
 
         return unit * size
 
+    @func_logger
+    def _validate_is_platform(self, is_platform, field, value):
+        """ Test that the specified value is an ok platform
+
+        The rule's arguments are validated against this schema:
+        {'type': 'boolean'}
+        """
+
+        import pdb; pdb.set_trace()
+
 
 def __prefixify(file, dirname=schema_dir):
     if dirname not in file:

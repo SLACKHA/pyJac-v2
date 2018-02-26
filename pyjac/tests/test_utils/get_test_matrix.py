@@ -8,22 +8,9 @@ from nose.tools import nottest
 from .. import _get_test_input, get_test_langs
 from .. import platform_is_gpu
 from ...libgen import build_type
-from ...utils import enum_to_string, can_vectorize_lang, listify
+from ...utils import enum_to_string, can_vectorize_lang, listify, EnumType
 from ...loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from ...schemas import build_and_validate
-
-
-allowed_override_keys = [enum_to_string(JacobianType.exact),
-                         enum_to_string(JacobianType.finite_difference),
-                         enum_to_string(JacobianFormat.sparse),
-                         enum_to_string(JacobianFormat.full),
-                         enum_to_string(build_type.species_rates)]
-
-allowed_overrides = {'num_cores': int,
-                     'order': ['C', 'F'],
-                     'conp': ['conp', 'conv'],
-                     'vecsize': int,
-                     'vectype': ['par', 'w', 'd']}
 
 model_key = r'model-list'
 platform_list_key = r'platform-list'
@@ -198,6 +185,14 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     return oploop
 
 
+allowed_override_keys = [enum_to_string(JacobianType.exact),
+                         enum_to_string(JacobianType.finite_difference),
+                         enum_to_string(JacobianFormat.sparse),
+                         enum_to_string(JacobianFormat.full),
+                         enum_to_string(build_type.species_rates)]
+allowed_overrides = ['num_cores', 'order', 'conp', 'vecsize', 'vectype']
+
+
 @nottest
 def load_tests(matrix, filename):
     """
@@ -214,15 +209,57 @@ def load_tests(matrix, filename):
         The list of valid tests
     """
 
-    tests = load_from_key(matrix, test_matrix_key)
+    tests = matrix[test_matrix_key]
     dupes = set()
+
+    def __getenumtype(ttype):
+        from argparse import ArgumentTypeError
+        try:
+            EnumType(JacobianFormat)(ttype)
+            return JacobianFormat
+        except ArgumentTypeError:
+            return JacobianType
+
+    from collections import defaultdict
     for test in tests:
-        descriptor = test['type'] + ' - ' + test['eval-type']
-        if descriptor in dupes:
+        # first check that the
+        descriptors = [test['type'] + ' - ' + test['eval-type']]
+        if test['eval-type'] == 'both':
+            descriptors = [test['type'] + ' - ' + enum_to_string(
+                                build_type.jacobian),
+                           test['type'] + ' - ' + enum_to_string(
+                                build_type.species_rates)]
+        if set(descriptors) & dupes:
             raise Exception('Multiple test types of {} for evaluation type {} '
                             'detected in test matrix file {}'.format(
                                 test['type'], test['eval-type'], filename))
-        dupes.add(descriptor)
+
+        # overrides only need to be checked within a test
+        overridedupes = defaultdict(lambda: [])
+        dupes.update(descriptors)
+        # now go through overrides
+        for desc in descriptors:
+            # loop through the allowed override keys
+            for override_key in [x for x in allowed_override_keys if x in test]:
+                # convert to enum
+                override_type = __getenumtype(override_key)
+                # next loop over the actual overides (
+                # i.e., :attr:`allowed_overrides`)
+                for override in test[override_key]:
+                    # convert previously specified to enum
+                    current_types = [__getenumtype(co) for co in overridedupes[
+                        override]]
+                    # check for collisions
+                    bad = next((ct for ct in current_types if ct != override_type),
+                               None)
+                    if bad is not None:
+                        raise Exception(
+                            'Conflicting overrides of type {} specified'
+                            'for evaluation types {} and {}'.format(
+                                override_key, bad, override_key))
+                    # nad mark duplicate
+                    overridedupes[override].append(override_type)
+
     return tests
 
 

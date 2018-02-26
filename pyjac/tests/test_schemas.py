@@ -11,6 +11,7 @@ from collections import OrderedDict
 import six
 import cantera as ct
 from nose.tools import assert_raises
+from tempfile import NamedTemporaryFile
 
 # internal
 from ..libgen.libgen import build_type
@@ -18,8 +19,7 @@ from ..loopy_utils.loopy_utils import JacobianFormat
 from ..utils import func_logger, enum_to_string, listify
 from .test_utils import xfail
 from . import script_dir as test_mech_dir
-from .test_utils.get_test_matrix import load_models, model_key, \
-    load_platforms, load_tests
+from .test_utils.get_test_matrix import load_models, load_platforms, load_tests
 from ..examples import examples_dir
 from ..schemas import schema_dir, __prefixify, build_and_validate
 
@@ -115,8 +115,7 @@ def test_load_codegen():
 
 
 def test_matrix_schema_specification():
-    runschema('test_matrix_schema.yaml', 'test_matrix.yaml',
-              includes=['platform_schema.yaml'])
+    runschema('test_matrix_schema.yaml', 'test_matrix.yaml')
 
 
 def __get_test_matrix(**kwargs):
@@ -181,6 +180,54 @@ def test_load_platforms_from_matrix():
     assert openmp['lang'] == 'c'
     assert openmp['platform'].lower() == 'openmp'
     assert len(platforms[0]) == 2
+
+
+def test_duplicate_tests_fails():
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: openmp
+            lang: c
+            vectype: [par]
+        test-list:
+          - type: performance
+            eval-type: jacobian
+          - type: performance
+            eval-type: both
+        """)
+        file.seek(0)
+
+        with assert_raises(Exception):
+            tests = build_and_validate('test_matrix_schema.yaml', file.name)
+            load_tests(tests, file.name)
+
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: openmp
+            lang: c
+            vectype: [par]
+        test-list:
+          - type: performance
+            eval-type: jacobian
+            sparse:
+                num_cores: [1]
+            finite_difference:
+                num_cores: [1]
+        """)
+        file.seek(0)
+
+        with assert_raises(Exception):
+            tests = build_and_validate('test_matrix_schema.yaml', file.name)
+            load_tests(tests, file.name)
 
 
 def test_load_tests():
