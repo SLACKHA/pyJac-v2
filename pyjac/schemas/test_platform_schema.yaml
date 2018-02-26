@@ -2,42 +2,5 @@
 
 platform-list:
     type: list
-    schema:
-        type: dict
-        schema:
-            # platform name
-            name:
-                type: string
-                required: True
-            # language
-            lang:
-                type: string
-                isvalidlang: True
-                required: True
-            # vectorization type
-            vectype:
-                type: list
-                schema:
-                    type: string
-                    isvectype: True
-                required: True
-            # order
-            order:
-                type: list
-                schema:
-                    type: string
-                    allowed: ['C', 'F']
-                nullable: True
-                default: ['C', 'F']
-            # vector width
-            vecwidth:
-                type: list
-                schema:
-                    type: integer
-                    isvecwidth: True
-                # can only be specifed for wide / deep vecs
-                dependencies: vectype
-            # #If True, the platform / language support atomics for deep-vectorization
-            atomics:
-                type: boolean
-                default: True
+    required: True
+    schema: variable-platform

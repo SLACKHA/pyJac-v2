@@ -1,6 +1,6 @@
 # A schema to validate test matrix specification for pyJac
 
-# stub for chemical models
+# model specification
 model-list:
     required: True
     type: list
@@ -39,11 +39,14 @@ model-list:
                             min: 0
 
 # allow for optional specification of memory limits
-# memory_limits:
-#     schema: memory_limits
+memory-limits:
+    schema: memory-limits
 
-# platform-list:
-#     schema: platform-list
+# and platform list
+platform-list:
+    type: list
+    schema: variable-platform
+    required: True
 
 # test-list:
 #     type: list

@@ -121,12 +121,12 @@ def test_matrix_schema_specification():
 
 def __get_test_matrix(**kwargs):
     return build_and_validate('test_matrix_schema.yaml', __prefixify(
-        'test_matrix.yaml', examples_dir), includes=['test_platform_schema.yaml'],
+        'test_matrix.yaml', examples_dir),
         **kwargs)
 
 
 def test_parse_models():
-    models = load_models('', __get_test_matrix(allow_unknown=True))
+    models = load_models('', __get_test_matrix())
 
     # test the test mechanism
     assert 'TestMech' in models
@@ -154,24 +154,18 @@ def test_parse_models():
     assert models['CH4']['ns'] == gas.n_species
 
 
-def test_load_from_key():
-    matrix = __get_test_matrix()
-    # test that we have 2 models
-    assert len(load_from_key(matrix, model_key)) == 2
-    assert len(load_from_key(matrix, '^$')) == 0
-
-
-def test_load_matrix():
-    platforms = load_platforms(__get_test_matrix(), raise_on_empty=True)
+def test_load_platforms_from_matrix():
+    platforms = load_platforms(__get_test_matrix(allow_unknown=True),
+                               raise_on_empty=True)
     platforms = [OrderedDict(p) for p in platforms]
 
-    intel = next(p for p in platforms if p['platform'] == 'intel')
+    intel = next(p for p in platforms if 'intel' in p['platform'].lower())
     assert intel['lang'] == 'opencl'
     assert intel['use_atomics'] is False
     assert intel['width'] == [2, 4, 8, None]
     assert intel['depth'] is None
 
-    openmp = next(p for p in platforms if p['platform'] == 'OpenMP')
+    openmp = next(p for p in platforms if 'openmp' in p['platform'].lower())
     assert openmp['lang'] == 'c'
     assert openmp['width'] is None
     assert openmp['depth'] is None
@@ -185,7 +179,7 @@ def test_load_matrix():
     assert len(platforms) == 1
     openmp = OrderedDict(platforms[0])
     assert openmp['lang'] == 'c'
-    assert openmp['platform'] == 'OpenMP'
+    assert openmp['platform'].lower() == 'openmp'
     assert len(platforms[0]) == 2
 
 

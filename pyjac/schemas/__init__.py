@@ -6,7 +6,7 @@ import logging
 # external
 import six
 import yaml
-from cerberus import schema_registry, Validator
+from cerberus import Validator
 
 # internal
 from ..utils import func_logger, langs, stringify_args, listify
@@ -138,6 +138,17 @@ def build_schema(schema, includes=['common_schema.yaml'],
             The constructed validator
     """
 
+    def __recursive_replace(root, schemaname, schema):
+        for key, value in six.iteritems(root):
+            if key == 'schema' and schemaname == value:
+                root[key] = schema.copy()
+            elif isinstance(value, dict):
+                root[key] = __recursive_replace(value, schemaname, schema)
+        return root
+
+    with open(__prefixify(schema), 'r') as file:
+        schema = yaml.load(file)
+
     for include in includes:
         include = __prefixify(include)
         if not isfile(include):
@@ -145,12 +156,9 @@ def build_schema(schema, includes=['common_schema.yaml'],
         with open(include, 'r') as file:
             common = yaml.load(file)
 
-        # and add to schema registry
+        # rather than use the schema registry, it's safer to directly replace
         for key, value in six.iteritems(common):
-            schema_registry.add(key, value)
-
-    with open(__prefixify(schema), 'r') as file:
-        schema = yaml.load(file)
+            schema = __recursive_replace(schema, key, value)
 
     return validatorclass(schema, allow_unknown=allow_unknown)
 

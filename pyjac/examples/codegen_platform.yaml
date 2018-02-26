@@ -18,7 +18,7 @@ platform:
   # no atomics present in the Intel OpenCL runtime
   atomics: False
   # limit memory usage
-  memory_limits:
+  memory-limits:
       # 1 gb of total global memory
       global: 1gb
       # 1 mb of total constant memory
