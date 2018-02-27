@@ -74,7 +74,7 @@ test-list:
                     - species_rates
                     - both
             schema: override
-        finite-difference:
+        finite_difference:
             type: dict
             dependencies:
                 eval-type:

@@ -317,9 +317,11 @@ def test_get_test_matrix():
                                  test_matrix, False,
                                  raise_on_missing=True)
     want = jacbase.copy()
+    # no more openmp
+    want.update({'use_atomics': [False]})
 
     def update_jactype(state, want, seen):
-        if state['jac_type'] == 'finite_difference':
+        if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
             assert state['num_cores'] == 1
             assert state['vecsize'] is None
             assert state['wide'] is False
@@ -331,4 +333,7 @@ def test_get_test_matrix():
 
     want.update({'platform': ['intel'],
                  'jac_type': update_jactype})
+
+    def check_final_vecsizes(seen):
+        return len(seen['vecsize'] - set([4, None])) == 0
     run(want, loop, final_checks=check_final_vecsizes)

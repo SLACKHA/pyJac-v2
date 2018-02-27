@@ -52,7 +52,7 @@ test-list:
     platforms: [intel]
     eval-type: jacobian
     # overrides, controlling the finite_difference tests
-    finite-difference:
+    finite_difference:
       # limit number of cores
       num_cores: 1
       # use only parallel FD-evaluation
