@@ -341,7 +341,6 @@ class storage(object):
         self.ref_pres_mod[:, replace_inds] = Fall_pres_mod[:, :]
 
 
-@nottest
 class TestClass(unittest.TestCase):
     # global setup var
     _is_setup = False

@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import difflib
 import re
-from test_utils import xfail
+from .test_utils import xfail
 
 from cantera import __version__ as ct_version
 
