@@ -22,15 +22,16 @@ from nose.tools import nottest
 import tables
 
 # Local imports
-from ..core.mech_interpret import read_mech_ct
-
-from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
-from ..tests import test_utils, get_platform_file, _get_test_input, \
+from pyjac.core.mech_interpret import read_mech_ct
+from pyjac.tests.test_jacobian import _get_fd_jacobian
+from pyjac.tests.test_utils import parse_split_index, _run_mechanism_tests, runner, \
+    inNd
+from pyjac.tests import test_utils, get_platform_file, _get_test_input, \
     get_mem_limits_file
-from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
-from ..libgen import build_type, generate_library
-from ..core.create_jacobian import determine_jac_inds
-from ..utils import EnumType, inf_cutoff
+from pyjac.loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
+from pyjac.libgen import build_type, generate_library
+from pyjac.core.create_jacobian import determine_jac_inds
+from pyjac.utils import EnumType, inf_cutoff
 
 # turn off cache
 import loopy as lp
@@ -1046,7 +1047,6 @@ class jacobian_eval(eval):
         phi_mask = np.array([0] + list(range(2, phi.shape[1])))
         # note that we have to do this piecewise in order to avoid memory overflows
         # eval jacobian
-        from ..tests.test_jacobian import _get_fd_jacobian
         P = phi[:, 1] if state['conp'] else phi[:, 2]
         V = phi[:, 2] if state['conp'] else phi[:, 1]
 

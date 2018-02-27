@@ -1,11 +1,15 @@
 import sys
-from .performance_tester import species_performance_tester, \
-    jacobian_performance_tester
 from argparse import ArgumentParser
-from .. import utils
+
+import loopy as lp
+
+from pyjac.performance_tester import species_performance_tester, \
+    jacobian_performance_tester
+from pyjac import utils
 
 
 def main(args=None):
+    lp.set_caching_enabled(False)
     utils.setup_logging()
     if args is None:
         # command line arguments

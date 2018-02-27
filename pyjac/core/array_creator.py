@@ -3,16 +3,16 @@
 and indexing / mapping
 """
 
-
 import logging
-import loopy as lp
-import numpy as np
+import six
 import copy
 from string import Template
+
+import loopy as lp
+import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
-from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-import six
+from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 
 
 class array_splitter(object):

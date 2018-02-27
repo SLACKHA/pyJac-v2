@@ -9,8 +9,8 @@ from __future__ import print_function
 import os
 
 # Local imports
-from .. import utils
-from ..kernel_utils import file_writers as filew
+from pyjac import utils
+from pyjac.kernel_utils import file_writers as filew
 
 
 def write_aux(path, loopy_opts, specs, reacs):

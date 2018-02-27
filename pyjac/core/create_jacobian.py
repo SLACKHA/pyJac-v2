@@ -14,27 +14,28 @@ import logging
 import re
 import os
 
-# Local imports
-from .. import utils
-from . import mech_interpret as mech
-from . import rate_subs as rate
-from . import mech_auxiliary as aux
-from ..loopy_utils import loopy_utils as lp_utils
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat, \
-    FiniteDifferenceMode
-from . import array_creator as arc
-from ..kernel_utils import kernel_gen as k_gen
-from .reaction_types import reaction_type, falloff_form, thd_body_type
-from . import chem_model as chem
-from . import instruction_creator as ic
-from .array_creator import (global_ind, var_name, default_inds)
-from .rate_subs import assign_rates
-
 # external
 import numpy as np
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
+
+# Local imports
+from pyjac import utils
+from pyjac.core import mech_interpret as mech
+from pyjac.core import rate_subs as rate
+from pyjac.core import mech_auxiliary as aux
+from pyjac.core.loopy_utils import loopy_utils as lp_utils
+from pyjac.core.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core.loopy_utils.loopy_utils import JacobianType, JacobianFormat, \
+    FiniteDifferenceMode
+from pyjac.core import array_creator as arc
+from pyjac.core.kernel_utils import kernel_gen as k_gen
+from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core import chem_model as chem
+from pyjac.core import instruction_creator as ic
+from pyjac.core.array_creator import (global_ind, var_name, default_inds)
+from pyjac.core.rate_subs import assign_rates
+
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):

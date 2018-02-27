@@ -9,24 +9,25 @@ import re
 from string import Template
 import logging
 from collections import defaultdict
-
 import six
 from six.moves import reduce
+
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
 import pyopencl as cl
 import numpy as np
 import cgen
 
-from . import file_writers as filew
-from .memory_manager import memory_manager, memory_limits, memory_type, guarded_call
-from .. import siteconf as site
-from .. import utils
-from ..loopy_utils import loopy_utils as lp_utils
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..core.array_creator import problem_size as p_size
-from ..core.array_creator import global_ind
-from ..core import array_creator as arc
+from pyjac.kernel_utils import file_writers as filew
+from pyjac.kernel_utilsmemory_manager import memory_manager, memory_limits, \
+    memory_type, guarded_call
+from pyjac import siteconf as site
+from pyjac import utils
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core.array_creator import problem_size as p_size
+from pyjac.core.array_creator import global_ind
+from pyjac.core import array_creator as arc
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 

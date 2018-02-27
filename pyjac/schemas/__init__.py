@@ -9,8 +9,8 @@ import yaml
 from cerberus import Validator
 
 # internal
-from ..utils import func_logger, langs, stringify_args, listify
-from ..core.exceptions import ValidationError, validation_error_to_string
+from pyjac.utils import func_logger, langs, stringify_args, listify
+from pyjac.core.exceptions import ValidationError, validation_error_to_string
 
 # define path to schemas
 schema_dir = abspath(dirname(__file__))

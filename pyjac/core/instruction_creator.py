@@ -14,9 +14,10 @@ from functools import wraps
 
 import loopy as lp
 from loopy.types import AtomicType
-from .array_creator import var_name, jac_creator
 from pytools import UniqueNameGenerator
 import numpy as np
+
+from pyjac.core.array_creator import var_name, jac_creator
 
 
 def use_atomics(loopy_opts):
