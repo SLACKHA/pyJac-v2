@@ -321,10 +321,10 @@ class validation_runner(runner, hdf5_store):
         Ns = self.gas.n_species
         Nr = self.gas.n_reactions
         Nrev = len([x for x in self.gas.reactions() if x.reversible])
-        return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecwidth)
+        return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecsize)
 
     def get_filename(self, state):
-        self.current_vecwidth = state['vecsize']
+        self.current_vecsize = state['vecsize']
         desc = self.descriptor
         if self.rtype == build_type.jacobian:
             desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
@@ -431,7 +431,7 @@ class validation_runner(runner, hdf5_store):
             # next find the grow dimension
             _, grow_dim, split_dim = asplit.split_shape(arr)
             # we need to slice on the grow dim to pull into memory
-            # create empty slices in other dimensions -- vecwidth dim is full by
+            # create empty slices in other dimensions -- vecsize dim is full by
             # defn
             inds = [slice(None) for x in range(arr.ndim)]
             inds[grow_dim] = np.unique(mask[grow_dim])
@@ -817,15 +817,15 @@ class spec_rate_eval(eval):
 
         return err_dict
 
-    def _check_size(self, err, names, mods, size, vecwidth):
+    def _check_size(self, err, names, mods, size, vecsize):
         non_conformant = [n + mod for n in names for mod in mods
                           if err[n + mod].size != size]
         if not non_conformant:
             return True
-        return all(np.all(err[x][size:] == 0) and err[x].size % vecwidth == 0
+        return all(np.all(err[x][size:] == 0) and err[x].size % vecsize == 0
                    for x in non_conformant)
 
-    def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
+    def check_file(self, filename, Ns, Nr, Nrev, current_vecsize):
         """
         Checks a species validation file for completion
 
@@ -839,10 +839,10 @@ class spec_rate_eval(eval):
             The number of reactions in the mechanism
         Nrev: int
             The number of reversible reactions in the mechanism
-        current_vecwidth: int
+        current_vecsize: int
             The curent vector width being used.  If the current state results in
             an array split, this may make the stored error arrays larger than
-            expected, so we must check that they are divisible by current_vecwidth
+            expected, so we must check that they are divisible by current_vecsize
             and the extra entries are identically zero
 
         Returns
@@ -861,15 +861,15 @@ class spec_rate_eval(eval):
             # check Nr size
             allclear = allclear and self._check_size(
                 err, [x for x in names if ('rop_fwd' in x or 'rop_net' in x)],
-                mods, Nr, current_vecwidth)
+                mods, Nr, current_vecsize)
             # check reversible
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'rop_rev' in x],
-                mods, Nrev, current_vecwidth)
+                mods, Nrev, current_vecsize)
             # check Ns size
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'phi' in x], mods, Ns + 1,
-                current_vecwidth)
+                current_vecsize)
             return allclear
         except (OSError, IOError) as e:
             # check for simple file not found error
@@ -1278,7 +1278,7 @@ class jacobian_eval(eval):
 
         return err_dict
 
-    def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
+    def check_file(self, filename, Ns, Nr, Nrev, current_vecsize):
         """
         Checks a jacobian validation file for completion
 
@@ -1292,7 +1292,7 @@ class jacobian_eval(eval):
             Unused
         Nrev: int
             Unused
-        current_vecwidth: int
+        current_vecsize: int
             Unused
 
         Returns

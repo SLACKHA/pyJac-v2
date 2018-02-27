@@ -24,9 +24,9 @@ platform:
             nullable: True
             allowed: ['C', 'F']
         # vector width
-        vecwidth:
+        vecsize:
             type: integer
-            isvecwidth: True
+            isvecsize: True
             dependencies:
                 # can only be specifed for wide / deep vecs
                 vectype:

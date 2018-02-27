@@ -47,7 +47,7 @@ class performance_runner(runner):
         self.repeats = repeats
         self.steplist = steplist
 
-    def pre(self, gas, data, num_conditions, max_vec_width):
+    def pre(self, gas, data, num_conditions, max_vec_size):
         """
         Initializes the performance runner for mechanism
 
@@ -59,20 +59,20 @@ class performance_runner(runner):
             unused
         num_conditions: int
             The number of conditions to test
-        max_vec_width: int
+        max_vec_size: int
             unused
         """
         self.num_conditions = num_conditions
         self.steplist = []
         # initialize steplist
-        step = max_vec_width
-        self.max_vec_width = max_vec_width
+        step = max_vec_size
+        self.max_vec_size = max_vec_size
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
 
     def get_filename(self, state):
-        self.current_vecwidth = state['vecsize']
+        self.current_vecsize = state['vecsize']
         desc = self.descriptor
         if self.rtype == build_type.jacobian:
             desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\

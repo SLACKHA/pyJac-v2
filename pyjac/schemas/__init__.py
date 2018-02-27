@@ -32,17 +32,17 @@ class CustomValidator(Validator):
                 *tuple(stringify_args(x) for x in args)))
 
     @func_logger
-    def _validate_isvecwidth(self, isvecwidth, field, value):
-        """ Test that the specified value is a proper vector width
+    def _validate_isvecsize(self, isvecsize, field, value):
+        """ Test that the specified value is a proper vector size
 
         The rule's arguments are validated against this schema:
         {'type': 'boolean'}
         """
-        # TODO: implement per-platform vecwidth checks
+        # TODO: implement per-platform vecsize checks
         # valid values include any power of two (or 3 for OpenCL)
         self.__internal_validator(
             field, value, lambda x: x == 3 or (x & (x - 1)) == 0,
-            'Value(s) {} not valid vector widths.'
+            'Value(s) {} not valid vector size.'
             'Must be a power of two (or the value three, for OpenCL)')
 
     @func_logger

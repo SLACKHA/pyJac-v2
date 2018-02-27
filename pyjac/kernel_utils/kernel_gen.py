@@ -39,21 +39,21 @@ class vecwith_fixer(object):
 
     clean : :class:`loopy.LoopyKernel`
         The 'clean' version of the kernel, that will be used for
-        determination of the gridsize / vecwidth
-    vecwidth : int
+        determination of the gridsize / vecsize
+    vecsize : int
         The desired vector width
     """
 
-    def __init__(self, clean, vecwidth):
+    def __init__(self, clean, vecsize):
         self.clean = clean
-        self.vecwidth = vecwidth
+        self.vecsize = vecsize
 
     def __call__(self, insn_ids, ignore_auto=False):
         # fix for variable too small for vectorization
         grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
             insn_ids, ignore_auto=ignore_auto)
-        lsize = lsize if self.vecwidth is None else \
-            self.vecwidth
+        lsize = lsize if self.vecsize is None else \
+            self.vecsize
         return grid_size, (lsize,)
 
 
