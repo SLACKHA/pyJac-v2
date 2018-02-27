@@ -1,3 +1,7 @@
+# system
+import os
+import logging
+
 # modules
 import cantera as ct
 import numpy as np
@@ -6,13 +10,10 @@ import loopy as lp
 from nose.tools import nottest
 import six
 
-# system
-import os
-
 # local imports
-from ..core.mech_interpret import read_mech_ct
-from .. import utils
-import logging
+from pyjac.core.mech_interpret import read_mech_ct
+from pyjac import utils
+from pyjac.schemas import build_and_validate
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
@@ -20,7 +21,6 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 build_dir = os.path.join(script_dir, 'out')
 obj_dir = os.path.join(script_dir, 'obj')
 lib_dir = os.path.join(script_dir, 'lib')
-utils.create_dir(build_dir)
 
 
 def _get_test_input(key, default=''):
@@ -137,6 +137,7 @@ class storage(object):
         self.lib_dir = lib_dir
 
         # clean out build dir
+        utils.create_dir(build_dir)
         for f in os.listdir(build_dir):
             if os.path.isfile(os.path.join(build_dir, f)):
                 os.remove(os.path.join(build_dir, f))
@@ -392,3 +393,7 @@ class TestClass(unittest.TestCase):
                             'to default.'.format(platform))
             self.store = storage(platform, gas, specs, reacs)
             self.is_setup = True
+
+
+__all__ = ["TestClass", "_get_test_input", "get_platform_file", "get_mechanism_file",
+           "get_mem_limits_file", "get_test_langs", "platform_is_gpu"]

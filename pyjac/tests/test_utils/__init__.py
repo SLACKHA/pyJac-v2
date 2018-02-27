@@ -11,18 +11,19 @@ import sys
 from functools import wraps
 from nose import SkipTest
 
-from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
-                                        auto_run, RateSpecialization, loopy_options,
-                                        JacobianType, JacobianFormat)
-from ...core.exceptions import MissingPlatformError, BrokenPlatformError
-from ...kernel_utils import kernel_gen as k_gen
-from ...core import array_creator as arc
-from ...core.mech_auxiliary import write_aux
-from ...pywrap import generate_wrapper
-from ... import utils
-from ...libgen import build_type
-from .. import platform_is_gpu
-from .get_test_matrix import load_platforms
+from pyjac.loopy_utils.loopy_utils import (
+    get_device_list, kernel_call, populate,
+    auto_run, RateSpecialization, loopy_options,
+    JacobianType, JacobianFormat)
+from pyjac.core.exceptions import MissingPlatformError, BrokenPlatformError
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core import array_creator as arc
+from pyjac.core.mech_auxiliary import write_aux
+from pyjac.pywrap import generate_wrapper
+from pyjac import utils
+from pyjac.libgen import build_type
+from pyjac.tests import platform_is_gpu
+from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix
 except:
@@ -694,7 +695,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     """
 
     if langs is None:
-        from .. import get_test_langs
+        from pyjac.tests import get_test_langs
         langs = get_test_langs()
 
     if 'conp' in kwargs:
@@ -1218,15 +1219,15 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
     test_dir = 'test'
 
     # check if validation
-    from ...functional_tester.test import validation_runner
+    from pyjac.functional_tester.test import validation_runner
     for_validation = isinstance(run, validation_runner)
 
     # imports needed only for this tester
-    from . import get_test_matrix as tm
-    from . import data_bin_writer as dbw
-    from ...core.mech_interpret import read_mech_ct
-    from ...core.array_creator import array_splitter
-    from ...core.create_jacobian import find_last_species, create_jacobian
+    from pyjac.tests.test_utils import get_test_matrix as tm
+    from pyjac.tests.test_utils import data_bin_writer as dbw
+    from pyjac.core.mech_interpret import read_mech_ct
+    from pyjac.core.array_creator import array_splitter
+    from pyjac.core.create_jacobian import find_last_species, create_jacobian
     import cantera as ct
 
     work_dir = os.path.abspath(work_dir)
@@ -1486,3 +1487,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         # mechanism
         run.post()
     del run
+
+
+__all__ = ["indexer", "parse_split_index", "kernel_runner", "inNd",
+           "get_comparable", "combination", "reduce_oploop", "_generic_tester",
+           "_full_kernel_test", "_run_mechanism_tests", "runner"]

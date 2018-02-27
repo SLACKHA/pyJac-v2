@@ -1,9 +1,10 @@
 # test various functions in the utils function, or elsewhere
 
 from parameterized import parameterized
-from ..utils import enum_to_string, listify
-from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat
-from ..libgen import build_type
+
+from pyjac.utils import enum_to_string, listify
+from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
+from pyjac.libgen import build_type
 
 
 @parameterized([(JacobianType.exact, 'exact'),

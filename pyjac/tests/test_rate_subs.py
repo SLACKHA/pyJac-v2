@@ -2,23 +2,24 @@
 from collections import defaultdict
 
 # local imports
-from ..core.rate_subs import (get_specrates_kernel,
-                              assign_rates, get_simple_arrhenius_rates,
-                              get_plog_arrhenius_rates, get_lind_kernel,
-                              get_cheb_arrhenius_rates, get_thd_body_concs,
-                              get_reduced_pressure_kernel, get_sri_kernel,
-                              get_troe_kernel, get_rev_rates, get_rxn_pres_mod,
-                              get_rop, get_rop_net, get_spec_rates,
-                              get_temperature_rate, get_concentrations,
-                              get_molar_rates, get_extra_var_rates, reset_arrays)
-from ..loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
-                                       kernel_call)
-from . import TestClass
-from ..core.reaction_types import reaction_type, falloff_form, thd_body_type
-from . import test_utils as test_utils
-from . import get_test_langs
-from .test_utils import (get_comparable, indexer, _generic_tester, _full_kernel_test)
-from ..libgen import build_type
+from pyjac.core.rate_subs import (
+    get_specrates_kernel,
+    assign_rates, get_simple_arrhenius_rates,
+    get_plog_arrhenius_rates, get_lind_kernel,
+    get_cheb_arrhenius_rates, get_thd_body_concs,
+    get_reduced_pressure_kernel, get_sri_kernel,
+    get_troe_kernel, get_rev_rates, get_rxn_pres_mod,
+    get_rop, get_rop_net, get_spec_rates,
+    get_temperature_rate, get_concentrations,
+    get_molar_rates, get_extra_var_rates, reset_arrays)
+from pyjac.core.exceptions import BrokenPlatformError
+from pyjac.loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
+                                           kernel_call)
+from pyjac.tests import TestClass, test_utils, get_test_langs
+from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.tests.test_utils import (get_comparable, indexer, _generic_tester,
+                                    _full_kernel_test)
+from pyjac.libgen import build_type
 
 # modules
 import cantera as ct
@@ -55,7 +56,6 @@ class kf_wrapper(object):
         self.__name__ = function.__name__ + '_wrapper'
 
     def __call__(self, loopy_opts, namestore, test_size):
-        from ..core.exceptions import BrokenPlatformError
         # check if we've found the kf / kf_fall values yet
         if not self.kf_val:
             # ensure the loopy opts don't have a split in them, otherwise the
