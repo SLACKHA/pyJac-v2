@@ -114,7 +114,8 @@ class CustomValidator(Validator):
         {'type': 'boolean'}
         """
 
-        import pdb; pdb.set_trace()
+        # todo implement
+        raise NotImplementedError
 
 
 def __prefixify(file, dirname=schema_dir):

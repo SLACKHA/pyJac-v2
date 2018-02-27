@@ -213,7 +213,7 @@ allowed_override_keys = [enum_to_string(JacobianType.exact),
                          enum_to_string(JacobianFormat.sparse),
                          enum_to_string(JacobianFormat.full),
                          enum_to_string(build_type.species_rates)]
-allowed_overrides = ['num_cores', 'order', 'conp', 'vecsize', 'vectype',
+allowed_overrides = ['num_cores', 'gpuorder', 'order', 'conp', 'vecsize', 'vectype',
                      'gpuvecsize']
 
 
@@ -516,7 +516,11 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                             override_log('num_cores', icores,
                                          test[current][override])
                             icores = test[current][override]
-                        elif override == 'order':
+                        elif override == 'order' and not is_gpu:
+                            override_log('order', iorder,
+                                         test[current][override])
+                            iorder = test[current][override]
+                        elif overrides == 'gpuorder' and is_gpu:
                             override_log('order', iorder,
                                          test[current][override])
                             iorder = test[current][override]
