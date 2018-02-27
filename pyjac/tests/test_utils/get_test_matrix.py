@@ -195,8 +195,8 @@ allowed_override_keys = [enum_to_string(JacobianType.exact),
                          enum_to_string(JacobianFormat.sparse),
                          enum_to_string(JacobianFormat.full),
                          enum_to_string(build_type.species_rates)]
-allowed_overrides = ['num_cores', 'order', 'conp', 'vecsizes', 'vectype',
-                     'gpuvecsizes']
+allowed_overrides = ['num_cores', 'order', 'conp', 'vecsize', 'vectype',
+                     'gpuvecsize']
 
 
 @nottest
@@ -379,8 +379,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
         # filter platforms
         plats = platforms.copy()
         if 'platforms' in test:
-            plats = [plats for plat in plats
-                     if plats['platform'] in test['platforms']]
+            plats = [plat for plat in plats
+                     if plat['platform'] in test['platforms']]
             if len(plats) < len(platforms):
                 logger.info('Platforms ({}) filtered out for test type: {}'.format(
                     ', '.join([p['platform'] for p in platforms if p not in plats]),
@@ -413,7 +413,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 cores = [1]
 
             def apply_vectypes(lookup, widths, is_wide=is_wide, is_deep=is_deep):
-                if lookup['width'] or lookup['depth']:
+                if is_wide or is_deep:
                     # set vec widths
                     use_par = None in widths or (is_wide and is_deep)
                     lookup['vecsize'] = [x for x in widths[:] if x is not None]
@@ -425,6 +425,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                         lookup['deep'] = base[:]
                 else:
                     lookup['vecsize'] = [None]
+                    lookup['wide'] = [False]
+                    lookup['deep'] = [False]
                 del lookup['width']
                 del lookup['depth']
 
@@ -462,8 +464,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                                         ttype, test['eval-type'],
                                         jtype, stype],
                                         joiner='.'),
-                                    stringify_args(old),
-                                    stringify_args(new)
+                                    stringify_args(listify(old)),
+                                    stringify_args(listify(new))
                                     ))
                 # copy defaults
                 icores = cores[:]
@@ -496,7 +498,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                             override_log('num_cores', icores,
                                          test[current][override])
                             icores = test[current][override]
-                            print(icores)
                         elif override == 'order':
                             override_log('order', iorder,
                                          test[current][override])
@@ -513,25 +514,32 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                         elif override == 'vecsize' and not is_gpu:
                             override_log('vecsize', ivecsizes,
                                          test[current][override])
-                            ivecsizes = test[current][override]
+                            outplat['vecsize'] = listify(test[current][override])
                         elif override == 'gpuvecsize' and is_gpu:
                             override_log('gpuvecsize', ivecsizes,
                                          test[current][override])
-                            ivecsizes = test[current][override]
+                            outplat['vecsize'] = listify(test[current][override])
                         elif override == 'vectype':
                             # we have to do this at the end
                             ivectypes_override = test[current][override]
 
                     if ivectypes_override is not None:
                         c = clean.copy()
-                        apply_vectypes(c, ivecsizes,
+                        apply_vectypes(c, outplat['vecsize'],
                                        is_wide='wide' in ivectypes_override,
                                        is_deep='deep' in ivectypes_override)
                         # and copy into working
-                        plookup['wide'] = c['wide']
-                        plookup['deep'] = c['deep']
-                        plookup['vecsize'] = c['vecsize']
-                        override_log('vecsize', '',
+                        outplat['wide'] = c['wide']
+                        outplat['deep'] = c['deep']
+                        outplat['vecsize'] = c['vecsize']
+                        old = ['']
+                        if is_wide:
+                            old += ['wide']
+                        if is_deep:
+                            old += ['deep']
+                        elif not is_wide:
+                            old += ['par']
+                        override_log('vecsize', old,
                                      ivectypes_override)
 
                 # and finally, convert back to an option loop format

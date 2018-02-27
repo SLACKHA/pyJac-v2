@@ -71,7 +71,9 @@ def validation_error_to_string(error):
     def __stringify(root):
         error_list = []
         for k, v in six.iteritems(root):
-            if isinstance(v, dict):
+            if isinstance(v, list) and any(isinstance(x, dict) for x in v):
+                error_list.extend(__stringify(x) for x in v)
+            elif isinstance(v, dict):
                 error_list.extend(__stringify(v))
             else:
                 error_list.append('{}: {}'.format(k, ' | '.join(
