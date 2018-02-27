@@ -1,14 +1,14 @@
-from . import script_dir
-from ..core.mech_interpret import read_mech, read_mech_ct
-
 import os
 import subprocess
 import tempfile
 import difflib
 import re
-from .test_utils import xfail
 
 from cantera import __version__ as ct_version
+
+from pyjac.tests import script_dir
+from pyjac.core.mech_interpret import read_mech, read_mech_ct
+from pyjac.tests.test_utils import xfail
 
 
 ck_file = os.path.join(script_dir, 'test.inp')

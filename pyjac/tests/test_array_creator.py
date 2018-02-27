@@ -2,8 +2,10 @@
 from six.moves import range
 
 # local imports
-from ..core import array_creator as arc
-from . import TestClass
+from pyjac.core import array_creator as arc
+from pyjac.tests import TestClass
+from pyjac.core.rate_subs import assign_rates
+from pyjac.loopy_utils.loopy_utils import RateSpecialization
 
 # nose tools
 from nose.tools import assert_raises
@@ -776,8 +778,6 @@ class SubTest(TestClass):
     @attr('long')
     def test_namestore_init(self):
         lp_opt = _dummy_opts('map')
-        from ..core.rate_subs import assign_rates
-        from ..loopy_utils.loopy_utils import RateSpecialization
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
@@ -785,8 +785,6 @@ class SubTest(TestClass):
     @attr('long')
     def test_input_private_memory_creations(self):
         lp_opt = _dummy_opts('map', use_private_memory=True)
-        from ..core.rate_subs import assign_rates
-        from ..loopy_utils.loopy_utils import RateSpecialization
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         # create name and mapstores

@@ -14,16 +14,17 @@ from nose.tools import assert_raises
 from tempfile import NamedTemporaryFile
 
 # internal
-from ..libgen.libgen import build_type
-from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from ..utils import func_logger, enum_to_string, listify
-from .test_utils import xfail
-from . import script_dir as test_mech_dir
-from .test_utils.get_test_matrix import load_models, load_platforms, load_tests, \
-    get_test_matrix, num_cores_default
-from ..examples import examples_dir
-from ..schemas import schema_dir, __prefixify, build_and_validate
-from ..core.exceptions import OverrideCollisionException, DuplicateTestException
+from pyjac.libgen.libgen import build_type
+from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
+from pyjac.utils import func_logger, enum_to_string, listify
+from pyjac.tests.test_utils import xfail
+from pyjac.tests import script_dir as test_mech_dir
+from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, \
+    load_tests, get_test_matrix, num_cores_default
+from pyjac.examples import examples_dir
+from pyjac.schemas import schema_dir, __prefixify, build_and_validate
+from pyjac.core.exceptions import OverrideCollisionException, DuplicateTestException
+from pyjac.loopy_utils.loopy_utils import load_platform
 
 
 @func_logger
@@ -106,7 +107,6 @@ def test_codegen_platform_schema_specification():
 
 
 def test_load_codegen():
-    from ..loopy_utils.loopy_utils import load_platform
     from pyopencl import Platform
     platform = load_platform(__prefixify(
             'codegen_platform.yaml', examples_dir))
