@@ -337,3 +337,53 @@ def test_get_test_matrix():
     def check_final_vecsizes(seen):
         return len(seen['vecsize'] - set([4, None])) == 0
     run(want, loop, final_checks=check_final_vecsizes)
+
+    # test gpu vs cpu specs
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide]
+            vecsize: [128]
+          - name: intel
+            lang: opencl
+            vectype: [wide]
+            vecsize: [4]
+        test-list:
+          - type: performance
+            eval-type: jacobian
+            sparse:
+                gpuvecsize: [64]
+                order: ['F']
+            exact:
+                vecsize: [2]
+                gpuorder: ['C']
+        """)
+        file.flush()
+
+    from pyjac.core.tests import platform_is_gpu
+    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                 test_matrix, False,
+                                 raise_on_missing=True)
+
+    def update_jactype(state, want, seen):
+        if state['jac_format'] == enum_to_string(JacobianFormat.sparse):
+            if platform_is_gpu(state['platform']):
+                assert state['vecsize'] == 64
+            else:
+                assert state['vecsize'] == 4
+                assert state['order'] == 'F'
+        else:
+            if platform_is_gpu(state['platform']):
+                assert state['order'] == 'C'
+                assert state['vecsize'] == 128
+            else:
+                assert state['vecsize'] == 2
+
+    want = {'jac_format': update_jactype}
+    run(want, loop)
