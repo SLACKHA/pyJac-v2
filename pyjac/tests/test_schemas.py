@@ -15,11 +15,12 @@ from tempfile import NamedTemporaryFile
 
 # internal
 from ..libgen.libgen import build_type
-from ..loopy_utils.loopy_utils import JacobianFormat
+from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
 from ..utils import func_logger, enum_to_string, listify
 from .test_utils import xfail
 from . import script_dir as test_mech_dir
-from .test_utils.get_test_matrix import load_models, load_platforms, load_tests
+from .test_utils.get_test_matrix import load_models, load_platforms, load_tests, \
+    get_test_matrix, num_cores_default
 from ..examples import examples_dir
 from ..schemas import schema_dir, __prefixify, build_and_validate
 from ..core.exceptions import OverrideCollisionException, DuplicateTestException
@@ -236,3 +237,98 @@ def test_load_tests():
     # checking, hence we just check we get the right number of tests
     tests = load_tests(__get_test_matrix(), 'test_matrix_schema.yaml')
     assert len(tests) == 3
+
+
+def test_get_test_matrix():
+    # test that the example test matrix is specified correctly
+    def update(want, state, key, seen):
+        if state[key] not in seen[key]:
+            if six.callable(want[key]):
+                want[key](state, want, seen)
+            else:
+                want[key].remove(state[key])
+                seen[key].add(state[key])
+        return want, seen
+
+    def run(want, loop, final_checks=None):
+        from copy import deepcopy
+        seen = defaultdict(lambda: set())
+        test = deepcopy(want)
+        for state in loop:
+            for key in test:
+                update(test, state, key, seen)
+        # assert we didn't miss anything (that isn't callable -- those handle
+        # themselves)
+        assert not any(len(v) for v in test.values() if not six.callable(v))
+        if final_checks:
+            assert final_checks(seen)
+
+    test_matrix = __prefixify('test_matrix.yaml', examples_dir)
+
+    # get the species validation test
+    _, loop, max_vec_width = get_test_matrix('.', build_type.species_rates,
+                                             test_matrix, True,
+                                             raise_on_missing=True)
+    assert max_vec_width == 8
+    from collections import defaultdict
+
+    def vecsize_check(state, want, seen):
+        if state['lang'] == 'c':
+            assert state['vecsize'] is None
+            assert state['wide'] is False
+            assert state['deep'] is False
+        else:
+            seen['vecsize'].add(state['vecsize'])
+
+    def check_final_vecsizes(seen):
+        return sorted(seen['vecsize']) == [2, 4, 8]
+
+    # check we have reasonable values
+    base = {'platform': ['intel', 'openmp'],
+            'wide': [True, False],
+            'vecsize': vecsize_check,
+            'conp': [True, False],
+            'order': ['C', 'F'],
+            'num_cores': num_cores_default()[0]}
+    run(base, loop, final_checks=check_final_vecsizes)
+
+    # repeat for jacobian
+    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                 test_matrix, True,
+                                 raise_on_missing=True)
+    jacbase = base.copy()
+    jacbase.update({
+        'sparse': [enum_to_string(JacobianFormat.sparse),
+                   enum_to_string(JacobianFormat.full)],
+        'jac_type': [enum_to_string(JacobianType.exact)],
+        'use_atomics': [True, False]})  # true for OpenMP by default
+    run(jacbase, loop, final_checks=check_final_vecsizes)
+
+    # next, do species performance
+    _, loop, _ = get_test_matrix('.', build_type.species_rates,
+                                 test_matrix, False,
+                                 raise_on_missing=True)
+    want = base.copy()
+    want.update({'order': ['F']})
+    run(want, loop, final_checks=check_final_vecsizes)
+
+    # and finally, the Jacobian performance
+    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                 test_matrix, False,
+                                 raise_on_missing=True)
+    want = jacbase.copy()
+
+    def update_jactype(state, want, seen):
+        if state['jac_type'] == 'finite_difference':
+            assert state['num_cores'] == 1
+            assert state['vecsize'] is None
+            assert state['wide'] is False
+            assert state['depth'] is False
+            assert state['order'] == 'C'
+            assert state['conp'] is True
+        else:
+            assert state['vecsize'] == 4
+
+    want.update({'platform': ['intel'],
+                 'jac_type': update_jactype})
+    run(want, loop, final_checks=check_final_vecsizes)
