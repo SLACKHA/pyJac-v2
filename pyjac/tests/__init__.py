@@ -23,6 +23,7 @@ obj_dir = os.path.join(script_dir, 'obj')
 lib_dir = os.path.join(script_dir, 'lib')
 
 
+@nottest
 def _get_test_input(key, default=''):
     try:
         from testconfig import config
