@@ -19,7 +19,7 @@ import numpy as np
 import cgen
 
 from pyjac.kernel_utils import file_writers as filew
-from pyjac.kernel_utilsmemory_manager import memory_manager, memory_limits, \
+from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
     memory_type, guarded_call
 from pyjac import siteconf as site
 from pyjac import utils

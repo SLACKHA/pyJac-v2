@@ -391,6 +391,7 @@ class TestClass(unittest.TestCase):
                 logger = logging.getLogger(__name__)
                 logger.warn('Test platform file {} was not found, reverting '
                             'to default.'.format(platform))
+                platform = None
             self.store = storage(platform, gas, specs, reacs)
             self.is_setup = True
 

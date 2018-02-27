@@ -1,5 +1,5 @@
-from pyjac.loopy_utils import RateSpecialization, JacobianType, JacobianFormat, \
-	FiniteDifferenceMode, loopy_options
+from pyjac.loopy_utils.loopy_utils import RateSpecialization, JacobianType, \
+    JacobianFormat, FiniteDifferenceMode, loopy_options
 
 __all__ = ["RateSpecialization", "JacobianType", "JacobianFormat",
-	"FiniteDifferenceMode", "loopy_options"]
+           "FiniteDifferenceMode", "loopy_options"]

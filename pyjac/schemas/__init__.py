@@ -173,7 +173,7 @@ def build_schema(schema, includes=['common_schema.yaml'],
     return validatorclass(schema, allow_unknown=allow_unknown)
 
 
-@func_logger
+@func_logger(allowed_errors=(IOError, OSError))
 def validate(validator, source, filename=''):
     """
     Validates the passed source file from the pre-built schema, and returns the
@@ -204,7 +204,7 @@ def validate(validator, source, filename=''):
     return validator.validated(sourcedict)
 
 
-@func_logger
+@func_logger(allowed_errors=(IOError, OSError))
 def build_and_validate(schema, source, validator=CustomValidator, includes=[],
                        allow_unknown=False):
     """
