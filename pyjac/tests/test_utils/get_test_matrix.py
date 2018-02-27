@@ -5,6 +5,7 @@ import logging
 from collections import OrderedDict
 from nose.tools import nottest
 import six
+from optionloop import OptionLoop
 
 from .. import _get_test_input, get_test_langs
 from .. import platform_is_gpu
@@ -262,6 +263,32 @@ def load_tests(matrix, filename):
     return tests
 
 
+def num_cores_default():
+    """
+    Returns the default number of cores for testing.
+
+    This may be affected by the following test input:
+        num_threads
+        max_threads
+
+    If neither are specified, it will return powers of 2 under the maximum
+    hardware cores
+    """
+    nc = 1
+    default_num_cores = []
+    can_override_cores = True
+    if _get_test_input('num_threads', None) is not None:
+        can_override_cores = False
+        default_num_cores = [int(_get_test_input('num_threads'))]
+    else:
+        max_threads = int(_get_test_input('max_threads',
+                                          psutil.cpu_count(logical=False)))
+        while nc <= max_threads:
+            default_num_cores.append(nc)
+            nc *= 2
+    return default_num_cores, can_override_cores
+
+
 @nottest
 def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     raise_on_missing=True):
@@ -319,7 +346,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     valid_str = 'validation' if for_validation else 'performance'
     tests = [test for test in tests if test['type'] == valid_str]
     tests = [test for test in tests if test['eval-type'] == enum_to_string(
-        test_type)]
+        test_type) or test['eval-type'] == 'both']
     # and dictify
     tests = [OrderedDict(test) for test in tests]
     if not tests:
@@ -341,27 +368,14 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     split_kernels = [False]
 
     # and default # of cores, this may be overriden
-    default_num_cores = []
-    nc = 1
-    can_override_cores = True
-    if _get_test_input('num_threads', None) is not None:
-        can_override_cores = False
-        default_num_cores = [int(_get_test_input('num_threads'))]
-    else:
-        max_threads = int(_get_test_input('max_threads',
-                                          psutil.cpu_count(logical=False)))
-        while nc <= max_threads:
-            default_num_cores.append(nc)
-            nc *= 2
+    default_num_cores, can_override_cores = num_cores_default()
 
     # load platforms
-    platforms = load_platforms(test_matrix, raise_on_missing=raise_on_missing)
+    platforms = load_platforms(test_matrix, raise_on_empty=raise_on_missing)
     platforms = [OrderedDict(platform) for platform in platforms]
     out_params = []
     logger = logging.getLogger(__name__)
     for test in tests:
-        def test_type():
-            return ' - '.join([test['type'], test['eval-type']])
         # filter platforms
         plats = platforms.copy()
         if 'platforms' in test:
@@ -370,17 +384,26 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             if len(plats) < len(platforms):
                 logger.info('Platforms ({}) filtered out for test type: {}'.format(
                     ', '.join([p['platform'] for p in platforms if p not in plats]),
-                    test_type()))
+                    ' - '.join([test['type'], test['eval-type']])))
         if not len(plats):
             logger.warn('No platforms found for test {}, skipping...'.format(
-                test_type()))
+                ' - '.join([test['type'], test['eval-type']])))
             continue
 
         for plookup in plats:
+            clean = plookup.copy()
             # get default number of cores
             cores = default_num_cores[:]
             # get default vector widths
-            widths = plookup['vecsizes'][:]
+            widths = plookup['width']
+            is_wide = widths is not None
+            depths = plookup['depth']
+            is_deep = depths is not None
+            if is_deep and not is_wide:
+                widths = depths[:]
+            # sanity check
+            if is_wide or is_deep:
+                assert widths is not None
             # special gpu handling for cores
             is_gpu = False
             # test platform type
@@ -389,34 +412,32 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 is_gpu = True
                 cores = [1]
 
-            def apply_vectypes(lookup, widths, vectypes=None):
-                supplied = vectypes is not None
-                vectypes = lookup['vectypes'][:] if supplied else vectypes[:]
-                if vectypes != ['par']:
+            def apply_vectypes(lookup, widths, is_wide=is_wide, is_deep=is_deep):
+                if lookup['width'] or lookup['depth']:
                     # set vec widths
-                    use_par = 'par' in vectypes
-                    lookup['vecsizes'] = widths
+                    use_par = None in widths or (is_wide and is_deep)
+                    lookup['vecsize'] = [x for x in widths[:] if x is not None]
                     base = [True] if not use_par else [True, False]
-                    if 'wide' in lookup['vectypes']:
+                    if is_wide:
                         lookup['wide'] = base[:]
                         base.pop()
-                    if 'deep' in lookup['vectypes']:
+                    if is_deep:
                         lookup['deep'] = base[:]
-                    # and remove from dict
-                    if supplied:
-                        del lookup['vectypes']
+                else:
+                    lookup['vecsize'] = [None]
+                del lookup['width']
+                del lookup['depth']
 
             apply_vectypes(plookup, widths)
-
             # now figure out which overrides apply
             overrides = [x for x in allowed_override_keys if x in test]
             if test_type == build_type.jacobian:
                 # exclude species rate
-                overrides = [x for x in overrides if x == enum_to_string(
+                overrides = [x for x in overrides if x != enum_to_string(
                     build_type.species_rates)]
             else:
                 # exclude Jacobian types
-                overrides = [x for x in overrides if x != enum_to_string(
+                overrides = [x for x in overrides if x == enum_to_string(
                     build_type.species_rates)]
 
             # default is both conp / conv
@@ -424,99 +445,113 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             order = ['C', 'F']
 
             # loop over possible overrides
-            for ttype in [enum_to_string(test_type)]:
-                for jtype in jac_types:
-                    for stype in sparse:
-                        def override_log(key, old, new):
-                            logging.info('Replacing {} for test type: {}. Old value:'
-                                         ' ({}), New value: ({})'.format(
-                                            key,
-                                            stringify_args([
-                                                ttype, test['eval-type'],
-                                                jtype, stype],
-                                                joiner='.'),
-                                            stringify_args(old),
-                                            stringify_args(new)
-                                            ))
-                        # copy defaults
-                        icores = cores[:]
-                        iorder = order[:]
-                        iconp = conp[:]
-                        ivecsizes = widths[:]
-                        # load overides
-                        current_overrides = [x for x in [ttype, jtype, stype]
-                                             if x in overrides]
+            oploop = OptionLoop(OrderedDict(
+                [('ttype', [enum_to_string(test_type)]),
+                 ('jtype', jac_types),
+                 ('stype', sparse)]))
+            for i, state in enumerate(oploop):
+                ttype = state['ttype']
+                jtype = state['jtype']
+                stype = state['stype']
 
-                        # check that we can apply
-                        if 'num_cores' in overrides and not can_override_cores:
-                            raise InvalidTestEnivironmentException(
-                                ttype, 'num_cores', matrix_name, 'num_threads')
-                        elif 'num_cores' in overrides and is_gpu:
-                            logger = logging.getLogger(__name__)
-                            logger.info(
-                                'Discarding unused "num_cores" override for GPU'
-                                'platform {}'.format(plookup['name']))
-                            current_overrides.remove('num_cores')
+                def override_log(key, old, new):
+                    logging.info('Replacing {} for test type: {}. Old value:'
+                                 ' ({}), New value: ({})'.format(
+                                    key,
+                                    stringify_args([
+                                        ttype, test['eval-type'],
+                                        jtype, stype],
+                                        joiner='.'),
+                                    stringify_args(old),
+                                    stringify_args(new)
+                                    ))
+                # copy defaults
+                icores = cores[:]
+                iorder = order[:]
+                iconp = conp[:]
+                ivecsizes = widths[:] if widths is not None else [None]
+                # load overides
+                current_overrides = [x for x in [ttype, jtype, stype]
+                                     if x in overrides]
 
-                        # 'num_cores', 'order', 'conp', 'vecsize', 'vectype'
-                        # now apply overrides
-                        for current in current_overrides:
-                            ivectypes_override = None
-                            outplat = platform.copy()
-                            for override in [x for x in allowed_overrides if x in
-                                             test[current]]:
-                                if override == 'num_cores':
-                                    override_log('num_cores', icores,
-                                                 test[current][override])
-                                    icores = test[current][override]
-                                elif override == 'order':
-                                    override_log('order', iorder,
-                                                 test[current][override])
-                                    iorder = test[current][override]
-                                elif override == 'conp':
-                                    iconp_save = iconp[:]
-                                    iconp = []
-                                    if 'conp' in test[current][override]:
-                                        iconp.append(True)
-                                    if 'conv' in test[current][override]:
-                                        iconp.append(False)
-                                    override_log('conp', iconp_save,
-                                                 iconp)
-                                elif override == 'vecsize' and not is_gpu:
-                                    override_log('vecsize', ivecsizes,
-                                                 test[current][override])
-                                    ivecsizes = test[current][override]
-                                elif override == 'gpuvecsize' and is_gpu:
-                                    override_log('gpuvecsize', ivecsizes,
-                                                 test[current][override])
-                                    ivecsizes = test[current][override]
-                                elif override == 'vectype':
-                                    # we have to do this at the end
-                                    ivectypes_override = test[current][override]
+                # check that we can apply
+                if 'num_cores' in overrides and not can_override_cores:
+                    raise InvalidTestEnivironmentException(
+                        ttype, 'num_cores', matrix_name, 'num_threads')
+                elif 'num_cores' in overrides and is_gpu:
+                    logger = logging.getLogger(__name__)
+                    logger.info(
+                        'Discarding unused "num_cores" override for GPU'
+                        'platform {}'.format(plookup['name']))
+                    current_overrides.remove('num_cores')
 
-                            if ivectypes_override is not None:
-                                apply_vectypes(outplat, ivecsizes,
-                                               vectypes=ivectypes_override)
-                                override_log('vectype', ivecsizes,
-                                             ivectypes_override)
+                # 'num_cores', 'order', 'conp', 'vecsize', 'vectype'
+                # now apply overrides
+                outplat = plookup.copy()
+                for current in current_overrides:
+                    ivectypes_override = None
+                    for override in [x for x in allowed_overrides if x in
+                                     test[current]]:
+                        if override == 'num_cores':
+                            override_log('num_cores', icores,
+                                         test[current][override])
+                            icores = test[current][override]
+                            print(icores)
+                        elif override == 'order':
+                            override_log('order', iorder,
+                                         test[current][override])
+                            iorder = test[current][override]
+                        elif override == 'conp':
+                            iconp_save = iconp[:]
+                            iconp = []
+                            if 'conp' in test[current][override]:
+                                iconp.append(True)
+                            if 'conv' in test[current][override]:
+                                iconp.append(False)
+                            override_log('conp', iconp_save,
+                                         iconp)
+                        elif override == 'vecsize' and not is_gpu:
+                            override_log('vecsize', ivecsizes,
+                                         test[current][override])
+                            ivecsizes = test[current][override]
+                        elif override == 'gpuvecsize' and is_gpu:
+                            override_log('gpuvecsize', ivecsizes,
+                                         test[current][override])
+                            ivecsizes = test[current][override]
+                        elif override == 'vectype':
+                            # we have to do this at the end
+                            ivectypes_override = test[current][override]
 
-                            # and finally, convert back to an option loop format
-                            out_params.append([
-                                ('num_cores', icores),
-                                ('order', iorder),
-                                ('rate_spec', rate_spec),
-                                ('split_kernels', split_kernels),
-                                ('conp', iconp),
-                                ('sparse', [stype]),
-                                ('jac_type', [jtype])] +
-                                [(key, value) for key, value in six.iteritems(
-                                    outplat)])
+                    if ivectypes_override is not None:
+                        c = clean.copy()
+                        apply_vectypes(c, ivecsizes,
+                                       is_wide='wide' in ivectypes_override,
+                                       is_deep='deep' in ivectypes_override)
+                        # and copy into working
+                        plookup['wide'] = c['wide']
+                        plookup['deep'] = c['deep']
+                        plookup['vecsize'] = c['vecsize']
+                        override_log('vecsize', '',
+                                     ivectypes_override)
+
+                # and finally, convert back to an option loop format
+                out_params.append([
+                    ('num_cores', icores),
+                    ('order', iorder),
+                    ('rate_spec', rate_spec),
+                    ('split_kernels', split_kernels),
+                    ('conp', iconp),
+                    ('sparse', [stype]),
+                    ('jac_type', [jtype])] +
+                    [(key, value) for key, value in six.iteritems(
+                        outplat)])
 
     max_vec_width = 1
-    vector_params = [max(dict(p)['vecsizes']) for p in out_params if 'vecsize' in
-                     dict(p)]
+    vector_params = [dict(p)['vecsize'] for p in out_params if 'vecsize' in
+                     dict(p) and dict(p)['vecsize'] != [None]]
     if vector_params:
-        max_vec_width = max(max_vec_width, max(vector_params))
+        max_vec_width = max(max_vec_width, max(
+            [max(x) for x in vector_params]))
     from . import reduce_oploop
     loop = reduce_oploop(out_params)
     return models, loop, max_vec_width
