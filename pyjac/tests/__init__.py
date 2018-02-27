@@ -381,12 +381,14 @@ class TestClass(unittest.TestCase):
             elems, specs, reacs = read_mech_ct(gasname)
             # and finally check for a test platform
             platform = get_platform_file()
-            if platform is None:
-                logger = logging.getLogger(__name__)
-                logger.warn('Warning: did not find a test platform file, using '
-                            'default OpenCL / C platforms...')
-            else:
-                from ..schemas import build_and_validate
+            try:
+                if platform is None:
+                    platform = ''
+                    raise OSError
                 platform = build_and_validate('test_platform_schema.yaml', platform)
+            except (OSError, IOError):
+                logger = logging.getLogger(__name__)
+                logger.warn('Test platform file {} was not found, reverting '
+                            'to default.'.format(platform))
             self.store = storage(platform, gas, specs, reacs)
             self.is_setup = True
