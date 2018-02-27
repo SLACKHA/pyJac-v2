@@ -10,7 +10,7 @@ from .. import _get_test_input, get_test_langs
 from .. import platform_is_gpu
 from ...libgen import build_type
 from ...utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
-    stringify_args, reduce_oploop
+    stringify_args
 from ...loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from ...schemas import build_and_validate
 from ...core.exceptions import OverrideCollisionException, DuplicateTestException, \
@@ -517,5 +517,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                      dict(p)]
     if vector_params:
         max_vec_width = max(max_vec_width, max(vector_params))
+    from . import reduce_oploop
     loop = reduce_oploop(out_params)
     return models, loop, max_vec_width
