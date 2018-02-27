@@ -331,7 +331,6 @@ def get_context(device='0'):
     else:
         ctx = cl.Context(devices=[device])
 
-    lp.set_caching_enabled(False)
     return ctx
 
 

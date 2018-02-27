@@ -5173,12 +5173,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
     """
 
-    # TODO: fix this
-    # for some reason we're getting missing target exceptions from loopy on
-    # cached atomic dtypes
-    import loopy as lp
-    lp.set_caching_enabled(False)
-
     lang = lang.lower()
     logger = logging.getLogger(__name__)
     if lang not in utils.langs:

@@ -2,9 +2,12 @@ from argparse import ArgumentParser
 import sys
 from pyjac.functional_tester.test import species_rate_tester, jacobian_tester
 from pyjac import utils
+# turn off cache
+import loopy as lp
 
 
 def main(args=None):
+    lp.set_caching_enabled(False)
     utils.setup_logging()
     if args is None:
         # command line arguments

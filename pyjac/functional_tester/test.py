@@ -33,10 +33,6 @@ from pyjac.libgen import build_type, generate_library
 from pyjac.core.create_jacobian import determine_jac_inds
 from pyjac.utils import EnumType, inf_cutoff
 
-# turn off cache
-import loopy as lp
-lp.set_caching_enabled(False)
-
 
 def getf(x):
     return os.path.basename(x)
