@@ -33,6 +33,7 @@ def func_logger(*args, **kwargs):
 
     cname = kwargs.pop('name', '')
     log_args = kwargs.pop('log_args', False)
+    allowed_errors = kwargs.pop('allowed_errors', [])
 
     assert not len(kwargs), 'Unknown keyword args passed to @func_logger: {}'.format(
         stringify_args(kwargs, True))
@@ -57,14 +58,19 @@ def func_logger(*args, **kwargs):
                         stringify_args(kwargs, True))
                 logger.debug(msg)
                 return func(*args, **kwargs)
-            except Exception:
+            except Exception as e:
+                # we've explicitly allowed these
+                log = logger.exception
+                if any(isinstance(e, a) for a in allowed_errors):
+                    log = logger.debug
+                    err = 'Allowed error of type {} in '.format(str(e))
+                else:
+                    err = "There was an unhandled exception in "
                 # log the exception
-                err = "There was an unhandled exception in  "
                 err += func.__name__
-                logger.exception(err)
-
+                log(err)
                 # re-raise the exception
-                raise
+                raise e
             finally:
                 logging.debug('Exiting function {}'.format(name))
         return wrapper

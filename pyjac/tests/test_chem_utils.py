@@ -2,7 +2,7 @@
 from pyjac.core.rate_subs import polyfit_kernel_gen, assign_rates
 from pyjac.loopy_utils.loopy_utils import kernel_call
 from pyjac.tests import TestClass
-from pyjac.teststest_utils import _generic_tester
+from pyjac.tests.test_utils import _generic_tester
 
 # modules
 from nose.plugins.attrib import attr

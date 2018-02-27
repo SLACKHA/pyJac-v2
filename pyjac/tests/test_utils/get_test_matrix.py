@@ -168,7 +168,7 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
 
             # create option loop and add
             oploop += [inner_loop]
-    except KeyError:
+    except (TypeError, KeyError):
         if raise_on_empty:
             raise Exception('Supplied test matrix has no platforms.')
 
