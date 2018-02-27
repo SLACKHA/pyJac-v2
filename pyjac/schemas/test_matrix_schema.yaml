@@ -107,5 +107,4 @@ test-list:
             type: list
             schema:
                 type: string
-                is_platform: True
             nullable: True

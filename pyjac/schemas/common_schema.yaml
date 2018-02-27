@@ -67,6 +67,11 @@ override:
             schema:
                 type: string
                 allowed: ['C', 'F']
+        gpuorder:
+            type: list
+            schema:
+                type: string
+                allowed: ['C', 'F']
         conp:
             type: list
             schema:
