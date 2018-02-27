@@ -80,13 +80,31 @@ def load_models(work_dir, matrix):
 
 
 def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
+    """
+    Loads test platforms from the :param:`matrix` file, for the :param:`langs`
+
+    Parameters
+    ----------
+    matrix: dict
+        A loaded test matrix from :func:`get_test_matrix`
+    langs: list of str
+        The allowed languages, modifiable by the :envvar:`TEST_LANGS` or test_langs
+        in :file:`test_setup.py`
+    raise_on_empty: bool [False]
+        If True, and the supplied matrix has no platforms raise an exception
+
+    Returns
+    -------
+    pre-loop: list of tuples
+        The parameters that may be converted into a :class:`optionloop.OptionLoop`
+    """
+
+    oploop = []
     try:
         # try to use user-specified platforms
-        oploop = []
         platforms = matrix[platform_list_key]
         # put into oploop form, and make repeatable
         for p in sorted(platforms, key=lambda x: x['name']):
-
             # limit to supplied languages
             inner_loop = []
             allowed_langs = langs[:]
@@ -151,11 +169,12 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
 
             # create option loop and add
             oploop += [inner_loop]
-    except TypeError:
+    except KeyError:
         if raise_on_empty:
             raise Exception('Supplied test matrix has no platforms.')
+
     finally:
-        if not oploop and oploop is not None:
+        if not oploop:
             # file not found, or no appropriate targets for specified languages
             for lang in langs:
                 inner_loop = []
