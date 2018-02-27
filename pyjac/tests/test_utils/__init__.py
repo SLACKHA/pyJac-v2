@@ -635,6 +635,8 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
             ('rop_net_kernels', [True])]
     if do_conp:
         oploop += [('conp', [True, False])]
+    else:
+        oploop += [('conp', [True])]
     if sparse_only:
         oploop += [('jac_format', [JacobianFormat.sparse])]
     elif do_sparse:
