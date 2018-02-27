@@ -111,3 +111,12 @@ class DuplicateTestException(Exception):
                         'detected in test matrix file {}'.format(
                             rtype, etype, filename))
         super(DuplicateTestException, self).__init__(self.message)
+
+
+class InvalidTestEnivironmentException(Exception):
+    def __init__(self, ttype, key, file, envvar):
+        self.message = ('Test type {} has overrides for key {} specified in'
+                        'test matrix file {}, however this override cannot be '
+                        'applied, as it would invalidate the test environment '
+                        'key {}'.format(ttype, key, file, envvar))
+        super(InvalidTestEnivironmentException, self).__init__(self.message)

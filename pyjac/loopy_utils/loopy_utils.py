@@ -105,9 +105,9 @@ def load_platform(codegen):
     width = platform['vectype'] == 'wide'
     depth = platform['vectype'] == 'deep'
     if width:
-        width = platform['vecwidth']
+        width = platform['vecsize']
     elif depth:
-        depth = platform['vecwidth']
+        depth = platform['vecsize']
     # TODO: implement memory limits loading here
     # optional params get passed as kwargs
     kwargs = {}

@@ -232,5 +232,7 @@ def test_duplicate_tests_fails():
 
 
 def test_load_tests():
+    # load tests doesn't do any processing other than collision / duplicate
+    # checking, hence we just check we get the right number of tests
     tests = load_tests(__get_test_matrix(), 'test_matrix_schema.yaml')
     assert len(tests) == 3

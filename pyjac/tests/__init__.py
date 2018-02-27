@@ -4,6 +4,7 @@ import numpy as np
 import unittest
 import loopy as lp
 from nose.tools import nottest
+import six
 
 # system
 import os
@@ -100,6 +101,8 @@ def platform_is_gpu(platform):
     # filter out C or other non pyopencl platforms
     if not platform:
         return False
+    if isinstance(platform, six.string_types) and 'nvidia' in platform.lower():
+        return True
     try:
         import pyopencl as cl
         if isinstance(platform, cl.Platform):

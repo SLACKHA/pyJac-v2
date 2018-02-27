@@ -13,8 +13,8 @@ platform:
   lang: opencl
   # use a wide vectorization
   vectype: wide
-  # use a vector width of 2 & 4
-  vecwidth: 4
+  # use a vector size of 4
+  vecsize: 4
   # no atomics present in the Intel OpenCL runtime
   atomics: False
   # limit memory usage

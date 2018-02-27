@@ -29,7 +29,7 @@ platform-list:
     lang: opencl
     vectype: [wide, par]
     # use a vector width of 2, 4 & 8
-    vecwidth: [2, 4, 8]
+    vecsize: [2, 4, 8]
     atomics: False
   - name: openmp
     lang: c
@@ -56,7 +56,7 @@ test-list:
       # limit number of cores
       num_cores: 1
       # use only parallel FD-evaluation
-      vecwidth: []
+      vecsize: []
       vectype: 'par'
       # C-order only
       order: 'C'
@@ -65,4 +65,4 @@ test-list:
     # overrides for the exact jacobian
     exact:
       # only test vector width of 4
-      vecwidth: 4
+      vecsize: 4

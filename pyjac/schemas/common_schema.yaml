@@ -41,12 +41,12 @@ variable-platform:
                 allowed: ['C', 'F']
             nullable: True
             default: ['C', 'F']
-        # vector width
-        vecwidth:
+        # vector size
+        vecsize:
             type: list
             schema:
                 type: integer
-                isvecwidth: True
+                isvecsize: True
             # can only be specifed for wide / deep vecs
             dependencies: vectype
         # #If True, the platform / language support atomics for deep-vectorization
@@ -73,6 +73,11 @@ override:
                 type: string
                 allowed: ['conp', 'conv']
         vecsize:
+            type: list
+            schema:
+                type: integer
+        # vector size overrides for GPUs
+        gpuvecsize:
             type: list
             schema:
                 type: integer
