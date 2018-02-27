@@ -86,7 +86,6 @@ except (ImportError, OSError, IOError):
         'loo.py>=2016.2',
         'six',
         'pyyaml',
-        'yamale',
         'cgen',
         'cerberus',
         'enum34;python_version<"3.4"'],
