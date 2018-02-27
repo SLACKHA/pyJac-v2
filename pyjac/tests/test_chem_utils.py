@@ -11,7 +11,7 @@ import numpy as np
 
 class SubTest(TestClass):
     def __subtest(self, ref_ans, nicename):
-        def __wrapper(opt, namestore, test_size=None, **kw_args):
+        def __wrapper(opt, namestore, test_size=None, **kwargs):
             return polyfit_kernel_gen(nicename, opt, namestore,
                                       test_size=test_size)
 

@@ -57,7 +57,7 @@ class vecwith_fixer(object):
         return grid_size, (lsize,)
 
 
-def make_kernel_generator(loopy_opts, *args, **kw_args):
+def make_kernel_generator(loopy_opts, *args, **kwargs):
     """
     Factory generator method to return the appropriate
     :class:`kernel_generator` type based on the target language in the
@@ -69,18 +69,18 @@ def make_kernel_generator(loopy_opts, *args, **kw_args):
         The specified user options
     *args : tuple
         The other positional args to pass to the :class:`kernel_generator`
-    **kw_args : dict
+    **kwargs : dict
         The keyword args to pass to the :class:`kernel_generator`
     """
     if loopy_opts.lang == 'c':
         if not loopy_opts.auto_diff:
-            return c_kernel_generator(loopy_opts, *args, **kw_args)
+            return c_kernel_generator(loopy_opts, *args, **kwargs)
         if loopy_opts.auto_diff:
-            return autodiff_kernel_generator(loopy_opts, *args, **kw_args)
+            return autodiff_kernel_generator(loopy_opts, *args, **kwargs)
     if loopy_opts.lang == 'opencl':
-        return opencl_kernel_generator(loopy_opts, *args, **kw_args)
+        return opencl_kernel_generator(loopy_opts, *args, **kwargs)
     if loopy_opts.lang == 'ispc':
-        return ispc_kernel_generator(loopy_opts, *args, **kw_args)
+        return ispc_kernel_generator(loopy_opts, *args, **kwargs)
     raise NotImplementedError()
 
 
@@ -1688,9 +1688,9 @@ class c_kernel_generator(kernel_generator):
     A C-kernel generator that handles OpenMP parallelization
     """
 
-    def __init__(self, *args, **kw_args):
+    def __init__(self, *args, **kwargs):
 
-        super(c_kernel_generator, self).__init__(*args, **kw_args)
+        super(c_kernel_generator, self).__init__(*args, **kwargs)
 
         self.extern_defn_template = Template(
             'extern ${type}* ${name}' + utils.line_end[self.lang])
@@ -1811,12 +1811,12 @@ class autodiff_kernel_generator(c_kernel_generator):
     autodifferentiation scheme.  Handles adding jacobian, etc.
     """
 
-    def __init__(self, *args, **kw_args):
+    def __init__(self, *args, **kwargs):
 
         # no matter the 'testing' status, the autodiff always needs the outer loop
         # migrated out
-        kw_args['for_testing'] = False
-        super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
+        kwargs['for_testing'] = False
+        super(autodiff_kernel_generator, self).__init__(*args, **kwargs)
 
         from ..loopy_utils.loopy_utils import AdeptCompiler
         self.compiler = AdeptCompiler()
@@ -1842,8 +1842,8 @@ class autodiff_kernel_generator(c_kernel_generator):
 
 class ispc_kernel_generator(kernel_generator):
 
-    def __init__(self, *args, **kw_args):
-        super(ispc_kernel_generator, self).__init__(*args, **kw_args)
+    def __init__(self, *args, **kwargs):
+        super(ispc_kernel_generator, self).__init__(*args, **kwargs)
 
     # TODO: fill in
 
@@ -1854,8 +1854,8 @@ class opencl_kernel_generator(kernel_generator):
     An opencl specific kernel generator
     """
 
-    def __init__(self, *args, **kw_args):
-        super(opencl_kernel_generator, self).__init__(*args, **kw_args)
+    def __init__(self, *args, **kwargs):
+        super(opencl_kernel_generator, self).__init__(*args, **kwargs)
 
         # opencl specific items
         self.set_knl_arg_array_template = Template(
@@ -2250,7 +2250,7 @@ def _find_indent(template_str, key, value):
     return '\n'.join(result)
 
 
-def subs_at_indent(template_str, **kw_args):
+def subs_at_indent(template_str, **kwargs):
     """
     Substitutes keys of :params:`kwargs` for values in :param:`template_str`
     ensuring that the indentation of the value is the same as that of the key
@@ -2271,4 +2271,4 @@ def subs_at_indent(template_str, **kw_args):
     return Template(template_str).safe_substitute(
         **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
                              value if isinstance(value, str) else str(value))
-            for key, value in six.iteritems(kw_args)})
+            for key, value in six.iteritems(kwargs)})

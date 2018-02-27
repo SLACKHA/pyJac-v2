@@ -657,7 +657,7 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
                     do_sparse=False, langs=None,
-                    sparse_only=False, **kw_args):
+                    sparse_only=False, **kwargs):
     """
     A generic testing method that can be used for to test the correctness of
     any _pyJac_ kernel via the supplied :class:`kernel_call`'s
@@ -697,6 +697,9 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         from .. import get_test_langs
         langs = get_test_langs()
 
+    if 'conp' in kwargs:
+        do_conp = False
+
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
                          langs=langs, do_conp=do_conp, do_sparse=do_sparse,
                          sparse_only=sparse_only)
@@ -735,10 +738,10 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
         try:
-            conp = state['conp']
+            conp = kwargs['conp']
         except:
             try:
-                conp = kw_args['conp']
+                conp = state['conp']
             except:
                 conp = True
         # create namestore
@@ -746,7 +749,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                                   owner.store.test_size)
         # create the kernel info
         infos = func(opt, namestore,
-                     test_size=owner.store.test_size, **kw_args)
+                     test_size=owner.store.test_size, **kwargs)
 
         if not isinstance(infos, list):
             try:

@@ -274,7 +274,7 @@ def _make_array(self, array):
 
 
 def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[],
-                  return_kernel=False, **kw_args):
+                  return_kernel=False, **kwargs):
     """
     Computes an autodifferentiated kernel, exposed to external classes in order
     to share with the :mod:`functional_tester`
@@ -335,7 +335,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     infos = []
     info = func(ad_opts, namestore,
                 test_size=self.store.test_size,
-                **__get_arg_dict(func, **kw_args))
+                **__get_arg_dict(func, **kwargs))
     try:
         infos.extend(info)
     except:
@@ -376,7 +376,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     for f in extra_funcs:
         info = f(ad_opts, namestore,
                  test_size=self.store.test_size,
-                 **__get_arg_dict(f, **kw_args))
+                 **__get_arg_dict(f, **kwargs))
         is_skip = editor.skip_on_missing is not None and \
             f == editor.skip_on_missing
         try:
@@ -406,7 +406,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     for f in extra_funcs + [func]:
         info = f(ad_opts, single_name,
                  test_size=1,
-                 **__get_arg_dict(f, **kw_args))
+                 **__get_arg_dict(f, **kwargs))
         try:
             for i in info:
                 if f == func and have_match and kernel_call.name != i.name:
@@ -480,18 +480,18 @@ class SubTest(TestClass):
     def setUp(self):
         # steal the global function decls
 
-        self._get_jacobian = lambda *args, **kw_args: _get_jacobian(
-            self, *args, **kw_args)
-        self._make_array = lambda *args, **kw_args: _make_array(
-            self, *args, **kw_args)
-        self._get_fd_jacobian = lambda *args, **kw_args: _get_fd_jacobian(
-            self, *args, **kw_args)
+        self._get_jacobian = lambda *args, **kwargs: _get_jacobian(
+            self, *args, **kwargs)
+        self._make_array = lambda *args, **kwargs: _make_array(
+            self, *args, **kwargs)
+        self._get_fd_jacobian = lambda *args, **kwargs: _get_fd_jacobian(
+            self, *args, **kwargs)
 
         super(SubTest, self).setUp()
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None, do_conp=False, do_sparse=True,
-                            sparse_only=False, **kw_args):
+                            sparse_only=False, **kwargs):
         """
         A generic testing method that can be used for testing jacobian kernels
 
@@ -518,7 +518,7 @@ class SubTest(TestClass):
         _generic_tester(self, func, kernel_calls, determine_jac_inds,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
                         do_conp=do_conp, do_sparse=do_sparse,
-                        sparse_only=sparse_only, **kw_args)
+                        sparse_only=sparse_only, **kwargs)
 
     def _make_namestore(self, conp):
         # get number of sri reactions
