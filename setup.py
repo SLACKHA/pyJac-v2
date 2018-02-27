@@ -96,6 +96,7 @@ setup(
         'six',
         'pyyaml',
         'cgen',
+        'cerberus',
         'enum34;python_version<"3.4"'],
 
     tests_require=[
