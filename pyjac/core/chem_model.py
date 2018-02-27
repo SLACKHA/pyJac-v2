@@ -9,7 +9,7 @@ from __future__ import division
 import math
 import logging
 import numpy as np
-from .reaction_types import reaction_type, thd_body_type, falloff_form, \
+from pyjac.core.reaction_types import reaction_type, thd_body_type, falloff_form, \
     reversible_type
 
 __all__ = ['RU', 'RUC', 'RU_JOUL', 'PA', 'get_elem_wt',

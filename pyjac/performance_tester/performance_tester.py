@@ -17,14 +17,11 @@ from collections import defaultdict
 import logging
 
 # Local imports
-from ..libgen import build_type, generate_library
-from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from ..utils import EnumType
-from ..tests.test_utils import _run_mechanism_tests, runner
-from ..tests import get_platform_file, get_mem_limits_file, platform_is_gpu
-
-import loopy as lp
-lp.set_caching_enabled(False)
+from pyjac.libgen import build_type, generate_library
+from pyjac.loopy_utils import JacobianFormat, JacobianType
+from pyjac.utils import EnumType
+from pyjac.tests.test_utils import _run_mechanism_tests, runner
+from pyjac.tests import get_platform_file, get_mem_limits_file, platform_is_gpu
 
 
 class performance_runner(runner):

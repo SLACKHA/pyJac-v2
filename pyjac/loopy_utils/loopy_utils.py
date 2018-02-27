@@ -1,11 +1,17 @@
 from __future__ import print_function
 
+import logging
+import os
+import stat
+import re
+import six
+from string import Template
+
 # package imports
 from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
-import logging
 try:
     import pyopencl as cl
     import warnings
@@ -13,19 +19,13 @@ except:
     cl = None
     pass
 from pyopencl.tools import clear_first_arg_caches
-from .. import utils
-import os
-import stat
-import re
-import six
 
 # local imports
-from ..utils import check_lang
-from .loopy_edit_script import substitute as codefix
-from ..core.exceptions import (MissingPlatformError, MissingDeviceError,
-                               BrokenPlatformError)
-from ..schemas import build_and_validate
-from string import Template
+from pyjac import utils
+from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
+from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
+                                   BrokenPlatformError)
+from pyjac.schemas import build_and_validate
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                            'loopy_edit_script.py')
@@ -197,7 +197,7 @@ class loopy_options(object):
             'Cannot use deep and wide vectorizations simulataneously')
         self.ilp = ilp
         self.unr = unr
-        check_lang(lang)
+        utils.check_lang(lang)
         self.lang = lang
         assert order in ['C', 'F'], 'Order {} unrecognized'.format(order)
         self.order = order
@@ -1207,7 +1207,7 @@ def get_target(lang, device=None, compiler=None):
     The correct loopy target type
     """
 
-    check_lang(lang)
+    utils.check_lang(lang)
 
     # set target
     if lang == 'opencl':

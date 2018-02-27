@@ -5,20 +5,21 @@ for kernel creation
 
 from __future__ import division
 
-from .. import utils
-
 from string import Template
-import numpy as np
-import loopy as lp
-from loopy.types import to_loopy_type
-import re
-import yaml
-from enum import Enum
 import six
 import logging
-from ..core.array_creator import problem_size as p_size
+import re
+
+import numpy as np
+import loopy as lp
+import yaml
+from enum import Enum
+from loopy.types import to_loopy_type
 #  import resource
 #  align_size = resource.getpagesize()
+
+from pyjac.core.array_creator import problem_size as p_size
+from pyjac import utils
 
 try:
     from pyopencl import device_type

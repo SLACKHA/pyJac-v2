@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 import sys
-from .test import species_rate_tester, jacobian_tester
-from .. import utils
+from pyjac.functional_tester.test import species_rate_tester, jacobian_tester
+from pyjac import utils
 
 
 def main(args=None):
