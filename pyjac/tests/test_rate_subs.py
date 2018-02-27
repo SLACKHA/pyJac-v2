@@ -443,7 +443,7 @@ class SubTest(TestClass):
         assert np.array_equal(result['thd']['spec'], thd_sp)
 
     def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False,
-                              do_ropsplit=False, do_conp=False, **kw_args):
+                              do_ropsplit=False, do_conp=False, **kwargs):
         """
         A generic testing method that can be used for rate constants, third bodies,
         etc.
@@ -466,7 +466,7 @@ class SubTest(TestClass):
 
         _generic_tester(self, func, kernel_calls, assign_rates,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                        do_conp=do_conp, **kw_args)
+                        do_conp=do_conp, **kwargs)
 
     def __test_rateconst_type(self, rtype):
         """
@@ -511,16 +511,16 @@ class SubTest(TestClass):
             raise SkipTest('Skipping reaction test for {} reactions: not present in'
                            'mechanism'.format(rtype))
 
-        kw_args = {}
+        kwargs = {}
         if rtype == 'plog':
-            kw_args['maxP'] = np.max([
+            kwargs['maxP'] = np.max([
                 len(rxn.rates) for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.PlogReaction)])
         elif rtype == 'cheb':
-            kw_args['maxP'] = np.max([
+            kwargs['maxP'] = np.max([
                 rxn.nPressure for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.ChebyshevReaction)])
-            kw_args['maxT'] = np.max([
+            kwargs['maxT'] = np.max([
                 rxn.nTemperature for rxn in self.store.gas.reactions()
                 if isinstance(rxn, ct.ChebyshevReaction)])
 
@@ -555,7 +555,7 @@ class SubTest(TestClass):
                          post_process=post, **args)
 
         self.__generic_rate_tester(
-            rate_func, kc, do_ratespec=rtype == 'simple', **kw_args)
+            rate_func, kc, do_ratespec=rtype == 'simple', **kwargs)
 
     @attr('long')
     def test_simple_rate_constants(self):
