@@ -26,6 +26,14 @@ from pyjac.schemas import schema_dir, __prefixify, build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, DuplicateTestException
 from pyjac.loopy_utils.loopy_utils import load_platform
 
+current_test_langs = ['c', 'opencl']
+"""
+:attr:`current_test_langs`
+    we need to define the languages to test here separately from the
+    :func:`get_test_langs` as these tests depend on the entire platform / test
+    matrix files
+"""
+
 
 @func_logger
 def runschema(schema, source, should_fail=False, includes=[]):
@@ -62,6 +70,7 @@ def test_test_platform_schema_specification():
 def test_load_test_platforms():
     platforms = load_platforms(
         runschema('test_platform_schema.yaml', 'test_platforms.yaml'),
+        langs=current_test_langs,
         raise_on_empty=True)
     platforms = [OrderedDict(p) for p in platforms]
 
@@ -110,10 +119,10 @@ def test_load_codegen():
     from pyopencl import Platform
     platform = load_platform(__prefixify(
             'codegen_platform.yaml', examples_dir))
-    assert isinstance(platform.platform, Platform) or platform.platform == 'intel'
+    assert isinstance(platform.platform, Platform)
     assert platform.width == 4
     assert not platform.depth
-    assert platform.use_atomics is False
+    assert platform.use_atomics is True
 
 
 def test_matrix_schema_specification():
@@ -157,6 +166,7 @@ def test_parse_models():
 
 def test_load_platforms_from_matrix():
     platforms = load_platforms(__get_test_matrix(allow_unknown=True),
+                               langs=current_test_langs,
                                raise_on_empty=True)
     platforms = [OrderedDict(p) for p in platforms]
 
@@ -268,6 +278,7 @@ def test_get_test_matrix():
     # get the species validation test
     _, loop, max_vec_width = get_test_matrix('.', build_type.species_rates,
                                              test_matrix, True,
+                                             langs=current_test_langs,
                                              raise_on_missing=True)
     assert max_vec_width == 8
     from collections import defaultdict
@@ -295,6 +306,7 @@ def test_get_test_matrix():
     # repeat for jacobian
     _, loop, _ = get_test_matrix('.', build_type.jacobian,
                                  test_matrix, True,
+                                 langs=current_test_langs,
                                  raise_on_missing=True)
     jacbase = base.copy()
     jacbase.update({
@@ -307,6 +319,7 @@ def test_get_test_matrix():
     # next, do species performance
     _, loop, _ = get_test_matrix('.', build_type.species_rates,
                                  test_matrix, False,
+                                 langs=current_test_langs,
                                  raise_on_missing=True)
     want = base.copy()
     want.update({'order': ['F']})
@@ -315,6 +328,7 @@ def test_get_test_matrix():
     # and finally, the Jacobian performance
     _, loop, _ = get_test_matrix('.', build_type.jacobian,
                                  test_matrix, False,
+                                 langs=current_test_langs,
                                  raise_on_missing=True)
     want = jacbase.copy()
     # no more openmp
@@ -368,6 +382,7 @@ def test_get_test_matrix():
 
         _, loop, _ = get_test_matrix('.', build_type.jacobian,
                                      file.name, False,
+                                     langs=current_test_langs,
                                      raise_on_missing=True)
 
     from pyjac.tests import platform_is_gpu

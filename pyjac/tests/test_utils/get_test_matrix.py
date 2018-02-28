@@ -110,7 +110,7 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
             if 'lang' in p:
                 # pull from platform languages if possible
                 allowed_langs = p['lang'] if p['lang'] in allowed_langs else []
-            else:
+            if not allowed_langs:
                 # can't use language
                 continue
 
@@ -311,7 +311,7 @@ def num_cores_default():
 
 @nottest
 def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
-                    raise_on_missing=True):
+                    raise_on_missing=True, langs=get_test_langs()):
     """Runs a set of mechanisms and an ordered dictionary for
     performance and functional testing
 
@@ -328,6 +328,9 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
         validation or performance
     raise_on_missing: bool
         Raise an exception of the specified :param:`test_matrix` file is not found
+    langs: list of str
+        The allowed languages, modifiable by the :envvar:`TEST_LANGS` or test_langs
+        in :file:`test_setup.py`
     Returns
     -------
     mechanisms : dict
@@ -391,7 +394,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     default_num_cores, can_override_cores = num_cores_default()
 
     # load platforms
-    platforms = load_platforms(test_matrix, raise_on_empty=raise_on_missing)
+    platforms = load_platforms(test_matrix, langs=langs,
+                               raise_on_empty=raise_on_missing)
     platforms = [OrderedDict(platform) for platform in platforms]
     out_params = []
     logger = logging.getLogger(__name__)
