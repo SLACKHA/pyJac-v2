@@ -5216,7 +5216,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # load platform if supplied
     device = None
     device_type = None
-    if platform:
+    # todo: need to break out the platform & command line spec
+    if platform and os.path.isfile(platform):
         # todo -- add a copy func to loopy options to avoid this ugliness
         loopy_opts = load_platform(platform)
         checks = [(loopy_opts.order, data_order, 'order'),
