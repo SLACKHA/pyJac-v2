@@ -208,11 +208,13 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     return oploop
 
 
+# todo -- pull these directly from override schema
 allowed_override_keys = [enum_to_string(JacobianType.exact),
                          enum_to_string(JacobianType.finite_difference),
                          enum_to_string(JacobianFormat.sparse),
                          enum_to_string(JacobianFormat.full),
                          enum_to_string(build_type.species_rates)]
+# and add handlers here
 allowed_overrides = ['num_cores', 'gpuorder', 'order', 'conp', 'vecsize', 'vectype',
                      'gpuvecsize']
 
@@ -520,7 +522,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                             override_log('order', iorder,
                                          test[current][override])
                             iorder = test[current][override]
-                        elif overrides == 'gpuorder' and is_gpu:
+                        elif override == 'gpuorder' and is_gpu:
                             override_log('order', iorder,
                                          test[current][override])
                             iorder = test[current][override]

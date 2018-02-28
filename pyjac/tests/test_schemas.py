@@ -360,19 +360,20 @@ def test_get_test_matrix():
             sparse:
                 gpuvecsize: [64]
                 order: ['F']
-            exact:
+            full:
                 vecsize: [2]
                 gpuorder: ['C']
         """)
         file.flush()
 
-    from pyjac.core.tests import platform_is_gpu
-    _, loop, _ = get_test_matrix('.', build_type.jacobian,
-                                 test_matrix, False,
-                                 raise_on_missing=True)
+        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                     file.name, False,
+                                     raise_on_missing=True)
 
-    def update_jactype(state, want, seen):
-        if state['jac_format'] == enum_to_string(JacobianFormat.sparse):
+    from pyjac.tests import platform_is_gpu
+
+    def sparsetest(state, want, seen):
+        if state['sparse'] == enum_to_string(JacobianFormat.sparse):
             if platform_is_gpu(state['platform']):
                 assert state['vecsize'] == 64
             else:
@@ -385,5 +386,5 @@ def test_get_test_matrix():
             else:
                 assert state['vecsize'] == 2
 
-    want = {'jac_format': update_jactype}
+    want = {'sparse': sparsetest}
     run(want, loop)
