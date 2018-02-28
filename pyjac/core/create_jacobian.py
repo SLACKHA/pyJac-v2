@@ -5172,6 +5172,10 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
     """
 
+    # todo: fix, for some reason loopy yells about broken atomic dtypes
+    # with no target
+    lp.set_caching_enabled(False)
+
     lang = lang.lower()
     logger = logging.getLogger(__name__)
     if lang not in utils.langs:
