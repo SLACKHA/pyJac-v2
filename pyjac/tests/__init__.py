@@ -57,14 +57,15 @@ def get_platform_file():
     return _get_test_input('test_platform', 'test_platforms.yaml')
 
 
-def get_mem_limits_file():
+def get_matrix_file():
     """
-    Returns the user specied or empty memory limits file
+    Returns the user specified (or default) test matrix file.
+
     This can be set in :file:`test_setup.py` or via the command line
 
-    For an example of this file format, see :file:`mem_limits_example.yaml`
+    For an example of this file format, see :file:`examples/test_matrix.py`
     """
-    return _get_test_input('mem_limits', '')
+    return _get_test_input('test_platform', 'test_matrix.yaml')
 
 
 def get_mechanism_file():
@@ -398,4 +399,4 @@ class TestClass(unittest.TestCase):
 
 
 __all__ = ["TestClass", "_get_test_input", "get_platform_file", "get_mechanism_file",
-           "get_mem_limits_file", "get_test_langs", "platform_is_gpu"]
+           "get_test_langs", "platform_is_gpu"]

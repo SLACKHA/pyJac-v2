@@ -1,17 +1,19 @@
 memory-limits:
-    # limit on total global memory allocation by pyJac
-    global:
-        type: bytestr
-    # limit on total __local/ shared memory allocation by pyJac, only applies to OpenCL /
-    # CUDA
-    local:
-        type: bytestr
-    # limit on total __constant memory allocation by pyJac, only applies to OpenCL / CUDA
-    constant:
-        type: bytestr
-    # limit on the maximum global memory allocation per array by pyJac,
-    alloc:
-        type: bytestr
+    type: dict
+    schema:
+        # limit on total global memory allocation by pyJac
+        global:
+            type: bytestr
+        # limit on total __local/ shared memory allocation by pyJac, only applies to OpenCL /
+        # CUDA
+        local:
+            type: bytestr
+        # limit on total __constant memory allocation by pyJac, only applies to OpenCL / CUDA
+        constant:
+            type: bytestr
+        # limit on the maximum global memory allocation per array by pyJac,
+        alloc:
+            type: bytestr
 
 # platform for testing, allows multiple values for vectype, width, etc.
 variable-platform:

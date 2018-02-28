@@ -25,6 +25,7 @@ from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, DuplicateTestException
 from pyjac.loopy_utils.loopy_utils import load_platform
+from pyjac.kernel_utils.memory_manager import load_memory_limits
 
 current_test_langs = ['c', 'opencl']
 """
@@ -403,3 +404,11 @@ def test_get_test_matrix():
 
     want = {'sparse': sparsetest}
     run(want, loop)
+
+
+def test_load_memory_limits():
+    limits = load_memory_limits(__prefixify('test_matrix.yaml', examples_dir))
+    assert limits['global'] == 5e9
+    assert limits['local'] == 1e6
+    assert limits['constant'] == 64e3
+    assert limits['alloc'] == 1e9
