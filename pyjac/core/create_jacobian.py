@@ -5209,6 +5209,33 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         fd_mode = utils.EnumType(lp_utils.FiniteDifferenceMode)(
             fd_mode.lower())
 
+    # load platform if supplied
+    device = None
+    device_type = None
+    if platform:
+        # todo -- add a copy func to loopy options to avoid this ugliness
+        loopy_opts = load_platform(platform)
+        checks = [(loopy_opts.order, data_order, 'order'),
+                  (loopy_opts.width, width, 'width'),
+                  (loopy_opts.depth, depth, 'depth'),
+                  (loopy_opts.lang, lang, 'lang'),
+                  (loopy_opts.use_atomics, use_atomics, 'use_atomics')]
+        bad_checks = [x for x in checks if x[0] != x[1] and x[1] is not None]
+        if bad_checks:
+            raise Exception('Parameters from supplied code-generation platform: '
+                            '{}, do not match command-line arguements.\n'.format(
+                                platform) + '\n'.join('{}:{}!={}'.format(
+                                    x[-1], x[0], x[1]) for x in bad_checks))
+        # and copy over
+        data_order = loopy_opts.order
+        width = loopy_opts.width
+        depth = loopy_opts.depth
+        lang = loopy_opts.lang
+        use_atomics = loopy_opts.use_atomics
+        platform = loopy_opts.platform
+        device = loopy_opts.device
+        device_type = loopy_opts.device_type
+
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
                                         depth=depth,
@@ -5223,7 +5250,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         use_atomics=use_atomics,
                                         jac_format=jac_format,
                                         jac_type=jac_type,
-                                        seperate_kernels=seperate_kernels)
+                                        seperate_kernels=seperate_kernels,
+                                        device=device,
+                                        device_type=device_type)
 
     # create output directory if none exists
     build_path = os.path.abspath(build_path)
