@@ -396,11 +396,12 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     # load platforms
     platforms = load_platforms(test_matrix, langs=langs,
                                raise_on_empty=raise_on_missing)
+    platforms = [OrderedDict(platform) for platform in platforms]
     out_params = []
     logger = logging.getLogger(__name__)
     for test in tests:
         # filter platforms
-        plats = [OrderedDict(platform) for platform in platforms]
+        plats = [p.copy() for p in platforms]
         if 'platforms' in test:
             plats = [plat for plat in plats
                      if plat['platform'] in test['platforms']]
