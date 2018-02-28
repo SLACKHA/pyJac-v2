@@ -50,8 +50,8 @@ class BrokenPlatformError(Exception):
 
     def __init__(self, loopy_opts):
         platform = loopy_opts.platform
-        options = 'wide = {}, deep = {}'.format(loopy_opts.width is not None,
-                                                loopy_opts.depth is not None)
+        options = 'wide = {}, deep = {}'.format(bool(loopy_opts.width),
+                                                bool(loopy_opts.depth))
         self.message = ('The platform {} is currently broken for'
                         ' vectorization options {}'.format(platform, options))
         super(BrokenPlatformError, self).__init__(self.message)

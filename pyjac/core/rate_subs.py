@@ -3148,9 +3148,6 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     if test_size == 'problem_size':
         knl_data.append(namestore.problem_size)
 
-    if loopy_opts.width is not None and loopy_opts.depth is not None:
-        raise Exception('Cannot specify both SIMD/SIMT width and depth')
-
     # get correctly ordered arrays / strings
     a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)
     a_hi_lp, _ = mapstore.apply_maps(namestore.a_hi, loop_index, param_ind)

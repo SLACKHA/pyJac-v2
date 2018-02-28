@@ -862,7 +862,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         # check to see if device is CPU
         # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
-        #        and (opts.depth is None or not opts.use_atomics):
+        #        and (not bool(opts.depth) or not opts.use_atomics):
         #    opts.use_private_memory = True
 
         conp = state['conp']

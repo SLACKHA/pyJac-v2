@@ -53,7 +53,7 @@ class vecwith_fixer(object):
         # fix for variable too small for vectorization
         grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
             insn_ids, ignore_auto=ignore_auto)
-        lsize = lsize if self.vecsize is None else \
+        lsize = lsize if not bool(self.vecsize) else \
             self.vecsize
         return grid_size, (lsize,)
 
@@ -296,7 +296,7 @@ class kernel_generator(object):
         # get vector width
         vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
             else self.loopy_opts.width
-        if vec_width is not None:
+        if bool(vec_width):
             assumpt_list.append('{0} mod {1} = 0'.format(
                 test_size, vec_width))
         return assumpt_list
@@ -1039,9 +1039,9 @@ ${name} : ${type}
 
         # generate the kernel definition
         self.vec_width = self.loopy_opts.depth
-        if self.vec_width is None:
+        if not bool(self.vec_width):
             self.vec_width = self.loopy_opts.width
-        if self.vec_width is None:
+        if not bool(self.vec_width):
             self.vec_width = 0
 
         # keep track of local / global / constant memory allocations
@@ -1669,7 +1669,7 @@ ${defn}
         if vecspec:
             knl = vecspec(knl)
 
-        if vec_width is not None:
+        if bool(vec_width):
             # finally apply the vector width fix above
             ggs = vecwith_fixer(knl.copy(), vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
