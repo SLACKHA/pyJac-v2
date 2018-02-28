@@ -407,6 +407,11 @@ def test_get_test_matrix():
 
 
 def test_load_memory_limits():
+    limits = load_memory_limits(__prefixify('codegen_platform.yaml', examples_dir))
+    assert limits['global'] == 1e9
+    assert limits['constant'] == 1e6
+    assert limits['alloc'] == 100e6
+
     limits = load_memory_limits(__prefixify('test_matrix.yaml', examples_dir))
     assert limits['global'] == 5e9
     assert limits['local'] == 1e6

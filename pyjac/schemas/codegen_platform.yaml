@@ -36,6 +36,8 @@ platform:
         atomics:
             type: boolean
             default: True
-        # optional memory limits
-        memory-limits:
-            schema: memory-limits
+
+# optional memory limits
+memory-limits:
+    type: dict
+    schema: memory-limits

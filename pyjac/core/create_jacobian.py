@@ -27,7 +27,7 @@ from pyjac.core import mech_auxiliary as aux
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.loopy_utils import JacobianType, JacobianFormat, \
-    FiniteDifferenceMode
+    FiniteDifferenceMode, load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type

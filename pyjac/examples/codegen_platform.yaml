@@ -9,19 +9,20 @@
 
 # a CPU platform using POCL, wide vectorization and no atomics
 platform:
-  name: portable
-  lang: opencl
-  # use a wide vectorization
-  vectype: wide
-  # use a vector size of 4
-  vecsize: 4
-  # Atomics are present in the POCL runtime
-  atomics: True
-  # limit memory usage
-  memory-limits:
-      # 1 gb of total global memory
-      global: 1gb
-      # 1 mb of total constant memory
-      constant: 1mb
-      # and a maximum global array size of 100 mb
-      alloc: 100 Mb
+    name: portable
+    lang: opencl
+    # use a wide vectorization
+    vectype: wide
+    # use a vector size of 4
+    vecsize: 4
+    # Atomics are present in the POCL runtime
+    atomics: True
+
+# limit memory usage
+memory-limits:
+    # 1 gb of total global memory
+    global: 1gb
+    # 1 mb of total constant memory
+    constant: 1mb
+    # and a maximum global array size of 100 mb
+    alloc: 100 Mb
