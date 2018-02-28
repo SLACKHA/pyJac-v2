@@ -1173,7 +1173,7 @@ class runner(object):
         # check rtype
         rtype_str = str(self.rtype)
         rtype_str = rtype_str[rtype_str.index('.') + 1:]
-        if limits is not None and rtype_str in limits:
+        if limits and rtype_str in limits:
             if self.rtype == build_type.jacobian:
                 # check sparsity
                 if state['sparse'] in limits[rtype_str]:
@@ -1244,7 +1244,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         return True
 
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(
-        work_dir, run.rtype, test_platforms, for_validation,
+        work_dir, run.rtype, test_matrix, for_validation,
         raise_on_missing)
 
     if len(mechanism_list) == 0:
