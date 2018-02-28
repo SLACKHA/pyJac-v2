@@ -167,7 +167,10 @@ def build_schema(schema, includes=['common_schema.yaml'],
     def __recursive_replace(root, schemaname, schema):
         for key, value in six.iteritems(root):
             if key == 'schema' and schemaname == value:
-                root[key] = schema.copy()
+                if 'type' in schema and schema['type'] == root['type']:
+                    root[key] = schema['schema'].copy()
+                else:
+                    root[key] = schema.copy()
             elif isinstance(value, dict):
                 root[key] = __recursive_replace(value, schemaname, schema)
         return root
@@ -248,7 +251,8 @@ def build_and_validate(schema, source, validator=CustomValidator, includes=[],
         The validated data
     """
     includes = listify(includes)
-    includes.append('common_schema.yaml')
+    if 'common_schema.yaml' != source:
+        includes.append('common_schema.yaml')
     built = build_schema(schema, validatorclass=validator, includes=includes,
                          allow_unknown=allow_unknown)
     return validate(built, source, filename=schema)
