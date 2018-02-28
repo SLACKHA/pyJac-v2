@@ -1,6 +1,5 @@
 # an example of specifying the test matrix for pyJac's performance or validation
 
-
 # mechanisms are specified by a name and cantera format mechanism and optional path
 model-list:
   - name: TestMech
@@ -22,6 +21,17 @@ model-list:
     # cantera mechnisms
     path:
     mech: gri30.cti
+
+# memory limits
+memory-limits:
+  # 5 gigabyte total on global memory usage
+  global: 5GB
+  # 1 megabyte local memory
+  local: 1MB
+  # 64 kb constant memory
+  constant: 64kb
+  # 1gb limit on allocation of a single array
+  alloc: 1 gb
 
 # list of platforms to use
 platform-list:

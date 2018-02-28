@@ -16,6 +16,45 @@ from pyjac.core.exceptions import ValidationError, validation_error_to_string
 schema_dir = abspath(dirname(__file__))
 
 
+def parse_bytestr(self, value):
+    """
+    Helper method that let's us "coerce" outside of cerberus, as that doesn't like
+    that...
+
+    Returns
+    -------
+    bytes: int
+        The value converted to bytes
+    """
+
+    match = re.search(r'^\s*(\d+)\s*([mMkKgG]?[bB])\s*$', value)
+    if not match:
+        self._error('String {} specified for type "bytes" could '
+                    'not be parsed.  Expected format example: 10 GB'.format(
+                        value))
+
+    size, unit = match.groups()
+    size = int(size)
+    if size < 0:
+        self._error('Size {} specified for type "bytes" less than zero'.format(
+                    value))
+
+    unit = unit.lower()
+    if unit == 'b':
+        unit = 1
+    elif unit == 'kb':
+        unit = 1e3
+    elif unit == 'mb':
+        unit = 1e6
+    elif unit == 'gb':
+        unit = 1e9
+    else:
+        self._error('Unknown unit type {}. Allowed types are (case-insensative)'
+                    'B, KB, MB, GB.'.format(unit))
+
+    return int(unit * size)
+
+
 class CustomValidator(Validator):
     def __internal_validator(self, field, valuelist, valid, message, necessary=True):
         valuelist = listify(valuelist)
@@ -78,33 +117,9 @@ class CustomValidator(Validator):
         Enables validation for `bytestr` schema attribute.
         :param value: field value.
         """
-        # first split value
-        match = re.search(r'^\s*(\d+)\s*([mMkKgG]?[bB])\s*$', value)
-        if not match:
-            self._error('String {} specified for type "bytes" could '
-                        'not be parsed.  Expected format example: 10 GB'.format(
-                            value))
 
-        size, unit = match.groups()
-        size = int(size)
-        if size < 0:
-            self._error('Size {} specified for type "bytes" less than zero'.format(
-                        value))
-
-        unit = unit.lower()
-        if unit == 'b':
-            unit = 1
-        elif unit == 'kb':
-            unit = 1e3
-        elif unit == 'mb':
-            unit = 1e6
-        elif unit == 'gb':
-            unit = 1e9
-        else:
-            self._error('Unknown unit type {}. Allowed types are (case-insensative)'
-                        'B, KB, MB, GB.'.format(unit))
-
-        return unit * size
+        parse_bytestr(self, value)
+        return True
 
     @func_logger
     def _validate_is_platform(self, is_platform, field, value):
