@@ -74,6 +74,8 @@ def load_models(work_dir, matrix):
         # if we have limits
         if 'limits' in model:
             mechanism_list[name]['limits'] = model['limits'].copy()
+        else:
+            mechanism_list[name]['limits'] = {}
 
     return mechanism_list
 

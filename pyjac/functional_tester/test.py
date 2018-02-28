@@ -1364,7 +1364,7 @@ def species_rate_tester(work_dir='error_checking', test_matrix=None, prefix=''):
 
     valid = validation_runner(spec_rate_eval, build_type.species_rates)
     _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
-                         test_matrix, raise_on_missing=raise_on_missing)
+                         raise_on_missing=raise_on_missing)
 
 
 @nottest
