@@ -35,7 +35,7 @@ class array_splitter(object):
     def __init__(self, loopy_opts):
         self.depth = loopy_opts.depth
         self.width = loopy_opts.width
-        self.vector_width = self.depth if self.depth is not None else self.width
+        self.vector_width = self.depth if bool(self.depth) else self.width
         self.data_order = loopy_opts.order
 
     def _have_split(self):
@@ -43,7 +43,7 @@ class array_splitter(object):
         Returns True if there is anything for this :class:`array_splitter` to do
         """
 
-        return self.vector_width is not None and ((
+        return bool(self.vector_width) and ((
             self.data_order == 'C' and self.width) or (
             self.data_order == 'F' and self.depth))
 
