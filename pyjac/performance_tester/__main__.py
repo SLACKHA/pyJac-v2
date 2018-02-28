@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 
 import loopy as lp
 
-from pyjac.performance_tester import species_performance_tester, \
+from pyjac.performance_tester.performance_tester import species_performance_tester, \
     jacobian_performance_tester
 from pyjac import utils
 

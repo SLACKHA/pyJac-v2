@@ -53,7 +53,7 @@ def load_memory_limits(input_file):
         if 'memory-limits' in memory_limits:
             return {k: parse_bytestr(object, v) for k, v in six.iteritems(
                 memory_limits['memory-limits'])}
-    return None
+    return {}
 
 
 class memory_limits(object):
@@ -281,12 +281,12 @@ class memory_limits(object):
                     memory_type.m_alloc: loopy_opts.device.max_mem_alloc_size})
             except AttributeError:
                 pass
-        limits = load_memory_limits(input_file)
-        if limits:
+        user = load_memory_limits(input_file)
+        if user:
             # load from file
             mtype = utils.EnumType(memory_type)
             user_limits = {}
-            for key, value in six.iteritems(limits):
+            for key, value in six.iteritems(user):
                 # check in memory type
                 key = 'm_' + key
                 # update with enum
@@ -295,8 +295,7 @@ class memory_limits(object):
             limits.update(user_limits)
 
         return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
-                             limits.copy(),
-                             string_strides, dtype)
+                             limits, string_strides, dtype)
 
 
 asserts = {'c': Template('cassert(${call}, "${message}");'),

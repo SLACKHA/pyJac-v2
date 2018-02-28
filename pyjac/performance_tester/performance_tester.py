@@ -273,7 +273,6 @@ def species_performance_tester(work_dir='performance', test_matrix=None,
 
     _run_mechanism_tests(work_dir, test_matrix, prefix,
                          performance_runner(build_type.species_rates),
-                         mem_limits=test_matrix,
                          raise_on_missing=raise_on_missing)
 
 
@@ -306,5 +305,4 @@ def jacobian_performance_tester(work_dir='performance',  test_matrix=None,
 
     _run_mechanism_tests(work_dir, test_matrix, prefix,
                          performance_runner(build_type.jacobian),
-                         mem_limits=test_matrix,
                          raise_on_missing=raise_on_missing)
