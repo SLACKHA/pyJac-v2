@@ -1204,7 +1204,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
     prefix: str
         a prefix within the work directory to store the output of this run
     raise_on_missing: bool
-        Raise an exception of the specified :param:`tesT_matrix` file is not found
+        Raise an exception of the specified :param:`test_matrix` file is not found
 
     Returns
     -------
@@ -1459,7 +1459,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     jac_type=jac_type,
                                     for_validation=for_validation,
                                     seperate_kernels=state['seperate_kernels'],
-                                    mem_limits=mem_limits)
+                                    mem_limits=test_matrix)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])
