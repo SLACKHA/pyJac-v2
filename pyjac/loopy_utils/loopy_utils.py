@@ -186,7 +186,8 @@ class loopy_options(object):
                  rate_spec_kernels=False, rop_net_kernels=False,
                  platform='', knl_type='map', auto_diff=False, use_atomics=True,
                  use_private_memory=False, jac_type=JacobianType.exact,
-                 jac_format=JacobianFormat.full, seperate_kernels=True):
+                 jac_format=JacobianFormat.full, seperate_kernels=True,
+                 device=None, device_type=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -205,8 +206,8 @@ class loopy_options(object):
         self.rate_spec_kernels = rate_spec_kernels
         self.rop_net_kernels = rop_net_kernels
         self.platform = platform
-        self.device_type = None
-        self.device = None
+        self.device_type = device_type
+        self.device = device
         assert knl_type in ['mask', 'map']
         self.knl_type = knl_type
         self.auto_diff = auto_diff
@@ -218,38 +219,41 @@ class loopy_options(object):
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform and cl is not None:
-            self.device_type = cl.device_type.ALL
-            check_name = None
-            if platform.lower() == 'cpu':
-                self.device_type = cl.device_type.CPU
-            elif platform.lower() == 'gpu':
-                self.device_type = cl.device_type.GPU
-            elif platform.lower() == 'accelerator':
-                self.device_type = cl.device_type.ACCELERATOR
-            else:
-                check_name = self.platform
-            self.platform = None
-            platforms = cl.get_platforms()
-            for p in platforms:
-                try:
-                    cl.Context(
-                        dev_type=self.device_type,
-                        properties=[(cl.context_properties.PLATFORM, p)])
-                    if not check_name or check_name.lower() in p.get_info(
-                            cl.platform_info.NAME).lower():
-                        self.platform = p
-                        break
-                except cl.cffi_cl.RuntimeError:
-                    pass
-            if not self.platform:
-                raise MissingPlatformError(platform)
-            # finally a matching device
-            self.device = self.platform.get_devices(
-                device_type=self.device_type)
-            if not self.device:
-                raise MissingDeviceError(self.device_type, self.platform)
-            self.device = self.device[0]
-            self.device_type = self.device.get_info(cl.device_info.TYPE)
+            if not isinstance(self.platform, cl.Platform):
+                self.device_type = cl.device_type.ALL
+                check_name = None
+                if platform.lower() == 'cpu':
+                    self.device_type = cl.device_type.CPU
+                elif platform.lower() == 'gpu':
+                    self.device_type = cl.device_type.GPU
+                elif platform.lower() == 'accelerator':
+                    self.device_type = cl.device_type.ACCELERATOR
+                else:
+                    check_name = self.platform
+                self.platform = None
+                platforms = cl.get_platforms()
+                for p in platforms:
+                    try:
+                        cl.Context(
+                            dev_type=self.device_type,
+                            properties=[(cl.context_properties.PLATFORM, p)])
+                        if not check_name or check_name.lower() in p.get_info(
+                                cl.platform_info.NAME).lower():
+                            self.platform = p
+                            break
+                    except cl.cffi_cl.RuntimeError:
+                        pass
+                if not self.platform:
+                    raise MissingPlatformError(platform)
+            if not isinstance(self.device, cl.Device) and \
+                    self.device_type is not None:
+                # finally a matching device
+                self.device = self.platform.get_devices(
+                    device_type=self.device_type)
+                if not self.device:
+                    raise MissingDeviceError(self.device_type, self.platform)
+                self.device = self.device[0]
+                self.device_type = self.device.get_info(cl.device_info.TYPE)
 
         # check for broken vectorizations
         self.raise_on_broken()
