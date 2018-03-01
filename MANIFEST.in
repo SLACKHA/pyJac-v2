@@ -25,6 +25,8 @@ recursive-include pyjac/tests *.py *.inp * .cti *.in *.yaml
 include test_platforms_example.yaml
 include pyjac/site_conf_example.py
 recursive-include data/ *.npy *.cti *.inp *.yaml
+recursive-include pyjac/examples *.yaml *.py
+recursive-include pyjac/schemas *.yaml *.py
 
 global-exclude *.so
 global-exclude *.pyd
