@@ -24,7 +24,8 @@ from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, 
     load_tests, get_test_matrix, num_cores_default
 from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
-from pyjac.core.exceptions import OverrideCollisionException, DuplicateTestException
+from pyjac.core.exceptions import OverrideCollisionException, \
+    DuplicateTestException, InvalidOverrideException
 from pyjac.loopy_utils.loopy_utils import load_platform
 from pyjac.kernel_utils.memory_manager import load_memory_limits
 
@@ -504,6 +505,76 @@ def test_get_test_matrix():
 
     want = {'sparse': sparsetest}
     run(want, loop)
+
+    # test model override
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+          - name: H2
+            path:
+            mech: h2o2.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide]
+            vecsize: [128]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    models: ['H2']
+        """))
+        file.flush()
+
+        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                     file.name, False,
+                                     langs=current_test_langs,
+                                     raise_on_missing=True)
+
+    def modeltest(state, want, seen):
+        if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
+            assert set(state['models']) == set(['H2'])
+        else:
+            assert set(state['models']) == set(['H2', 'CH4'])
+
+    want = {'models': modeltest}
+    run(want, loop)
+
+    # finally test bad model spec
+
+    # test model override
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+          - name: H2
+            path:
+            mech: h2o2.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide]
+            vecsize: [128]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    models: ['BAD']
+        """))
+        file.flush()
+
+        with assert_raises(InvalidOverrideException):
+            get_test_matrix('.', build_type.jacobian,
+                            file.name, False,
+                            langs=current_test_langs,
+                            raise_on_missing=True)
 
 
 def test_load_memory_limits():

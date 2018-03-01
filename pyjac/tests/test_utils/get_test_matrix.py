@@ -553,7 +553,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 iorder = order[:]
                 iconp = conp[:]
                 ivecsizes = widths[:] if widths is not None else [None]
-                imodels = [[model['name'] for model in models]]
+                imodels = tuple(models.keys())
                 # load overides
                 overrides = get_overrides(test, ttype, jtype, stype)
 
@@ -608,14 +608,14 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                             ivectypes_override = overrides[override]
                         elif override == 'models':
                             # check that all models are valid
-                            for model in overrides[model]:
-                                if model not in imodels[0]:
+                            for model in overrides[override]:
+                                if model not in imodels:
                                     raise InvalidOverrideException(
-                                        override, model, imodels[0])
+                                        override, model, imodels)
                             # and replace
-                            override_log('models', stringify_args(imodels[0]),
+                            override_log('models', stringify_args(imodels),
                                          stringify_args(overrides[override]))
-                            outplat['models'] = [[overrides[override]]]
+                            imodels = tuple(overrides[override])
 
                     if ivectypes_override is not None:
                         c = clean.copy()
@@ -644,7 +644,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     ('split_kernels', split_kernels),
                     ('conp', iconp),
                     ('sparse', [stype]),
-                    ('jac_type', [jtype])] +
+                    ('jac_type', [jtype]),
+                    ('models', [imodels])] +
                     [(key, value) for key, value in six.iteritems(
                         outplat)])
 
