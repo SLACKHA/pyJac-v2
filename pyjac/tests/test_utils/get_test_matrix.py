@@ -15,7 +15,7 @@ from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidTestEnivironmentException, \
-    UnknownOverrideException
+    UnknownOverrideException, InvalidOverrideException
 
 model_key = r'model-list'
 platform_list_key = r'platform-list'
@@ -213,7 +213,7 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
 
 # todo -- feed these directly into override schema
 allowed_overrides = ['num_cores', 'gpuorder', 'order', 'conp', 'vecsize', 'vectype',
-                     'gpuvecsize']
+                     'gpuvecsize', 'models']
 jacobian_sub_override_keys = {enum_to_string(JacobianFormat.sparse):
                               allowed_overrides,
                               enum_to_string(JacobianFormat.full):
@@ -553,6 +553,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 iorder = order[:]
                 iconp = conp[:]
                 ivecsizes = widths[:] if widths is not None else [None]
+                imodels = [[model['name'] for model in models]]
                 # load overides
                 overrides = get_overrides(test, ttype, jtype, stype)
 
@@ -605,6 +606,16 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                         elif override == 'vectype':
                             # we have to do this at the end
                             ivectypes_override = overrides[override]
+                        elif override == 'models':
+                            # check that all models are valid
+                            for model in overrides[model]:
+                                if model not in imodels[0]:
+                                    raise InvalidOverrideException(
+                                        override, model, imodels[0])
+                            # and replace
+                            override_log('models', stringify_args(imodels[0]),
+                                         stringify_args(overrides[override]))
+                            outplat['models'] = [[overrides[override]]]
 
                     if ivectypes_override is not None:
                         c = clean.copy()

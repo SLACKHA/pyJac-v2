@@ -4,6 +4,7 @@ Contains custom errors / exceptions / error processing
 
 
 import six
+from pyjac.utils import stringify_args
 
 
 class MissingPlatformError(Exception):
@@ -103,6 +104,14 @@ class UnknownOverrideException(Exception):
     def __init__(self, otype, path):
         self.message = (
             'Override type "{}" for path {} is unknown'.format(otype, path))
+        super(UnknownOverrideException, self).__init__(self.message)
+
+
+class InvalidOverrideException(Exception):
+    def __init__(self, otype, value, allowed):
+        self.message = (
+            'Value "{}" for verride type "{}" is not allowed. '
+            'Allowed values are: {}'.format(otype, value, stringify_args(allowed)))
         super(UnknownOverrideException, self).__init__(self.message)
 
 
