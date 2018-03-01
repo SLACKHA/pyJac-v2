@@ -48,31 +48,33 @@ platform-list:
 # test list
 test-list:
   # a validation test for both spurce rates & jacobian
-  - type: validation
+  - test-type: validation
     eval-type: both
   # source rate performance test
-  - type: performance
+  - test-type: performance
     eval-type: species_rates
     # overrides, controlling the species_rates test
     species_rates:
-      order: 'F'
+      order: ['F']
 # a performance test for the jacobian
-  - type: performance
+  - test-type: performance
     # limit to intel
     platforms: [intel]
     eval-type: jacobian
     # overrides, controlling the finite_difference tests
     finite_difference:
-      # limit number of cores
-      num_cores: 1
-      # use only parallel FD-evaluation
-      vecsize: []
-      vectype: 'par'
-      # C-order only
-      order: 'C'
-      # conp-only
-      conp: 'conp'
+      both:
+        # limit number of cores
+        num_cores: [1]
+        # use only parallel FD-evaluation
+        vecsize: []
+        vectype: ['par']
+        # C-order only
+        order: ['C']
+        # conp-only
+        conp: ['conp']
     # overrides for the exact jacobian
     exact:
-      # only test vector width of 4
-      vecsize: 4
+      both:
+        # only test vector width of 4
+        vecsize: [4]

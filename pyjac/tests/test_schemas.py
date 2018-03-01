@@ -12,6 +12,7 @@ import six
 import cantera as ct
 from nose.tools import assert_raises
 from tempfile import NamedTemporaryFile
+from pytools.py_codegen import remove_common_indentation
 
 # internal
 from pyjac.libgen.libgen import build_type
@@ -248,6 +249,78 @@ def test_load_tests():
     # checking, hence we just check we get the right number of tests
     tests = load_tests(__get_test_matrix(), 'test_matrix_schema.yaml')
     assert len(tests) == 3
+
+
+def test_override():
+    # test the base override schema
+    with NamedTemporaryFile(mode='w', suffix='.yaml') as file:
+        file.write(remove_common_indentation(
+            """
+            override:
+                num_cores: [1]
+                order: ['F']
+                gpuorder: ['C']
+                conp: ['conp']
+                vecsize: [2, 4]
+                gpuvecsize: [128]
+                vectype: ['wide']
+                models: ['C2H4']
+            """))
+        file.flush()
+        file.seek(0)
+        data = build_and_validate('common_schema.yaml', file.name)['override']
+    assert data['num_cores'] == [1]
+    assert data['order'] == ['F']
+    assert data['gpuorder'] == ['C']
+    assert data['conp'] == ['conp']
+    assert data['vecsize'] == [2, 4]
+    assert data['gpuvecsize'] == [128]
+    assert data['vectype'] == ['wide']
+    assert data['models'] == ['C2H4']
+
+    # now test embedded overrides
+    with NamedTemporaryFile(mode='w', suffix='.yaml') as file:
+        file.write(remove_common_indentation(
+            """
+            model-list:
+              - model:
+                    name: CH4
+                    mech: gri30.cti
+                    path:
+            platform-list:
+              - platform:
+                    lang: c
+                    name: openmp
+                    vectype: ['par']
+            test-list:
+              - test-type: performance
+                # limit to intel
+                platforms: [intel]
+                eval-type: jacobian
+                exact:
+                    both:
+                        num_cores: [1]
+                        order: ['F']
+                        gpuorder: ['C']
+                        conp: ['conp']
+                        vecsize: [2, 4]
+                        gpuvecsize: [128]
+                        vectype: ['wide']
+                        models: ['C2H4']
+            """))
+        file.flush()
+        file.seek(0)
+        import pdb; pdb.set_trace()
+        data = build_and_validate('test_matrix_schema.yaml', file.name,
+                                  update=True)
+    assert data['num_cores'] == [1]
+    assert data['order'] == ['F']
+    assert data['gpuorder'] == ['C']
+    assert data['conp'] == ['conp']
+    assert data['vecsize'] == [2, 4]
+    assert data['gpuvecsize'] == [128]
+    assert data['vectype'] == ['wide']
+    assert data['models'] == ['C2H4']
 
 
 def test_get_test_matrix():
