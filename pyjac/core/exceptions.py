@@ -110,9 +110,9 @@ class UnknownOverrideException(Exception):
 class InvalidOverrideException(Exception):
     def __init__(self, otype, value, allowed):
         self.message = (
-            'Value "{}" for verride type "{}" is not allowed. '
+            'Value "{}" for override type "{}" is not allowed. '
             'Allowed values are: {}'.format(otype, value, stringify_args(allowed)))
-        super(UnknownOverrideException, self).__init__(self.message)
+        super(InvalidOverrideException, self).__init__(self.message)
 
 
 class OverrideCollisionException(Exception):
