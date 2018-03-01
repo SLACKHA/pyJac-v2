@@ -5,20 +5,22 @@ for kernel creation
 
 from __future__ import division
 
-from .. import utils
-
 from string import Template
-import numpy as np
-import loopy as lp
-from loopy.types import to_loopy_type
-import re
-import yaml
-from enum import Enum
 import six
 import logging
-from ..core.array_creator import problem_size as p_size
+import re
+
+import numpy as np
+import loopy as lp
+from enum import Enum
+from loopy.types import to_loopy_type
 #  import resource
 #  align_size = resource.getpagesize()
+
+from pyjac.core.array_creator import problem_size as p_size
+from pyjac import utils
+from pyjac.utils import func_logger
+from pyjac.schemas import build_and_validate, parse_bytestr
 
 try:
     from pyopencl import device_type
@@ -36,6 +38,22 @@ class memory_type(Enum):
 
     def __int__(self):
         return self.value
+
+
+@func_logger
+def load_memory_limits(input_file):
+    """
+    Conviencence method for loading inputs from memory limits file
+    """
+    if input_file:
+        memory_limits = build_and_validate('common_schema.yaml', input_file,
+                                           allow_unknown=True)
+        # note: this is only safe because we've already validated.
+        # hence, NO ERRORS!
+        if 'memory-limits' in memory_limits:
+            return {k: parse_bytestr(object, v) for k, v in six.iteritems(
+                memory_limits['memory-limits'])}
+    return None
 
 
 class memory_limits(object):
@@ -263,27 +281,21 @@ class memory_limits(object):
                     memory_type.m_alloc: loopy_opts.device.max_mem_alloc_size})
             except AttributeError:
                 pass
-        if input_file:
-            with open(input_file, 'r') as file:
-                # load from file
-                lims = yaml.load(file.read())
-                mtype = utils.EnumType(memory_type)
-                user_limits = {}
-                choices = [mt.name.lower()[2:] for mt in memory_type] + ['alloc']
-                for key, value in six.iteritems(lims):
-                    # check in memory type
-                    if not key.lower() in choices:
-                        msg = ', '.join(choices)
-                        msg = '{0}: use one of {1}'.format(memory_type.name, msg)
-                        raise Exception(msg)
-                    key = 'm_' + key
-                    # update with enum
-                    user_limits[mtype(key)] = value
-                # and overwrite default limits w/ user
-                limits.update(user_limits)
+        limits = load_memory_limits(input_file)
+        if limits:
+            # load from file
+            mtype = utils.EnumType(memory_type)
+            user_limits = {}
+            for key, value in six.iteritems(limits):
+                # check in memory type
+                key = 'm_' + key
+                # update with enum
+                user_limits[mtype(key)] = value
+            # and overwrite default limits w/ user
+            limits.update(user_limits)
 
         return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
-                             {k: v for k, v in six.iteritems(limits)},
+                             limits.copy(),
                              string_strides, dtype)
 
 

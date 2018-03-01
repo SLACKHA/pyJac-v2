@@ -1,9 +1,10 @@
 from __future__ import division
 
-from ..core.array_creator import array_splitter
-from ..core.instruction_creator import get_deep_specializer
 import numpy as np
 import loopy as lp
+
+from pyjac.core.array_creator import array_splitter
+from pyjac.core.instruction_creator import get_deep_specializer
 
 
 class dummy_loopy_opts(object):

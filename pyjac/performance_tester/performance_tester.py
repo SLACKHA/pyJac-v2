@@ -17,14 +17,11 @@ from collections import defaultdict
 import logging
 
 # Local imports
-from ..libgen import build_type, generate_library
-from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from ..utils import EnumType
-from ..tests.test_utils import _run_mechanism_tests, runner, platform_is_gpu
-from ..tests import get_platform_file, get_mem_limits_file
-
-import loopy as lp
-lp.set_caching_enabled(False)
+from pyjac.libgen import build_type, generate_library
+from pyjac.loopy_utils import JacobianFormat, JacobianType
+from pyjac.utils import EnumType
+from pyjac.tests.test_utils import _run_mechanism_tests, runner
+from pyjac.tests import get_matrix_file, platform_is_gpu
 
 
 class performance_runner(runner):
@@ -47,7 +44,7 @@ class performance_runner(runner):
         self.repeats = repeats
         self.steplist = steplist
 
-    def pre(self, gas, data, num_conditions, max_vec_width):
+    def pre(self, gas, data, num_conditions, max_vec_size):
         """
         Initializes the performance runner for mechanism
 
@@ -59,20 +56,20 @@ class performance_runner(runner):
             unused
         num_conditions: int
             The number of conditions to test
-        max_vec_width: int
+        max_vec_size: int
             unused
         """
         self.num_conditions = num_conditions
         self.steplist = []
         # initialize steplist
-        step = max_vec_width
-        self.max_vec_width = max_vec_width
+        step = max_vec_size
+        self.max_vec_size = max_vec_size
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
 
     def get_filename(self, state):
-        self.current_vecwidth = state['vecsize']
+        self.current_vecsize = state['vecsize']
         desc = self.descriptor
         if self.rtype == build_type.jacobian:
             desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
@@ -248,16 +245,16 @@ class performance_runner(runner):
 
 
 @nottest
-def species_performance_tester(work_dir='performance', test_platforms=None,
-                               prefix='', mem_limits=''):
+def species_performance_tester(work_dir='performance', test_matrix=None,
+                               prefix=''):
     """Runs performance testing of the species rates kernel for pyJac
 
     Parameters
     ----------
     work_dir : str
         Working directory with mechanisms and for data
-    test_platforms: str
-        The testing platforms file, specifing the configurations to test
+    test_matrix: str
+        The testing matrix file, specifing the configurations to test
     prefix: str
         a prefix within the work directory to store the output of this run
 
@@ -268,32 +265,29 @@ def species_performance_tester(work_dir='performance', test_platforms=None,
     """
 
     raise_on_missing = True
-    if not test_platforms:
+    if not test_matrix:
         # pull default test platforms if available
-        test_platforms = get_platform_file()
+        test_matrix = get_matrix_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
-    if not mem_limits:
-        # pull user specified memory limits if available
-        mem_limits = get_mem_limits_file()
 
-    _run_mechanism_tests(work_dir, test_platforms, prefix,
+    _run_mechanism_tests(work_dir, test_matrix, prefix,
                          performance_runner(build_type.species_rates),
-                         mem_limits=mem_limits,
+                         mem_limits=test_matrix,
                          raise_on_missing=raise_on_missing)
 
 
 @nottest
-def jacobian_performance_tester(work_dir='performance',  test_platforms=None,
-                                prefix='', mem_limits=''):
+def jacobian_performance_tester(work_dir='performance',  test_matrix=None,
+                                prefix=''):
     """Runs performance testing of the jacobian kernel for pyJac
 
     Parameters
     ----------
     work_dir : str
         Working directory with mechanisms and for data
-    test_platforms: str
-        The testing platforms file, specifing the configurations to test
+    test_matrix: str
+        The testing matrix file, specifing the configurations to test
     prefix: str
         a prefix within the work directory to store the output of this run
 
@@ -304,15 +298,13 @@ def jacobian_performance_tester(work_dir='performance',  test_platforms=None,
     """
 
     raise_on_missing = True
-    if not test_platforms:
+    if not test_matrix:
         # pull default test platforms if available
-        test_platforms = get_platform_file()
+        test_matrix = get_matrix_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
-    if not mem_limits:
-        # pull user specified memory limits if available
-        mem_limits = get_mem_limits_file()
 
-    _run_mechanism_tests(work_dir, test_platforms, prefix,
+    _run_mechanism_tests(work_dir, test_matrix, prefix,
                          performance_runner(build_type.jacobian),
+                         mem_limits=test_matrix,
                          raise_on_missing=raise_on_missing)

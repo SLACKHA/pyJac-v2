@@ -14,27 +14,27 @@ import logging
 import re
 import os
 
-# Local imports
-from .. import utils
-from . import mech_interpret as mech
-from . import rate_subs as rate
-from . import mech_auxiliary as aux
-from ..loopy_utils import loopy_utils as lp_utils
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat, \
-    FiniteDifferenceMode
-from . import array_creator as arc
-from ..kernel_utils import kernel_gen as k_gen
-from .reaction_types import reaction_type, falloff_form, thd_body_type
-from . import chem_model as chem
-from . import instruction_creator as ic
-from .array_creator import (global_ind, var_name, default_inds)
-from .rate_subs import assign_rates
-
 # external
 import numpy as np
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
+
+# Local imports
+from pyjac import utils
+from pyjac.core import mech_interpret as mech
+from pyjac.core import rate_subs as rate
+from pyjac.core import mech_auxiliary as aux
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.loopy_utils import JacobianType, JacobianFormat, \
+    FiniteDifferenceMode, load_platform
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core import array_creator as arc
+from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core import chem_model as chem
+from pyjac.core import instruction_creator as ic
+from pyjac.core.array_creator import (global_ind, var_name, default_inds)
+from pyjac.core.rate_subs import assign_rates
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
@@ -4703,7 +4703,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                           var_name=var_name,
                           kernel_data=kernel_data,
                           parameters=parameters,
-                          can_vectorize=loopy_opts.depth is None,
+                          can_vectorize=not bool(loopy_opts.depth),
                           vectorization_specializer=__fixer,
                           extra_inames=extra_inames,
                           manglers=[lp_pregen.fmax(),
@@ -5172,10 +5172,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
     """
 
-    # TODO: fix this
-    # for some reason we're getting missing target exceptions from loopy on
-    # cached atomic dtypes
-    import loopy as lp
+    # todo: fix, for some reason loopy yells about broken atomic dtypes
+    # with no target
     lp.set_caching_enabled(False)
 
     lang = lang.lower()
@@ -5215,6 +5213,33 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         fd_mode = utils.EnumType(lp_utils.FiniteDifferenceMode)(
             fd_mode.lower())
 
+    # load platform if supplied
+    device = None
+    device_type = None
+    if platform:
+        # todo -- add a copy func to loopy options to avoid this ugliness
+        loopy_opts = load_platform(platform)
+        checks = [(loopy_opts.order, data_order, 'order'),
+                  (loopy_opts.width, width, 'width'),
+                  (loopy_opts.depth, depth, 'depth'),
+                  (loopy_opts.lang, lang, 'lang'),
+                  (loopy_opts.use_atomics, use_atomics, 'use_atomics')]
+        bad_checks = [x for x in checks if x[0] != x[1] and x[1] is not None]
+        if bad_checks:
+            raise Exception('Parameters from supplied code-generation platform: '
+                            '{}, do not match command-line arguements.\n'.format(
+                                platform) + '\n'.join('{}:{}!={}'.format(
+                                    x[-1], x[0], x[1]) for x in bad_checks))
+        # and copy over
+        data_order = loopy_opts.order
+        width = loopy_opts.width
+        depth = loopy_opts.depth
+        lang = loopy_opts.lang
+        use_atomics = loopy_opts.use_atomics
+        platform = loopy_opts.platform
+        device = loopy_opts.device
+        device_type = loopy_opts.device_type
+
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
                                         depth=depth,
@@ -5229,7 +5254,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         use_atomics=use_atomics,
                                         jac_format=jac_format,
                                         jac_type=jac_type,
-                                        seperate_kernels=seperate_kernels)
+                                        seperate_kernels=seperate_kernels,
+                                        device=device,
+                                        device_type=device_type)
 
     # create output directory if none exists
     build_path = os.path.abspath(build_path)

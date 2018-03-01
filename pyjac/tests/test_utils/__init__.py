@@ -9,19 +9,21 @@ from multiprocessing import cpu_count
 import subprocess
 import sys
 from functools import wraps
+from nose import SkipTest
 
-from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
-                                        auto_run, RateSpecialization, loopy_options,
-                                        JacobianType, JacobianFormat)
-from ...core.exceptions import MissingPlatformError, BrokenPlatformError
-from ...kernel_utils import kernel_gen as k_gen
-from ...core import array_creator as arc
-from ...core.mech_auxiliary import write_aux
-from .. import get_test_platforms
-from ...pywrap import generate_wrapper
-from ... import utils
-from ...libgen import build_type
-
+from pyjac.loopy_utils.loopy_utils import (
+    get_device_list, kernel_call, populate,
+    auto_run, RateSpecialization, loopy_options,
+    JacobianType, JacobianFormat)
+from pyjac.core.exceptions import MissingPlatformError, BrokenPlatformError
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core import array_creator as arc
+from pyjac.core.mech_auxiliary import write_aux
+from pyjac.pywrap import generate_wrapper
+from pyjac import utils
+from pyjac.libgen import build_type
+from pyjac.tests import platform_is_gpu
+from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix
 except:
@@ -29,7 +31,6 @@ except:
     csc_matrix = None
 
 
-from unittest.case import SkipTest
 from optionloop import OptionLoop
 import numpy as np
 try:
@@ -587,13 +588,42 @@ class get_comparable(object):
         return outv[masking]
 
 
+def reduce_oploop(base, add=None):
+    """
+    Convenience method to turn :param:`base` into an :class:`oploopconcat`
+
+    Parameters
+    ----------
+    base: list of list of tuples
+        Each list inside of base should be convertible to an OrderedDict
+    add: list of tuples [None]
+        If specified, add this list of tuples to each internal :class:`OptionLoop`
+
+    Returns
+    -------
+    concat: :class:`oploopconcat`
+        The concatentated option loops
+    """
+
+    out = None
+    for b in base:
+        if add is not None:
+            b += add
+        val = OptionLoop(OrderedDict(b), lambda: False)
+        if out is None:
+            out = val
+        else:
+            out = out + val
+
+    return out
+
+
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=['c', 'opencl'], do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False):
 
-    platforms = get_test_platforms(owner.store.test_platforms,
-                                   do_vector=do_vector, langs=langs)
+    platforms = load_platforms(owner.store.test_platforms, langs=langs)
     oploop = [('order', ['C', 'F']),
               ('auto_diff', [False])
               ]
@@ -606,6 +636,8 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
             ('rop_net_kernels', [True])]
     if do_conp:
         oploop += [('conp', [True, False])]
+    else:
+        oploop += [('conp', [True])]
     if sparse_only:
         oploop += [('jac_format', [JacobianFormat.sparse])]
     elif do_sparse:
@@ -619,21 +651,14 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
     else:
         oploop += [('jac_type', [JacobianType.exact])]
     oploop += [('knl_type', ['map'])]
-    out = None
-    for p in platforms:
-        val = OptionLoop(OrderedDict(p + oploop))
-        if out is None:
-            out = val
-        else:
-            out = out + val
 
-    return out
+    return reduce_oploop(platforms, oploop)
 
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
                     do_sparse=False, langs=None,
-                    sparse_only=False, **kw_args):
+                    sparse_only=False, **kwargs):
     """
     A generic testing method that can be used for to test the correctness of
     any _pyJac_ kernel via the supplied :class:`kernel_call`'s
@@ -670,8 +695,11 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     """
 
     if langs is None:
-        from .. import get_test_langs
+        from pyjac.tests import get_test_langs
         langs = get_test_langs()
+
+    if 'conp' in kwargs:
+        do_conp = False
 
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
                          langs=langs, do_conp=do_conp, do_sparse=do_sparse,
@@ -711,10 +739,10 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
         try:
-            conp = state['conp']
+            conp = kwargs['conp']
         except:
             try:
-                conp = kw_args['conp']
+                conp = state['conp']
             except:
                 conp = True
         # create namestore
@@ -722,7 +750,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                                   owner.store.test_size)
         # create the kernel info
         infos = func(opt, namestore,
-                     test_size=owner.store.test_size, **kw_args)
+                     test_size=owner.store.test_size, **kwargs)
 
         if not isinstance(infos, list):
             try:
@@ -834,7 +862,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         # check to see if device is CPU
         # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
-        #        and (opts.depth is None or not opts.use_atomics):
+        #        and (not bool(opts.depth) or not opts.use_atomics):
         #    opts.use_private_memory = True
 
         conp = state['conp']
@@ -1068,6 +1096,29 @@ def with_check_inds(check_inds={}, custom_checks={}):
     return check_inds_decorator
 
 
+# xfail based on https://stackoverflow.com/a/9615578/1667311
+def xfail(condition=None, msg=''):
+    """
+        An implementation of an expected fail for Nose w/ an optional condition
+    """
+    def xfail_decorator(test):
+        # check that condition is valid
+        if condition is not None and not condition:
+            return test
+
+        @wraps(test)
+        def inner(*args, **kwargs):
+            try:
+                test(*args, **kwargs)
+            except Exception:
+                raise SkipTest(msg)
+            else:
+                raise AssertionError('Failure expected')
+        return inner
+
+    return xfail_decorator
+
+
 class runner(object):
     """
     A base class for running the :func:`_run_mechanism_tests`
@@ -1136,7 +1187,7 @@ class runner(object):
         pass
 
 
-def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
+def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                          raise_on_missing=True):
     """
     This method is used to consolidate looping for the :mod:`peformance_tester`
@@ -1148,12 +1199,12 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         The directory to run / check in
     run: :class:`runner`
         The code / function to be run for each state of the :class:`OptionLoop`
-    test_platforms: str
-        The testing platforms file, specifing the configurations to test
+    test_matrix: str
+        The testing matrix file, specifing the configurations to test
     prefix: str
         a prefix within the work directory to store the output of this run
     raise_on_missing: bool
-        Raise an exception of the specified :param:`test_platforms` file is not found
+        Raise an exception of the specified :param:`test_matrix` file is not found
 
     Returns
     -------
@@ -1168,15 +1219,15 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
     test_dir = 'test'
 
     # check if validation
-    from ...functional_tester.test import validation_runner
+    from pyjac.functional_tester.test import validation_runner
     for_validation = isinstance(run, validation_runner)
 
     # imports needed only for this tester
-    from . import get_test_matrix as tm
-    from . import data_bin_writer as dbw
-    from ...core.mech_interpret import read_mech_ct
-    from ...core.array_creator import array_splitter
-    from ...core.create_jacobian import find_last_species, create_jacobian
+    from pyjac.tests.test_utils import get_test_matrix as tm
+    from pyjac.tests.test_utils import data_bin_writer as dbw
+    from pyjac.core.mech_interpret import read_mech_ct
+    from pyjac.core.array_creator import array_splitter
+    from pyjac.core.create_jacobian import find_last_species, create_jacobian
     import cantera as ct
 
     work_dir = os.path.abspath(work_dir)
@@ -1408,7 +1459,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
                                     jac_type=jac_type,
                                     for_validation=for_validation,
                                     seperate_kernels=state['seperate_kernels'],
-                                    mem_limits=mem_limits)
+                                    mem_limits=test_matrix)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])
@@ -1438,40 +1489,6 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
     del run
 
 
-def platform_is_gpu(platform):
-    """
-    Attempts to determine if the given platform name corresponds to a GPU
-
-    Parameters
-    ----------
-    platform_name: str or :class:`pyopencl.platform`
-        The name of the platform to check
-
-    Returns
-    -------
-    is_gpu: bool or None
-        True if platform found and the device type is GPU
-        False if platform found and the device type is not GPU
-        None otherwise
-    """
-    # filter out C or other non pyopencl platforms
-    if not platform:
-        return False
-    try:
-        import pyopencl as cl
-        if isinstance(platform, cl.Platform):
-            return platform.get_devices()[0].type == cl.device_type.GPU
-
-        for p in cl.get_platforms():
-            if platform.lower() in p.name.lower():
-                # match, get device type
-                dtype = set(d.type for d in p.get_devices())
-                assert len(dtype) == 1, (
-                    "Mixed device types on platform {}".format(p.name))
-                # fix cores for GPU
-                if cl.device_type.GPU in dtype:
-                    return True
-                return False
-    except ImportError:
-        pass
-    return None
+__all__ = ["indexer", "parse_split_index", "kernel_runner", "inNd",
+           "get_comparable", "combination", "reduce_oploop", "_generic_tester",
+           "_full_kernel_test", "_run_mechanism_tests", "runner"]

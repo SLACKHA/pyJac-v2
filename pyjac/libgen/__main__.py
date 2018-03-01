@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 
-from .libgen import generate_library, build_type
-from .. import utils
+from pyjac.libgen import generate_library, build_type
+from pyjac import utils
 
 if __name__ == '__main__':
     parser = ArgumentParser(

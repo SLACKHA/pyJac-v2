@@ -1,0 +1,6 @@
+# A schema to validate platform specification for pyJac
+
+platform-list:
+    type: list
+    required: True
+    schema: variable-platform

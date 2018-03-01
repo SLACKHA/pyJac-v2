@@ -1,0 +1,43 @@
+# A schema to validate platform specification for pyJac
+
+platform:
+    type: dict
+    schema:
+        # platform name
+        name:
+            type: string
+            required: True
+        # language
+        lang:
+            type: string
+            isvalidlang: True
+            required: True
+        # vectorization type
+        vectype:
+            type: string
+            isvectype: True
+            # default is parallel
+            default: par
+        # order
+        order:
+            type: string
+            nullable: True
+            allowed: ['C', 'F']
+        # vector width
+        vecsize:
+            type: integer
+            isvecsize: True
+            dependencies:
+                # can only be specifed for wide / deep vecs
+                vectype:
+                    - wide
+                    - deep
+        #If True, the platform / language support atomics for deep-vectorization
+        atomics:
+            type: boolean
+            default: True
+
+# optional memory limits
+memory-limits:
+    type: dict
+    schema: memory-limits

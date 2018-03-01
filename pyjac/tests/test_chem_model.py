@@ -1,6 +1,6 @@
-from ..core.reaction_types import falloff_form, reaction_type, reversible_type, \
+from pyjac.core.reaction_types import falloff_form, reaction_type, reversible_type, \
     thd_body_type
-from . import TestClass
+from pyjac.tests import TestClass
 
 
 class SubTest(TestClass):

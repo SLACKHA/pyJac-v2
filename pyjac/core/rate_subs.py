@@ -18,17 +18,17 @@ from collections import OrderedDict
 import loopy as lp
 import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
-from ..loopy_utils import loopy_utils as lp_utils
 
 # Local imports
-from .. import utils
-from . import chem_model as chem
-from ..kernel_utils import kernel_gen as k_gen
-from . reaction_types import reaction_type, falloff_form, thd_body_type
-from . import array_creator as arc
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from . import instruction_creator as ic
-from .array_creator import (global_ind, var_name, default_inds)
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac import utils
+from pyjac.core import chem_model as chem
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core import array_creator as arc
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core import instruction_creator as ic
+from pyjac.core.array_creator import (global_ind, var_name, default_inds)
 
 
 def assign_rates(reacs, specs, rate_spec):
@@ -3147,9 +3147,6 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     knl_data = []
     if test_size == 'problem_size':
         knl_data.append(namestore.problem_size)
-
-    if loopy_opts.width is not None and loopy_opts.depth is not None:
-        raise Exception('Cannot specify both SIMD/SIMT width and depth')
 
     # get correctly ordered arrays / strings
     a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)

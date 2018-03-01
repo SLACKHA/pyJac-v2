@@ -1,18 +1,19 @@
+# system
+import os
+import logging
+
 # modules
 import cantera as ct
 import numpy as np
 import unittest
 import loopy as lp
-import yaml
 from nose.tools import nottest
-
-# system
-import os
+import six
 
 # local imports
-from ..core.mech_interpret import read_mech_ct
-from .. import utils
-import logging
+from pyjac.core.mech_interpret import read_mech_ct
+from pyjac import utils
+from pyjac.schemas import build_and_validate
 
 # various testing globals
 test_size = 8192  # required to be a power of 2 for the moment
@@ -20,9 +21,9 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 build_dir = os.path.join(script_dir, 'out')
 obj_dir = os.path.join(script_dir, 'obj')
 lib_dir = os.path.join(script_dir, 'lib')
-utils.create_dir(build_dir)
 
 
+@nottest
 def _get_test_input(key, default=''):
     try:
         from testconfig import config
@@ -56,14 +57,15 @@ def get_platform_file():
     return _get_test_input('test_platform', 'test_platforms.yaml')
 
 
-def get_mem_limits_file():
+def get_matrix_file():
     """
-    Returns the user specied or empty memory limits file
+    Returns the user specified (or default) test matrix file.
+
     This can be set in :file:`test_setup.py` or via the command line
 
-    For an example of this file format, see :file:`mem_limits_example.yaml`
+    For an example of this file format, see :file:`examples/test_matrix.py`
     """
-    return _get_test_input('mem_limits', '')
+    return _get_test_input('test_platform', 'test_matrix.yaml')
 
 
 def get_mechanism_file():
@@ -82,112 +84,45 @@ def get_test_langs():
     return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
 
 
-@nottest
-def get_test_platforms(test_platforms, do_vector=True, langs=get_test_langs(),
-                       raise_on_missing=False):
+def platform_is_gpu(platform):
+    """
+    Attempts to determine if the given platform name corresponds to a GPU
+
+    Parameters
+    ----------
+    platform_name: str or :class:`pyopencl.platform`
+        The name of the platform to check
+
+    Returns
+    -------
+    is_gpu: bool or None
+        True if platform found and the device type is GPU
+        False if platform found and the device type is not GPU
+        None otherwise
+    """
+    # filter out C or other non pyopencl platforms
+    if not platform:
+        return False
+    if isinstance(platform, six.string_types) and 'nvidia' in platform.lower():
+        return True
     try:
-        oploop = []
-        # try to load user specified platforms
-        with open(test_platforms, 'r') as file:
-            platforms = yaml.load(file.read())
+        import pyopencl as cl
+        if isinstance(platform, cl.Platform):
+            return platform.get_devices()[0].type == cl.device_type.GPU
 
-        # put into oploop form, and make repeatable
-        for platform in sorted(platforms):
-            p = platforms[platform]
-
-            # limit to supplied languages
-            inner_loop = []
-            allowed_langs = langs[:]
-            if 'lang' in p:
-                # pull from platform languages if possible
-                allowed_langs = p['lang'] if p['lang'] in allowed_langs else []
-            else:
-                allowed_langs = []
-
-            if not allowed_langs:
-                # empty
-                continue
-
-            if 'do_not_run' in p and p['do_not_run']:
-                oploop = None
-                return oploop
-
-            # set lang
-            inner_loop.append(('lang', allowed_langs))
-
-            # get vectorization type and size
-            vectype = None if (
-                'vectype' not in p or not do_vector or not
-                utils.can_vectorize_lang[allowed_langs]) \
-                else p['vectype']
-            vecsize = 4 if 'vecsize' not in p else int(p['vecsize'])
-            if vectype is not None:
-                for v in [x.lower() for x in vectype]:
-                    if v == 'wide':
-                        inner_loop.append(('width', [vecsize, None]))
-                    if v == 'deep':
-                        inner_loop.append(('depth', [vecsize, None]))
-
-            # fill in missing vectypes
-            for x in ['width', 'depth']:
-                if next((y for y in inner_loop if y[0] == x), None) is None:
-                    inner_loop.append((x, None))
-
-            # check for atomics
-            if 'atomics' in p:
-                inner_loop.append(('use_atomics', p['atomics']))
-
-            # and store platform
-            inner_loop.append((
-                'platform', None if 'type' not in p else p['type']))
-
-            # finally check for seperate_kernels
-            sep_knl = True
-            if 'seperate_kernels' in p and not p['seperate_kernels']:
-                sep_knl = False
-            inner_loop.append(('seperate_kernels', sep_knl))
-
-            # create option loop and add
-            oploop += [inner_loop]
-    except IOError:
-        if raise_on_missing:
-            raise Exception('Test platforms file {} not found'.format(
-                test_platforms))
-
-    finally:
-        if not oploop and oploop is not None:
-            # file not found, or no appropriate targets for specified languages
-            for lang in langs:
-                inner_loop = []
-                vectypes = [4, None] if do_vector and \
-                    utils.can_vectorize_lang[lang] else [None]
-                inner_loop = [('lang', lang)]
-                if lang == 'opencl':
-                    import pyopencl as cl
-                    inner_loop += [('width', vectypes[:]),
-                                   ('depth', vectypes[:])]
-                    # add all devices
-                    device_types = [cl.device_type.CPU, cl.device_type.GPU,
-                                    cl.device_type.ACCELERATOR]
-                    platforms = cl.get_platforms()
-                    platform_list = []
-                    for p in platforms:
-                        for dev_type in device_types:
-                            devices = p.get_devices(dev_type)
-                            if devices:
-                                plist = [('platform', p.name)]
-                                use_atomics = False
-                                if 'cl_khr_int64_base_atomics' in \
-                                        devices[0].extensions:
-                                    use_atomics = True
-                                plist.append(('use_atomics', use_atomics))
-                                platform_list.append(plist)
-                    for p in platform_list:
-                        # create option loop and add
-                        oploop += [inner_loop + p]
-                else:
-                    oploop += [inner_loop]
-    return oploop
+        for p in cl.get_platforms():
+            if platform.lower() in p.name.lower():
+                # match, get device type
+                dtype = set(d.type for d in p.get_devices())
+                assert len(dtype) == 1, (
+                    "Mixed device types on platform {}".format(p.name))
+                # fix cores for GPU
+                if cl.device_type.GPU in dtype:
+                    return True
+                return False
+    except ImportError:
+        pass
+    return None
 
 
 class storage(object):
@@ -204,6 +139,7 @@ class storage(object):
         self.lib_dir = lib_dir
 
         # clean out build dir
+        utils.create_dir(build_dir)
         for f in os.listdir(build_dir):
             if os.path.isfile(os.path.join(build_dir, f)):
                 os.remove(os.path.join(build_dir, f))
@@ -448,9 +384,19 @@ class TestClass(unittest.TestCase):
             elems, specs, reacs = read_mech_ct(gasname)
             # and finally check for a test platform
             platform = get_platform_file()
-            if platform is None:
+            try:
+                if platform is None:
+                    platform = ''
+                    raise OSError
+                platform = build_and_validate('test_platform_schema.yaml', platform)
+            except (OSError, IOError):
                 logger = logging.getLogger(__name__)
-                logger.warn('Warning: did not find a test platform file, using '
-                            'default OpenCL platforms...')
+                logger.warn('Test platform file {} was not found, reverting '
+                            'to default.'.format(platform))
+                platform = None
             self.store = storage(platform, gas, specs, reacs)
             self.is_setup = True
+
+
+__all__ = ["TestClass", "_get_test_input", "get_platform_file", "get_mechanism_file",
+           "get_test_langs", "platform_is_gpu"]

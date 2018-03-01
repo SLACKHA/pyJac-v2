@@ -1,22 +1,24 @@
 import os
-from ..core.rate_subs import get_specrates_kernel
-from ..core.create_jacobian import get_jacobian_kernel, finite_difference_jacobian
-from . import TestClass
-from ..loopy_utils.loopy_utils import loopy_options
-from ..libgen import generate_library, build_type
-from ..core.mech_auxiliary import write_aux
-from ..core.array_creator import array_splitter
-from ..pywrap.pywrap_gen import generate_wrapper
-from . import test_utils as test_utils
-from optionloop import OptionLoop
 from collections import OrderedDict
 import shutil
 from string import Template
 import sys
 import subprocess
+
+from optionloop import OptionLoop
 import numpy as np
-from .. import utils
 from parameterized import parameterized, param
+
+from pyjac import utils
+from pyjac.core.rate_subs import get_specrates_kernel
+from pyjac.core.create_jacobian import get_jacobian_kernel, \
+    finite_difference_jacobian
+from pyjac.tests import TestClass, test_utils
+from pyjac.loopy_utils.loopy_utils import loopy_options
+from pyjac.libgen import generate_library, build_type
+from pyjac.core.mech_auxiliary import write_aux
+from pyjac.core.array_creator import array_splitter
+from pyjac.pywrap.pywrap_gen import generate_wrapper
 
 
 class SubTest(TestClass):

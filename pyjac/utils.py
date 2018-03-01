@@ -8,13 +8,80 @@ import errno
 import argparse
 import logging.config
 import yaml
+import functools
+import six
 
 __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
            'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
 
-langs = ['c', 'opencl', 'ispc']  # , 'cuda'
+langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
+
+
+def stringify_args(arglist, kwd=False, joiner=', '):
+    if kwd:
+        return joiner.join('{}={}'.format(str(k), str(v))
+                           for k, v in six.iteritems(arglist))
+    else:
+        return joiner.join(str(a) for a in arglist)
+
+
+def func_logger(*args, **kwargs):
+    # This wrapper is to be used to provide a simple function decorator that logs
+    # function exit / entrance, as well as optional logging of arguements, etc.
+
+    cname = kwargs.pop('name', '')
+    log_args = kwargs.pop('log_args', False)
+    allowed_errors = kwargs.pop('allowed_errors', [])
+
+    assert not len(kwargs), 'Unknown keyword args passed to @func_logger: {}'.format(
+        stringify_args(kwargs, True))
+
+    def decorator(func):
+        """
+        A decorator that wraps the passed in function and logs
+        exceptions should one occur
+        """
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            logger = logging.getLogger(__name__)
+            try:
+                name = func.__name__
+                if cname:
+                    name = cname + '::' + name
+                msg = 'Entering function {}'.format(name)
+                if log_args:
+                    msg += ', with arguments: {} and keyword args: {}'.format(
+                        stringify_args(args),
+                        stringify_args(kwargs, True))
+                logger.debug(msg)
+                return func(*args, **kwargs)
+            except Exception as e:
+                # we've explicitly allowed these
+                log = logger.exception
+                if any(isinstance(e, a) for a in allowed_errors):
+                    log = logger.debug
+                    err = 'Allowed error of type {} in '.format(str(e))
+                else:
+                    err = "There was an unhandled exception in "
+                # log the exception
+                err += func.__name__
+                log(err)
+                # re-raise the exception
+                raise e
+            finally:
+                logging.debug('Exiting function {}'.format(name))
+        return wrapper
+    if len(args):
+        assert len(args) == 1, (
+            ('Unknown arguements passed to @func_logger: {}.'
+             ' Was expecting a function and possible keywords.'.format(
+                stringify_args(args))))
+        return decorator(args[0])
+    return decorator
+
 
 file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
 """dict: source code file extensions based on language"""
@@ -88,6 +155,50 @@ class EnumType(object):
     def __repr__(self):
         astr = ', '.join([t.name.lower() for t in self.enums])
         return '{0}({1})'.format(self.enums.__name__, astr)
+
+
+def enum_to_string(enum):
+    """
+    Convenience method that converts an IntEnum/Enum to string
+
+    Parameters
+    ----------
+    enum: Enum
+        The enum to convert
+
+    Returns
+    -------
+    name: str
+        The stringified enum
+    """
+
+    enum = str(enum)
+    return enum[enum.index('.') + 1:]
+
+
+def listify(value):
+    """
+    Convert value to list
+
+    Parameters
+    ----------
+    value: object
+        The value to convert
+
+    Returns
+    -------
+    listified: list
+        If string, return [string]
+        If tuple or other iterable, convert to lsit
+        If not iterable, return [value]
+    """
+    if isinstance(value, six.string_types):
+        return [value]
+
+    try:
+        return [vi for vi in value]
+    except TypeError:
+        return [value]
 
 
 def get_species_mappings(num_specs, last_species):

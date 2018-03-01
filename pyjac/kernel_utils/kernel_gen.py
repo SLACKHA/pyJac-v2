@@ -9,24 +9,25 @@ import re
 from string import Template
 import logging
 from collections import defaultdict
-
 import six
 from six.moves import reduce
+
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
 import pyopencl as cl
 import numpy as np
 import cgen
 
-from . import file_writers as filew
-from .memory_manager import memory_manager, memory_limits, memory_type, guarded_call
-from .. import siteconf as site
-from .. import utils
-from ..loopy_utils import loopy_utils as lp_utils
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..core.array_creator import problem_size as p_size
-from ..core.array_creator import global_ind
-from ..core import array_creator as arc
+from pyjac.kernel_utils import file_writers as filew
+from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
+    memory_type, guarded_call
+from pyjac import siteconf as site
+from pyjac import utils
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core.array_creator import problem_size as p_size
+from pyjac.core.array_creator import global_ind
+from pyjac.core import array_creator as arc
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -39,25 +40,25 @@ class vecwith_fixer(object):
 
     clean : :class:`loopy.LoopyKernel`
         The 'clean' version of the kernel, that will be used for
-        determination of the gridsize / vecwidth
-    vecwidth : int
+        determination of the gridsize / vecsize
+    vecsize : int
         The desired vector width
     """
 
-    def __init__(self, clean, vecwidth):
+    def __init__(self, clean, vecsize):
         self.clean = clean
-        self.vecwidth = vecwidth
+        self.vecsize = vecsize
 
     def __call__(self, insn_ids, ignore_auto=False):
         # fix for variable too small for vectorization
         grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
             insn_ids, ignore_auto=ignore_auto)
-        lsize = lsize if self.vecwidth is None else \
-            self.vecwidth
+        lsize = lsize if not bool(self.vecsize) else \
+            self.vecsize
         return grid_size, (lsize,)
 
 
-def make_kernel_generator(loopy_opts, *args, **kw_args):
+def make_kernel_generator(loopy_opts, *args, **kwargs):
     """
     Factory generator method to return the appropriate
     :class:`kernel_generator` type based on the target language in the
@@ -69,18 +70,18 @@ def make_kernel_generator(loopy_opts, *args, **kw_args):
         The specified user options
     *args : tuple
         The other positional args to pass to the :class:`kernel_generator`
-    **kw_args : dict
+    **kwargs : dict
         The keyword args to pass to the :class:`kernel_generator`
     """
     if loopy_opts.lang == 'c':
         if not loopy_opts.auto_diff:
-            return c_kernel_generator(loopy_opts, *args, **kw_args)
+            return c_kernel_generator(loopy_opts, *args, **kwargs)
         if loopy_opts.auto_diff:
-            return autodiff_kernel_generator(loopy_opts, *args, **kw_args)
+            return autodiff_kernel_generator(loopy_opts, *args, **kwargs)
     if loopy_opts.lang == 'opencl':
-        return opencl_kernel_generator(loopy_opts, *args, **kw_args)
+        return opencl_kernel_generator(loopy_opts, *args, **kwargs)
     if loopy_opts.lang == 'ispc':
-        return ispc_kernel_generator(loopy_opts, *args, **kw_args)
+        return ispc_kernel_generator(loopy_opts, *args, **kwargs)
     raise NotImplementedError()
 
 
@@ -295,7 +296,7 @@ class kernel_generator(object):
         # get vector width
         vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
             else self.loopy_opts.width
-        if vec_width is not None:
+        if bool(vec_width):
             assumpt_list.append('{0} mod {1} = 0'.format(
                 test_size, vec_width))
         return assumpt_list
@@ -1038,9 +1039,9 @@ ${name} : ${type}
 
         # generate the kernel definition
         self.vec_width = self.loopy_opts.depth
-        if self.vec_width is None:
+        if not bool(self.vec_width):
             self.vec_width = self.loopy_opts.width
-        if self.vec_width is None:
+        if not bool(self.vec_width):
             self.vec_width = 0
 
         # keep track of local / global / constant memory allocations
@@ -1668,7 +1669,7 @@ ${defn}
         if vecspec:
             knl = vecspec(knl)
 
-        if vec_width is not None:
+        if bool(vec_width):
             # finally apply the vector width fix above
             ggs = vecwith_fixer(knl.copy(), vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
@@ -1688,9 +1689,9 @@ class c_kernel_generator(kernel_generator):
     A C-kernel generator that handles OpenMP parallelization
     """
 
-    def __init__(self, *args, **kw_args):
+    def __init__(self, *args, **kwargs):
 
-        super(c_kernel_generator, self).__init__(*args, **kw_args)
+        super(c_kernel_generator, self).__init__(*args, **kwargs)
 
         self.extern_defn_template = Template(
             'extern ${type}* ${name}' + utils.line_end[self.lang])
@@ -1811,12 +1812,12 @@ class autodiff_kernel_generator(c_kernel_generator):
     autodifferentiation scheme.  Handles adding jacobian, etc.
     """
 
-    def __init__(self, *args, **kw_args):
+    def __init__(self, *args, **kwargs):
 
         # no matter the 'testing' status, the autodiff always needs the outer loop
         # migrated out
-        kw_args['for_testing'] = False
-        super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
+        kwargs['for_testing'] = False
+        super(autodiff_kernel_generator, self).__init__(*args, **kwargs)
 
         from ..loopy_utils.loopy_utils import AdeptCompiler
         self.compiler = AdeptCompiler()
@@ -1842,8 +1843,8 @@ class autodiff_kernel_generator(c_kernel_generator):
 
 class ispc_kernel_generator(kernel_generator):
 
-    def __init__(self, *args, **kw_args):
-        super(ispc_kernel_generator, self).__init__(*args, **kw_args)
+    def __init__(self, *args, **kwargs):
+        super(ispc_kernel_generator, self).__init__(*args, **kwargs)
 
     # TODO: fill in
 
@@ -1854,8 +1855,8 @@ class opencl_kernel_generator(kernel_generator):
     An opencl specific kernel generator
     """
 
-    def __init__(self, *args, **kw_args):
-        super(opencl_kernel_generator, self).__init__(*args, **kw_args)
+    def __init__(self, *args, **kwargs):
+        super(opencl_kernel_generator, self).__init__(*args, **kwargs)
 
         # opencl specific items
         self.set_knl_arg_array_template = Template(
@@ -2250,7 +2251,7 @@ def _find_indent(template_str, key, value):
     return '\n'.join(result)
 
 
-def subs_at_indent(template_str, **kw_args):
+def subs_at_indent(template_str, **kwargs):
     """
     Substitutes keys of :params:`kwargs` for values in :param:`template_str`
     ensuring that the indentation of the value is the same as that of the key
@@ -2271,4 +2272,4 @@ def subs_at_indent(template_str, **kw_args):
     return Template(template_str).safe_substitute(
         **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
                              value if isinstance(value, str) else str(value))
-            for key, value in six.iteritems(kw_args)})
+            for key, value in six.iteritems(kwargs)})

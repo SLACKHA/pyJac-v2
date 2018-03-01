@@ -1,31 +1,3 @@
-from . import TestClass
-from ..core.rate_subs import (
-    get_concentrations,
-    get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
-    get_rxn_pres_mod, get_reduced_pressure_kernel, get_lind_kernel,
-    get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates,
-    polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
-    get_rev_rates, get_temperature_rate, get_extra_var_rates)
-from ..loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
-                                       kernel_call, set_adept_editor, populate,
-                                       FiniteDifferenceMode)
-from ..core.create_jacobian import (
-    dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
-    total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
-    dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
-    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
-    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE,
-    determine_jac_inds, reset_arrays, get_jacobian_kernel,
-    finite_difference_jacobian)
-from ..core import array_creator as arc
-from ..core.reaction_types import reaction_type, falloff_form
-from ..kernel_utils import kernel_gen as k_gen
-from . import get_test_langs
-from .test_utils import (kernel_runner, get_comparable, _generic_tester,
-                         _full_kernel_test, with_check_inds, inNd)
-from ..libgen import build_type
-from .. import utils
-
 import numpy as np
 import logging
 import six
@@ -35,6 +7,35 @@ import cantera as ct
 from nose.plugins.attrib import attr
 from unittest.case import SkipTest
 from parameterized import parameterized
+
+from pyjac.core.rate_subs import (
+    get_concentrations,
+    get_rop, get_rop_net, get_spec_rates, get_molar_rates, get_thd_body_concs,
+    get_rxn_pres_mod, get_reduced_pressure_kernel, get_lind_kernel,
+    get_sri_kernel, get_troe_kernel, get_simple_arrhenius_rates,
+    polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
+    get_rev_rates, get_temperature_rate, get_extra_var_rates)
+from pyjac.loopy_utils.loopy_utils import (
+    loopy_options, RateSpecialization,
+    kernel_call, set_adept_editor, populate,
+    FiniteDifferenceMode)
+from pyjac.core.create_jacobian import (
+    dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
+    total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
+    dRopidT, dRopi_plog_dT, dRopi_cheb_dT, dTdotdT, dci_thd_dT, dci_lind_dT,
+    dci_troe_dT, dci_sri_dT, dEdotdT, dTdotdE, dEdotdE, dRopidE, dRopi_plog_dE,
+    dRopi_cheb_dE, dci_thd_dE, dci_lind_dE, dci_troe_dE, dci_sri_dE,
+    determine_jac_inds, reset_arrays, get_jacobian_kernel,
+    finite_difference_jacobian)
+from pyjac.core import array_creator as arc
+from pyjac.core.reaction_types import reaction_type, falloff_form
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.tests import get_test_langs, TestClass
+from pyjac.tests.test_utils import (
+    kernel_runner, get_comparable, _generic_tester,
+    _full_kernel_test, with_check_inds, inNd)
+from pyjac.libgen import build_type
+from pyjac import utils
 
 
 class editor(object):
@@ -274,7 +275,7 @@ def _make_array(self, array):
 
 
 def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[],
-                  return_kernel=False, **kw_args):
+                  return_kernel=False, **kwargs):
     """
     Computes an autodifferentiated kernel, exposed to external classes in order
     to share with the :mod:`functional_tester`
@@ -335,7 +336,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     infos = []
     info = func(ad_opts, namestore,
                 test_size=self.store.test_size,
-                **__get_arg_dict(func, **kw_args))
+                **__get_arg_dict(func, **kwargs))
     try:
         infos.extend(info)
     except:
@@ -376,7 +377,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     for f in extra_funcs:
         info = f(ad_opts, namestore,
                  test_size=self.store.test_size,
-                 **__get_arg_dict(f, **kw_args))
+                 **__get_arg_dict(f, **kwargs))
         is_skip = editor.skip_on_missing is not None and \
             f == editor.skip_on_missing
         try:
@@ -406,7 +407,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     for f in extra_funcs + [func]:
         info = f(ad_opts, single_name,
                  test_size=1,
-                 **__get_arg_dict(f, **kw_args))
+                 **__get_arg_dict(f, **kwargs))
         try:
             for i in info:
                 if f == func and have_match and kernel_call.name != i.name:
@@ -480,18 +481,18 @@ class SubTest(TestClass):
     def setUp(self):
         # steal the global function decls
 
-        self._get_jacobian = lambda *args, **kw_args: _get_jacobian(
-            self, *args, **kw_args)
-        self._make_array = lambda *args, **kw_args: _make_array(
-            self, *args, **kw_args)
-        self._get_fd_jacobian = lambda *args, **kw_args: _get_fd_jacobian(
-            self, *args, **kw_args)
+        self._get_jacobian = lambda *args, **kwargs: _get_jacobian(
+            self, *args, **kwargs)
+        self._make_array = lambda *args, **kwargs: _make_array(
+            self, *args, **kwargs)
+        self._get_fd_jacobian = lambda *args, **kwargs: _get_fd_jacobian(
+            self, *args, **kwargs)
 
         super(SubTest, self).setUp()
 
     def _generic_jac_tester(self, func, kernel_calls, do_ratespec=False,
                             do_ropsplit=None, do_conp=False, do_sparse=True,
-                            sparse_only=False, **kw_args):
+                            sparse_only=False, **kwargs):
         """
         A generic testing method that can be used for testing jacobian kernels
 
@@ -518,7 +519,7 @@ class SubTest(TestClass):
         _generic_tester(self, func, kernel_calls, determine_jac_inds,
                         do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
                         do_conp=do_conp, do_sparse=do_sparse,
-                        sparse_only=sparse_only, **kw_args)
+                        sparse_only=sparse_only, **kwargs)
 
     def _make_namestore(self, conp):
         # get number of sri reactions

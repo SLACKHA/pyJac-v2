@@ -1,3 +1,11 @@
+"""
+Contains custom errors / exceptions / error processing
+"""
+
+
+import six
+
+
 class MissingPlatformError(Exception):
     """
     The pyopencl platform requested for testing could not be found
@@ -42,8 +50,75 @@ class BrokenPlatformError(Exception):
 
     def __init__(self, loopy_opts):
         platform = loopy_opts.platform
-        options = 'wide = {}, deep = {}'.format(loopy_opts.width is not None,
-                                                loopy_opts.depth is not None)
+        options = 'wide = {}, deep = {}'.format(bool(loopy_opts.width),
+                                                bool(loopy_opts.depth))
         self.message = ('The platform {} is currently broken for'
                         ' vectorization options {}'.format(platform, options))
         super(BrokenPlatformError, self).__init__(self.message)
+
+
+def validation_error_to_string(error):
+    """
+    Responsible for converting a :class:`cerberus.ValidatonError` to something human
+    readable
+
+    Returns
+    -------
+    error: str
+        The stringified error
+    """
+
+    def __stringify(root):
+        error_list = []
+        for k, v in six.iteritems(root):
+            if isinstance(v, list) and any(isinstance(x, dict) for x in v):
+                error_list.extend(__stringify(x) for x in v)
+            elif isinstance(v, dict):
+                error_list.extend(__stringify(v))
+            else:
+                error_list.append('{}: {}'.format(k, ' | '.join(
+                    vi for vi in v)))
+        return error_list
+
+    message = 'Error validating document:\n'
+    message += '\n'.join(['\t{}'.format(e) for e in __stringify(error)])
+
+    return message
+
+
+class ValidationError(Exception):
+    """
+    Raised if a user-specified platform or test matrix fails to validate against
+    our internal schemas
+    """
+
+    def __init__(self, file, schemaname):
+        self.message = (
+            'File {} failed to validate against schema {}, see '
+            'debug output for more info.'.format(file, schemaname))
+        super(ValidationError, self).__init__(self.message)
+
+
+class OverrideCollisionException(Exception):
+    def __init__(self, override_type, type1, type2):
+        self.message = ('Conflicting overrides of type {} specified'
+                        'for evaluation types {} and {}'.format(
+                            override_type, type1, type1))
+        super(OverrideCollisionException, self).__init__(self.message)
+
+
+class DuplicateTestException(Exception):
+    def __init__(self, rtype, etype, filename):
+        self.message = ('Multiple test types of {} for evaluation type {} '
+                        'detected in test matrix file {}'.format(
+                            rtype, etype, filename))
+        super(DuplicateTestException, self).__init__(self.message)
+
+
+class InvalidTestEnivironmentException(Exception):
+    def __init__(self, ttype, key, file, envvar):
+        self.message = ('Test type {} has overrides for key {} specified in'
+                        'test matrix file {}, however this override cannot be '
+                        'applied, as it would invalidate the test environment '
+                        'key {}'.format(ttype, key, file, envvar))
+        super(InvalidTestEnivironmentException, self).__init__(self.message)

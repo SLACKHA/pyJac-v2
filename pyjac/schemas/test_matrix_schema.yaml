@@ -1,0 +1,111 @@
+# A schema to validate test matrix specification for pyJac
+
+# model specification
+model-list:
+    required: True
+    type: list
+    schema:
+        # mechanism name
+        name:
+            type: string
+            required: True
+        # cantera format mechanism
+        mech:
+            type: string
+            required: True
+            regex: r'\.(cti|xml)$'
+        # optional path to mechanism
+        path:
+            type: string
+        # optional limits on number of initial conditions for various runtypes
+        limits:
+            type: dict
+            schema:
+                # limit on species rate evaluations
+                species_rates:
+                    type: integer
+                    min: 0
+                # limit on jacobian evaluations
+                jacobian:
+                    type: dict
+                    schema:
+                        # sparse jacobian
+                        sparse:
+                            type: integer
+                            min: 0
+                        # dense jacobian
+                        full:
+                            type: integer
+                            min: 0
+
+# allow for optional specification of memory limits
+memory-limits:
+    type: dict
+    schema: memory-limits
+
+# and platform list
+platform-list:
+    type: list
+    schema: variable-platform
+    required: True
+
+test-list:
+    type: list
+    schema:
+        # test type specification
+        test-type:
+            type: string
+            required: True
+            allowed:
+                - validation
+                - performance
+        # evaluation type
+        eval-type:
+            type: string
+            default: both
+            allowed:
+                - jacobian
+                - species_rates
+                - both
+        # # allow overrides of platform defaults
+        species-rates:
+            type: dict
+            dependencies:
+                eval-type:
+                    - species_rates
+                    - both
+            schema: override
+        finite_difference:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        exact:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        sparse:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        full:
+            type: dict
+            dependencies:
+                eval-type:
+                    - jacobian
+                    - both
+            schema: override
+        # specify which platforms to use, defaults to whole list
+        platforms:
+            type: list
+            schema:
+                type: string
+            nullable: True

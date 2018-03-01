@@ -1,23 +1,23 @@
-
 # tests the memory manager's copy abilities
-from parameterized import parameterized, param
-from ..libgen import compiler, file_struct
-from ..libgen.libgen import libgen
-from ..kernel_utils.memory_manager import memory_manager, host_langs
-from . import build_dir, obj_dir, lib_dir, script_dir
-import numpy as np
-import loopy as lp
-from ..core.array_creator import array_splitter
-from .test_utils import clean_dir
-from .. import utils
+import shutil
 import os
 from string import Template
 import subprocess
-from optionloop import OptionLoop
 from collections import OrderedDict
-from ..core.mech_auxiliary import write_aux
-import shutil
+
 import pyopencl as cl
+from parameterized import parameterized, param
+import numpy as np
+import loopy as lp
+from optionloop import OptionLoop
+
+from pyjac.libgen.libgen import compiler, file_struct, libgen
+from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
+from pyjac.tests import build_dir, obj_dir, lib_dir, script_dir
+from pyjac.core.array_creator import array_splitter
+from pyjac.tests.test_utils import clean_dir
+from pyjac import utils
+from pyjac.core.mech_auxiliary import write_aux
 
 
 def __test_cases():

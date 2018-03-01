@@ -1,11 +1,17 @@
 from __future__ import print_function
 
+import logging
+import os
+import stat
+import re
+import six
+from string import Template
+
 # package imports
 from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
-import logging
 try:
     import pyopencl as cl
     import warnings
@@ -13,18 +19,13 @@ except:
     cl = None
     pass
 from pyopencl.tools import clear_first_arg_caches
-from .. import utils
-import os
-import stat
-import re
-import six
 
 # local imports
-from ..utils import check_lang
-from .loopy_edit_script import substitute as codefix
-from ..core.exceptions import (MissingPlatformError, MissingDeviceError,
-                               BrokenPlatformError)
-from string import Template
+from pyjac import utils
+from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
+from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
+                                   BrokenPlatformError)
+from pyjac.schemas import build_and_validate
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                            'loopy_edit_script.py')
@@ -77,6 +78,45 @@ class FiniteDifferenceMode(IntEnum):
     forward = 0,
     central = 1,
     backward = 2
+
+
+def load_platform(codegen):
+    """
+    Loads a code-generation platform from a file, and returns the corresponding
+    :class:`loopy_options`
+
+    Parameters
+    ----------
+    codegen: str
+        The user-specified code-generation platform yaml file
+
+    Returns
+    -------
+    :class:`loopy_options`
+        The loaded platform
+
+    Raises
+    ------
+    :class:`cerberus.ValidationError`: A validation error if the supplied codegen
+        platform doesn't comply with the :doc:`../schemas/codegen_platform.yaml`
+    """
+
+    platform = build_and_validate('codegen_platform.yaml', codegen)['platform']
+    width = platform['vectype'] == 'wide'
+    depth = platform['vectype'] == 'deep'
+    if width:
+        width = platform['vecsize']
+    elif depth:
+        depth = platform['vecsize']
+    # TODO: implement memory limits loading here
+    # optional params get passed as kwargs
+    kwargs = {}
+    if 'order' in platform and platform['order'] is not None:
+        kwargs['order'] = platform['order']
+    if 'atomics' in platform:
+        kwargs['use_atomics'] = platform['atomics']
+    return loopy_options(width=width, depth=depth, lang=platform['lang'],
+                         platform=platform['name'], **kwargs)
 
 
 class loopy_options(object):
@@ -146,18 +186,19 @@ class loopy_options(object):
                  rate_spec_kernels=False, rop_net_kernels=False,
                  platform='', knl_type='map', auto_diff=False, use_atomics=True,
                  use_private_memory=False, jac_type=JacobianType.exact,
-                 jac_format=JacobianFormat.full, seperate_kernels=True):
+                 jac_format=JacobianFormat.full, seperate_kernels=True,
+                 device=None, device_type=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
-            assert width is None and depth is None, (
+            assert not (width or depth), (
                 "Can't use a vectorized form with unvectorizable language,"
                 " {}".format(lang))
-        assert not (self.depth is not None and self.width is not None), (
+        assert not (width and depth), (
             'Cannot use deep and wide vectorizations simulataneously')
         self.ilp = ilp
         self.unr = unr
-        check_lang(lang)
+        utils.check_lang(lang)
         self.lang = lang
         assert order in ['C', 'F'], 'Order {} unrecognized'.format(order)
         self.order = order
@@ -165,8 +206,8 @@ class loopy_options(object):
         self.rate_spec_kernels = rate_spec_kernels
         self.rop_net_kernels = rop_net_kernels
         self.platform = platform
-        self.device_type = None
-        self.device = None
+        self.device_type = device_type
+        self.device = device
         assert knl_type in ['mask', 'map']
         self.knl_type = knl_type
         self.auto_diff = auto_diff
@@ -178,38 +219,41 @@ class loopy_options(object):
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform and cl is not None:
-            self.device_type = cl.device_type.ALL
-            check_name = None
-            if platform.lower() == 'cpu':
-                self.device_type = cl.device_type.CPU
-            elif platform.lower() == 'gpu':
-                self.device_type = cl.device_type.GPU
-            elif platform.lower() == 'accelerator':
-                self.device_type = cl.device_type.ACCELERATOR
-            else:
-                check_name = self.platform
-            self.platform = None
-            platforms = cl.get_platforms()
-            for p in platforms:
-                try:
-                    cl.Context(
-                        dev_type=self.device_type,
-                        properties=[(cl.context_properties.PLATFORM, p)])
-                    if not check_name or check_name.lower() in p.get_info(
-                            cl.platform_info.NAME).lower():
-                        self.platform = p
-                        break
-                except cl.cffi_cl.RuntimeError:
-                    pass
-            if not self.platform:
-                raise MissingPlatformError(platform)
-            # finally a matching device
-            self.device = self.platform.get_devices(
-                device_type=self.device_type)
-            if not self.device:
-                raise MissingDeviceError(self.device_type, self.platform)
-            self.device = self.device[0]
-            self.device_type = self.device.get_info(cl.device_info.TYPE)
+            if not isinstance(self.platform, cl.Platform):
+                self.device_type = cl.device_type.ALL
+                check_name = None
+                if platform.lower() == 'cpu':
+                    self.device_type = cl.device_type.CPU
+                elif platform.lower() == 'gpu':
+                    self.device_type = cl.device_type.GPU
+                elif platform.lower() == 'accelerator':
+                    self.device_type = cl.device_type.ACCELERATOR
+                else:
+                    check_name = self.platform
+                self.platform = None
+                platforms = cl.get_platforms()
+                for p in platforms:
+                    try:
+                        cl.Context(
+                            dev_type=self.device_type,
+                            properties=[(cl.context_properties.PLATFORM, p)])
+                        if not check_name or check_name.lower() in p.get_info(
+                                cl.platform_info.NAME).lower():
+                            self.platform = p
+                            break
+                    except cl.cffi_cl.RuntimeError:
+                        pass
+                if not self.platform:
+                    raise MissingPlatformError(platform)
+            if not isinstance(self.device, cl.Device) and \
+                    self.device_type is not None:
+                # finally a matching device
+                self.device = self.platform.get_devices(
+                    device_type=self.device_type)
+                if not self.device:
+                    raise MissingDeviceError(self.device_type, self.platform)
+                self.device = self.device[0]
+                self.device_type = self.device.get_info(cl.device_info.TYPE)
 
         # check for broken vectorizations
         self.raise_on_broken()
@@ -291,7 +335,6 @@ def get_context(device='0'):
     else:
         ctx = cl.Context(devices=[device])
 
-    lp.set_caching_enabled(False)
     return ctx
 
 
@@ -1167,7 +1210,7 @@ def get_target(lang, device=None, compiler=None):
     The correct loopy target type
     """
 
-    check_lang(lang)
+    utils.check_lang(lang)
 
     # set target
     if lang == 'opencl':

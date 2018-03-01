@@ -10,12 +10,11 @@ import numpy as np
 from optionloop import OptionLoop
 from parameterized import parameterized
 
-from ..core.array_creator import array_splitter, problem_size
-from ..kernel_utils.memory_manager import memory_limits, memory_type, memory_manager
+from pyjac.core.array_creator import array_splitter, problem_size
+from pyjac.kernel_utils.memory_manager import memory_limits, memory_type, memory_manager
 
 
 def loopy_opts(langs=['opencl'],
-               vecwidth=[None, 4],
                width=[4, None],
                depth=[4, None],
                order=['C', 'F']):

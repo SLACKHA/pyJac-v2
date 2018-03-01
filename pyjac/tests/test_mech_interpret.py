@@ -1,6 +1,3 @@
-from . import script_dir
-from ..core.mech_interpret import read_mech, read_mech_ct
-
 import os
 import subprocess
 import tempfile
@@ -9,40 +6,18 @@ import re
 
 from cantera import __version__ as ct_version
 
-# xfail based on https://stackoverflow.com/a/9615578/1667311
-import functools
-import nose
-
-
-def expected_failure(condition=None):
-    """
-        An implementation of an expected fail for Nose w/ an optional condition
-    """
-    def xfail_decorator(test):
-        # check that condition is valid
-        if condition is not None and not condition:
-            return test
-
-        @functools.wraps(test)
-        def inner(*args, **kwargs):
-            try:
-                test(*args, **kwargs)
-            except Exception:
-                raise nose.SkipTest
-            else:
-                raise AssertionError('Failure expected')
-        return inner
-
-    return xfail_decorator
+from pyjac.tests import script_dir
+from pyjac.core.mech_interpret import read_mech, read_mech_ct
+from pyjac.tests.test_utils import xfail
 
 
 ck_file = os.path.join(script_dir, 'test.inp')
 cti_file = os.path.join(script_dir, 'test.cti')
 
 
-# fail until https://github.com/Cantera/cantera/pull/497 is published
-# in 2.4.0
-@expected_failure(ct_version <= '2.3.0')
+@xfail(ct_version <= '2.3.0', msg=(
+       "fail until "
+       "https://github.com/Cantera/cantera/pull/497 is published in 2.4.0"))
 def test_ck_is_cti():
     """ tests that the test.inp mechanism corresponds to the test.cti mechanism"""
     with open(cti_file, 'r') as file:

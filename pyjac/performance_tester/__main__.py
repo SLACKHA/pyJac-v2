@@ -1,11 +1,15 @@
 import sys
-from .performance_tester import species_performance_tester, \
-    jacobian_performance_tester
 from argparse import ArgumentParser
-from .. import utils
+
+import loopy as lp
+
+from pyjac.performance_tester import species_performance_tester, \
+    jacobian_performance_tester
+from pyjac import utils
 
 
 def main(args=None):
+    lp.set_caching_enabled(False)
     utils.setup_logging()
     if args is None:
         # command line arguments
@@ -16,24 +20,13 @@ def main(args=None):
                             default='performance',
                             help='Directory storing the mechanisms / data.'
                             )
-        parser.add_argument('-t', '--test_platforms',
+        parser.add_argument('-t', '--test_matrix',
                             type=str,
-                            help='The platforms to test, for an example see'
-                                 'the test_platforms_example.yaml included with'
+                            help='The platforms / tests to run, as well as '
+                                 'possible memory limits. For an example see'
+                                 'the pyjac/examples/test_matrix.yaml included with'
                                  'pyJac'
                             )
-        parser.add_argument('-m', '--memory_limits',
-                            required=False,
-                            type=str,
-                            default='',
-                            help='Path to a .yaml file indicating desired memory '
-                                 'limits that control the desired maximum amount of '
-                                 'global / local / or constant memory that the '
-                                 'generated pyjac code may allocate.  Useful for '
-                                 'testing, or otherwise limiting memory usage '
-                                 'during runtime. The keys of this file are the '
-                                 'members of :class:`pyjac.kernel_utils.'
-                                 'memory_manager.mem_type`')
         parser.add_argument('-r', '--runtype',
                             choices=['jac', 'spec', 'both'],
                             default='both',
@@ -56,8 +49,7 @@ def main(args=None):
             methods = [species_performance_tester, jacobian_performance_tester]
 
         for m in methods:
-            m(args.working_directory, args.test_platforms, args.prefix,
-              args.memory_limits)
+            m(args.working_directory, args.test_matrix, args.prefix)
 
 
 if __name__ == '__main__':

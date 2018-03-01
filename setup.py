@@ -96,6 +96,7 @@ setup(
         'six',
         'pyyaml',
         'cgen',
+        'cerberus',
         'enum34;python_version<"3.4"'],
 
     tests_require=[
@@ -104,7 +105,6 @@ setup(
           'nose-exclude',
           'nose-testconfig',
           'Cython',
-          'PyYAML',
           'parameterized',
           'optionloop >= 1.0.7',
           'cantera >= 2.3.0',
