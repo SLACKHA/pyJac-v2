@@ -208,9 +208,9 @@ def test_duplicate_tests_fails():
             lang: c
             vectype: [par]
         test-list:
-          - type: performance
+          - test-type: performance
             eval-type: jacobian
-          - type: performance
+          - test-type: performance
             eval-type: both
         """)
         file.seek(0)
@@ -230,18 +230,45 @@ def test_duplicate_tests_fails():
             lang: c
             vectype: [par]
         test-list:
-          - type: performance
+          - test-type: performance
             eval-type: jacobian
-            sparse:
-                num_cores: [1]
-            finite_difference:
-                num_cores: [1]
+            exact:
+                sparse:
+                    num_cores: [1]
+                full:
+                    num_cores: [1]
+        """)
+        file.seek(0)
+
+        tests = build_and_validate('test_matrix_schema.yaml', file.name)
+        load_tests(tests, file.name)
+
+
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: openmp
+            lang: c
+            vectype: [par]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            exact:
+                both:
+                    num_cores: [1]
+                full:
+                    num_cores: [1]
         """)
         file.seek(0)
 
         with assert_raises(OverrideCollisionException):
             tests = build_and_validate('test_matrix_schema.yaml', file.name)
             load_tests(tests, file.name)
+
 
 
 def test_load_tests():
@@ -283,15 +310,13 @@ def test_override():
         file.write(remove_common_indentation(
             """
             model-list:
-              - model:
-                    name: CH4
-                    mech: gri30.cti
-                    path:
+              - name: CH4
+                mech: gri30.cti
+                path:
             platform-list:
-              - platform:
-                    lang: c
-                    name: openmp
-                    vectype: ['par']
+              - lang: c
+                name: openmp
+                vectype: ['par']
             test-list:
               - test-type: performance
                 # limit to intel
@@ -310,9 +335,10 @@ def test_override():
             """))
         file.flush()
         file.seek(0)
-        import pdb; pdb.set_trace()
         data = build_and_validate('test_matrix_schema.yaml', file.name,
                                   update=True)
+
+    data = data['test-list'][0]['exact']['both']
     assert data['num_cores'] == [1]
     assert data['order'] == ['F']
     assert data['gpuorder'] == ['C']

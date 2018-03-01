@@ -14,7 +14,8 @@ from pyjac.utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
 from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
-    DuplicateTestException, InvalidTestEnivironmentException
+    DuplicateTestException, InvalidTestEnivironmentException, \
+    UnknownOverrideException
 
 model_key = r'model-list'
 platform_list_key = r'platform-list'
@@ -210,15 +211,20 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     return oploop
 
 
-# todo -- pull these directly from override schema
-allowed_override_keys = [enum_to_string(JacobianType.exact),
-                         enum_to_string(JacobianType.finite_difference),
-                         enum_to_string(JacobianFormat.sparse),
-                         enum_to_string(JacobianFormat.full),
-                         enum_to_string(build_type.species_rates)]
-# and add handlers here
+# todo -- feed these directly into override schema
 allowed_overrides = ['num_cores', 'gpuorder', 'order', 'conp', 'vecsize', 'vectype',
                      'gpuvecsize']
+jacobian_sub_override_keys = {enum_to_string(JacobianFormat.sparse):
+                              allowed_overrides,
+                              enum_to_string(JacobianFormat.full):
+                              allowed_overrides,
+                              }
+jacobian_sub_override_keys['both'] = jacobian_sub_override_keys.copy()
+allowed_override_keys = {
+    enum_to_string(JacobianType.exact): jacobian_sub_override_keys,
+    enum_to_string(JacobianType.finite_difference): jacobian_sub_override_keys,
+    enum_to_string(build_type.species_rates): allowed_overrides}
+# and add handlers here
 
 
 @nottest
@@ -243,44 +249,71 @@ def load_tests(matrix, filename):
     def __getenumtype(ttype):
         from argparse import ArgumentTypeError
         try:
-            EnumType(JacobianFormat)(ttype)
-            return JacobianFormat
-        except ArgumentTypeError:
+            EnumType(JacobianType)(ttype)
             return JacobianType
+        except ArgumentTypeError:
+            try:
+                EnumType(build_type)(ttype)
+                return build_type
+            except:
+                EnumType(JacobianFormat)(ttype)
+                return JacobianFormat
 
     from collections import defaultdict
     for test in tests:
         # first check that the
-        descriptors = [test['type'] + ' - ' + test['eval-type']]
+        descriptors = [test['test-type'] + ' - ' + test['eval-type']]
         if test['eval-type'] == 'both':
-            descriptors = [test['type'] + ' - ' + enum_to_string(
+            descriptors = [test['test-type'] + ' - ' + enum_to_string(
                                 build_type.jacobian),
-                           test['type'] + ' - ' + enum_to_string(
+                           test['test-type'] + ' - ' + enum_to_string(
                                 build_type.species_rates)]
         if set(descriptors) & dupes:
-            raise DuplicateTestException(test['type'], test['eval-type'], filename)
+            raise DuplicateTestException(test['test-type'], test['eval-type'],
+                                         filename)
+
+        dupes.update(descriptors)
+
+        # now go through overrides
+        def roverride_check(root, keydict, dupes, path=''):
+            def __basecheck(k, o, d):
+                if isinstance(k[o], list):
+                    # the next level down is the base, hence add a list
+                    if o not in d:
+                        d[o] = []
+            if path:
+                path += '.'
+            # find the keys in the root
+            for override in [k for k in keydict if k in root]:
+                # if the override is a 'both' type, apply to all subvalues
+                if override == 'both':
+                    for val in keydict[override]:
+                        __basecheck(keydict[override], val, dupes)
+                        roverride_check(
+                            root[override], keydict[override][val],
+                            dupes[val], path + val)
+
+                # test if we've reached the base of the tree
+                if isinstance(keydict, list):
+                    # we've reached the base
+                    if override not in keydict:
+                        # this should be handled by validation, but just double check
+                        raise UnknownOverrideException(override, path)
+                    if override in dupes:
+                        # check for collision
+                        raise OverrideCollisionException(override, path)
+                    # finally, just add the override
+                    dupes.append(override)
+                else:
+                    __basecheck(keydict, override, dupes)
+
+                    # we're still on a leaf
+                    roverride_check(root[override], keydict[override],
+                                    dupes[override], path + override)
 
         # overrides only need to be checked within a test
-        overridedupes = defaultdict(lambda: [])
-        dupes.update(descriptors)
-        # now go through overrides
-        for desc in descriptors:
-            # loop through the allowed override keys
-            for override_key in [x for x in allowed_override_keys if x in test]:
-                # convert to enum
-                override_type = __getenumtype(override_key)
-                # next loop over the actual overides (
-                # i.e., :attr:`allowed_overrides`)
-                for override in test[override_key]:
-                    # check for collisions
-                    bad = next((ct for ct in overridedupes[override]
-                                if __getenumtype(ct) != override_type),
-                               None)
-                    if bad is not None:
-                        raise OverrideCollisionException(
-                            override_key, bad, override_key)
-                    # nad mark duplicate
-                    overridedupes[override].append(override_key)
+        nesteddict = lambda: defaultdict(nesteddict)  # noqa
+        roverride_check(test, allowed_override_keys, nesteddict())
 
     return tests
 
@@ -369,7 +402,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     tests = load_tests(test_matrix, matrix_name)
     # filter those that match the test type
     valid_str = 'validation' if for_validation else 'performance'
-    tests = [test for test in tests if test['type'] == valid_str]
+    tests = [test for test in tests if test['test-type'] == valid_str]
     tests = [test for test in tests if test['eval-type'] == enum_to_string(
         test_type) or test['eval-type'] == 'both']
     # and dictify
@@ -410,10 +443,10 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             if len(plats) < len(platforms):
                 logger.info('Platforms ({}) filtered out for test type: {}'.format(
                     ', '.join([p['platform'] for p in platforms if p not in plats]),
-                    ' - '.join([test['type'], test['eval-type']])))
+                    ' - '.join([test['test-type'], test['eval-type']])))
         if not len(plats):
             logger.warn('No platforms found for test {}, skipping...'.format(
-                ' - '.join([test['type'], test['eval-type']])))
+                ' - '.join([test['test-type'], test['eval-type']])))
             continue
 
         for plookup in plats:
