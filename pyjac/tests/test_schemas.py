@@ -243,7 +243,6 @@ def test_duplicate_tests_fails():
         tests = build_and_validate('test_matrix_schema.yaml', file.name)
         load_tests(tests, file.name)
 
-
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write("""
         model-list:
@@ -469,14 +468,15 @@ def test_get_test_matrix():
             vectype: [wide]
             vecsize: [4]
         test-list:
-          - type: performance
+          - test-type: performance
             eval-type: jacobian
-            sparse:
-                gpuvecsize: [64]
-                order: ['F']
-            full:
-                vecsize: [2]
-                gpuorder: ['C']
+            exact:
+                sparse:
+                    gpuvecsize: [64]
+                    order: ['F']
+                full:
+                    vecsize: [2]
+                    gpuorder: ['C']
         """)
         file.flush()
 
@@ -488,18 +488,19 @@ def test_get_test_matrix():
     from pyjac.tests import platform_is_gpu
 
     def sparsetest(state, want, seen):
-        if state['sparse'] == enum_to_string(JacobianFormat.sparse):
-            if platform_is_gpu(state['platform']):
-                assert state['vecsize'] == 64
+        if state['jac_type'] == enum_to_string(JacobianType.exact):
+            if state['sparse'] == enum_to_string(JacobianFormat.sparse):
+                if platform_is_gpu(state['platform']):
+                    assert state['vecsize'] == 64
+                else:
+                    assert state['vecsize'] == 4
+                    assert state['order'] == 'F'
             else:
-                assert state['vecsize'] == 4
-                assert state['order'] == 'F'
-        else:
-            if platform_is_gpu(state['platform']):
-                assert state['order'] == 'C'
-                assert state['vecsize'] == 128
-            else:
-                assert state['vecsize'] == 2
+                if platform_is_gpu(state['platform']):
+                    assert state['order'] == 'C'
+                    assert state['vecsize'] == 128
+                else:
+                    assert state['vecsize'] == 2
 
     want = {'sparse': sparsetest}
     run(want, loop)

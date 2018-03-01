@@ -344,6 +344,38 @@ def num_cores_default():
     return default_num_cores, can_override_cores
 
 
+def get_overrides(test, eval_type, jac_type, sparse_type):
+    """
+    Convenience method to extract overrides from the given test
+
+    Parameters
+    ----------
+    test: dict
+        The test with specified overrides
+    eval_type: str
+        The stringified :class:`build_type`
+    jac_type: str
+        The stringified :class:`JacobianType`
+    sparse_type: str
+        The stringified :class:`JacobianFormat`
+    """
+
+    if eval_type == enum_to_string(build_type.species_rates) and eval_type in test:
+        return test[eval_type].copy()
+    else:
+        # first check for the base type
+        overrides = {}
+        if jac_type in test:
+            if sparse_type in test[jac_type]:
+                overrides.update(test[jac_type][sparse_type])
+            # next check for "both"
+            if 'both' in test[jac_type]:
+                # note: these are guarenteed not to collide, as they've been
+                # previously checked
+                overrides.update(test[jac_type]['both'])
+        return overrides.copy()
+
+
 @nottest
 def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     raise_on_missing=True, langs=get_test_langs()):
@@ -490,16 +522,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 del lookup['depth']
 
             apply_vectypes(plookup, widths)
-            # now figure out which overrides apply
-            overrides = [x for x in allowed_override_keys if x in test]
-            if test_type == build_type.jacobian:
-                # exclude species rate
-                overrides = [x for x in overrides if x != enum_to_string(
-                    build_type.species_rates)]
-            else:
-                # exclude Jacobian types
-                overrides = [x for x in overrides if x == enum_to_string(
-                    build_type.species_rates)]
 
             # default is both conp / conv
             conp = [True, False]
@@ -532,8 +554,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 iconp = conp[:]
                 ivecsizes = widths[:] if widths is not None else [None]
                 # load overides
-                current_overrides = [x for x in [ttype, jtype, stype]
-                                     if x in overrides]
+                overrides = get_overrides(test, ttype, jtype, stype)
 
                 # check that we can apply
                 if 'num_cores' in overrides and not can_override_cores:
@@ -544,47 +565,46 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     logger.info(
                         'Discarding unused "num_cores" override for GPU'
                         'platform {}'.format(plookup['name']))
-                    current_overrides.remove('num_cores')
+                    del overrides['num_cores']
 
                 # 'num_cores', 'order', 'conp', 'vecsize', 'vectype'
                 # now apply overrides
                 outplat = plookup.copy()
-                for current in current_overrides:
+                for current in overrides:
                     ivectypes_override = None
-                    for override in [x for x in allowed_overrides if x in
-                                     test[current]]:
+                    for override in overrides:
                         if override == 'num_cores':
                             override_log('num_cores', icores,
-                                         test[current][override])
-                            icores = test[current][override]
+                                         overrides[override])
+                            icores = overrides[override]
                         elif override == 'order' and not is_gpu:
                             override_log('order', iorder,
-                                         test[current][override])
-                            iorder = test[current][override]
+                                         overrides[override])
+                            iorder = overrides[override]
                         elif override == 'gpuorder' and is_gpu:
                             override_log('order', iorder,
-                                         test[current][override])
-                            iorder = test[current][override]
+                                         overrides[override])
+                            iorder = overrides[override]
                         elif override == 'conp':
                             iconp_save = iconp[:]
                             iconp = []
-                            if 'conp' in test[current][override]:
+                            if 'conp' in overrides[override]:
                                 iconp.append(True)
-                            if 'conv' in test[current][override]:
+                            if 'conv' in overrides[override]:
                                 iconp.append(False)
                             override_log('conp', iconp_save,
                                          iconp)
                         elif override == 'vecsize' and not is_gpu:
                             override_log('vecsize', ivecsizes,
-                                         test[current][override])
-                            outplat['vecsize'] = listify(test[current][override])
+                                         overrides[override])
+                            outplat['vecsize'] = listify(overrides[override])
                         elif override == 'gpuvecsize' and is_gpu:
                             override_log('gpuvecsize', ivecsizes,
-                                         test[current][override])
-                            outplat['vecsize'] = listify(test[current][override])
+                                         overrides[override])
+                            outplat['vecsize'] = listify(overrides[override])
                         elif override == 'vectype':
                             # we have to do this at the end
-                            ivectypes_override = test[current][override]
+                            ivectypes_override = overrides[override]
 
                     if ivectypes_override is not None:
                         c = clean.copy()
