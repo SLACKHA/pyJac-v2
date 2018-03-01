@@ -1407,6 +1407,10 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
             sparse = state['sparse']
             jac_type = state['jac_type']
 
+            if 'models' in state not mech_name in state['models']:
+                # we've decided to skip this model for this configuration
+                continue
+
             if platform in bad_platforms:
                 continue
             if not (deep or wide) and done_parallel[par_check]:
