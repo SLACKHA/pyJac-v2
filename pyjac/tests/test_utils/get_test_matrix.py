@@ -564,8 +564,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 elif 'num_cores' in overrides and is_gpu:
                     logger = logging.getLogger(__name__)
                     logger.info(
-                        'Discarding unused "num_cores" override for GPU'
-                        'platform {}'.format(plookup['name']))
+                        'Discarding unused "num_cores" override for GPU '
+                        'platform {}'.format(plookup['platform']))
                     del overrides['num_cores']
 
                 # 'num_cores', 'order', 'conp', 'vecsize', 'vectype'
