@@ -14,7 +14,8 @@ from pyjac.utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
 from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
-    DuplicateTestException, InvalidTestEnivironmentException
+    DuplicateTestException, InvalidTestEnivironmentException, \
+    UnknownOverrideException, InvalidOverrideException
 
 model_key = r'model-list'
 platform_list_key = r'platform-list'
@@ -74,6 +75,8 @@ def load_models(work_dir, matrix):
         # if we have limits
         if 'limits' in model:
             mechanism_list[name]['limits'] = model['limits'].copy()
+        else:
+            mechanism_list[name]['limits'] = {}
 
     return mechanism_list
 
@@ -208,15 +211,20 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
     return oploop
 
 
-# todo -- pull these directly from override schema
-allowed_override_keys = [enum_to_string(JacobianType.exact),
-                         enum_to_string(JacobianType.finite_difference),
-                         enum_to_string(JacobianFormat.sparse),
-                         enum_to_string(JacobianFormat.full),
-                         enum_to_string(build_type.species_rates)]
-# and add handlers here
+# todo -- feed these directly into override schema
 allowed_overrides = ['num_cores', 'gpuorder', 'order', 'conp', 'vecsize', 'vectype',
-                     'gpuvecsize']
+                     'gpuvecsize', 'models']
+jacobian_sub_override_keys = {enum_to_string(JacobianFormat.sparse):
+                              allowed_overrides,
+                              enum_to_string(JacobianFormat.full):
+                              allowed_overrides,
+                              }
+jacobian_sub_override_keys['both'] = jacobian_sub_override_keys.copy()
+allowed_override_keys = {
+    enum_to_string(JacobianType.exact): jacobian_sub_override_keys,
+    enum_to_string(JacobianType.finite_difference): jacobian_sub_override_keys,
+    enum_to_string(build_type.species_rates): allowed_overrides}
+# and add handlers here
 
 
 @nottest
@@ -241,44 +249,71 @@ def load_tests(matrix, filename):
     def __getenumtype(ttype):
         from argparse import ArgumentTypeError
         try:
-            EnumType(JacobianFormat)(ttype)
-            return JacobianFormat
-        except ArgumentTypeError:
+            EnumType(JacobianType)(ttype)
             return JacobianType
+        except ArgumentTypeError:
+            try:
+                EnumType(build_type)(ttype)
+                return build_type
+            except:
+                EnumType(JacobianFormat)(ttype)
+                return JacobianFormat
 
     from collections import defaultdict
     for test in tests:
         # first check that the
-        descriptors = [test['type'] + ' - ' + test['eval-type']]
+        descriptors = [test['test-type'] + ' - ' + test['eval-type']]
         if test['eval-type'] == 'both':
-            descriptors = [test['type'] + ' - ' + enum_to_string(
+            descriptors = [test['test-type'] + ' - ' + enum_to_string(
                                 build_type.jacobian),
-                           test['type'] + ' - ' + enum_to_string(
+                           test['test-type'] + ' - ' + enum_to_string(
                                 build_type.species_rates)]
         if set(descriptors) & dupes:
-            raise DuplicateTestException(test['type'], test['eval-type'], filename)
+            raise DuplicateTestException(test['test-type'], test['eval-type'],
+                                         filename)
+
+        dupes.update(descriptors)
+
+        # now go through overrides
+        def roverride_check(root, keydict, dupes, path=''):
+            def __basecheck(k, o, d):
+                if isinstance(k[o], list):
+                    # the next level down is the base, hence add a list
+                    if o not in d:
+                        d[o] = []
+            if path:
+                path += '.'
+            # find the keys in the root
+            for override in [k for k in keydict if k in root]:
+                # if the override is a 'both' type, apply to all subvalues
+                if override == 'both':
+                    for val in keydict[override]:
+                        __basecheck(keydict[override], val, dupes)
+                        roverride_check(
+                            root[override], keydict[override][val],
+                            dupes[val], path + val)
+
+                # test if we've reached the base of the tree
+                if isinstance(keydict, list):
+                    # we've reached the base
+                    if override not in keydict:
+                        # this should be handled by validation, but just double check
+                        raise UnknownOverrideException(override, path)
+                    if override in dupes:
+                        # check for collision
+                        raise OverrideCollisionException(override, path)
+                    # finally, just add the override
+                    dupes.append(override)
+                else:
+                    __basecheck(keydict, override, dupes)
+
+                    # we're still on a leaf
+                    roverride_check(root[override], keydict[override],
+                                    dupes[override], path + override)
 
         # overrides only need to be checked within a test
-        overridedupes = defaultdict(lambda: [])
-        dupes.update(descriptors)
-        # now go through overrides
-        for desc in descriptors:
-            # loop through the allowed override keys
-            for override_key in [x for x in allowed_override_keys if x in test]:
-                # convert to enum
-                override_type = __getenumtype(override_key)
-                # next loop over the actual overides (
-                # i.e., :attr:`allowed_overrides`)
-                for override in test[override_key]:
-                    # check for collisions
-                    bad = next((ct for ct in overridedupes[override]
-                                if __getenumtype(ct) != override_type),
-                               None)
-                    if bad is not None:
-                        raise OverrideCollisionException(
-                            override_key, bad, override_key)
-                    # nad mark duplicate
-                    overridedupes[override].append(override_key)
+        nesteddict = lambda: defaultdict(nesteddict)  # noqa
+        roverride_check(test, allowed_override_keys, nesteddict())
 
     return tests
 
@@ -307,6 +342,38 @@ def num_cores_default():
             default_num_cores.append(nc)
             nc *= 2
     return default_num_cores, can_override_cores
+
+
+def get_overrides(test, eval_type, jac_type, sparse_type):
+    """
+    Convenience method to extract overrides from the given test
+
+    Parameters
+    ----------
+    test: dict
+        The test with specified overrides
+    eval_type: str
+        The stringified :class:`build_type`
+    jac_type: str
+        The stringified :class:`JacobianType`
+    sparse_type: str
+        The stringified :class:`JacobianFormat`
+    """
+
+    if eval_type == enum_to_string(build_type.species_rates) and eval_type in test:
+        return test[eval_type].copy()
+    else:
+        # first check for the base type
+        overrides = {}
+        if jac_type in test:
+            if sparse_type in test[jac_type]:
+                overrides.update(test[jac_type][sparse_type])
+            # next check for "both"
+            if 'both' in test[jac_type]:
+                # note: these are guarenteed not to collide, as they've been
+                # previously checked
+                overrides.update(test[jac_type]['both'])
+        return overrides.copy()
 
 
 @nottest
@@ -367,7 +434,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     tests = load_tests(test_matrix, matrix_name)
     # filter those that match the test type
     valid_str = 'validation' if for_validation else 'performance'
-    tests = [test for test in tests if test['type'] == valid_str]
+    tests = [test for test in tests if test['test-type'] == valid_str]
     tests = [test for test in tests if test['eval-type'] == enum_to_string(
         test_type) or test['eval-type'] == 'both']
     # and dictify
@@ -408,10 +475,10 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             if len(plats) < len(platforms):
                 logger.info('Platforms ({}) filtered out for test type: {}'.format(
                     ', '.join([p['platform'] for p in platforms if p not in plats]),
-                    ' - '.join([test['type'], test['eval-type']])))
+                    ' - '.join([test['test-type'], test['eval-type']])))
         if not len(plats):
             logger.warn('No platforms found for test {}, skipping...'.format(
-                ' - '.join([test['type'], test['eval-type']])))
+                ' - '.join([test['test-type'], test['eval-type']])))
             continue
 
         for plookup in plats:
@@ -455,16 +522,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 del lookup['depth']
 
             apply_vectypes(plookup, widths)
-            # now figure out which overrides apply
-            overrides = [x for x in allowed_override_keys if x in test]
-            if test_type == build_type.jacobian:
-                # exclude species rate
-                overrides = [x for x in overrides if x != enum_to_string(
-                    build_type.species_rates)]
-            else:
-                # exclude Jacobian types
-                overrides = [x for x in overrides if x == enum_to_string(
-                    build_type.species_rates)]
 
             # default is both conp / conv
             conp = [True, False]
@@ -496,9 +553,9 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 iorder = order[:]
                 iconp = conp[:]
                 ivecsizes = widths[:] if widths is not None else [None]
+                imodels = tuple(models.keys())
                 # load overides
-                current_overrides = [x for x in [ttype, jtype, stype]
-                                     if x in overrides]
+                overrides = get_overrides(test, ttype, jtype, stype)
 
                 # check that we can apply
                 if 'num_cores' in overrides and not can_override_cores:
@@ -507,49 +564,58 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 elif 'num_cores' in overrides and is_gpu:
                     logger = logging.getLogger(__name__)
                     logger.info(
-                        'Discarding unused "num_cores" override for GPU'
-                        'platform {}'.format(plookup['name']))
-                    current_overrides.remove('num_cores')
+                        'Discarding unused "num_cores" override for GPU '
+                        'platform {}'.format(plookup['platform']))
+                    del overrides['num_cores']
 
                 # 'num_cores', 'order', 'conp', 'vecsize', 'vectype'
                 # now apply overrides
                 outplat = plookup.copy()
-                for current in current_overrides:
+                for current in overrides:
                     ivectypes_override = None
-                    for override in [x for x in allowed_overrides if x in
-                                     test[current]]:
+                    for override in overrides:
                         if override == 'num_cores':
                             override_log('num_cores', icores,
-                                         test[current][override])
-                            icores = test[current][override]
+                                         overrides[override])
+                            icores = overrides[override]
                         elif override == 'order' and not is_gpu:
                             override_log('order', iorder,
-                                         test[current][override])
-                            iorder = test[current][override]
+                                         overrides[override])
+                            iorder = overrides[override]
                         elif override == 'gpuorder' and is_gpu:
                             override_log('order', iorder,
-                                         test[current][override])
-                            iorder = test[current][override]
+                                         overrides[override])
+                            iorder = overrides[override]
                         elif override == 'conp':
                             iconp_save = iconp[:]
                             iconp = []
-                            if 'conp' in test[current][override]:
+                            if 'conp' in overrides[override]:
                                 iconp.append(True)
-                            if 'conv' in test[current][override]:
+                            if 'conv' in overrides[override]:
                                 iconp.append(False)
                             override_log('conp', iconp_save,
                                          iconp)
                         elif override == 'vecsize' and not is_gpu:
                             override_log('vecsize', ivecsizes,
-                                         test[current][override])
-                            outplat['vecsize'] = listify(test[current][override])
+                                         overrides[override])
+                            outplat['vecsize'] = listify(overrides[override])
                         elif override == 'gpuvecsize' and is_gpu:
                             override_log('gpuvecsize', ivecsizes,
-                                         test[current][override])
-                            outplat['vecsize'] = listify(test[current][override])
+                                         overrides[override])
+                            outplat['vecsize'] = listify(overrides[override])
                         elif override == 'vectype':
                             # we have to do this at the end
-                            ivectypes_override = test[current][override]
+                            ivectypes_override = overrides[override]
+                        elif override == 'models':
+                            # check that all models are valid
+                            for model in overrides[override]:
+                                if model not in imodels:
+                                    raise InvalidOverrideException(
+                                        override, model, imodels)
+                            # and replace
+                            override_log('models', stringify_args(imodels),
+                                         stringify_args(overrides[override]))
+                            imodels = tuple(overrides[override])
 
                     if ivectypes_override is not None:
                         c = clean.copy()
@@ -578,7 +644,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     ('split_kernels', split_kernels),
                     ('conp', iconp),
                     ('sparse', [stype]),
-                    ('jac_type', [jtype])] +
+                    ('jac_type', [jtype]),
+                    ('models', [imodels])] +
                     [(key, value) for key, value in six.iteritems(
                         outplat)])
 

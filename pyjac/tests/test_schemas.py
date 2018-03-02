@@ -12,6 +12,7 @@ import six
 import cantera as ct
 from nose.tools import assert_raises
 from tempfile import NamedTemporaryFile
+from pytools.py_codegen import remove_common_indentation
 
 # internal
 from pyjac.libgen.libgen import build_type
@@ -23,7 +24,8 @@ from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, 
     load_tests, get_test_matrix, num_cores_default
 from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
-from pyjac.core.exceptions import OverrideCollisionException, DuplicateTestException
+from pyjac.core.exceptions import OverrideCollisionException, \
+    DuplicateTestException, InvalidOverrideException
 from pyjac.loopy_utils.loopy_utils import load_platform
 from pyjac.kernel_utils.memory_manager import load_memory_limits
 
@@ -207,9 +209,9 @@ def test_duplicate_tests_fails():
             lang: c
             vectype: [par]
         test-list:
-          - type: performance
+          - test-type: performance
             eval-type: jacobian
-          - type: performance
+          - test-type: performance
             eval-type: both
         """)
         file.seek(0)
@@ -229,12 +231,37 @@ def test_duplicate_tests_fails():
             lang: c
             vectype: [par]
         test-list:
-          - type: performance
+          - test-type: performance
             eval-type: jacobian
-            sparse:
-                num_cores: [1]
-            finite_difference:
-                num_cores: [1]
+            exact:
+                sparse:
+                    num_cores: [1]
+                full:
+                    num_cores: [1]
+        """)
+        file.seek(0)
+
+        tests = build_and_validate('test_matrix_schema.yaml', file.name)
+        load_tests(tests, file.name)
+
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: openmp
+            lang: c
+            vectype: [par]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            exact:
+                both:
+                    num_cores: [1]
+                full:
+                    num_cores: [1]
         """)
         file.seek(0)
 
@@ -243,11 +270,83 @@ def test_duplicate_tests_fails():
             load_tests(tests, file.name)
 
 
+
 def test_load_tests():
     # load tests doesn't do any processing other than collision / duplicate
     # checking, hence we just check we get the right number of tests
     tests = load_tests(__get_test_matrix(), 'test_matrix_schema.yaml')
     assert len(tests) == 3
+
+
+def test_override():
+    # test the base override schema
+    with NamedTemporaryFile(mode='w', suffix='.yaml') as file:
+        file.write(remove_common_indentation(
+            """
+            override:
+                num_cores: [1]
+                order: ['F']
+                gpuorder: ['C']
+                conp: ['conp']
+                vecsize: [2, 4]
+                gpuvecsize: [128]
+                vectype: ['wide']
+                models: ['C2H4']
+            """))
+        file.flush()
+        file.seek(0)
+        data = build_and_validate('common_schema.yaml', file.name)['override']
+    assert data['num_cores'] == [1]
+    assert data['order'] == ['F']
+    assert data['gpuorder'] == ['C']
+    assert data['conp'] == ['conp']
+    assert data['vecsize'] == [2, 4]
+    assert data['gpuvecsize'] == [128]
+    assert data['vectype'] == ['wide']
+    assert data['models'] == ['C2H4']
+
+    # now test embedded overrides
+    with NamedTemporaryFile(mode='w', suffix='.yaml') as file:
+        file.write(remove_common_indentation(
+            """
+            model-list:
+              - name: CH4
+                mech: gri30.cti
+                path:
+            platform-list:
+              - lang: c
+                name: openmp
+                vectype: ['par']
+            test-list:
+              - test-type: performance
+                # limit to intel
+                platforms: [intel]
+                eval-type: jacobian
+                exact:
+                    both:
+                        num_cores: [1]
+                        order: ['F']
+                        gpuorder: ['C']
+                        conp: ['conp']
+                        vecsize: [2, 4]
+                        gpuvecsize: [128]
+                        vectype: ['wide']
+                        models: ['C2H4']
+            """))
+        file.flush()
+        file.seek(0)
+        data = build_and_validate('test_matrix_schema.yaml', file.name,
+                                  update=True)
+
+    data = data['test-list'][0]['exact']['both']
+    assert data['num_cores'] == [1]
+    assert data['order'] == ['F']
+    assert data['gpuorder'] == ['C']
+    assert data['conp'] == ['conp']
+    assert data['vecsize'] == [2, 4]
+    assert data['gpuvecsize'] == [128]
+    assert data['vectype'] == ['wide']
+    assert data['models'] == ['C2H4']
 
 
 def test_get_test_matrix():
@@ -370,14 +469,15 @@ def test_get_test_matrix():
             vectype: [wide]
             vecsize: [4]
         test-list:
-          - type: performance
+          - test-type: performance
             eval-type: jacobian
-            sparse:
-                gpuvecsize: [64]
-                order: ['F']
-            full:
-                vecsize: [2]
-                gpuorder: ['C']
+            exact:
+                sparse:
+                    gpuvecsize: [64]
+                    order: ['F']
+                full:
+                    vecsize: [2]
+                    gpuorder: ['C']
         """)
         file.flush()
 
@@ -389,21 +489,92 @@ def test_get_test_matrix():
     from pyjac.tests import platform_is_gpu
 
     def sparsetest(state, want, seen):
-        if state['sparse'] == enum_to_string(JacobianFormat.sparse):
-            if platform_is_gpu(state['platform']):
-                assert state['vecsize'] == 64
+        if state['jac_type'] == enum_to_string(JacobianType.exact):
+            if state['sparse'] == enum_to_string(JacobianFormat.sparse):
+                if platform_is_gpu(state['platform']):
+                    assert state['vecsize'] == 64
+                else:
+                    assert state['vecsize'] == 4
+                    assert state['order'] == 'F'
             else:
-                assert state['vecsize'] == 4
-                assert state['order'] == 'F'
-        else:
-            if platform_is_gpu(state['platform']):
-                assert state['order'] == 'C'
-                assert state['vecsize'] == 128
-            else:
-                assert state['vecsize'] == 2
+                if platform_is_gpu(state['platform']):
+                    assert state['order'] == 'C'
+                    assert state['vecsize'] == 128
+                else:
+                    assert state['vecsize'] == 2
 
     want = {'sparse': sparsetest}
     run(want, loop)
+
+    # test model override
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+          - name: H2
+            path:
+            mech: h2o2.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide]
+            vecsize: [128]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    models: ['H2']
+        """))
+        file.flush()
+
+        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                     file.name, False,
+                                     langs=current_test_langs,
+                                     raise_on_missing=True)
+
+    def modeltest(state, want, seen):
+        if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
+            assert set(state['models']) == set(['H2'])
+        else:
+            assert set(state['models']) == set(['H2', 'CH4'])
+
+    want = {'models': modeltest}
+    run(want, loop)
+
+    # finally test bad model spec
+
+    # test model override
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+          - name: H2
+            path:
+            mech: h2o2.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide]
+            vecsize: [128]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    models: ['BAD']
+        """))
+        file.flush()
+
+        with assert_raises(InvalidOverrideException):
+            get_test_matrix('.', build_type.jacobian,
+                            file.name, False,
+                            langs=current_test_langs,
+                            raise_on_missing=True)
 
 
 def test_load_memory_limits():

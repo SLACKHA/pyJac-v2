@@ -136,7 +136,9 @@ setup(
         'pyjac.kernel_utils.opencl': ['*.ocl', '*.oclh', '*.in'],
         'pyjac.loopy_utils': ['*.in'],
         'pyjac.tests': ['*.cti', '*.inp'],
-        'pyjac.tests.test_utils': ['*.in', '*.pyx']
+        'pyjac.tests.test_utils': ['*.in', '*.pyx'],
+        'pyjac.examples': ['*.yaml'],
+        'pyjac.schemas': ['*.yaml']
     },
     include_package_data=True,
 

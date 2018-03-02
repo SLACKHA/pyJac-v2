@@ -141,7 +141,8 @@ def __prefixify(file, dirname=schema_dir):
 
 @func_logger
 def build_schema(schema, includes=['common_schema.yaml'],
-                 validatorclass=CustomValidator, allow_unknown=False):
+                 validatorclass=CustomValidator, allow_unknown=False,
+                 update=False):
     """
     Creates a schema / parses a schema and adds the additonal given includes
 
@@ -157,6 +158,9 @@ def build_schema(schema, includes=['common_schema.yaml'],
         The type of validator to build
     allow_unknown: bool [False]
         Allow unknown keys
+    update: bool [False]
+        Allow partial specification of data, useful for testing specific parts
+        of schemas
 
     Returns
     -------
@@ -189,10 +193,10 @@ def build_schema(schema, includes=['common_schema.yaml'],
         for key, value in six.iteritems(common):
             schema = __recursive_replace(schema, key, value)
 
-    return validatorclass(schema, allow_unknown=allow_unknown)
+    return validatorclass(schema, allow_unknown=allow_unknown, update=update)
 
 
-@func_logger(allowed_errors=(IOError, OSError))
+@func_logger(allowed_errors=(IOError, OSError, ValidationError))
 def validate(validator, source, filename=''):
     """
     Validates the passed source file from the pre-built schema, and returns the
@@ -223,9 +227,9 @@ def validate(validator, source, filename=''):
     return validator.validated(sourcedict)
 
 
-@func_logger(allowed_errors=(IOError, OSError))
+@func_logger(allowed_errors=(IOError, OSError, ValidationError))
 def build_and_validate(schema, source, validator=CustomValidator, includes=[],
-                       allow_unknown=False):
+                       allow_unknown=False, update=False):
     """
     Builds schema from file, validates source from file and returns results.
     Convience method for :func:`build_schema` and :func:`validate`
@@ -244,6 +248,9 @@ def build_and_validate(schema, source, validator=CustomValidator, includes=[],
         Additional schema to use for includes
     allow_unknown: bool [False]
         Allow unknown keys
+    update: bool [False]
+        Allow partial specification of data, useful for testing specific parts
+        of schemas
 
     Returns
     -------
@@ -254,5 +261,5 @@ def build_and_validate(schema, source, validator=CustomValidator, includes=[],
     if 'common_schema.yaml' != source:
         includes.append('common_schema.yaml')
     built = build_schema(schema, validatorclass=validator, includes=includes,
-                         allow_unknown=allow_unknown)
+                         allow_unknown=allow_unknown, update=update)
     return validate(built, source, filename=schema)

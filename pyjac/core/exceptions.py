@@ -4,6 +4,7 @@ Contains custom errors / exceptions / error processing
 
 
 import six
+from pyjac.utils import stringify_args
 
 
 class MissingPlatformError(Exception):
@@ -99,17 +100,32 @@ class ValidationError(Exception):
         super(ValidationError, self).__init__(self.message)
 
 
+class UnknownOverrideException(Exception):
+    def __init__(self, otype, path):
+        self.message = (
+            'Override type "{}" for path {} is unknown'.format(otype, path))
+        super(UnknownOverrideException, self).__init__(self.message)
+
+
+class InvalidOverrideException(Exception):
+    def __init__(self, otype, value, allowed):
+        self.message = (
+            'Value "{}" for override type "{}" is not allowed. '
+            'Allowed values are: {}'.format(otype, value, stringify_args(allowed)))
+        super(InvalidOverrideException, self).__init__(self.message)
+
+
 class OverrideCollisionException(Exception):
-    def __init__(self, override_type, type1, type2):
-        self.message = ('Conflicting overrides of type {} specified'
-                        'for evaluation types {} and {}'.format(
-                            override_type, type1, type1))
+    def __init__(self, override_type, path):
+        self.message = ('Conflicting/duplicate overrides of "{}" specified. '
+                        'Dectected for "{}"'.format(
+                            override_type, path))
         super(OverrideCollisionException, self).__init__(self.message)
 
 
 class DuplicateTestException(Exception):
     def __init__(self, rtype, etype, filename):
-        self.message = ('Multiple test types of {} for evaluation type {} '
+        self.message = ('Multiple test types of "{}"" for evaluation type "{}" '
                         'detected in test matrix file {}'.format(
                             rtype, etype, filename))
         super(DuplicateTestException, self).__init__(self.message)
@@ -117,8 +133,8 @@ class DuplicateTestException(Exception):
 
 class InvalidTestEnivironmentException(Exception):
     def __init__(self, ttype, key, file, envvar):
-        self.message = ('Test type {} has overrides for key {} specified in'
-                        'test matrix file {}, however this override cannot be '
+        self.message = ('Test type "{}"" has overrides for key "{}"" specified in'
+                        'test matrix file "{}", however this override cannot be '
                         'applied, as it would invalidate the test environment '
-                        'key {}'.format(ttype, key, file, envvar))
+                        'key "{}"'.format(ttype, key, file, envvar))
         super(InvalidTestEnivironmentException, self).__init__(self.message)
