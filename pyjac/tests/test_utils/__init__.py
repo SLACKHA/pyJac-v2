@@ -1456,7 +1456,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     rate_specialization=rate_spec,
                                     split_rop_net_kernels=split_kernels,
                                     output_full_rop=(
-                                        rtype == build_type.species_rates),
+                                        rtype == build_type.species_rates
+                                        and for_validation),
                                     conp=conp,
                                     use_atomics=state['use_atomics'],
                                     jac_format=sparse,
