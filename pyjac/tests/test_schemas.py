@@ -270,7 +270,6 @@ def test_duplicate_tests_fails():
             load_tests(tests, file.name)
 
 
-
 def test_load_tests():
     # load tests doesn't do any processing other than collision / duplicate
     # checking, hence we just check we get the right number of tests
@@ -325,13 +324,14 @@ def test_override():
                 exact:
                     both:
                         num_cores: [1]
-                        order: ['F']
-                        gpuorder: ['C']
-                        conp: ['conp']
+                        order: [F]
+                        gpuorder: [C]
+                        conp: [conp]
                         vecsize: [2, 4]
                         gpuvecsize: [128]
-                        vectype: ['wide']
-                        models: ['C2H4']
+                        gpuvectype: [wide]
+                        vectype: [wide]
+                        models: [C2H4]
             """))
         file.flush()
         file.seek(0)
@@ -345,6 +345,7 @@ def test_override():
     assert data['conp'] == ['conp']
     assert data['vecsize'] == [2, 4]
     assert data['gpuvecsize'] == [128]
+    assert data['gpuvectype'] == ['wide']
     assert data['vectype'] == ['wide']
     assert data['models'] == ['C2H4']
 
@@ -545,8 +546,6 @@ def test_get_test_matrix():
     run(want, loop)
 
     # finally test bad model spec
-
-    # test model override
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
         model-list:
@@ -575,6 +574,49 @@ def test_get_test_matrix():
                             file.name, False,
                             langs=current_test_langs,
                             raise_on_missing=True)
+
+    # test gpu vectype specification
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+          - name: H2
+            path:
+            mech: h2o2.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+          - name: openmp
+            lang: c
+            vectype: [par]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    vectype: [par]
+                    gpuvectype: [wide]
+        """))
+        file.flush()
+
+        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                     file.name, False,
+                                     langs=current_test_langs,
+                                     raise_on_missing=True)
+
+    def modeltest(state, want, seen):
+        if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
+            if state['platform'] == 'openmp':
+                assert not bool(state['vecsize'])
+            else:
+                assert state['vecsize'] == 128
+
+    want = {'models': modeltest}
+    run(want, loop)
 
 
 def test_load_memory_limits():
