@@ -213,7 +213,7 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
 
 # todo -- feed these directly into override schema
 allowed_overrides = ['num_cores', 'gpuorder', 'order', 'conp', 'vecsize', 'vectype',
-                     'gpuvecsize', 'models']
+                     'gpuvecsize', 'gpuvectype', 'models']
 jacobian_sub_override_keys = {enum_to_string(JacobianFormat.sparse):
                               allowed_overrides,
                               enum_to_string(JacobianFormat.full):
@@ -603,8 +603,10 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                             override_log('gpuvecsize', ivecsizes,
                                          overrides[override])
                             outplat['vecsize'] = listify(overrides[override])
-                        elif override == 'vectype':
+                        elif override == 'vectype' and not is_gpu:
                             # we have to do this at the end
+                            ivectypes_override = overrides[override]
+                        elif override == 'gpuvectype' and is_gpu:
                             ivectypes_override = overrides[override]
                         elif override == 'models':
                             # check that all models are valid
@@ -623,8 +625,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                                        is_wide='wide' in ivectypes_override,
                                        is_deep='deep' in ivectypes_override)
                         # and copy into working
-                        outplat['wide'] = c['wide']
-                        outplat['deep'] = c['deep']
+                        outplat['wide'] = c['wide'] if 'wide' in c else [False]
+                        outplat['deep'] = c['deep'] if 'deep' in c else [False]
                         outplat['vecsize'] = c['vecsize']
                         old = ['']
                         if is_wide:

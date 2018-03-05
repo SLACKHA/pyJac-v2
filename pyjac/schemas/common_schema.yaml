@@ -93,6 +93,11 @@ override:
             schema:
                 type: string
                 allowed: ['par', 'wide', 'deep']
+        gpuvectype:
+            type: list
+            schema:
+                type: string
+                allowed: ['par', 'wide', 'deep']
         # allow exclusion of models
         models:
             type: list
