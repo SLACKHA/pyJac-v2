@@ -51,8 +51,8 @@ def load_memory_limits(input_file):
         # note: this is only safe because we've already validated.
         # hence, NO ERRORS!
         if 'memory-limits' in memory_limits:
-            return {k: parse_bytestr(object, v) for k, v in six.iteritems(
-                memory_limits['memory-limits'])}
+            return {k: parse_bytestr(object, v) if not k == 'platforms' else v
+                    for k, v in six.iteritems(memory_limits['memory-limits'])}
     return {}
 
 
@@ -270,6 +270,7 @@ class memory_limits(object):
             An initialized :class:`memory_limits` that can determine the total
             'global', 'constant' and 'local' memory available on the device
         """
+
         limits = {}  # {memory_type.m_pagesize: align_size}
         if loopy_opts.lang == 'opencl':
             try:
@@ -282,11 +283,19 @@ class memory_limits(object):
             except AttributeError:
                 pass
         user = load_memory_limits(input_file)
+        # check platforms
+        if user and 'platforms' in user and not any(
+                p in loopy_opts.platform_name.lower() for p in user['platforms']):
+            # doesn't apply to this platform
+            user = None
+
         if user:
             # load from file
             mtype = utils.EnumType(memory_type)
             user_limits = {}
             for key, value in six.iteritems(user):
+                if key == 'platforms':
+                    continue
                 # check in memory type
                 key = 'm_' + key
                 # update with enum

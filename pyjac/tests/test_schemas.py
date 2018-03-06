@@ -630,3 +630,34 @@ def test_load_memory_limits():
     assert limits['local'] == 1e6
     assert limits['constant'] == 64e3
     assert limits['alloc'] == 1e9
+
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+          - name: openmp
+            lang: c
+            vectype: [par]
+        memory-limits:
+          global: 5 Gb
+          platforms: [nvidia]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    vectype: [par]
+                    gpuvectype: [wide]
+        """))
+        file.flush()
+
+        limits = load_memory_limits(__prefixify(file.name, examples_dir))
+    assert limits['global'] == 5e9
+    assert limits['platforms'] == ['nvidia']
