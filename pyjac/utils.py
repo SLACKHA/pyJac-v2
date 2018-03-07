@@ -176,6 +176,30 @@ def enum_to_string(enum):
     return enum[enum.index('.') + 1:]
 
 
+def is_iterable(value):
+    """
+    Custom iterable test that excludes string types
+
+    Parameters
+    ----------
+    value: object
+        The value to test if iterable
+
+    Returns
+    -------
+    iterable: bool
+        True if the value is iterable and not a string, false otherwise
+    """
+    if isinstance(value, six.string_types):
+        return False
+
+    try:
+        [vi for vi in value]
+        return True
+    except TypeError:
+        return False
+
+
 def listify(value):
     """
     Convert value to list

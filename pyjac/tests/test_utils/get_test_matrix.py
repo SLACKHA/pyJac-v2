@@ -360,8 +360,10 @@ def get_overrides(test, eval_type, jac_type, sparse_type):
         The stringified :class:`JacobianFormat`
     """
 
-    if eval_type == enum_to_string(build_type.species_rates) and eval_type in test:
-        return test[eval_type].copy()
+    if eval_type == enum_to_string(build_type.species_rates):
+        if eval_type in test:
+            return test[eval_type].copy()
+        return {}
     else:
         # first check for the base type
         overrides = {}
