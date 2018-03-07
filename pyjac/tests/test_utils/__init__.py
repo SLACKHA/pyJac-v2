@@ -1124,17 +1124,15 @@ class runner(object):
     A base class for running the :func:`_run_mechanism_tests`
     """
 
-    def __init__(self, rtype=build_type.jacobian):
+    def __init__(self, filetype, rtype=build_type.jacobian):
         self.rtype = rtype
         self.descriptor = 'jac' if rtype == build_type.jacobian else 'spec'
+        self.filetype = filetype
 
     def pre(self, gas, data, num_conditions, max_vec_width):
         raise NotImplementedError
 
     def run(self, state, asplit, dirs, data_output, limits):
-        raise NotImplementedError
-
-    def get_filename(self, state):
         raise NotImplementedError
 
     def check_file(self, file, state, limits={}):
@@ -1182,6 +1180,29 @@ class runner(object):
                 return limits[rtype_str]
 
         return None
+
+    def get_filename(self, state):
+        # store vector size
+        self.current_vecsize = state['vecsize']
+        desc = self.descriptor
+        if self.rtype == build_type.jacobian:
+            desc += '_sparse' if utils.EnumType(JacobianFormat)(state['sparse'])\
+                 == JacobianFormat.sparse else '_full'
+        if utils.EnumType(JacobianType)(state['jac_type']) == \
+                JacobianType.finite_difference:
+            desc = 'fd' + desc
+
+        vecsize = state['vecsize'] if utils.can_vectorize_lang['lang'] and \
+            (state['wide'] or state['deep']) else '1'
+        vectype = 'w' if state['wide'] else 'd' if state['deep'] else 'par'
+        platform = state['platform']
+        split = 'split' if state['split_kernels'] else 'single'
+        conp = 'conp' if state['conp'] else 'conv'
+
+        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                desc, state['lang'], vecsize, state['order'],
+                vectype, platform, state['rate_spec'],
+                split, state['num_cores'], conp) + self.filetype
 
     def post(self):
         pass
