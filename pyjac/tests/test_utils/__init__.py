@@ -1192,7 +1192,7 @@ class runner(object):
                 JacobianType.finite_difference:
             desc = 'fd' + desc
 
-        vecsize = state['vecsize'] if utils.can_vectorize_lang['lang'] and \
+        vecsize = state['vecsize'] if utils.can_vectorize_lang[state['lang']] and \
             (state['wide'] or state['deep']) else '1'
         vectype = 'w' if state['wide'] else 'd' if state['deep'] else 'par'
         platform = state['platform']

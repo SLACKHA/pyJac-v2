@@ -320,7 +320,6 @@ class validation_runner(runner, hdf5_store):
         Nrev = len([x for x in self.gas.reactions() if x.reversible])
         return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecsize)
 
-
     def pre(self, gas, data, num_conditions, max_vec_width):
         """
         Initializes the validation runner
