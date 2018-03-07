@@ -18,8 +18,6 @@ import logging
 
 # Local imports
 from pyjac.libgen import build_type, generate_library
-from pyjac.loopy_utils import JacobianFormat, JacobianType
-from pyjac.utils import EnumType
 from pyjac.tests.test_utils import _run_mechanism_tests, runner
 from pyjac.tests import get_matrix_file, platform_is_gpu
 
@@ -40,7 +38,7 @@ class performance_runner(runner):
         -------
         None
         """
-        super(performance_runner, self).__init__(rtype)
+        super(performance_runner, self).__init__(filetype='.txt', rtype=rtype)
         self.repeats = repeats
         self.steplist = steplist
 
@@ -67,22 +65,6 @@ class performance_runner(runner):
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
-
-    def get_filename(self, state):
-        self.current_vecsize = state['vecsize']
-        desc = self.descriptor
-        if self.rtype == build_type.jacobian:
-            desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
-                 == JacobianFormat.sparse else '_full'
-        if EnumType(JacobianType)(state['jac_type']) == \
-                JacobianType.finite_difference:
-            desc = 'fd' + desc
-        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                desc, state['lang'], state['vecsize'], state['order'],
-                'w' if state['wide'] else 'd' if state['deep'] else 'par',
-                state['platform'], state['rate_spec'],
-                'split' if state['split_kernels'] else 'single',
-                state['num_cores'], 'conp' if state['conp'] else 'conv') + '.txt'
 
     def check_file(self, filename, state, limits={}):
         """
@@ -178,7 +160,6 @@ class performance_runner(runner):
                     if len(vals) == to_find:
                         nc = int(vals[0])
                         if nc != num_conditions:
-                            # TODO: remove file and return 0?
                             raise Exception(
                                 'Wrong number of conditions in performance test')
 
