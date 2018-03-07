@@ -65,6 +65,10 @@ class performance_runner(runner):
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
+        # and put largest value evenly divisible by vecsize in list
+        maxval = (num_conditions // max_vec_size) * max_vec_size
+        if maxval not in self.steplist:
+            self.steplist.append(maxval)
 
     def check_file(self, filename, state, limits={}):
         """
