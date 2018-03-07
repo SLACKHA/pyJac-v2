@@ -1012,7 +1012,8 @@ class jacobian_eval(eval):
         if hasattr(self, name):
             jac = getattr(self, name)
 
-        assert (not require) or jac is not None
+        assert (not require) or jac is not None, ('Jacobian {} missing'.format(
+            name))
         if jac is None:
             return None
 
