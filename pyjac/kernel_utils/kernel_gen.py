@@ -963,7 +963,7 @@ ${name} : ${type}
                 and not isinstance(arg, lp.ValueArg)))
 
         # find problem_size
-        problem_size = next(x for x in defines if x == p_size)
+        problem_size = next((x for x in defines if x == p_size), None)
 
         # remove other value args
         defines = [x for x in defines if not isinstance(x, lp.ValueArg)]
@@ -1030,7 +1030,8 @@ ${name} : ${type}
             temps.append(same_names[0])
 
         # add problem size arg to front
-        kernel_data.insert(0, problem_size)
+        if problem_size is not None:
+            kernel_data.insert(0, problem_size)
         # and save
         self.kernel_data = kernel_data[:]
 
