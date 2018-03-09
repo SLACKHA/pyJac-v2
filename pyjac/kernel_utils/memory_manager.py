@@ -75,13 +75,13 @@ class memory_limits(object):
         for the 'problem_size' variable)
     dtype: np.dtype [np.int32]
             The index type of the kernel to be generated. Default is a 32-bit int
-    limit_to_overflow: bool
+    limit_int_overflow: bool
         If true, limit the maximum number of conditions that can be run to avoid
         int32 overflow
     """
 
     def __init__(self, lang, order, arrays, limits, string_strides=[],
-                 dtype=np.int32, limit_int_overflow=True):
+                 dtype=np.int32, limit_int_overflow=False):
         """
         Initializes a :class:`memory_limits`
         """
@@ -241,7 +241,7 @@ class memory_limits(object):
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',
                    string_strides=[p_size.name],
-                   dtype=np.int32):
+                   dtype=np.int32, limit_int_overflow=False):
         """
         Utility method to load shared / constant memory limits from a file or
         :mod:`pyopencl` as needed
@@ -263,6 +263,9 @@ class memory_limits(object):
             Need special handling in size determination
         dtype: np.dtype [np.int32]
             The index type of the kernel to be generated. Default is a 32-bit int
+        limit_int_overflow: bool [False]
+            If true, turn on limiting array sizes to avoid integer overflow.
+            Currently only needed for Intel OpenCL
 
         Returns
         -------
@@ -304,7 +307,7 @@ class memory_limits(object):
             limits.update(user_limits)
 
         return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
-                             limits, string_strides, dtype)
+                             limits, string_strides, dtype, limit_int_overflow)
 
 
 asserts = {'c': Template('cassert(${call}, "${message}");'),
