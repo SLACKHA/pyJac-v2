@@ -176,6 +176,30 @@ def enum_to_string(enum):
     return enum[enum.index('.') + 1:]
 
 
+def is_iterable(value):
+    """
+    Custom iterable test that excludes string types
+
+    Parameters
+    ----------
+    value: object
+        The value to test if iterable
+
+    Returns
+    -------
+    iterable: bool
+        True if the value is iterable and not a string, false otherwise
+    """
+    if isinstance(value, six.string_types):
+        return False
+
+    try:
+        [vi for vi in value]
+        return True
+    except TypeError:
+        return False
+
+
 def listify(value):
     """
     Convert value to list
@@ -570,13 +594,26 @@ def get_parser():
                         'and thus is more suitable to use with implicit integration '
                         'techniques.'
                         )
-    parser.add_argument('-f', '--jac_format',
+    parser.add_argument('-jf', '--jac_format',
                         choices=['sparse', 'full'],
                         required=False,
                         default='sparse',
                         help='If "sparse", the Jacobian will be encoded using a '
                         'compressed row or column storage format (for a data order '
                         'of "C" and "F" respectively).'
+                        )
+    parser.add_argument('-f', '--fixed_size',
+                        required=False,
+                        default=None,
+                        type=int,
+                        help='If specified, this is the number of thermo-chemical '
+                             'states that pyJac should evaluate in the generated '
+                             'source code.  This is most useful for limiting the '
+                             'number of states to one (in order to couple with an '
+                             'external library that that has already been '
+                             'parallelized, e.g., via OpenMP).  This setting will '
+                             'also fix array strides as discussed in the '
+                             'documentation.'
                         )
     parser.add_argument('-m', '--memory_limits',
                         required=False,
@@ -616,5 +653,6 @@ def create():
                     use_atomics=args.use_atomics,
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
-                    mem_limits=args.memory_limits
+                    mem_limits=args.memory_limits,
+                    test_size=args.fixed_size
                     )

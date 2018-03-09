@@ -4,7 +4,7 @@ Contains custom errors / exceptions / error processing
 
 
 import six
-from pyjac.utils import stringify_args
+from pyjac.utils import stringify_args, listify
 
 
 class MissingPlatformError(Exception):
@@ -138,3 +138,11 @@ class InvalidTestEnivironmentException(Exception):
                         'applied, as it would invalidate the test environment '
                         'key "{}"'.format(ttype, key, file, envvar))
         super(InvalidTestEnivironmentException, self).__init__(self.message)
+
+
+class IncorrectInputSpecificationException(Exception):
+    def __init__(self, bad_inputs):
+        self.message = ('Inputs: ({}) were incorrectly, or conflictingly specified. '
+                        'See debug output for more information'.format(
+                            stringify_args(listify(bad_inputs))))
+        super(IncorrectInputSpecificationException, self).__init__(self.message)

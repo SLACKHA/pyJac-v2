@@ -17,7 +17,7 @@ from pytools.py_codegen import remove_common_indentation
 # internal
 from pyjac.libgen.libgen import build_type
 from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from pyjac.utils import func_logger, enum_to_string, listify
+from pyjac.utils import func_logger, enum_to_string, listify, is_iterable
 from pyjac.tests.test_utils import xfail
 from pyjac.tests import script_dir as test_mech_dir
 from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, \
@@ -270,7 +270,6 @@ def test_duplicate_tests_fails():
             load_tests(tests, file.name)
 
 
-
 def test_load_tests():
     # load tests doesn't do any processing other than collision / duplicate
     # checking, hence we just check we get the right number of tests
@@ -325,13 +324,14 @@ def test_override():
                 exact:
                     both:
                         num_cores: [1]
-                        order: ['F']
-                        gpuorder: ['C']
-                        conp: ['conp']
+                        order: [F]
+                        gpuorder: [C]
+                        conp: [conp]
                         vecsize: [2, 4]
                         gpuvecsize: [128]
-                        vectype: ['wide']
-                        models: ['C2H4']
+                        gpuvectype: [wide]
+                        vectype: [wide]
+                        models: [C2H4]
             """))
         file.flush()
         file.seek(0)
@@ -345,6 +345,7 @@ def test_override():
     assert data['conp'] == ['conp']
     assert data['vecsize'] == [2, 4]
     assert data['gpuvecsize'] == [128]
+    assert data['gpuvectype'] == ['wide']
     assert data['vectype'] == ['wide']
     assert data['models'] == ['C2H4']
 
@@ -356,8 +357,14 @@ def test_get_test_matrix():
             if six.callable(want[key]):
                 want[key](state, want, seen)
             else:
-                want[key].remove(state[key])
-                seen[key].add(state[key])
+                if is_iterable(state[key]):
+                    for k in state[key]:
+                        if k not in seen[key]:
+                            want[key].remove(k)
+                            seen[key].add(k)
+                else:
+                    want[key].remove(state[key])
+                    seen[key].add(state[key])
         return want, seen
 
     def run(want, loop, final_checks=None):
@@ -545,8 +552,6 @@ def test_get_test_matrix():
     run(want, loop)
 
     # finally test bad model spec
-
-    # test model override
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
         model-list:
@@ -576,6 +581,93 @@ def test_get_test_matrix():
                             langs=current_test_langs,
                             raise_on_missing=True)
 
+    # test gpu vectype specification
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+          - name: H2
+            path:
+            mech: h2o2.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+          - name: openmp
+            lang: c
+            vectype: [par]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    vectype: [par]
+                    gpuvectype: [wide]
+        """))
+        file.flush()
+
+        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+                                     file.name, False,
+                                     langs=current_test_langs,
+                                     raise_on_missing=True)
+
+    def modeltest(state, want, seen):
+        if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
+            if state['platform'] == 'openmp':
+                assert not bool(state['vecsize'])
+            else:
+                assert state['vecsize'] == 128
+
+    want = {'models': modeltest}
+    run(want, loop)
+
+    # test that source terms evaluations don't inherit exact jacobian overrides
+    with NamedTemporaryFile(mode='w', suffix='.yaml') as file:
+        file.write(remove_common_indentation(
+            """
+            model-list:
+              - name: CH4
+                mech: gri30.cti
+                path:
+            platform-list:
+              - lang: c
+                name: openmp
+                vectype: ['par']
+            test-list:
+              - test-type: performance
+                # limit to intel
+                platforms: [openmp]
+                eval-type: both
+                exact:
+                    both:
+                        num_cores: [1]
+                        order: [F]
+                        gpuorder: [C]
+                        conp: [conp]
+                        vecsize: [2, 4]
+                        gpuvecsize: [128]
+                        gpuvectype: [wide]
+                        vectype: [wide]
+                        models: []
+            """))
+        file.flush()
+        _, loop, _ = get_test_matrix('.', build_type.species_rates,
+                                     file.name, False,
+                                     langs=current_test_langs,
+                                     raise_on_missing=True)
+
+    want = {'platform': ['openmp'],
+            'wide': [False],
+            'vecsize': [None],
+            'conp': [True, False],
+            'order': ['C', 'F'],
+            'models': ['CH4'],
+            'num_cores': num_cores_default()[0]}
+    run(want, loop)
+
 
 def test_load_memory_limits():
     limits = load_memory_limits(__prefixify('codegen_platform.yaml', examples_dir))
@@ -588,3 +680,34 @@ def test_load_memory_limits():
     assert limits['local'] == 1e6
     assert limits['constant'] == 64e3
     assert limits['alloc'] == 1e9
+
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+          - name: openmp
+            lang: c
+            vectype: [par]
+        memory-limits:
+          global: 5 Gb
+          platforms: [nvidia]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+            finite_difference:
+                both:
+                    vectype: [par]
+                    gpuvectype: [wide]
+        """))
+        file.flush()
+
+        limits = load_memory_limits(__prefixify(file.name, examples_dir))
+    assert limits['global'] == 5e9
+    assert limits['platforms'] == ['nvidia']

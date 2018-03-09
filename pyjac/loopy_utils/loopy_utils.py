@@ -258,6 +258,14 @@ class loopy_options(object):
         # check for broken vectorizations
         self.raise_on_broken()
 
+    @property
+    def platform_name(self):
+        if self.lang == 'opencl' and cl is not None:
+            if isinstance(self.platform, cl.Platform):
+                return self.platform.name
+        return self.platform
+
+
     def raise_on_broken(self):
         # Currently, NVIDIA w/ neither deep nor wide-vectorizations (
         #   i.e. a "parallel" implementation) breaks sometimes on OpenCL

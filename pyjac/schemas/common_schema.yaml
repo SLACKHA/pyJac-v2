@@ -14,6 +14,10 @@ memory-limits:
         # limit on the maximum global memory allocation per array by pyJac,
         alloc:
             type: bytestr
+        platforms:
+            type: list
+            schema:
+                type: string
 
 # platform for testing, allows multiple values for vectype, width, etc.
 variable-platform:
@@ -89,6 +93,11 @@ override:
             schema:
                 type: integer
         vectype:
+            type: list
+            schema:
+                type: string
+                allowed: ['par', 'wide', 'deep']
+        gpuvectype:
             type: list
             schema:
                 type: string

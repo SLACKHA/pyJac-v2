@@ -292,7 +292,8 @@ class validation_runner(runner, hdf5_store):
         rtype: :class:`build_type` [build_type.jacobian]
             The type of test to run
         """
-        runner.__init__(self, rtype)
+
+        runner.__init__(self, filetype='_err.npz', rtype=rtype)
         hdf5_store.__init__(self)
         self.base_chunk_size = self.chunk_size
 
@@ -318,19 +319,6 @@ class validation_runner(runner, hdf5_store):
         Nr = self.gas.n_reactions
         Nrev = len([x for x in self.gas.reactions() if x.reversible])
         return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecsize)
-
-    def get_filename(self, state):
-        self.current_vecsize = state['vecsize']
-        desc = self.descriptor
-        if self.rtype == build_type.jacobian:
-            desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
-                 == JacobianFormat.sparse else '_full'
-        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                desc, state['lang'], state['vecsize'], state['order'],
-                'w' if state['wide'] else 'd' if state['deep'] else 'par',
-                state['platform'], state['rate_spec'],
-                'split' if state['split_kernels'] else 'single',
-                state['num_cores'], 'conp' if state['conp'] else 'conv') + '_err.npz'
 
     def pre(self, gas, data, num_conditions, max_vec_width):
         """
@@ -1012,7 +1000,8 @@ class jacobian_eval(eval):
         if hasattr(self, name):
             jac = getattr(self, name)
 
-        assert (not require) or jac is not None
+        assert (not require) or jac is not None, ('Jacobian {} missing'.format(
+            name))
         if jac is None:
             return None
 
