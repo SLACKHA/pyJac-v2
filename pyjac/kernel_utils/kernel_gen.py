@@ -1114,7 +1114,8 @@ ${name} : ${type}
 
             mem_limits = memory_limits.get_limits(
                 self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
-                input_file=self.mem_limits)
+                input_file=self.mem_limits,
+                limit_int_overflow=self.loopy_opts.limit_int_overflow)
 
         # update the memory manager with new args / input arrays
         if len(kernel_data) != data_size:
