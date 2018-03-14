@@ -21,6 +21,8 @@ from pyjac.core.array_creator import problem_size as p_size
 from pyjac import utils
 from pyjac.utils import func_logger
 from pyjac.schemas import build_and_validate, parse_bytestr
+from pyjac.core.exceptions import ValidationError, \
+    IncorrectInputSpecificationException
 
 try:
     from pyopencl import device_type
@@ -41,18 +43,34 @@ class memory_type(Enum):
 
 
 @func_logger
-def load_memory_limits(input_file):
+def load_memory_limits(input_file, schema='common_schema.yaml'):
     """
     Conviencence method for loading inputs from memory limits file
+
+    Parameters
+    ----------
+    input_file:
+        The input file to load
     """
-    if input_file:
-        memory_limits = build_and_validate('common_schema.yaml', input_file,
-                                           allow_unknown=True)
+
+    def __limitfy(limits):
         # note: this is only safe because we've already validated.
         # hence, NO ERRORS!
-        if 'memory-limits' in memory_limits:
+        if limits:
             return {k: parse_bytestr(object, v) if not k == 'platforms' else v
-                    for k, v in six.iteritems(memory_limits['memory-limits'])}
+                    for k, v in six.iteritems(limits)}
+    if input_file:
+        try:
+            memory_limits = build_and_validate('common_schema.yaml', input_file,
+                                               allow_unknown=True)
+            return [__limitfy(memory_limits['memory-limits'])]
+        except ValidationError:
+            # TODO: fix this -- need a much better way of specifying / passing in
+            # limits
+            memory_limits = build_and_validate('test_matrix_schema.yaml', input_file,
+                                               allow_unknown=True)
+            return [__limitfy(x) for x in memory_limits['memory-limits']]
+
     return {}
 
 
@@ -286,25 +304,45 @@ class memory_limits(object):
             except AttributeError:
                 pass
         user = load_memory_limits(input_file)
-        # check platforms
-        if user and 'platforms' in user and not any(
-                p in loopy_opts.platform_name.lower() for p in user['platforms']):
-            # doesn't apply to this platform
-            user = None
+        # find limit(s) that applies to us
+        user = [u for u in user if 'platforms' not in u or
+                loopy_opts.platform_name.lower() in u['platforms']]
+        if len(user) > 1:
+            # check that we don't have multiple limits with this platforms specified
+            if len([u for u in user if 'platforms' in u]) > 1 or len(
+                    [u for u in user if 'platforms' not in u]) > 1:
+                logger = logging.getLogger(__name__)
+                logger.error('Multiple memory-limits supplied by name in file ({}) '
+                             'for platform {}.  Valid configurations are either one '
+                             'default memory-limits specification for all platforms '
+                             'with specific overrides for a platform, or a '
+                             'platform-specific memory-limits only.'.format(
+                                input_file, loopy_opts.platform_name))
+                raise IncorrectInputSpecificationException('memory-limits')
+            assert len(user) <= 2
 
         if user:
-            # load from file
-            mtype = utils.EnumType(memory_type)
-            user_limits = {}
-            for key, value in six.iteritems(user):
-                if key == 'platforms':
-                    continue
-                # check in memory type
-                key = 'm_' + key
-                # update with enum
-                user_limits[mtype(key)] = value
-            # and overwrite default limits w/ user
-            limits.update(user_limits)
+            logger = logging.getLogger(__name__)
+            for lim in sorted(user, key=lambda x: 'platforms' in x):
+                # load from file
+                mtype = utils.EnumType(memory_type)
+                user_limits = {}
+                for key, value in six.iteritems(lim):
+                    if key == 'platforms':
+                        continue
+                    # check in memory type
+                    key = 'm_' + key
+                    # update with enum
+                    logger.info('Overriding memory-limit for type {} from value '
+                                '({}) to value ({}) from {} limits.'.format(
+                                    key,
+                                    limits[mtype(key)] if mtype(key) in limits
+                                    else None, value,
+                                    'per-platform' if 'platforms' in lim else
+                                    'default'))
+                    user_limits[mtype(key)] = value
+                # and overwrite default limits w/ user
+                limits.update(user_limits)
 
         return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
                              limits, string_strides, dtype, limit_int_overflow)
