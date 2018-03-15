@@ -1990,32 +1990,33 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
 <>Pred = (-Pmax - Pmin + 2 * ${logP}) / (Pmax - Pmin)
 <>numP = ${num_P_str} {id=plim}
 <>numT = ${num_T_str} {id=tlim}
-${ppoly0_str} = 1
-${ppoly1_str} = Pred
-${tpoly0_str} = 1
-${tpoly1_str} = Tred
+${ppoly0_str} = 1 {id=ppoly_init}
+${ppoly1_str} = Pred {id=ppoly_init1}
+${tpoly0_str} = 1 {id=tpoly_init}
+${tpoly1_str} = Tred {id=tpoly_init2}
 #<> poly_end = max(numP, numT)
 # compute polynomial terms
 for p
     if p < numP
         ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} \
-            {id=ppoly, dep=plim}
+            {id=ppoly, dep=plim:ppoly_init*}
     end
     if p < numT
         ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} \
-            {id=tpoly, dep=tlim}
+            {id=tpoly, dep=tlim:tpoly_init*}
     end
 end
-<> kf_temp = 0
+<> kf_temp = 0 {id=kf_init}
 for m
-    <>temp = 0
+    <>temp = 0 {id=temp_init}
     for k
         if k < numP
-            temp = temp + ${ppoly_k_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+            temp = temp + ${ppoly_k_str} * ${params_str} {id=temp,
+                dep=ppoly:tpoly:kf_init:temp_init}
         end
     end
     if m < numT
-        kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
+        kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp:kf_init}
     end
 end
 
