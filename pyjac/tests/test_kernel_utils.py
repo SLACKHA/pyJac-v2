@@ -9,10 +9,13 @@ import loopy as lp
 import numpy as np
 from optionloop import OptionLoop
 from parameterized import parameterized
+from loopy.kernel.data import temp_var_scope as scopes
 
 from pyjac.core.array_creator import array_splitter, problem_size
 from pyjac.kernel_utils.memory_manager import memory_limits, memory_type, \
   memory_manager
+from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
+    LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
 
 
 def loopy_opts(langs=['opencl'],
@@ -24,7 +27,8 @@ def loopy_opts(langs=['opencl'],
         [('lang', langs),
          ('width', width),
          ('depth', depth),
-         ('order', order)]))
+         ('order', order),
+         ('is_simd', False)]))
     for state in oploop:
         if state['depth'] and state['width']:
             continue
@@ -61,19 +65,19 @@ def test_stride_limiter(dtype):
         limits = None
         with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:
             temp.write("""
-                       alloc:
-                          # some huge number such that this isn't the limiting factor
-                          {0}
-                       global:
-                          {0}
+                       memory-limits:
+                           alloc:
+                              {0} B
+                           global:
+                              {0} B
                        """.format(
-                        str(np.iinfo(dtype).max * 10),
-                        str(np.iinfo(dtype).max * 10)))
+                        str(np.iinfo(dtype).max * dtype().itemsize),
+                        str(np.iinfo(dtype).max * dtype().itemsize)))
             temp.seek(0)
             limits = memory_limits.get_limits(
                 opt, {memory_type.m_global: [ary]}, temp.name,
                 memory_manager.get_string_strides()[0],
-                dtype=dtype)
+                dtype=dtype, limit_int_overflow=True)
         # and feed through stride limiter
         limit = limits.integer_limited_problem_size(ary, dtype=dtype)
         # get the intruction from the kernel
@@ -93,3 +97,22 @@ def test_stride_limiter(dtype):
 
         # finally, test that we get the same limit from can_fit
         assert limit == limits.can_fit(mtype=memory_type.m_global)
+
+
+def test_get_kernel_input_and_output():
+    # make a kernel
+    knl = lp.make_kernel('{[i]: 0 <= i < 2}',
+                         '<> a = 1')
+    assert not len(find_inputs_and_outputs(knl))
+
+    knl = lp.make_kernel('{[i]: 0 <= i < 2}',
+                         '<> a = b[i]',
+                         [lp.GlobalArg('b', shape=(2,))])
+    assert find_inputs_and_outputs(knl) == set(['b'])
+
+    knl = lp.make_kernel('{[i]: 0 <= i < 2}',
+                         '<> a = b[i] + c[i]',
+                         [lp.GlobalArg('b', shape=(2,)),
+                          lp.TemporaryVariable('c', shape=(2,), scope=scopes.GLOBAL)
+                          ])
+    assert find_inputs_and_outputs(knl) == set(['b', 'c'])

@@ -85,6 +85,26 @@ def make_kernel_generator(loopy_opts, *args, **kwargs):
     raise NotImplementedError()
 
 
+def find_inputs_and_outputs(knl):
+    """
+    Convienence method that returns the name of all input/output array's for a given
+    :class:`loopy.LoopKernel`
+
+    Parameters
+    ----------
+    knl: :class:`loopy.LoopKernel`:
+        The kernel to check
+
+    Returns
+    -------
+    inputs_and_outputs: set of str
+        The names of the written / read arrays
+    """
+
+    return (knl.get_read_variables() | knl.get_written_variables()) & \
+        knl.global_var_names()
+
+
 class kernel_generator(object):
 
     """
