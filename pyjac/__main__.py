@@ -1,6 +1,6 @@
 import sys
 
-from . import utils
+from pyjac import utils
 
 
 def main(args=None):

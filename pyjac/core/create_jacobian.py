@@ -12,28 +12,30 @@ from math import log
 from string import Template
 import logging
 import re
-
-# Local imports
-from .. import utils
-from . import mech_interpret as mech
-from . import rate_subs as rate
-from . import mech_auxiliary as aux
-from ..loopy_utils import loopy_utils as lp_utils
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..loopy_utils.loopy_utils import JacobianType, JacobianFormat, \
-    FiniteDifferenceMode
-from . import array_creator as arc
-from ..kernel_utils import kernel_gen as k_gen
-from .reaction_types import reaction_type, falloff_form, thd_body_type
-from . import chem_model as chem
-from . import instruction_creator as ic
-from .array_creator import (global_ind, var_name, default_inds)
-from .rate_subs import assign_rates
+import os
 
 # external
 import numpy as np
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
+
+# Local imports
+from pyjac import utils
+from pyjac.core import mech_interpret as mech
+from pyjac.core import rate_subs as rate
+from pyjac.core import mech_auxiliary as aux
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.loopy_utils import JacobianType, JacobianFormat, \
+    FiniteDifferenceMode, load_platform
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core import array_creator as arc
+from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core import chem_model as chem
+from pyjac.core import instruction_creator as ic
+from pyjac.core.array_creator import (global_ind, var_name, default_inds)
+from pyjac.core.rate_subs import assign_rates
+from pyjac.core.exceptions import IncorrectInputSpecificationException
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
@@ -4702,7 +4704,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
                           var_name=var_name,
                           kernel_data=kernel_data,
                           parameters=parameters,
-                          can_vectorize=loopy_opts.depth is None,
+                          can_vectorize=not bool(loopy_opts.depth),
                           vectorization_specializer=__fixer,
                           extra_inames=extra_inames,
                           manglers=[lp_pregen.fmax(),
@@ -4950,7 +4952,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
 
     # create the specrates subkernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
-                                     mem_limits=mem_limits)
+                                     mem_limits=mem_limits, test_size=test_size)
     sub_kernels = sgen.kernels[:]
     # and finally fix the barriers to account for the sub kernels
     offset = len(sub_kernels)
@@ -5059,7 +5061,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     conp=True, data_filename='data.bin', output_full_rop=False,
                     use_atomics=True, jac_type='exact', jac_format='full',
                     for_validation=False, seperate_kernels=True,
-                    fd_order=1, fd_mode='forward', mem_limits=''
+                    fd_order=1, fd_mode='forward', mem_limits='',
+                    fixed_size=None,
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5165,16 +5168,22 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+    fixed_size: int [None]
+        If specified, this is the number of thermo-chemical states that pyJac
+        should evaluate in the generated source code.  This is most useful for
+        limiting the number of states to one (in order to couple with an external
+        library that that has already been parallelized, e.g., via OpenMP).
+        This setting will also fix array strides as discussed in the documentation,
+        :see:`todo`.
+
     Returns
     -------
     None
 
     """
 
-    # TODO: fix this
-    # for some reason we're getting missing target exceptions from loopy on
-    # cached atomic dtypes
-    import loopy as lp
+    # todo: fix, for some reason loopy yells about broken atomic dtypes
+    # with no target
     lp.set_caching_enabled(False)
 
     lang = lang.lower()
@@ -5183,6 +5192,17 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         logging.error('Language needs to be one of: {}'.format(', '.join(
             utils.langs)))
         sys.exit(2)
+
+    if fixed_size is not None and vector_size is not None:
+        if fixed_size % vector_size:
+            logger.error('Cannot used fixed array size of ({}) which is non-evenly'
+                         'divisible by the vector size: ({})'.format(
+                            fixed_size, vector_size))
+            raise IncorrectInputSpecificationException(['fixed_size', 'vector_size'])
+    if fixed_size is not None:
+        logger.critical('Wrapping (and for OpenMP kernel execution) code is not yet '
+                        'configured to handle fixed array sizes.  Use at your own '
+                        'risk.')
 
     # configure options
     width = None
@@ -5194,12 +5214,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     if wide and deep:
         logger.error('Cannot apply both a wide and deep vectorization at the same '
                      'time')
-        sys.exit(-1)
+        raise IncorrectInputSpecificationException(['wide', 'deep'])
     if vector_size is None and (wide or deep):
         logger.error('Cannot apply {} vectorization without a vector-size, use'
                      'the -v arguement to supply one'.format(
                         'wide' if wide else 'deep'))
-        sys.exit(-1)
+        raise IncorrectInputSpecificationException(['wide', 'deep', 'vector_size'])
 
     # convert enums
     rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(
@@ -5213,6 +5233,34 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         # convert mode
         fd_mode = utils.EnumType(lp_utils.FiniteDifferenceMode)(
             fd_mode.lower())
+
+    # load platform if supplied
+    device = None
+    device_type = None
+    # todo: need to break out the platform & command line spec
+    if platform and os.path.isfile(platform):
+        # todo -- add a copy func to loopy options to avoid this ugliness
+        loopy_opts = load_platform(platform)
+        checks = [(loopy_opts.order, data_order, 'order'),
+                  (loopy_opts.width, width, 'width'),
+                  (loopy_opts.depth, depth, 'depth'),
+                  (loopy_opts.lang, lang, 'lang'),
+                  (loopy_opts.use_atomics, use_atomics, 'use_atomics')]
+        bad_checks = [x for x in checks if x[0] != x[1] and x[1] is not None]
+        if bad_checks:
+            raise Exception('Parameters from supplied code-generation platform: '
+                            '{}, do not match command-line arguements.\n'.format(
+                                platform) + '\n'.join('{}:{}!={}'.format(
+                                    x[-1], x[0], x[1]) for x in bad_checks))
+        # and copy over
+        data_order = loopy_opts.order
+        width = loopy_opts.width
+        depth = loopy_opts.depth
+        lang = loopy_opts.lang
+        use_atomics = loopy_opts.use_atomics
+        platform = loopy_opts.platform
+        device = loopy_opts.device
+        device_type = loopy_opts.device_type
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
@@ -5228,9 +5276,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         use_atomics=use_atomics,
                                         jac_format=jac_format,
                                         jac_type=jac_type,
-                                        seperate_kernels=seperate_kernels)
+                                        seperate_kernels=seperate_kernels,
+                                        device=device,
+                                        device_type=device_type)
 
     # create output directory if none exists
+    build_path = os.path.abspath(build_path)
     utils.create_dir(build_path)
 
     assert mech_name is not None or gas is not None, 'No mechanism specified!'
@@ -5277,17 +5328,17 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     if not skip_jac and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
-                                  mem_limits=mem_limits)
+                                  mem_limits=mem_limits, test_size=fixed_size)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
     elif not skip_jac and jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
-                                         mem_limits=mem_limits)
+                                         mem_limits=mem_limits, test_size=fixed_size)
     else:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop,
-                                        mem_limits=mem_limits)
+                                        mem_limits=mem_limits, test_size=fixed_size)
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,

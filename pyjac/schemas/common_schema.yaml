@@ -1,0 +1,109 @@
+memory-limits:
+    type: dict
+    schema:
+        # limit on total global memory allocation by pyJac
+        global:
+            type: bytestr
+        # limit on total __local/ shared memory allocation by pyJac, only applies to OpenCL /
+        # CUDA
+        local:
+            type: bytestr
+        # limit on total __constant memory allocation by pyJac, only applies to OpenCL / CUDA
+        constant:
+            type: bytestr
+        # limit on the maximum global memory allocation per array by pyJac,
+        alloc:
+            type: bytestr
+        platforms:
+            type: list
+            schema:
+                type: string
+
+# platform for testing, allows multiple values for vectype, width, etc.
+variable-platform:
+    type: dict
+    schema:
+        # platform name
+        name:
+            type: string
+            required: True
+        # language
+        lang:
+            type: string
+            isvalidlang: True
+            required: True
+        # vectorization type
+        vectype:
+            type: list
+            schema:
+                type: string
+                isvectype: True
+            required: True
+        # order
+        order:
+            type: list
+            schema:
+                type: string
+                allowed: ['C', 'F']
+            nullable: True
+            default: ['C', 'F']
+        # vector size
+        vecsize:
+            type: list
+            schema:
+                type: integer
+                isvecsize: True
+            # can only be specifed for wide / deep vecs
+            dependencies: vectype
+        # #If True, the platform / language support atomics for deep-vectorization
+        atomics:
+            type: boolean
+            default: True
+
+# overrides for individual tests
+override:
+    type: dict
+    schema:
+        num_cores:
+            type: list
+            schema:
+                type: integer
+        order:
+            type: list
+            schema:
+                type: string
+                allowed: ['C', 'F']
+        gpuorder:
+            type: list
+            schema:
+                type: string
+                allowed: ['C', 'F']
+        conp:
+            type: list
+            schema:
+                type: string
+                allowed: ['conp', 'conv']
+        vecsize:
+            type: list
+            schema:
+                type: integer
+        # vector size overrides for GPUs
+        gpuvecsize:
+            type: list
+            schema:
+                type: integer
+        vectype:
+            type: list
+            schema:
+                type: string
+                allowed: ['par', 'wide', 'deep']
+        gpuvectype:
+            type: list
+            schema:
+                type: string
+                allowed: ['par', 'wide', 'deep']
+        # allow exclusion of models
+        models:
+            type: list
+            schema:
+                type: string

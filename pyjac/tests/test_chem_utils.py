@@ -1,8 +1,8 @@
 # local imports
-from ..core.rate_subs import polyfit_kernel_gen, assign_rates
-from ..loopy_utils.loopy_utils import kernel_call
-from . import TestClass
-from .test_utils import _generic_tester
+from pyjac.core.rate_subs import polyfit_kernel_gen, assign_rates
+from pyjac.loopy_utils.loopy_utils import kernel_call
+from pyjac.tests import TestClass
+from pyjac.tests.test_utils import _generic_tester
 
 # modules
 from nose.plugins.attrib import attr
@@ -11,7 +11,7 @@ import numpy as np
 
 class SubTest(TestClass):
     def __subtest(self, ref_ans, nicename):
-        def __wrapper(opt, namestore, test_size=None, **kw_args):
+        def __wrapper(opt, namestore, test_size=None, **kwargs):
             return polyfit_kernel_gen(nicename, opt, namestore,
                                       test_size=test_size)
 

@@ -3,16 +3,16 @@
 and indexing / mapping
 """
 
-
 import logging
-import loopy as lp
-import numpy as np
+import six
 import copy
 from string import Template
+
+import loopy as lp
+import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
-from ..loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-import six
+from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 
 
 class array_splitter(object):
@@ -35,7 +35,7 @@ class array_splitter(object):
     def __init__(self, loopy_opts):
         self.depth = loopy_opts.depth
         self.width = loopy_opts.width
-        self.vector_width = self.depth if self.depth is not None else self.width
+        self.vector_width = self.depth if bool(self.depth) else self.width
         self.data_order = loopy_opts.order
         self.is_simd = loopy_opts.is_simd
 
@@ -44,11 +44,11 @@ class array_splitter(object):
         Returns True if there is anything for this :class:`array_splitter` to do
         """
 
-        if self.vector_width is not None:
+        if bool(self.vector_width):
             if self.is_simd:
                 return True
-            return (self.data_order == 'C' and self.width) or (
-                    self.data_order == 'F' and self.depth)
+            return ((self.data_order == 'C' and self.width) or (
+                     self.data_order == 'F' and self.depth))
         return False
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,

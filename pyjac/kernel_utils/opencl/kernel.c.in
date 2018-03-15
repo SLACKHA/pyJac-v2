@@ -181,6 +181,7 @@ void init(size_t per_run, size_t problem_size, cl_uint num_devices, ${knl_args})
             break;
         }
     }
+    cassert(pid != NULL, "Platform not found");
 
     if (device_type != CL_DEVICE_TYPE_GPU)
     {
