@@ -123,14 +123,16 @@ def test_get_kernel_input_and_output():
 
 
 def test_unsimdable():
-    inds = ('i',)
+    from loopy.kernel.array import (VectorArrayDimTag)
+    inds = ('j', 'i')
+    test_size = 16
     for opt in opts_loop():
         # make a kernel via the mapstore / usual methods
         base = creator('base', dtype=np.int32, shape=(10,), order=opt.order,
                        initializer=np.arange(10, dtype=np.int32))
         mstore = MapStore(opt, base, base)
 
-        def __create_var(name, size=(10,)):
+        def __create_var(name, size=(test_size, 10)):
             return creator(name, np.int32, size, opt.order)
 
         # now create different arrays:
@@ -145,7 +147,7 @@ def test_unsimdable():
         # one that is only an affine transform
         affinet = creator('affine', dtype=np.int32, shape=(10,), order=opt.order,
                           initializer=np.arange(2, 12, dtype=np.int32))
-        affinev = __create_var('affinev', (12,))
+        affinev = __create_var('affinev', (test_size, 12))
         mstore.check_and_add_transform(affinev, affinet)
 
         # and one that is a child of the affine transform
@@ -153,7 +155,7 @@ def test_unsimdable():
                            initializer=np.arange(4, 14, dtype=np.int32))
         mstore.check_and_add_transform(affinet2, affinet)
         # and add a child to it
-        affinev2 = __create_var('affinev2', (14,))
+        affinev2 = __create_var('affinev2', (test_size, 14))
         mstore.check_and_add_transform(affinev2, affinet2)
 
         # and finally, a child of the map transform
@@ -184,9 +186,9 @@ def test_unsimdable():
         # create a dummy kgen
         kgen = make_kernel_generator(opt, 'test', [info],
                                      type('namestore', (object,), {'jac': 0}),
-                                     test_size=16)
+                                     test_size=test_size)
 
-        # make kernks
+        # make kernels
         kgen._make_kernels()
 
         # and call simdable
@@ -197,3 +199,18 @@ def test_unsimdable():
             assert sorted(cant_simd) == [mapt2.name, map_lp.name, map2_lp.name]
         else:
             assert cant_simd == []
+
+        # make sure we can generate code
+        lp.generate_code_v2(kgen.kernels[0]).device_code()
+
+        if not kgen.array_split.vector_width:
+            continue
+
+        # check that we've vectorized all arrays
+        assert all(len(arr.shape) == 3 for arr in kgen.kernels[0].args)
+
+        # get the split axis
+        _, _, split_axis = kgen.array_split.split_shape(affine_lp)
+
+        assert all(isinstance(arr.dim_tags[split_axis], VectorArrayDimTag)
+                   for arr in kgen.kernels[0].args if arr.name not in cant_simd)

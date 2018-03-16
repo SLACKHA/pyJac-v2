@@ -164,7 +164,7 @@ class array_splitter(object):
 
         return kernel
 
-    def split_loopy_arrays(self, kernel):
+    def split_loopy_arrays(self, kernel, cant_simd=[]):
         """
         Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
         to conform to this split pattern
@@ -173,6 +173,9 @@ class array_splitter(object):
         ----------
         kernel : `loopy.LoopKernel`
             The kernel to apply the splits to
+        cant_simd: list of str
+            List of array names that should be split, but not have a 'vec' tag
+            applied
 
         Returns
         -------
@@ -180,7 +183,7 @@ class array_splitter(object):
             The kernel with the array splittings applied
         """
 
-        if not self._have_split() and not self.is_simd:
+        if not self._have_split():
             return kernel
 
         for array_name, arr in [(x.name, x) for x in kernel.args
@@ -189,7 +192,7 @@ class array_splitter(object):
             if self.data_order == 'C' and self.width:
                 split_axis = 0
                 dest_axis = len(arr.shape)
-            elif self.data_order:
+            elif self.data_order == 'C':
                 split_axis = len(arr.shape) - 1
                 dest_axis = len(arr.shape)
             elif self.data_order == 'F' and self.depth:
@@ -201,7 +204,8 @@ class array_splitter(object):
 
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, dest_axis,
-                self.vector_width, self.data_order, self.is_simd)
+                self.vector_width, self.data_order, self.is_simd
+                and array_name not in cant_simd)
 
         return kernel
 

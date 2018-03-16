@@ -13,6 +13,7 @@ import six
 from six.moves import reduce
 
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
 from loopy.kernel.data import temp_var_scope as scopes
 import pyopencl as cl
 import numpy as np
@@ -446,9 +447,17 @@ class kernel_generator(object):
                 vecspec=info.vectorization_specializer,
                 can_vectorize=info.can_vectorize)
 
+            cant_simd = []
+            if self.loopy_opts.is_simd:
+                # if SIMD we need to determine whether we can actually vectorize
+                # the arrays in this kernel (sometimes we must leave them as)
+                # unrolled vectors accesses
+                cant_simd = _unSIMDable_arrays(self.kernels[i], self.loopy_opts,
+                                               info.mapstore)
+
             # update the kernel args
             self.kernels[i] = self.array_split.split_loopy_arrays(
-                self.kernels[i])
+                self.kernels[i], cant_simd)
 
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
