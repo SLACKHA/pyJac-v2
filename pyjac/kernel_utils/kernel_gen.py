@@ -146,7 +146,7 @@ def _unSIMDable_arrays(knl, loopy_opts, mstore, warn=True):
     for ary, owner in zip(io, owners):
         # see if we can get from the owner to the absolute root without encountering
         # any non-affine transforms
-        while owner != mstore.absolute_root:
+        while owner and owner != mstore.absolute_root:
             if not owner.domain_transform.affine:
                 cant_simd.append(ary)
                 break
