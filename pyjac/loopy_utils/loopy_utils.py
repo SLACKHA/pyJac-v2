@@ -268,10 +268,10 @@ class loopy_options(object):
     @property
     def limit_int_overflow(self):
         """
-        Deals with issue of integer overflow in Intel OpenCL array indexing
+        Deals with issue of integer overflow in array indexing
         """
-        if 'intel' in self.platform_name.lower():
-            return True
+        return self.lang == 'c' or self.lang == 'opencl' and \
+            'intel' in self.platform_name.lower()
 
     def raise_on_broken(self):
         # Currently, NVIDIA w/ neither deep nor wide-vectorizations (
