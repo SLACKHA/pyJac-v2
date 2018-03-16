@@ -105,6 +105,60 @@ def find_inputs_and_outputs(knl):
         knl.global_var_names()
 
 
+def _unSIMDable_arrays(knl, loopy_opts, mstore, warn=True):
+    """
+    Determined which  inputs / outputs are directly indexed with the base iname,
+    or whether a map was applied.  In the latter case it is not safe to convert
+    the array to a true vectorize access, as we have no guarentee that the
+    index can be converted into an integer access
+
+    Parameters
+    ----------
+    knl: :class:`loopy.LoopKernel`
+        The loopy kernel to check
+    loopy_opts: :class:`LoopyOptions`
+        the loopy options object
+    mstore: :class:`pyjac.core.array_creator.mapstore`
+        The mapstore created for the kernel
+    warn: bool [True]
+        If true, fire off a warning of the arrays that could not be vectorized
+
+    Returns
+    -------
+    unsimdable: list of str
+        List of array names that cannot be safely converted to SIMD
+
+    """
+
+    if not loopy_opts.depth:
+        # can convert all arrays to SIMD
+        return []
+
+    # this is test is made quite easy by checking the mapstore's tree
+
+    # first, get all inputs / outputs
+    io = find_inputs_and_outputs(knl)
+
+    # check each array
+    owners = arc.search_tree(mstore.absolute_root, io)
+    cant_simd = []
+    for ary, owner in zip(io, owners):
+        # see if we can get from the owner to the absolute root without encountering
+        # any non-affine transforms
+        while owner != mstore.absolute_root:
+            if not owner.domain_transform.affine:
+                cant_simd.append(ary)
+                break
+            owner = owner.parent
+
+    if cant_simd and warn:
+        logger = logging.getLogger(__name__)
+        logger.warn('Arrays ({}) could not be fully vectorized. '
+                    'You might achieve better performance by applying mechanism '
+                    'sorting.'.format(utils.stringify_args(cant_simd)))
+    return cant_simd
+
+
 class kernel_generator(object):
 
     """

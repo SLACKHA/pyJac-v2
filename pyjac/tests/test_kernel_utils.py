@@ -4,35 +4,39 @@ from __future__ import division
 from tempfile import NamedTemporaryFile
 from collections import OrderedDict
 import re
+from string import Template
 
 import loopy as lp
 import numpy as np
 from optionloop import OptionLoop
 from parameterized import parameterized
 from loopy.kernel.data import temp_var_scope as scopes
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+from pytools.py_codegen import remove_common_indentation
 
-from pyjac.core.array_creator import array_splitter, problem_size
+from pyjac.core.array_creator import array_splitter, problem_size, MapStore, creator
 from pyjac.kernel_utils.memory_manager import memory_limits, memory_type, \
   memory_manager
 from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
-    LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+    _unSIMDable_arrays, knl_info, make_kernel_generator
+from pyjac.loopy_utils import loopy_options
 
 
-def loopy_opts(langs=['opencl'],
-               width=[4, None],
-               depth=[4, None],
-               order=['C', 'F']):
+def opts_loop(langs=['opencl'],
+              width=[4, None],
+              depth=[4, None],
+              order=['C', 'F']):
 
     oploop = OptionLoop(OrderedDict(
         [('lang', langs),
          ('width', width),
          ('depth', depth),
          ('order', order),
-         ('is_simd', False)]))
+         ('device_type', 'CPU')]))
     for state in oploop:
         if state['depth'] and state['width']:
             continue
-        yield type('', (object,), state)
+        yield loopy_options(**state)
 
 
 @parameterized([(np.int32,), (np.int64,)])
@@ -48,7 +52,7 @@ def test_stride_limiter(dtype):
     arry_name = 'a'
     extractor = re.compile(r'{}\[(.+)\] = i'.format(arry_name))
     dim_size = 1000000
-    for opt in loopy_opts():
+    for opt in opts_loop():
         split = array_splitter(opt)
         # create a really big loopy array
         ary = lp.GlobalArg(arry_name, shape=(problem_size.name, dim_size),
@@ -116,3 +120,80 @@ def test_get_kernel_input_and_output():
                           lp.TemporaryVariable('c', shape=(2,), scope=scopes.GLOBAL)
                           ])
     assert find_inputs_and_outputs(knl) == set(['b', 'c'])
+
+
+def test_unsimdable():
+    inds = ('i',)
+    for opt in opts_loop():
+        # make a kernel via the mapstore / usual methods
+        base = creator('base', dtype=np.int32, shape=(10,), order=opt.order,
+                       initializer=np.arange(10, dtype=np.int32))
+        mstore = MapStore(opt, base, base)
+
+        def __create_var(name, size=(10,)):
+            return creator(name, np.int32, size, opt.order)
+
+        # now create different arrays:
+
+        # one that will cause a map transform
+        mapt = creator('map', dtype=np.int32, shape=(10,), order=opt.order,
+                       initializer=np.array(list(range(0, 3)) + list(range(4, 11)),
+                       np.int32))
+        mapv = __create_var('mapv')
+        mstore.check_and_add_transform(mapv, mapt)
+
+        # one that is only an affine transform
+        affinet = creator('affine', dtype=np.int32, shape=(10,), order=opt.order,
+                          initializer=np.arange(2, 12, dtype=np.int32))
+        affinev = __create_var('affinev', (12,))
+        mstore.check_and_add_transform(affinev, affinet)
+
+        # and one that is a child of the affine transform
+        affinet2 = creator('affine2', dtype=np.int32, shape=(10,), order=opt.order,
+                           initializer=np.arange(4, 14, dtype=np.int32))
+        mstore.check_and_add_transform(affinet2, affinet)
+        # and add a child to it
+        affinev2 = __create_var('affinev2', (14,))
+        mstore.check_and_add_transform(affinev2, affinet2)
+
+        # and finally, a child of the map transform
+        mapt2 = creator('map2', dtype=np.int32, shape=(10,), order=opt.order,
+                        initializer=np.array(list(range(0, 2)) + list(range(3, 11)),
+                        np.int32))
+        mstore.check_and_add_transform(mapt2, mapt)
+        # and a child
+        mapv2 = __create_var('mapv2')
+        mstore.check_and_add_transform(mapv2, mapt2)
+
+        # now create an kernel info
+        affine_lp, affine_str = mstore.apply_maps(affinev, *inds)
+        affine2_lp, affine2_str = mstore.apply_maps(affinev2, *inds)
+        map_lp, map_str = mstore.apply_maps(mapv, *inds)
+        map2_lp, map2_str = mstore.apply_maps(mapv2, *inds)
+
+        instructions = Template(remove_common_indentation("""
+        ${affine_str} = 0
+        ${affine2_str} = 0
+        ${map_str} = 0
+        ${map2_str} = 0
+        """)).safe_substitute(**locals())
+
+        info = knl_info('test', instructions, mstore, kernel_data=[
+            affine_lp, affine2_lp, map_lp, map2_lp])
+
+        # create a dummy kgen
+        kgen = make_kernel_generator(opt, 'test', [info],
+                                     type('namestore', (object,), {'jac': 0}),
+                                     test_size=16)
+
+        # make kernks
+        kgen._make_kernels()
+
+        # and call simdable
+        cant_simd = _unSIMDable_arrays(kgen.kernels[0], opt, mstore,
+                                       warn=False)
+
+        if opt.depth:
+            assert sorted(cant_simd) == [mapt2.name, map_lp.name, map2_lp.name]
+        else:
+            assert cant_simd == []
