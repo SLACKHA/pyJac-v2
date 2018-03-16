@@ -13,6 +13,7 @@ import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
 from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.utils import listify
 
 
 class array_splitter(object):
@@ -427,6 +428,10 @@ class tree_node(object):
         else:
             self._iname = value
 
+    @property
+    def name(self):
+        return self.domain.name
+
     def set_transform(self, iname, insn, domain_transform):
         self.iname = iname
         self.insn = insn
@@ -456,6 +461,31 @@ class tree_node(object):
             self.__add_to_owner(child)
 
         return child
+
+    def has_children(self, arrays):
+        """
+        Checks whether an array is present in this :class:`tree_node`'s children
+
+        Parameters
+        ----------
+        arrays: str, or :class:`creator`, or list of str/:class:`creator`
+            The arrays to check for
+
+        Returns
+        -------
+        present: list of bool
+            True if array is present in children
+        """
+
+        arrays = [ary.name if isinstance(ary, creator) else ary
+                  for ary in listify(arrays)]
+        assert all(isinstance(x, str) for x in arrays)
+
+        present = []
+        for ary in arrays:
+            child = next((x for x in self.children if x.name == ary), None)
+            present.append(bool(child))
+        return present
 
     def __repr__(self):
         return ', '.join(['{}'.format(x) for x in
