@@ -804,6 +804,33 @@ def test_tree_node_children():
         mstore.domain_to_nodes[c2], mstore.domain_to_nodes[c3], None]
 
 
+def test_absolute_root():
+    lp_opt = _dummy_opts('map')
+    # create mapstore
+    c = arc.creator('c', np.int32, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=np.int32))
+    mstore = arc.MapStore(lp_opt, c, c, 'i')
+
+    # add children
+    c2 = arc.creator('c2', np.int32, (10,), 'C',
+                     initializer=np.arange(10, dtype=np.int32))
+    x = __create_var('x')
+    mstore.check_and_add_transform(x, c2, 'i')
+
+    assert mstore.absolute_root == mstore.domain_to_nodes[c] and \
+        mstore.absolute_root.name == 'c'
+
+    # force input map
+    c3 = arc.creator('c3', np.int32, (10,), 'C',
+                     initializer=np.array(list(range(4)) + list(range(6, 12)),
+                                          dtype=np.int32))
+    x2 = __create_var('x2')
+    mstore.check_and_add_transform(x2, c3, 'i')
+    mstore.finalize()
+    assert mstore.absolute_root != mstore.domain_to_nodes[c] and \
+        mstore.absolute_root.name == 'c_map'
+
+
 class SubTest(TestClass):
     @attr('long')
     def test_namestore_init(self):

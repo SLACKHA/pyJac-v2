@@ -660,6 +660,17 @@ class MapStore(object):
 
         self.have_input_map = True
 
+    @property
+    def absolute_root(self):
+        """
+        Returns the :class:`MapStore`'s :attr:`tree`, if the store has no input map,
+        else the parent of the tree
+
+        A convenience method to get the true root of the tree
+        """
+
+        return self.tree.parent if self.have_input_map else self.tree
+
     def _create_transform(self, node, transform, affine=None):
         """
         Creates a transform from the :class:`tree_node` node based on
