@@ -798,6 +798,11 @@ def test_tree_node_children():
     assert mstore.domain_to_nodes[c2].has_children([x, x2]) == [True, False]
     assert mstore.domain_to_nodes[c3].has_children([x, x2]) == [False, True]
 
+    # and finally check the tree search
+    x3 = __create_var('x3')
+    assert arc.search_tree(mstore.tree.parent, [x, x2, x3]) == [
+        mstore.domain_to_nodes[c2], mstore.domain_to_nodes[c3], None]
+
 
 class SubTest(TestClass):
     @attr('long')

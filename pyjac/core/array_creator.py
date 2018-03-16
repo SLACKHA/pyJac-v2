@@ -492,6 +492,43 @@ class tree_node(object):
                           (self.domain.name, self.iname, self.insn)])
 
 
+def search_tree(root, arrays):
+    """
+    Searches the tree from the root supplied to see which tree node's (if any)
+    the list of arrays are children of
+
+    Parameters
+    ----------
+    root: :class:`tree_node`
+        The root of the tree to search
+    arrays: str, or :class:`creator`, or list of str/:class:`creator`
+        The arrays to search for
+
+    Returns
+    -------
+    parents: list of :class:`tree_node`
+        A list of tree node's who are the parents of the supplied arrays
+        If the array is not found, then the corresponding parent will be None
+    """
+
+    assert isinstance(root, tree_node), (
+        "Can't start tree search from type {}, an instance of :class:`tree_node` "
+        "expected.")
+    # first, check the root level
+    parents = root.has_children(arrays)
+    parents = [root if p else None for p in parents]
+
+    # now call recursively for the not-found arrays
+    missing_inds, missing = list(zip(*enumerate(arrays)))
+    for child in [c for c in root.children if isinstance(c, tree_node)]:
+        found = search_tree(child, missing)
+        for i, f in enumerate(found):
+            if f is not None:
+                parents[missing_inds[i]] = f
+
+    return parents
+
+
 class domain_transform(object):
 
     """
