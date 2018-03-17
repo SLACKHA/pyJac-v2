@@ -70,6 +70,9 @@ def load_memory_limits(input_file, schema='common_schema.yaml'):
             memory_limits = build_and_validate('test_matrix_schema.yaml', input_file,
                                                allow_unknown=True)
             return [__limitfy(x) for x in memory_limits['memory-limits']]
+        except KeyError:
+            # no limits
+            pass
 
     return {}
 
