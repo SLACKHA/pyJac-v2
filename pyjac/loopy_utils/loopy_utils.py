@@ -271,7 +271,8 @@ class loopy_options(object):
         Deals with issue of integer overflow in array indexing
         """
         return self.lang == 'c' or self.lang == 'opencl' and \
-            'intel' in self.platform_name.lower()
+            ('intel' in self.platform_name.lower() or
+             'portable' in self.platform_name.lower())
 
     def raise_on_broken(self):
         # Currently, NVIDIA w/ neither deep nor wide-vectorizations (

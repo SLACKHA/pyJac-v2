@@ -219,8 +219,7 @@ class memory_limits(object):
                     logger.warn(
                         'Allocation of {} memory array {}'
                         ' may result in integer overflow in indexing, and '
-                        'cause OpenCL (particularly, Intel) to fail on '
-                        'execution, limiting per-run size.'
+                        'cause failure on execution, limiting per-run size. '
                         'Note: only the first such array will be displayed '
                         'there may be more arrays that would result in '
                         'overflow.'

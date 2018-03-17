@@ -39,6 +39,7 @@ Schemas:
 Near-term plans:
   ☐ Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
   ☐ Tag pre-print version
+  ☐ Switch to int64 to avoid overflow limiting
   ☐ Unify the command-line flags w/ the oploops for the test-matrix to make that more sane
   ☐ In this vein, change the text matrix to an object that can be coerced from yaml input directly via ceberus
   ☐ Simplify split vector size division to right-shift and test
