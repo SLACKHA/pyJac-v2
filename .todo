@@ -37,12 +37,15 @@ Schemas:
 
 
 Near-term plans:
-  ☐ Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
+  🗹 Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
   ☐ Tag pre-print version
+  ☐ explict-simd
+  ☐ mechanism sorting
+  ☐ Change data pre-allocation for non-inputs / outputs to only use vector-size * num_threads * array size
+    ☐ Along these lines, allow for fixed-size allocations / fully implement "interface" mode for Hekki
   ☐ Unify the command-line flags w/ the oploops for the test-matrix to make that more sane
   ☐ In this vein, change the text matrix to an object that can be coerced from yaml input directly via ceberus
   ☐ Simplify split vector size division to right-shift and test
-  ☐ Fully implement "interface" mode for Hekki
   ☐ Fix linting errors
   ☐ Interface with Chris' RK / ROS solvers for accelerInt
   ☐ Build Sandia Flame model w/ OpenFOAM (https://openfoamwiki.net/images/8/8a/Christ_OFW6_slides.pdf)
