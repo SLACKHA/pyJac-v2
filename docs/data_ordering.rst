@@ -39,6 +39,8 @@ phi = np.copy(phi, order='F')
 .. _numpy: http://numpy.org
 .. _interface_vs_exe: `Difference between Interface and Executable Libraries`
 
+.. _vector_split:
+
 =================================================================
 Data Ordering for Calling pyJac from Other Codes (Interface Mode)
 =================================================================

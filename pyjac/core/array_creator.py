@@ -45,12 +45,123 @@ class array_splitter(object):
         Returns True if there is anything for this :class:`array_splitter` to do
         """
 
-        if bool(self.vector_width):
+        if self.vector_width:
             if self.is_simd:
                 return True
             return ((self.data_order == 'C' and self.width) or (
                      self.data_order == 'F' and self.depth))
         return False
+
+    def _should_split(self, array):
+        """
+        Returns True IFF this array should result in a split, the current criteria
+        are:
+
+        1) the array's at least 2-D
+        2) we have a vector width, and we're using explicit SIMD
+
+        Note: this assumes that :func:`_have_split` has been called previously (
+        and passed)
+
+        """
+
+        return len(array.shape) >= 2 or (self.vector_width and self.is_simd)
+
+    def split_and_vec_axes(self, array):
+        """
+        Determine the axis that should be split, and the destination of the vector
+        axis for the given array and :attr:`data_order` \ :attr:`width` \
+        :attr:`depth`
+
+        Parameters
+        ----------
+        array: :class:`numpy.ndarray` or :class:`loopy.ArrayBase`
+            The array to split
+
+        Notes
+        -----
+        Does not take into account whether the array should be split, see:
+            :func:`have_split`, :func:`should_split`
+
+        Returns
+        -------
+        split_axis:
+            the axis index to be split
+        vec_axis:
+            the destination index of the vector axis
+        """
+
+        if self.data_order == 'C' and self.width:
+            split_axis = 0
+            vec_axis = len(array.shape)
+        elif self.data_order == 'C':
+            split_axis = len(array.shape) - 1
+            vec_axis = len(array.shape)
+        elif self.data_order == 'F' and self.depth:
+            split_axis = len(array.shape) - 1
+            vec_axis = 0
+        else:
+            split_axis = 0
+            vec_axis = 0
+
+        return split_axis, vec_axis
+
+    def split_shape(self, array):
+        """
+        Returns the array shape that would result from splitting the supplied array
+
+        Parameters
+        ----------
+        array: :class:`numpy.ndarray` (or object w/ attribute shape)
+
+        Returns
+        -------
+        shape: tuple of int
+            The resulting split array shape
+        grow_axis: int
+            The integer index of the axis corresponding to the initial conditions,
+            see :ref:`vector_split`
+        vec_axis: int
+            The integer index of the vector axis, if present.
+            If there is no split, this will be None, see :ref:`vector_split`
+        """
+
+        grow_axis = 0
+        vec_axis = None
+        shape = tuple(x for x in array.shape)
+        if not self._have_split():
+            return shape, grow_axis, vec_axis
+
+        vector_width = None
+        if self._should_split(array):
+            # the grow axis is one IFF it's a F-ordered deep-split
+            grow_axis = 1 if self.data_order == 'F' else 0
+            split_axis, vec_axis = self.split_and_vec_axes(array)
+            vector_width = self.depth if self.depth else self.width
+            assert vector_width
+            new_shape = [-1] * (len(shape) + 1)
+
+            # the vector axis is of size vector_width
+            new_shape[vec_axis] = vector_width
+
+            def __index(i):
+                if i < vec_axis:
+                    return i
+                else:
+                    return i + 1
+
+            for i in range(len(shape)):
+                if i == split_axis:
+                    # the axis that is split is divided by the vector width
+                    new_shape[__index(i)] = int(
+                        np.ceil(shape[i] / float(vector_width)))
+                else:
+                    # copy old shape
+                    new_shape[__index(i)] = shape[i]
+
+            shape = tuple(new_shape)
+
+        return shape, grow_axis, vec_axis
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
                                 count, order='C', vec=False):
@@ -188,22 +299,11 @@ class array_splitter(object):
 
         for array_name, arr in [(x.name, x) for x in kernel.args
                                 if isinstance(x, lp.GlobalArg)
-                                and len(x.shape) >= 2]:
-            if self.data_order == 'C' and self.width:
-                split_axis = 0
-                dest_axis = len(arr.shape)
-            elif self.data_order == 'C':
-                split_axis = len(arr.shape) - 1
-                dest_axis = len(arr.shape)
-            elif self.data_order == 'F' and self.depth:
-                split_axis = len(arr.shape) - 1
-                dest_axis = 0
-            else:
-                split_axis = 0
-                dest_axis = 0
+                                and self._should_split(x)]:
+            split_axis, vec_axis = self.split_and_vec_axes(arr)
 
             kernel = self._split_array_axis_inner(
-                kernel, array_name, split_axis, dest_axis,
+                kernel, array_name, split_axis, vec_axis,
                 self.vector_width, self.data_order, self.is_simd
                 and array_name not in cant_simd)
 
@@ -224,7 +324,7 @@ class array_splitter(object):
             The properly split / resized numpy array
         """
 
-        if not self._have_split() or len(input_array.shape) <= 1:
+        if not self._have_split() or not self._should_split(input_array):
             return input_array
 
         def _split_and_pad(arr, axis, width, ax_trans):
@@ -280,64 +380,6 @@ class array_splitter(object):
             return {k: self._split_numpy_array(v) for k, v in six.iteritems(arrays)}
 
         return [self._split_numpy_array(a) for a in arrays]
-
-    def split_shape(self, array):
-        """
-        Returns the array shape that would result from splitting the supplied array
-
-        Parameters
-        ----------
-        array: :class:`numpy.ndarray` (or object w/ attribute shape)
-
-        Returns
-        -------
-        shape: tuple of int
-            The resulting split array shape
-        grow_axis: int
-            The integer value of the axis corresponding to the initial conditions
-            Note: for a C-Split, this corresponds to the axis that would grow
-            if _more_ initial conditions were added, not the vector width
-        split_axis: int
-            The integer value of the split axis, if present
-            If there is no split, this will be None
-        """
-
-        grow_axis = 0
-        split_axis = None
-        shrink_axis = None
-        shape = tuple(x for x in array.shape)
-        vector_width = None
-        if self._have_split() and self.data_order == 'C':
-            split_axis = -1
-            shrink_axis = 0
-            vector_width = self.width
-        elif self._have_split() and self.data_order == 'F':
-            split_axis = 0
-            grow_axis = 1
-            shrink_axis = -1
-            vector_width = self.depth
-        if vector_width:
-            # need to fix shape
-            new_shape = [-1] * (len(shape) + 1)
-            copy_ind = 0
-            for i in range(len(new_shape)):
-                if i == split_axis or (split_axis == -1 and i == len(new_shape) - 1):
-                    # the split axis becomes the size of the vector width
-                    new_shape[i] = vector_width
-                elif i == shrink_axis or (
-                        shrink_axis == -1 and i == len(new_shape) - 1):
-                    # the shring axis is divided in size by the vector width
-                    new_shape[i] = int(
-                        np.ceil(shape[shrink_axis] / float(vector_width)))
-                    copy_ind += 1
-                else:
-                    # copy old shape
-                    new_shape[i] = shape[copy_ind]
-                    copy_ind += 1
-            shape = tuple(new_shape)
-            assert not any(x == -1 for x in shape)
-
-        return shape, grow_axis, split_axis
 
 
 problem_size = lp.ValueArg('problem_size', dtype=np.int32)
@@ -1131,8 +1173,7 @@ class MapStore(object):
         return copy.deepcopy(self)
 
     def generate_transform_instruction(self, oldname, newname, map_arr,
-                                       affine='',
-                                       force_inline=False):
+                                       affine='', force_inline=False):
         """
         Generates a loopy instruction that maps oldname -> newname via the
         mapping array (non-affine), or a simple affine transformation

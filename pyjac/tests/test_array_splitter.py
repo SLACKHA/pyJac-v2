@@ -2,16 +2,18 @@ from __future__ import division
 
 import numpy as np
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
 
 from pyjac.core.array_creator import array_splitter
 from pyjac.core.instruction_creator import get_deep_specializer
 
 
 class dummy_loopy_opts(object):
-    def __init__(self, depth=None, width=None, order='C'):
+    def __init__(self, depth=None, width=None, order='C', is_simd=False):
         self.depth = depth
         self.width = width
         self.order = order
+        self.is_simd = is_simd
 
 
 def __internal(asplit, shape, order='C', wide=8):
@@ -229,7 +231,7 @@ def test_get_split_shape():
             split = 0
         else:
             grow = 0
-            split = -1
+            split = len(shape)
 
         sh, gr, sp = asplit.split_shape(arr)
         assert gr == grow
