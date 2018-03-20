@@ -299,11 +299,18 @@ class loopy_options(object):
             True if we should attempt to explicitly vectorize the data / arrays
         """
 
-        if utils.can_vectorize_lang[self.lang]:
-            if self.lang == 'opencl':
-                return self.device_type != cl.device_type.GPU
-            return True
-        return False
+        if not (self.width or self.depth):
+            return False
+
+        # currently SIMD is enabled only wide-CPU vectorizations (
+        # deep-vectorizations will require further loopy upgrades)
+
+        if not self.width:
+            return False
+
+        if self.lang == 'opencl':
+            return self.device_type != cl.device_type.GPU
+        return True
 
     @property
     def has_scatter(self):

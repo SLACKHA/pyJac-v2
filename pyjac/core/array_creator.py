@@ -65,7 +65,7 @@ class array_splitter(object):
 
         """
 
-        return len(array.shape) >= 2 or (self.vector_width and self.is_simd)
+        return len(array.shape) >= 2 or self.is_simd
 
     def split_and_vec_axes(self, array):
         """
