@@ -136,7 +136,7 @@ def __internal(asplit, shape, order='C', width=None, depth=None):
     assert np.array_equal(ans, arr)
 
 
-def np_ary_split_doc(func, num, params):
+def _split_doc(func, num, params):
     return "{}: {} with [width={}, depth={}, order={}]".format(
         num, func.__name__, *params[0])
 
@@ -146,7 +146,7 @@ def np_ary_split_doc(func, num, params):
     param(None, 8, 'C', is_simd=True),
     param(8, None, 'F', is_simd=True),
     param(None, 8, 'F')],
-    doc_func=np_ary_split_doc,
+    doc_func=_split_doc,
 )
 def test_npy_array_splitter(width, depth, order, is_simd=False):
     # create opts
@@ -283,48 +283,36 @@ def test_atomic_deep_vec_with_small_split():
     __test(16, 8)
 
 
-def test_get_split_shape():
+@parameterized([
+    param(8, None, 'C'),
+    param(None, 8, 'C', is_simd=True),
+    param(8, None, 'F', is_simd=True),
+    param(None, 8, 'F')],
+    doc_func=_split_doc,
+)
+def test_get_split_shape(width, depth, order, is_simd=False):
     # create opts
-    opts = dummy_loopy_opts(depth=8, order='F')
+    opts = dummy_loopy_opts(width=width, depth=depth, order=order, is_simd=is_simd)
 
     # create array split
     asplit = array_splitter(opts)
 
     def __test(splitter, shape):
+        # make a dummy array
         arr = np.zeros(shape)
-        if splitter.data_order == 'F' and splitter.depth:
-            grow = 1
-            split = 0
-        else:
-            grow = 0
-            split = len(shape)
-
-        sh, gr, sp = asplit.split_shape(arr)
-        assert gr == grow
-        assert sp == split
+        # get the split shape
+        sh, gr, vec = asplit.split_shape(arr)
+        # first -- test against numpy splitter to ensure we get the right shape
         assert sh == asplit.split_numpy_arrays(arr)[0].shape
 
-    # test with small square
-    __test(asplit, (10, 10))
+        # next, the "grow" axis is either the first axis ("C") or the second axis
+        # for "F"
+        grow = order == 'F'
+        assert gr == grow
 
-    # now test with evenly sized
-    __test(asplit, (16, 16))
-
-    # finally, try with 3d arrays
-    __test(asplit, (10, 10, 10))
-    __test(asplit, (16, 16, 16))
-
-    # and finally test with some randomly sized arrays
-    for i in range(50):
-        shape = np.random.randint(1, 12, size=np.random.randint(2, 5))
-        __test(asplit, shape)
-
-    # now repeat with C split
-    # create opts
-    opts = dummy_loopy_opts(width=8, order='C')
-
-    # create array split
-    asplit = array_splitter(opts)
+        # and the vec_axis is in front if 'F' else in back
+        vec_axis = len(shape) if order == 'C' else 0
+        assert vec == vec_axis
 
     # test with small square
     __test(asplit, (10, 10))
