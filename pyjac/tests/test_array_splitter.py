@@ -137,8 +137,11 @@ def __internal(asplit, shape, order='C', width=None, depth=None):
 
 
 def _split_doc(func, num, params):
-    return "{}: {} with [width={}, depth={}, order={}]".format(
-        num, func.__name__, *params[0])
+    test = '_helper_for_'
+    name = func.__name__
+    if test in name:
+        name = name[name.index(test) + len(test):]
+    return "{} with: [width={}, depth={}, order={}]".format(name, *params[0])
 
 
 @parameterized([
@@ -170,7 +173,7 @@ def test_npy_array_splitter(width, depth, order, is_simd=False):
     _test((16, 16, 16))
 
 
-def _create(order='C', target=lp.ExecutableCTarget()):
+def _create(order='C'):
     # create a test kernel
     arg1 = lp.GlobalArg('a1', shape=(10, 10), order=order)
     arg2 = lp.GlobalArg('a2', shape=(16, 16), order=order)
@@ -181,70 +184,61 @@ def _create(order='C', target=lp.ExecutableCTarget()):
             a1[0, i] = 1 {id=a1}
             a2[0, i] = 1 {id=a2}
         """,
-        [arg1, arg2],
-        target=target)
+        [arg1, arg2])
 
 
-def test_lpy_array_splitter_c_wide():
-    from pymbolic.primitives import Subscript, Variable
+@parameterized([
+    param(8, None, 'C'),
+    param(None, 8, 'C', is_simd=True),
+    param(8, None, 'F', is_simd=True),
+    param(None, 8, 'F')],
+    doc_func=_split_doc,
+)
+def test_lpy_array_splitter(width, depth, order, is_simd=False):
+    from pymbolic.primitives import Subscript, Variable, Product, Sum
 
     # create opts
-    opts = dummy_loopy_opts(width=8, order='C')
+    opts = dummy_loopy_opts(width=width, depth=depth, order=order, is_simd=is_simd)
 
     # create array split
     asplit = array_splitter(opts)
 
-    k = lp.split_iname(_create('C'), 'i', 8)
+    k = lp.split_iname(_create(order), 'i', 8,
+                       inner_tag='l.0' if not is_simd else 'vec')
+    a1_hold = k.arg_dict['a1'].copy()
+    a2_hold = k.arg_dict['a2'].copy()
     k = asplit.split_loopy_arrays(k)
 
-    # test that it runs
-    k()
+    # ensure there's no loopy errors
+    lp.generate_code_v2(k).device_code()
 
-    # check dim and shape
-    a1 = next(x for x in k.args if x.name == 'a1')
-    assert a1.shape == (2, 10, 8)
-    # and indexing
-    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
-    assert isinstance(assign, Subscript) and assign.index == (
-        0, Variable('i_inner') + Variable('i_outer') * 8, 0)
+    def __indexer():
+        if order == 'C':
+            if width:
+                return (0, Variable('i_inner') + Variable('i_outer') * 8, 0)
+            else:
+                return (0, Variable('i_outer'), Variable('i_inner'))
+        else:
+            if width:
+                return (0, 0, Sum((
+                    Variable('i_inner'), Product((Variable('i_outer'), 8)))))
 
-    # now test with evenly sized
-    a2 = next(x for x in k.args if x.name == 'a2')
-    assert a2.shape == (2, 16, 8)
-    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
-    assert isinstance(assign, Subscript) and assign.index == (
-        0, Variable('i_inner') + Variable('i_outer') * 8, 0)
-
-
-def test_lpy_array_splitter_f_deep():
-    from pymbolic.primitives import Subscript, Variable
-
-    # create opts
-    opts = dummy_loopy_opts(depth=8, order='F')
-
-    # create array split
-    asplit = array_splitter(opts)
-
-    k = lp.split_iname(_create('F'), 'i', 8)
-    k = asplit.split_loopy_arrays(k)
-
-    # test that it runs
-    k()
+            else:
+                return (Variable('i_inner'), 0, Variable('i_outer'))
 
     # check dim
-    a1 = next(x for x in k.args if x.name == 'a1')
-    assert a1.shape == (8, 10, 2)
+    a1 = k.arg_dict['a1']
+    assert a1.shape == asplit.split_shape(a1_hold)[0]
     # and indexing
     assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
-    assert isinstance(assign, Subscript) and assign.index == (
-        Variable('i_inner'), 0, Variable('i_outer'))
+    # construct index
+    assert isinstance(assign, Subscript) and assign.index == __indexer()
 
     # now test with evenly sized
-    a2 = next(x for x in k.args if x.name == 'a2')
-    assert a2.shape == (8, 16, 2)
+    a2 = k.arg_dict['a2']
+    assert a2.shape == asplit.split_shape(a2_hold)[0]
     assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
-    assert isinstance(assign, Subscript) and assign.index == (
-        Variable('i_inner'), 0, Variable('i_outer'))
+    assert isinstance(assign, Subscript) and assign.index == __indexer()
 
 
 def test_atomic_deep_vec_with_small_split():
