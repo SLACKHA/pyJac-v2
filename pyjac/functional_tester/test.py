@@ -237,7 +237,7 @@ class hdf5_store(object):
         if num_conditions:
             ref_ans_shape[0] = num_conditions
         # get the reference answer in order to get shape, etc.
-        shape, grow_axis, split_axis = asplit.split_shape(
+        shape, grow_axis, vec_axis = asplit.split_shape(
             type('', (object,), {'shape': ref_ans_shape}))
 
         # and set the enlargable shape for the pytables array
@@ -252,9 +252,9 @@ class hdf5_store(object):
         num_conds = shape[grow_axis]
         # and cut down by vec width to respect chunk size
         chunk_size = self.chunk_size
-        if split_axis is not None:
-            assert chunk_size % shape[split_axis] == 0
-            chunk_size = int(chunk_size / shape[split_axis])
+        if vec_axis is not None:
+            assert chunk_size % shape[vec_axis] == 0
+            chunk_size = int(chunk_size / shape[vec_axis])
         # open the data as a memmap to avoid loading it all into memory
         file = np.memmap(filename, mode='r', dtype=ref_ans.dtype,
                          shape=shape, order=order)

@@ -327,7 +327,7 @@ class array_splitter(object):
         if not self._have_split() or not self._should_split(input_array):
             return input_array
 
-        def _split_and_pad(arr, axis, width, ax_trans):
+        def _split_and_pad(arr, axis, width, dest_axis):
             # get the last split as the ceiling
             end = np.ceil(arr.shape[axis] / width) * width
             # create split indicies
@@ -343,19 +343,15 @@ class array_splitter(object):
                 arr[-1] = np.pad(arr[-1], pads, 'constant')
             # get joined
             arr = np.stack(arr, axis=axis)
-            # and move array dims
-            return np.moveaxis(arr, *ax_trans).copy(order=self.data_order)
+            # and move array axes
+            # the created axis is at axis + 1, and should be moved to
+            # the destination
+            return np.moveaxis(arr, axis + 1, dest_axis).copy(order=self.data_order)
 
         # figure out split
-        dim = len(input_array.shape) - 1
-        if self.data_order == 'C' and self.width:
-            # split: first axis (ICs)
-            # move, split axis (1) to end (-1)
-            return _split_and_pad(input_array, 0, self.width, (1, -1))
-        elif self.data_order == 'F' and self.depth:
-            # split: last axis
-            # move, split axis (-1) to front (0)
-            return _split_and_pad(input_array, dim, self.depth, (-1, 0))
+        split_axis, vec_axis = self.split_and_vec_axes(input_array)
+        return _split_and_pad(input_array, split_axis, self.vector_width,
+                              vec_axis)
 
     def split_numpy_arrays(self, arrays):
         """

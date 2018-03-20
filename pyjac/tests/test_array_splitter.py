@@ -3,6 +3,8 @@ from __future__ import division
 import numpy as np
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+from parameterized import parameterized, param
+from unittest.case import SkipTest
 
 from pyjac.core.array_creator import array_splitter
 from pyjac.core.instruction_creator import get_deep_specializer
@@ -16,82 +18,146 @@ class dummy_loopy_opts(object):
         self.is_simd = is_simd
 
 
-def __internal(asplit, shape, order='C', wide=8):
+def __internal(asplit, shape, order='C', width=None, depth=None):
     """
     Assumes shape is square
     """
+
     side = shape[0]
     # create array
-    arr = np.zeros(shape, order=order)
-    # set values
-    ind = [slice(None)] * arr.ndim
-    for i in range(shape[-1]):
-        ind[-1 if order == 'F' else 0] = i
-        arr[ind] = i
+    base = np.arange(np.prod(shape)).reshape(shape, order=order)
+
     # split
-    arr, = asplit.split_numpy_arrays(arr)
+    arr, = asplit.split_numpy_arrays(base.copy())
     shape = list(shape)
-    if order == 'F':
+
+    vw = width if width else depth
+    if order == 'F' and depth:
         # put new dim at front
-        shape.insert(0, wide)
-        # and adjust end dim
-        shape[-1] = np.ceil(side / wide)
-    else:
+        insert_at = 0
+        # and shrink last dim
+        change_at = -1
+    elif order == 'F':
+        if not asplit.is_simd:
+            raise SkipTest('No split for non-explicit SIMD F-ordered '
+                           'shallow vectorization')
+        assert asplit.is_simd
+        # insert at front
+        insert_at = 0
+        # and change old first dim
+        change_at = 1
+    elif order == 'C' and width:
         # put new dim at end
-        shape.insert(len(shape), wide)
+        insert_at = len(shape)
         # and adjust start dim
-        shape[0] = np.ceil(side / wide)
+        change_at = 0
+    else:
+        if not asplit.is_simd:
+            raise SkipTest('No split for non-explicit SIMD C-ordered '
+                           'deep vectorization')
+        # put new dim at end
+        insert_at = len(shape)
+        # and adjust old end dim
+        change_at = len(shape) - 1
+    # insert
+    shape.insert(insert_at, vw)
+    # and adjust end dim
+    shape[change_at] = int(np.ceil(side / vw))
     # check dim
     assert np.array_equal(arr.shape, shape)
-    # and values
-    ind = [0] * (arr.ndim - 1)
+
+    def slicify(slicer, inds):
+        slicer = slicer.copy()
+        count = 0
+        for i in range(len(slicer)):
+            if not slicer[i]:
+                slicer[i] = index[count]
+                count += 1
+
+        assert count == len(inds), 'Not all indicies used!'
+        return slicer
+
+    # create answer
+    # setup
+    ans = np.zeros(shape, dtype=np.int)
+
+    # setup
+    count = 0
+    side_count = 0
     if order == 'F':
-        ind = [slice(None)] + ind
-        set_at = -1
+        inds = slice(1, None)
+        slicer = [slice(None)] + [None] * len(arr.shape[inds])
     else:
-        ind = ind + [slice(None)]
-        set_at = 0
+        inds = slice(None, -1)
+        slicer = [None] * len(arr.shape[inds]) + [slice(None)]
+    it = np.nditer(np.zeros(arr.shape[inds]),
+                   flags=['multi_index'], order=order)
 
-    start = 0
-    while start < side:
-        ind[set_at] = int(start / wide)
-        test = np.zeros(wide)
-        ar = np.arange(start, np.minimum(start + wide, side))
-        test[:ar.size] = ar[:]
-        assert np.array_equal(arr[ind], test)
-        start += wide
+    if (order == 'C' and depth) or (order == 'F' and width):
+        # SIMD - no split
+        # array populator
+        while not it.finished:
+            index = it.multi_index[:]
+            # create a column or row
+            offset = np.arange(side_count, side_count + vw)
+            mask = (offset >= side)
+            offset[np.where(mask)] = 0
+            offset[np.where(~mask)] += count
+            # set
+            ans[slicify(slicer, index)] = offset[:]
+            # update counters
+            side_count = side_count + vw
+            if side_count >= side:
+                # reset
+                side_count = 0
+                count += side
+            it.iternext()
+    else:
+        # SIMD - split
+        # array populator
+        while not it.finished:
+            index = it.multi_index[:]
+            # create a column or row
+            offset = side_count + (np.arange(count, count + vw)) * side ** (
+                base.ndim - 1)
+            mask = (offset >= side**base.ndim)
+            offset[np.where(mask)] = 0
+            # set row
+            ans[slicify(slicer, index)] = offset[:]
+            # update counters
+            side_count = side_count + 1
+            if side_count >= side ** (base.ndim - 1):
+                # reset
+                side_count = 0
+                count += vw
+
+            it.iternext()
+
+    assert np.array_equal(ans, arr)
 
 
-def test_npy_array_splitter_c_wide():
+def np_ary_split_doc(func, num, params):
+    return "{}: {} with [width={}, depth={}, order={}]".format(
+        num, func.__name__, *params[0])
+
+
+@parameterized([
+    param(8, None, 'C'),
+    param(None, 8, 'C', is_simd=True),
+    param(8, None, 'F', is_simd=True),
+    param(None, 8, 'F')],
+    doc_func=np_ary_split_doc,
+)
+def test_npy_array_splitter(width, depth, order, is_simd=False):
     # create opts
-    opts = dummy_loopy_opts(width=8, order='C')
+    opts = dummy_loopy_opts(width=width, depth=depth, order=order, is_simd=is_simd)
 
     # create array split
     asplit = array_splitter(opts)
 
     def _test(shape):
-        __internal(asplit, shape, order='C', wide=opts.width)
-
-    # test with small square
-    _test((10, 10))
-
-    # now test with evenly sized
-    _test((16, 16))
-
-    # finally, try with 3d arrays
-    _test((10, 10, 10))
-    _test((16, 16, 16))
-
-
-def test_npy_array_splitter_f_deep():
-    # create opts
-    opts = dummy_loopy_opts(depth=8, order='F')
-
-    # create array split
-    asplit = array_splitter(opts)
-
-    def _test(shape):
-        __internal(asplit, shape, order='F', wide=opts.depth)
+        __internal(asplit, shape, order=order, width=opts.width,
+                   depth=opts.depth)
 
     # test with small square
     _test((10, 10))
@@ -226,7 +292,7 @@ def test_get_split_shape():
 
     def __test(splitter, shape):
         arr = np.zeros(shape)
-        if splitter.data_order == 'F':
+        if splitter.data_order == 'F' and splitter.depth:
             grow = 1
             split = 0
         else:
