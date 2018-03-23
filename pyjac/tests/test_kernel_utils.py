@@ -73,7 +73,7 @@ def test_stride_limiter(dtype):
             limits = memory_limits.get_limits(
                 opt, {memory_type.m_global: [ary]}, temp.name,
                 memory_manager.get_string_strides()[0],
-                dtype=dtype)
+                dtype=dtype, limit_int_overflow=True)
         # and feed through stride limiter
         limit = limits.integer_limited_problem_size(ary, dtype=dtype)
         # get the intruction from the kernel
