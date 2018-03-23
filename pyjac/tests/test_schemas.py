@@ -25,9 +25,10 @@ from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, 
 from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
-    DuplicateTestException, InvalidOverrideException
+    DuplicateTestException, InvalidOverrideException, \
+    IncorrectInputSpecificationException
 from pyjac.loopy_utils.loopy_utils import load_platform
-from pyjac.kernel_utils.memory_manager import load_memory_limits
+from pyjac.kernel_utils.memory_manager import memory_limits, memory_type
 
 current_test_langs = ['c', 'opencl']
 """
@@ -670,16 +671,61 @@ def test_get_test_matrix():
 
 
 def test_load_memory_limits():
-    limits = load_memory_limits(__prefixify('codegen_platform.yaml', examples_dir))
-    assert limits['global'] == 1e9
-    assert limits['constant'] == 1e6
-    assert limits['alloc'] == 100e6
+    # create dummy loopy opts
+    def __dummy_opts(name):
+        return type('', (object,), {'platform_name': name, 'lang': '',
+                                    'order': ''})
+    # test codegen
+    limits = memory_limits.get_limits(
+        __dummy_opts('portable'), [],
+        __prefixify('codegen_platform.yaml', examples_dir))
+    assert limits.limits[memory_type.m_global] == 1e9
+    assert limits.limits[memory_type.m_constant] == 1e6
+    assert limits.limits[memory_type.m_alloc] == 100e6
+    assert len(limits.limits) == 3
 
-    limits = load_memory_limits(__prefixify('test_matrix.yaml', examples_dir))
-    assert limits['global'] == 5e9
-    assert limits['local'] == 1e6
-    assert limits['constant'] == 64e3
-    assert limits['alloc'] == 1e9
+    # test test_matrix -- this includes per-platform specification
+    limits = memory_limits.get_limits(
+        __dummy_opts('intel'), [],
+        __prefixify('test_matrix.yaml', examples_dir))
+    assert limits.limits[memory_type.m_global] == 5e9
+    assert limits.limits[memory_type.m_constant] == 64e3
+    assert limits.limits[memory_type.m_local] == 1e6
+    assert limits.limits[memory_type.m_alloc] == 1e9
+    assert len(limits.limits) == 4
+    limits = memory_limits.get_limits(
+        __dummy_opts('openmp'), [],
+        __prefixify('test_matrix.yaml', examples_dir))
+    assert limits.limits[memory_type.m_global] == 5e10
+    assert len(limits.limits) == 1
+
+    # and finally, test bad specifications
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+        memory-limits:
+          - global: 5 Gb
+            platforms: [nvidia]
+          - global: 10 Gb
+            platforms: [nvidia]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+        """))
+        file.flush()
+
+        with assert_raises(IncorrectInputSpecificationException):
+            limits = memory_limits.get_limits(
+                __dummy_opts('nvidia'), [],
+                file.name)
 
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
@@ -692,22 +738,37 @@ def test_load_memory_limits():
             lang: opencl
             vectype: [wide, par]
             vecsize: [128]
-          - name: openmp
-            lang: c
-            vectype: [par]
         memory-limits:
-          global: 5 Gb
-          platforms: [nvidia]
+          - global: 5 Gb
+          - global: 10 Gb
         test-list:
           - test-type: performance
             eval-type: jacobian
-            finite_difference:
-                both:
-                    vectype: [par]
-                    gpuvectype: [wide]
         """))
         file.flush()
 
-        limits = load_memory_limits(__prefixify(file.name, examples_dir))
-    assert limits['global'] == 5e9
-    assert limits['platforms'] == ['nvidia']
+        with assert_raises(IncorrectInputSpecificationException):
+            limits = memory_limits.get_limits(
+                __dummy_opts('nvidia'), [],
+                file.name)
+
+    # try with file w/o limits
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+        """))
+        file.flush()
+
+        limits = memory_limits.get_limits(__dummy_opts('nvidia'), [], file.name)
+        assert limits.limits == {}

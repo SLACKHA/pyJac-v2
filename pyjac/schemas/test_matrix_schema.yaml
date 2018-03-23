@@ -43,8 +43,10 @@ model-list:
 
 # allow for optional specification of memory limits
 memory-limits:
-    type: dict
-    schema: memory-limits
+    type: list
+    schema:
+        type: dict
+        schema: memory-limits
 
 # and platform list
 platform-list:

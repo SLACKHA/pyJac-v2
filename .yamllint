@@ -1,0 +1,9 @@
+# linting rules for yaml
+
+---
+extends: default
+
+rules:
+	truthy: disable
+	line-length:
+		max: 500

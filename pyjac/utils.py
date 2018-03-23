@@ -654,5 +654,5 @@ def create():
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,
-                    test_size=args.fixed_size
+                    fixed_size=args.fixed_size
                     )

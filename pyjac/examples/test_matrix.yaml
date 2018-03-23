@@ -24,14 +24,20 @@ model-list:
 
 # memory limits
 memory-limits:
-  # 5 gigabyte total on global memory usage
-  global: 5GB
-  # 1 megabyte local memory
-  local: 1MB
-  # 64 kb constant memory
-  constant: 64kb
-  # 1gb limit on allocation of a single array
-  alloc: 1 gb
+    # for intel only
+  - platforms: [intel]
+    # 5 gigabyte total on global memory usage
+    global: 5GB
+    # 1 megabyte local memory
+    local: 1MB
+    # 64 kb constant memory
+    constant: 64kb
+    # 1gb limit on allocation of a single array
+    alloc: 1 gb
+  # now define one for OpenMP
+  - platforms: [openmp]
+    # 50 gig limit on OMP global mem
+    global: 50 GB
 
 # list of platforms to use
 platform-list:
