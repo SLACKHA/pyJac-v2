@@ -43,6 +43,7 @@ Near-term plans:
   ☐ mechanism sorting
   ☐ Change data pre-allocation for non-inputs / outputs to only use vector-size * num_threads * array size
     ☐ Along these lines, allow for fixed-size allocations / fully implement "interface" mode for Hekki
+  ☐ Switch to int64 to avoid overflow limiting
   ☐ Unify the command-line flags w/ the oploops for the test-matrix to make that more sane
   ☐ In this vein, change the text matrix to an object that can be coerced from yaml input directly via ceberus
   ☐ Simplify split vector size division to right-shift and test

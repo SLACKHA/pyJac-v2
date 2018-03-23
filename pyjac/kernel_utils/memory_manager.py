@@ -70,6 +70,9 @@ def load_memory_limits(input_file, schema='common_schema.yaml'):
             memory_limits = build_and_validate('test_matrix_schema.yaml', input_file,
                                                allow_unknown=True)
             return [__limitfy(x) for x in memory_limits['memory-limits']]
+        except KeyError:
+            # no limits
+            pass
 
     return {}
 
@@ -219,8 +222,7 @@ class memory_limits(object):
                     logger.warn(
                         'Allocation of {} memory array {}'
                         ' may result in integer overflow in indexing, and '
-                        'cause OpenCL (particularly, Intel) to fail on '
-                        'execution, limiting per-run size.'
+                        'cause failure on execution, limiting per-run size. '
                         'Note: only the first such array will be displayed '
                         'there may be more arrays that would result in '
                         'overflow.'

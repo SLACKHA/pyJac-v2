@@ -751,3 +751,24 @@ def test_load_memory_limits():
             limits = memory_limits.get_limits(
                 __dummy_opts('nvidia'), [],
                 file.name)
+
+    # try with file w/o limits
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        model-list:
+          - name: CH4
+            path:
+            mech: gri30.cti
+        platform-list:
+          - name: nvidia
+            lang: opencl
+            vectype: [wide, par]
+            vecsize: [128]
+        test-list:
+          - test-type: performance
+            eval-type: jacobian
+        """))
+        file.flush()
+
+        limits = memory_limits.get_limits(__dummy_opts('nvidia'), [], file.name)
+        assert limits.limits == {}
