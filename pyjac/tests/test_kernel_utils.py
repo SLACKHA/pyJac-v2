@@ -38,6 +38,8 @@ def opts_loop(langs=['opencl'],
     for state in oploop:
         if state['depth'] and state['width']:
             continue
+        if state['is_simd'] and not (state['depth'] or state['width']):
+            state['is_simd'] = False
         yield loopy_options(**state)
 
 
@@ -128,7 +130,7 @@ def test_unsimdable():
     from loopy.kernel.array import (VectorArrayDimTag)
     inds = ('j', 'i')
     test_size = 16
-    for opt in opts_loop():
+    for opt in opts_loop(is_simd=True):
         # make a kernel via the mapstore / usual methods
         base = creator('base', dtype=np.int32, shape=(10,), order=opt.order,
                        initializer=np.arange(10, dtype=np.int32))
