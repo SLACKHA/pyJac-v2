@@ -180,6 +180,9 @@ class loopy_options(object):
         The format of Jacobian kernel (full or sparse) to generate
     seperate_kernels: bool [True]
         If true, break the kernel evaluation into calls to individual kernels.
+    is_simd: bool [None]
+        If supplied, specifies whether this loopy object should use explict-SIMD
+        vectors.  Default is True only for CPU-based OpenCL targets
     """
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
@@ -187,7 +190,7 @@ class loopy_options(object):
                  platform='', knl_type='map', auto_diff=False, use_atomics=True,
                  use_private_memory=False, jac_type=JacobianType.exact,
                  jac_format=JacobianFormat.full, seperate_kernels=True,
-                 device=None, device_type=None):
+                 device=None, device_type=None, is_simd=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -216,6 +219,12 @@ class loopy_options(object):
         self.jac_format = jac_format
         self.jac_type = jac_type
         self.seperate_kernels = seperate_kernels
+        self._is_simd = is_simd
+
+        if self._is_simd:
+            assert width or depth, (
+                'Cannot use explicit SIMD types without vectorization')
+
         # need to find the first platform that has the device of the correct
         # type
         if self.lang == 'opencl' and self.platform and cl is not None:
@@ -299,6 +308,10 @@ class loopy_options(object):
         is_simd: bool
             True if we should attempt to explicitly vectorize the data / arrays
         """
+
+        # priority to user specification
+        if self._is_simd is not None:
+            return self._is_simd
 
         if not (self.width or self.depth):
             return False

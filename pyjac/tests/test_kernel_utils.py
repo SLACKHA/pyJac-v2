@@ -25,14 +25,16 @@ from pyjac.loopy_utils import loopy_options
 def opts_loop(langs=['opencl'],
               width=[4, None],
               depth=[4, None],
-              order=['C', 'F']):
+              order=['C', 'F'],
+              is_simd=None):
 
     oploop = OptionLoop(OrderedDict(
         [('lang', langs),
          ('width', width),
          ('depth', depth),
          ('order', order),
-         ('device_type', 'CPU')]))
+         ('device_type', 'CPU'),
+         ('is_simd', is_simd)]))
     for state in oploop:
         if state['depth'] and state['width']:
             continue
@@ -52,7 +54,7 @@ def test_stride_limiter(dtype):
     arry_name = 'a'
     extractor = re.compile(r'{}\[(.+)\] = i'.format(arry_name))
     dim_size = 1000000
-    for opt in opts_loop():
+    for opt in opts_loop(is_simd=False):
         split = array_splitter(opt)
         # create a really big loopy array
         ary = lp.GlobalArg(arry_name, shape=(problem_size.name, dim_size),
