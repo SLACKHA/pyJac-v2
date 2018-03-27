@@ -124,6 +124,9 @@ class array_splitter(object):
         vec_axis: int
             The integer index of the vector axis, if present.
             If there is no split, this will be None, see :ref:`vector_split`
+        split_axis: int
+            The integer index of the axis that will be split (note: this is
+            calculated _before_ the split is applied).
         """
 
         grow_axis = 0
@@ -161,7 +164,7 @@ class array_splitter(object):
 
             shape = tuple(new_shape)
 
-        return shape, grow_axis, vec_axis
+        return shape, grow_axis, vec_axis, split_axis
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
                                 count, order='C', vec=False):

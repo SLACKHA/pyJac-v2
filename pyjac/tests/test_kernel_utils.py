@@ -210,7 +210,7 @@ def test_unsimdable():
         assert all(len(arr.shape) == 3 for arr in kgen.kernels[0].args)
 
         # get the split axis
-        _, _, split_axis = kgen.array_split.split_shape(affine_lp)
+        _, _, vec_axis, _ = kgen.array_split.split_shape(affine_lp)
 
-        assert all(isinstance(arr.dim_tags[split_axis], VectorArrayDimTag)
+        assert all(isinstance(arr.dim_tags[vec_axis], VectorArrayDimTag)
                    for arr in kgen.kernels[0].args if arr.name not in cant_simd)

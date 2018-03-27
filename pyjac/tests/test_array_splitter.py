@@ -295,7 +295,7 @@ def test_get_split_shape(width, depth, order, is_simd=False):
         # make a dummy array
         arr = np.zeros(shape)
         # get the split shape
-        sh, gr, vec = asplit.split_shape(arr)
+        sh, gr, vec, spl = asplit.split_shape(arr)
         # first -- test against numpy splitter to ensure we get the right shape
         assert sh == asplit.split_numpy_arrays(arr)[0].shape
 
@@ -307,6 +307,13 @@ def test_get_split_shape(width, depth, order, is_simd=False):
         # and the vec_axis is in front if 'F' else in back
         vec_axis = len(shape) if order == 'C' else 0
         assert vec == vec_axis
+
+        # and finally, the split axis
+        if is_simd:
+            split_axis = len(shape) - 1 if order == 'C' else 0
+        else:
+            split_axis = 0 if order == 'C' else len(shape) - 1
+        assert spl == split_axis
 
     # test with small square
     __test(asplit, (10, 10))

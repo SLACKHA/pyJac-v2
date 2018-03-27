@@ -237,7 +237,7 @@ class hdf5_store(object):
         if num_conditions:
             ref_ans_shape[0] = num_conditions
         # get the reference answer in order to get shape, etc.
-        shape, grow_axis, vec_axis = asplit.split_shape(
+        shape, grow_axis, vec_axis, _ = asplit.split_shape(
             type('', (object,), {'shape': ref_ans_shape}))
 
         # and set the enlargable shape for the pytables array
@@ -413,7 +413,7 @@ class validation_runner(runner, hdf5_store):
             mask = parse_split_index(
                 arr, [ic_mask], order, ref_ndim=answers[i].ndim, axis=(0,))
             # next find the grow dimension
-            _, grow_dim, split_dim = asplit.split_shape(arr)
+            _, grow_dim, split_dim, _ = asplit.split_shape(arr)
             # we need to slice on the grow dim to pull into memory
             # create empty slices in other dimensions -- vecsize dim is full by
             # defn
