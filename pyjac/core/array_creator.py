@@ -126,14 +126,15 @@ class array_splitter(object):
             If there is no split, this will be None, see :ref:`vector_split`
         split_axis: int
             The integer index of the axis that will be split (note: this is
-            calculated _before_ the split is applied).
+            calculated _before_ the split is applied). If no split, this is None
         """
 
         grow_axis = 0
         vec_axis = None
         shape = tuple(x for x in array.shape)
+        split_axis = None
         if not self._have_split():
-            return shape, grow_axis, vec_axis
+            return shape, grow_axis, vec_axis, split_axis
 
         vector_width = None
         if self._should_split(array):
