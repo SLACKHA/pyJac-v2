@@ -45,53 +45,11 @@ def opts_loop(width=[VECTOR_WIDTH, None],
         yield param(state)
 
 
-def __internal(asplit, shape, order='C', width=None, depth=None):
-    """
-    Assumes shape is square
-    """
-
-    side = shape[0]
-    # create array
-    base = np.arange(np.prod(shape)).reshape(shape, order=order)
-
-    # split
-    arr, = asplit.split_numpy_arrays(base.copy())
-    shape = list(shape)
-
-    vw = width if width else depth
-    if order == 'F' and depth:
-        # put new dim at front
-        insert_at = 0
-        # and shrink last dim
-        change_at = -1
-    elif order == 'F':
-        if not asplit.is_simd:
-            raise SkipTest('No split for non-explicit SIMD F-ordered '
-                           'shallow vectorization')
-        assert asplit.is_simd
-        # insert at front
-        insert_at = 0
-        # and change old first dim
-        change_at = 1
-    elif order == 'C' and width:
-        # put new dim at end
-        insert_at = len(shape)
-        # and adjust start dim
-        change_at = 0
-    else:
-        if not asplit.is_simd:
-            raise SkipTest('No split for non-explicit SIMD C-ordered '
-                           'deep vectorization')
-        # put new dim at end
-        insert_at = len(shape)
-        # and adjust old end dim
-        change_at = len(shape) - 1
-    # insert
-    shape.insert(insert_at, vw)
-    # and adjust end dim
-    shape[change_at] = int(np.ceil(side / vw))
-    # check dim
-    assert np.array_equal(arr.shape, shape)
+def __get_ref_answer(base, asplit):
+    vw = asplit.vector_width
+    side = base.shape[0]
+    split_shape = asplit.split_shape(base)[0]
+    order = asplit.data_order
 
     def slicify(slicer, inds):
         slicer = slicer.copy()
@@ -106,21 +64,21 @@ def __internal(asplit, shape, order='C', width=None, depth=None):
 
     # create answer
     # setup
-    ans = np.zeros(shape, dtype=np.int)
+    ans = np.zeros(split_shape, dtype=np.int)
 
     # setup
     count = 0
     side_count = 0
     if order == 'F':
         inds = slice(1, None)
-        slicer = [slice(None)] + [None] * len(arr.shape[inds])
+        slicer = [slice(None)] + [None] * len(split_shape[inds])
     else:
         inds = slice(None, -1)
-        slicer = [None] * len(arr.shape[inds]) + [slice(None)]
-    it = np.nditer(np.zeros(arr.shape[inds]),
+        slicer = [None] * len(split_shape[inds]) + [slice(None)]
+    it = np.nditer(np.zeros(split_shape[inds]),
                    flags=['multi_index'], order=order)
 
-    if (order == 'C' and depth) or (order == 'F' and width):
+    if (order == 'C' and asplit.depth) or (order == 'F' and asplit.width):
         # SIMD - no split
         # array populator
         while not it.finished:
@@ -160,7 +118,64 @@ def __internal(asplit, shape, order='C', width=None, depth=None):
 
             it.iternext()
 
-    assert np.array_equal(ans, arr)
+    return ans
+
+
+def __get_ref_shape(asplit, base_shape):
+    side = base_shape[0]
+    shape = list(base_shape)
+
+    vw = asplit.vector_width
+    if asplit.data_order == 'F' and asplit.depth:
+        # put new dim at front
+        insert_at = 0
+        # and shrink last dim
+        change_at = -1
+    elif asplit.data_order == 'F':
+        if not asplit.is_simd:
+            raise SkipTest('No split for non-explicit SIMD F-ordered '
+                           'shallow vectorization')
+        assert asplit.is_simd
+        # insert at front
+        insert_at = 0
+        # and change old first dim
+        change_at = 1
+    elif asplit.data_order == 'C' and asplit.width:
+        # put new dim at end
+        insert_at = len(shape)
+        # and adjust start dim
+        change_at = 0
+    else:
+        if not asplit.is_simd:
+            raise SkipTest('No split for non-explicit SIMD C-ordered '
+                           'deep vectorization')
+        # put new dim at end
+        insert_at = len(shape)
+        # and adjust old end dim
+        change_at = len(shape) - 1
+    # insert
+    shape.insert(insert_at, vw)
+    # and adjust end dim
+    shape[change_at] = int(np.ceil(side / vw))
+    return shape
+
+
+def __internal(asplit, shape, order='C', width=None, depth=None):
+    """
+    Assumes shape is square
+    """
+
+    # create array
+    base = np.arange(np.prod(shape)).reshape(shape, order=order)
+
+    # split
+    arr, = asplit.split_numpy_arrays(base.copy())
+
+    # check shape
+    assert np.array_equal(arr.shape, __get_ref_shape(asplit, base.shape))
+
+    # check answer
+    assert np.array_equal(__get_ref_answer(base, asplit), arr)
 
 
 def _split_doc(func, num, params):
