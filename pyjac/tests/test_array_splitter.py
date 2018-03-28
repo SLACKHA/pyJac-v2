@@ -1,13 +1,19 @@
 from __future__ import division
 
+from collections import OrderedDict
+
 import numpy as np
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
 from parameterized import parameterized, param
 from unittest.case import SkipTest
+from optionloop import OptionLoop
 
 from pyjac.core.array_creator import array_splitter
 from pyjac.core.instruction_creator import get_deep_specializer
+from pyjac.tests.test_utils import indexer
+
+VECTOR_WIDTH = 8
 
 
 class dummy_loopy_opts(object):
@@ -16,6 +22,27 @@ class dummy_loopy_opts(object):
         self.width = width
         self.order = order
         self.is_simd = is_simd
+
+
+def opts_loop(width=[VECTOR_WIDTH, None],
+              depth=[VECTOR_WIDTH, None],
+              order=['C', 'F'],
+              is_simd=True,
+              skip_non_vec=True):
+
+    oploop = OptionLoop(OrderedDict(
+        [('width', width),
+         ('depth', depth),
+         ('order', order),
+         ('is_simd', is_simd)]))
+    for state in oploop:
+        if state['depth'] and state['width']:
+            continue
+        if skip_non_vec and not (state['depth'] or state['width']):
+            continue
+        if state['is_simd'] and not (state['depth'] or state['width']):
+            state['is_simd'] = False
+        yield param(state)
 
 
 def __internal(asplit, shape, order='C', width=None, depth=None):
@@ -141,25 +168,26 @@ def _split_doc(func, num, params):
     name = func.__name__
     if test in name:
         name = name[name.index(test) + len(test):]
-    return "{} with: [width={}, depth={}, order={}]".format(name, *params[0])
+
+    p = params[0][0]
+    width = p['width']
+    depth = p['depth']
+    order = p['order']
+    return "{} with: [width={}, depth={}, order={}]".format(
+        name, width, depth, order)
 
 
-@parameterized([
-    param(8, None, 'C'),
-    param(None, 8, 'C', is_simd=True),
-    param(8, None, 'F', is_simd=True),
-    param(None, 8, 'F')],
-    doc_func=_split_doc,
-)
-def test_npy_array_splitter(width, depth, order, is_simd=False):
+@parameterized(opts_loop,
+               doc_func=_split_doc)
+def test_npy_array_splitter(state):
     # create opts
-    opts = dummy_loopy_opts(width=width, depth=depth, order=order, is_simd=is_simd)
+    opts = dummy_loopy_opts(**state)
 
     # create array split
     asplit = array_splitter(opts)
 
     def _test(shape):
-        __internal(asplit, shape, order=order, width=opts.width,
+        __internal(asplit, shape, order=state['order'], width=opts.width,
                    depth=opts.depth)
 
     # test with small square
@@ -187,24 +215,19 @@ def _create(order='C'):
         [arg1, arg2])
 
 
-@parameterized([
-    param(8, None, 'C'),
-    param(None, 8, 'C', is_simd=True),
-    param(8, None, 'F', is_simd=True),
-    param(None, 8, 'F')],
-    doc_func=_split_doc,
-)
-def test_lpy_array_splitter(width, depth, order, is_simd=False):
+@parameterized(opts_loop,
+               doc_func=_split_doc)
+def test_lpy_array_splitter(state):
     from pymbolic.primitives import Subscript, Variable, Product, Sum
 
     # create opts
-    opts = dummy_loopy_opts(width=width, depth=depth, order=order, is_simd=is_simd)
+    opts = dummy_loopy_opts(**state)
 
     # create array split
     asplit = array_splitter(opts)
 
-    k = lp.split_iname(_create(order), 'i', 8,
-                       inner_tag='l.0' if not is_simd else 'vec')
+    k = lp.split_iname(_create(state['order']), 'i', VECTOR_WIDTH,
+                       inner_tag='l.0' if not state['is_simd'] else 'vec')
     a1_hold = k.arg_dict['a1'].copy()
     a2_hold = k.arg_dict['a2'].copy()
     k = asplit.split_loopy_arrays(k)
@@ -213,15 +236,17 @@ def test_lpy_array_splitter(width, depth, order, is_simd=False):
     lp.generate_code_v2(k).device_code()
 
     def __indexer():
-        if order == 'C':
-            if width:
-                return (0, Variable('i_inner') + Variable('i_outer') * 8, 0)
+        if state['order'] == 'C':
+            if state['width']:
+                return (0, Variable('i_inner') +
+                        Variable('i_outer') * VECTOR_WIDTH, 0)
             else:
                 return (0, Variable('i_outer'), Variable('i_inner'))
         else:
-            if width:
+            if state['width']:
                 return (0, 0, Sum((
-                    Variable('i_inner'), Product((Variable('i_outer'), 8)))))
+                    Variable('i_inner'), Product(
+                        (Variable('i_outer'), VECTOR_WIDTH)))))
 
             else:
                 return (Variable('i_inner'), 0, Variable('i_outer'))
@@ -274,19 +299,14 @@ def test_atomic_deep_vec_with_small_split():
     # test kernel w/ loop size smaller than split
     __test(10, 16)
     # test kernel w/ loop size larger than split
-    __test(16, 8)
+    __test(16, VECTOR_WIDTH)
 
 
-@parameterized([
-    param(8, None, 'C'),
-    param(None, 8, 'C', is_simd=True),
-    param(8, None, 'F', is_simd=True),
-    param(None, 8, 'F')],
-    doc_func=_split_doc,
-)
-def test_get_split_shape(width, depth, order, is_simd=False):
+@parameterized(opts_loop,
+               doc_func=_split_doc)
+def test_get_split_shape(state):
     # create opts
-    opts = dummy_loopy_opts(width=width, depth=depth, order=order, is_simd=is_simd)
+    opts = dummy_loopy_opts(**state)
 
     # create array split
     asplit = array_splitter(opts)
@@ -301,18 +321,15 @@ def test_get_split_shape(width, depth, order, is_simd=False):
 
         # next, the "grow" axis is either the first axis ("C") or the second axis
         # for "F"
-        grow = order == 'F'
+        grow = state['order'] == 'F'
         assert gr == grow
 
         # and the vec_axis is in front if 'F' else in back
-        vec_axis = len(shape) if order == 'C' else 0
+        vec_axis = len(shape) if state['order'] == 'C' else 0
         assert vec == vec_axis
 
         # and finally, the split axis
-        if is_simd:
-            split_axis = len(shape) - 1 if order == 'C' else 0
-        else:
-            split_axis = 0 if order == 'C' else len(shape) - 1
+        split_axis = 0 if state['width'] else len(shape) - 1
         assert spl == split_axis
 
     # test with small square
@@ -329,3 +346,43 @@ def test_get_split_shape(width, depth, order, is_simd=False):
     for i in range(50):
         shape = np.random.randint(1, 12, size=np.random.randint(2, 5))
         __test(asplit, shape)
+
+
+@parameterized(lambda: opts_loop(skip_non_vec=False),
+               doc_func=_split_doc)
+def test_indexer(state):
+    # create opts
+    opts = dummy_loopy_opts(**state)
+    asplit = array_splitter(opts)
+
+    def __test(splitter, shape):
+        # make a dummy array
+        arr = np.arange(np.prod(shape)).reshape(shape)
+        index = indexer(splitter, shape)
+
+        # split
+        split_arr = splitter.split_numpy_arrays(arr)[0]
+
+        # create the indicies to check
+        check_inds = tuple(np.arange(x) for x in shape)
+        check_axes = tuple(range(len(shape)))
+
+        # get indicies
+        new_indicies = index(check_inds, check_axes)
+
+        # and create indexer for unsplit array
+        old_inds = [slice(None)] * len(shape)
+        for i in range(len(check_axes)):
+            old_inds[i] = check_inds[i]
+
+        assert np.allclose(split_arr[new_indicies], arr[tuple(old_inds)])
+
+    # test with small square
+    __test(asplit, (10, 10))
+
+    # now test with evenly sized
+    __test(asplit, (16, 16))
+
+    # finally, try with 3d arrays
+    __test(asplit, (10, 10, 10))
+    __test(asplit, (16, 16, 16))

@@ -152,60 +152,27 @@ class indexer(object):
     indicies
     """
 
-    @classmethod
-    def get_split_axis(self, order='C'):
+    @property
+    def vec_width(self):
         """
-        Returns the array axis that would be split (if there exists a split)
-        based on :param:`order`
+        Returns the vector-width of the split
         """
-        return -1 if order == 'F' else 0
+        return self.splitter.vector_width
 
-    @classmethod
-    def get_split_dim(self, shape, order='C'):
+    def offset(self, axis):
         """
-        Returns the split dimension of the supplied :param:`shape` based on the
-        supplied data order :param:`order`
+        Returns the offset to add to axes as a result of the split
         """
 
-        return shape[0 if order == 'F' else -1]
+        return axis + (1 if axis >= self.vec_axis else 0)
 
-    def _get_F_index(self, inds, axes):
+    def _get_index(self, inds, axes):
         """
-        for the 'F' order split, the last axis is split and moved to the beginning.
         """
+
         rv = [slice(None)] * self.out_ndim
         axi = next((i for i in six.moves.range(len(axes))
-                    if axes[i] == self.ref_ndim - 1), None)
-        if axi is not None:
-            # the first index is the remainder of the ind by the new dimension size
-            # and the last index is the floor division of the new dim size
-
-            # check that this is ind is not a slice
-            # if it is we don't need to to anything
-            if isinstance(inds[axi], np.ndarray):
-                rv[-1], rv[0] = np_divmod(
-                    inds[axi], self.split_dim, dtype=np.int32)
-
-        for i, ax in enumerate(axes):
-            if i != axi:
-                # there is no change in the actual indexing here
-                # however, the destination index will be increased by one
-                # to account for the new inserted index at the front of the array
-
-                # check that this is ind is not a slice
-                # if it is we don't need to to anything
-                if isinstance(inds[i], np.ndarray):
-                    rv[ax + 1] = inds[i][:].astype(np.int32)
-
-        return rv
-
-    def _get_C_index(self, inds, axes):
-        """
-        for the 'C' order split, the first axis is split and moved to the end.
-        """
-        rv = [slice(None)] * self.out_ndim
-        axi = next((i for i in six.moves.range(len(axes)) if axes[i] == 0),
-                   None)
+                    if axes[i] == self.split_axis), None)
         if axi is not None:
             # and first index is the floor division of the new dim size
             # the last index is the remainder of the ind by the new dimension size
@@ -214,8 +181,8 @@ class indexer(object):
             # if it is we don't need to to anything
             if isinstance(inds[axi], np.ndarray):
                 # it's a numpy array, so we can divmod
-                rv[0], rv[-1] = np_divmod(
-                    inds[axi], self.split_dim, dtype=np.int32)
+                rv[self.offset(self.split_axis)], rv[self.vec_axis] = np_divmod(
+                        inds[axi], self.vec_width, dtype=np.int32)
 
         for i, ax in enumerate(axes):
             if i != axi:
@@ -224,16 +191,28 @@ class indexer(object):
                 # check that this is ind is not a slice
                 # if it is we don't need to to anything
                 if isinstance(inds[i], np.ndarray):
-                    rv[ax] = inds[i][:].astype(np.int32)
+                    rv[self.offset(ax)] = inds[i][:].astype(np.int32)
 
         return rv
 
-    def __init__(self, ref_ndim, out_ndim, out_shape, order='C'):
-        self.ref_ndim = ref_ndim
-        self.out_ndim = out_ndim
-        self._indexer = self._get_F_index if order == 'F' else \
-            self._get_C_index
-        self.split_dim = self.get_split_dim(out_shape, order)
+    def __init__(self, splitter, ref_shape):
+        self.splitter = splitter
+        self.ref_shape = ref_shape
+
+        # calculate split
+        split_shape, _, vec_axis, split_axis = self.splitter.split_shape(
+            type('', (object,), {'shape': ref_shape}))
+
+        if vec_axis is None:
+            # no split at all
+            self._indexer = lambda x, y: x
+        else:
+            # split
+            self.ref_ndim = len(ref_shape)
+            self.out_ndim = len(split_shape)
+            self.split_axis = split_axis
+            self.vec_axis = vec_axis
+            self._indexer = self._get_index
 
     def __call__(self, inds, axes):
         return self._indexer(inds, axes)
