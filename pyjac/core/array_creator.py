@@ -40,13 +40,36 @@ class array_splitter(object):
         self.data_order = loopy_opts.order
         self.is_simd = loopy_opts.is_simd
 
-    def _have_split(self):
+    @property
+    def _is_simd_split(self):
         """
-        Returns True if there is anything for this :class:`array_splitter` to do
+        Returns True IFF this array splitter has a split, and this split is a result
+        of use of explicit SIMD data types
         """
 
+        return self._have_split() and not self._have_split(with_simd_as=False)
+
+    def _have_split(self, with_simd_as=None):
+        """
+        Returns True if there is anything for this :class:`array_splitter` to do
+
+        Parameters
+        ----------
+        with_simd_as: bool [None]
+            If specified, calculate whether we have a split if :attr:`is_simd` was
+            set to the given value
+
+        Returns
+        -------
+        have_split: bool
+            True IFF this vectorization pattern will result in a split for any
+            array
+        """
+
+        is_simd = self.is_simd if with_simd_as is None else with_simd_as
+
         if self.vector_width:
-            if self.is_simd:
+            if is_simd:
                 return True
             return ((self.data_order == 'C' and self.width) or (
                      self.data_order == 'F' and self.depth))

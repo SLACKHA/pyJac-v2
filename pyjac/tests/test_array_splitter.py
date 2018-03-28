@@ -11,7 +11,7 @@ from optionloop import OptionLoop
 
 from pyjac.core.array_creator import array_splitter
 from pyjac.core.instruction_creator import get_deep_specializer
-from pyjac.tests.test_utils import indexer
+from pyjac.tests.test_utils import indexer, parse_split_index
 
 VECTOR_WIDTH = 8
 
@@ -376,6 +376,45 @@ def test_indexer(state):
             old_inds[i] = check_inds[i]
 
         assert np.allclose(split_arr[new_indicies], arr[tuple(old_inds)])
+
+    # test with small square
+    __test(asplit, (10, 10))
+
+    # now test with evenly sized
+    __test(asplit, (16, 16))
+
+    # finally, try with 3d arrays
+    __test(asplit, (10, 10, 10))
+    __test(asplit, (16, 16, 16))
+
+
+@parameterized(lambda: opts_loop(skip_non_vec=False),
+               doc_func=_split_doc)
+def test_parse_split_index(state):
+    # create opts
+    opts = dummy_loopy_opts(**state)
+    asplit = array_splitter(opts)
+
+    def __test(splitter, shape):
+        # make a dummy array
+        arr = np.arange(np.prod(shape)).reshape(shape)
+        # split
+        split_arr = splitter.split_numpy_arrays(arr)[0]
+
+        # create the indicies to check
+        check_inds = tuple(np.arange(x) for x in shape)
+        check_axes = tuple(range(len(shape)))
+
+        import pdb; pdb.set_trace()
+        mask = parse_split_index(split_arr, splitter, arr.shape, check_inds,
+                                 check_axes)
+
+        # and create indexer for unsplit array
+        old_inds = [slice(None)] * len(shape)
+        for i in range(len(check_axes)):
+            old_inds[i] = check_inds[i]
+
+        assert np.allclose(split_arr[mask], arr[tuple(old_inds)])
 
     # test with small square
     __test(asplit, (10, 10))

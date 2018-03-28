@@ -168,6 +168,22 @@ class indexer(object):
 
     def _get_index(self, inds, axes):
         """
+        Converts the indicies (:param:`inds`) for the given :param:`axes` to
+        their split indicies.
+
+        Parameters
+        ----------
+        inds: list of :class:`np.ndarray` or list of lists
+            The integer indicies to convert, each entry in the list should correspond
+            to an entry at the same index in the :param:`axes`
+        axes: list of ints or :class:`np.ndarray`
+            The axes for each index entry in :param:`inds`
+
+        Returns
+        -------
+        split: list of :class:`np.ndarray`
+            The list of split indicies that correspond to the passed indicies for the
+            split array
         """
 
         rv = [slice(None)] * self.out_ndim
@@ -196,6 +212,17 @@ class indexer(object):
         return rv
 
     def __init__(self, splitter, ref_shape):
+        """
+        Creates the :class:`indexer`
+
+        Parameters
+        ----------
+        splitter: :class:`array_splitter`
+            The array splitter that was used on the array for which the split
+            indicies are desired
+        ref_shape: tuple of int
+            The shape of the unsplit array
+        """
         self.splitter = splitter
         self.ref_shape = ref_shape
 
@@ -203,35 +230,79 @@ class indexer(object):
         split_shape, _, vec_axis, split_axis = self.splitter.split_shape(
             type('', (object,), {'shape': ref_shape}))
 
+        self.ref_ndim = len(ref_shape)
+        self.out_ndim = len(split_shape)
+        self.split_axis = split_axis
+        self.vec_axis = vec_axis
+
         if vec_axis is None:
             # no split at all
             self._indexer = lambda x, y: x
         else:
             # split
-            self.ref_ndim = len(ref_shape)
-            self.out_ndim = len(split_shape)
-            self.split_axis = split_axis
-            self.vec_axis = vec_axis
             self._indexer = self._get_index
 
     def __call__(self, inds, axes):
+        """
+        Returns the split array indicies for the given :attr:`ref_shape` and
+        :attr:`splitter`
+
+        Parameters
+        ----------
+        inds: list of list of int or list of :class:`numpy.ndarray`
+            The indicies in the unsplit array that we want to inspect in the split
+            array
+        axes: list of list of int or list of :class:`numpy.ndarray`
+            The axes in the unsplit array to which each entry in :param:`inds`
+            corresponds to
+
+        Notes
+        -----
+        This class is the "dumb" version of :func:`parse_split_index`, and shouldn't
+        be used directly if you don't understand the differences between the two.
+        See :func:`parse_split_index` for a complete description of said differnences
+
+        Returns
+        -------
+        mask: tuple of int / slice
+            A proper indexing for the split array
+        """
         return self._indexer(inds, axes)
 
 
-def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None,
+def parse_split_index(arr, splitter, ref_shape, mask, axis=(1,), stride_arr=None,
                       size_arr=None):
     """
-    A helper method to get the index of an element in a split array for all initial
-    conditions
+    A helper method to get the index of an element in a split array for a given
+    set of indicies and axis.  This method is somewhat similar to :class:`indexer`
+    but differs in a few key respects:
+
+    1) First, this method properly tiles / repeats the indicies for splitting, e.g.,
+       let's say we want to look at the slice 1:3 for axes 0 & 1 for the unsplit
+       array "array":
+
+            array[1:3, 1:3]
+
+       Passing a mask of [[1,2,3], [1,2,3]], and axis of (0, 1) to the
+       :class:`indexer` would result in just six split indicies returned i.e., for
+       indicies (1,1), (2,2), and (3,3).
+
+       :func:`parse_split_index` will tile these indicies such that the split
+       indicies for each combination of the inputs will be returned.  In our example
+       this would correspond to nine split indicies, one each for each of (1,1)
+       (1,2), (1,3) ... (3,3).
+
+    2) This method also provides some additional levers and knobs needed to get
+       the correct strides / sizes for the split indices.  For more info see,
+       :param:`stride_arr` and :param:`size_arr`
+
 
     Parameters
     ----------
     arr: :class:`numpy.ndarray`
-        The split array to use
+        The split array to compute the split indicies for
     mask: :class:`numpy.ndarray` or list thereof
         The indicies to determine
-    order: ['C', 'F']
-        The numpy data order
     ref_ndim: int [2]
         The dimension of the unsplit array
     axis: int or list of int
@@ -253,7 +324,7 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None,
         A proper indexing for the split array
     """
 
-    _get_index = indexer(ref_ndim, arr.ndim, arr.shape, order)
+    _get_index = indexer(splitter, ref_shape)
 
     # handle multi-dim combination of mask
     if not isinstance(mask, np.ndarray):
@@ -267,7 +338,7 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None,
     if size_arr is not None:
         size = np.prod(size_arr)
 
-    if arr.ndim == ref_ndim:
+    if _get_index.vec_axis is None:
         # no split
         masking = np.array([slice(None)] * arr.ndim)
         for i, x in enumerate(axis):
@@ -291,7 +362,7 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None,
     stride = 1
     for i in reversed(range(len(masking[non_slice]))):
         # handled below
-        if non_slice[i] == 0:
+        if non_slice[i] == 0 and not splitter._is_simd_split:
             continue
         # find the number of times to tile this array
         repeats = int(np.ceil(size / (inds[non_slice][i].size * stride)))
@@ -300,7 +371,8 @@ def parse_split_index(arr, mask, order, ref_ndim=2, axis=(1,), stride_arr=None,
         masking[non_slice][i][:] = np.tile(
             inds[non_slice][i], shape).flatten(order='F')[:size]
         # the first and last index are tied together by the split
-        if i == len(masking[non_slice]) - 1 and 0 in non_slice:
+        if (i == len(masking[non_slice]) - 1 and 0 in non_slice) and \
+                not splitter._is_simd_split:
             masking[0][:] = np.tile(inds[0], shape).flatten(
                 order='F')[:size]
         # and update stride
@@ -374,7 +446,7 @@ class get_comparable(object):
     A wrapper for the kernel_call's _get_comparable function that fixes
     comparison for split arrays
 
-    Properties
+    Attributes
     ----------
     compare_mask: list of :class:`numpy.ndarray` or list of tuples of
             :class:`numpy.ndarray`
@@ -405,6 +477,24 @@ class get_comparable(object):
                 "Can't use dissimilar compare masks / axes"
 
     def __call__(self, kc, outv, index, is_answer=False):
+        """
+        Get a comparable version of the split/unsplit array
+
+        Parameters
+        ----------
+        kc: :class:`kernel_call`
+            The kernel call object that requires the comparable array for comparison.
+            This contains information needed to properly compute the split indicies
+        outv: :class:`numpy.ndarray`
+            The output corresponding to the kernel calls
+        index: int
+            The index of the output in the list of outputs corresponding to the
+            :class:`kernel_call`, used for determining which mask / answer should be
+            used
+        is_answer: bool [False]
+            If True, :param:`outv` is a reference answer.  This affects how the split
+            indicies are calculated for Jacobian comparison
+        """
         mask = list(self.compare_mask[index][:])
         ans = self.ref_answer[index]
         try:
@@ -549,13 +639,13 @@ class get_comparable(object):
         elif axis != -1:
             # get the split indicies
             masking = parse_split_index(
-                outv, mask, kc.current_order, ndim, axis, stride_arr, size_arr)
+                outv, kc.current_split, ans.shape, mask, axis, stride_arr, size_arr)
 
         else:
             # we supplied a list of indicies, all we really have to do is convert
             # them and return
 
-            _get_index = indexer(ndim, outv.ndim, outv.shape, kc.current_order)
+            _get_index = indexer(kc.current_split, ans.shape)
             # first check we have a reasonable mask
             assert ndim == len(mask), "Can't use dissimilar compare masks / axes"
             # dummy comparison axis
@@ -886,7 +976,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             test = np.array(test_arr(conp), copy=True, order=opts.order)
         else:
             test = np.array(test_arr, copy=True, order=opts.order)
-        ref_ndim = test.ndim
+        ref_shape = test.shape[:]
         __saver(test, test_arr_name, tests)
 
         # find where the reduced pressure term for non-Lindemann falloff / chemically
@@ -949,8 +1039,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         last_zeros = np.where(self.store.ref_Pr == 0)[0]
         if last_zeros.size:
             if kgen.array_split._have_split():
-                ravel_ind = parse_split_index(test, (last_zeros,), opts.order,
-                                              ref_ndim=ref_ndim, axis=(0,))
+                ravel_ind = parse_split_index(test, kgen.array_split, ref_shape,
+                                              (last_zeros,), axis=(0,))
                 # and list
                 ravel_ind = np.array(ravel_ind)
 
