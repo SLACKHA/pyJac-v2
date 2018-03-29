@@ -378,19 +378,16 @@ def test_indexer(state):
         # split
         split_arr = splitter.split_numpy_arrays(arr)[0]
 
-        # create the indicies to check
-        check_inds = tuple(np.arange(x) for x in shape)
+        # loop over every index in the array
         check_axes = tuple(range(len(shape)))
-
-        # get indicies
-        new_indicies = index(check_inds, check_axes)
-
-        # and create indexer for unsplit array
-        old_inds = [slice(None)] * len(shape)
-        for i in range(len(check_axes)):
-            old_inds[i] = check_inds[i]
-
-        assert np.allclose(split_arr[new_indicies], arr[tuple(old_inds)])
+        it = np.nditer(arr, flags=['multi_index'], order=state['order'])
+        while not it.finished:
+            # get indicies
+            check_inds = tuple((x,) for x in it.multi_index)
+            new_indicies = index(check_inds, check_axes)
+            # check that it matches the old array value
+            assert split_arr[new_indicies] == arr[it.multi_index]
+            it.iternext()
 
     # test with small square
     __test(asplit, (10, 10))
@@ -410,33 +407,32 @@ def test_parse_split_index(state):
     opts = dummy_loopy_opts(**state)
     asplit = array_splitter(opts)
 
-    def __test(splitter, shape):
+    def __test(shape):
         # make a dummy array
         arr = np.arange(np.prod(shape)).reshape(shape)
         # split
-        split_arr = splitter.split_numpy_arrays(arr)[0]
+        split_arr = asplit.split_numpy_arrays(arr)[0]
 
         # create the indicies to check
         check_inds = tuple(np.arange(x) for x in shape)
         check_axes = tuple(range(len(shape)))
 
-        import pdb; pdb.set_trace()
-        mask = parse_split_index(split_arr, splitter, arr.shape, check_inds,
+        # parse for the split matrix
+        mask = parse_split_index(split_arr, asplit, arr.shape, check_inds,
                                  check_axes)
 
-        # and create indexer for unsplit array
-        old_inds = [slice(None)] * len(shape)
-        for i in range(len(check_axes)):
-            old_inds[i] = check_inds[i]
-
-        assert np.allclose(split_arr[mask], arr[tuple(old_inds)])
+        # and compare to the old (unsplit) matrix
+        assert np.allclose(split_arr[mask], arr.flatten(state['order']))
 
     # test with small square
-    __test(asplit, (10, 10))
+    __test((10, 10))
 
     # now test with evenly sized
-    __test(asplit, (16, 16))
+    __test((16, 16))
 
     # finally, try with 3d arrays
-    __test(asplit, (10, 10, 10))
-    __test(asplit, (16, 16, 16))
+    __test((10, 10, 10))
+    __test((16, 16, 16))
+
+    # try with a really large array
+    __test((100000, 16, 16))

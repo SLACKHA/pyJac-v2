@@ -152,6 +152,8 @@ class indexer(object):
     indicies
     """
 
+    array_types = (np.ndarray, tuple, list)
+
     @property
     def vec_width(self):
         """
@@ -195,7 +197,7 @@ class indexer(object):
 
             # check that this is ind is not a slice
             # if it is we don't need to to anything
-            if isinstance(inds[axi], np.ndarray):
+            if isinstance(inds[axi], indexer.array_types):
                 # it's a numpy array, so we can divmod
                 rv[self.offset(self.split_axis)], rv[self.vec_axis] = np_divmod(
                         inds[axi], self.vec_width, dtype=np.int32)
@@ -206,8 +208,8 @@ class indexer(object):
 
                 # check that this is ind is not a slice
                 # if it is we don't need to to anything
-                if isinstance(inds[i], np.ndarray):
-                    rv[self.offset(ax)] = inds[i][:].astype(np.int32)
+                if isinstance(inds[i], indexer.array_types):
+                    rv[self.offset(ax)] = np.array(inds[i][:]).astype(np.int32)
 
         return rv
 
@@ -270,8 +272,258 @@ class indexer(object):
         return self._indexer(inds, axes)
 
 
-def parse_split_index(arr, splitter, ref_shape, mask, axis=(1,), stride_arr=None,
-                      size_arr=None):
+class stride_lock(object):
+    """
+    A simple helper class that stores a list or tuple of :param:`axes` and an
+    optional :param:`stride`
+
+    Parameters
+    ----------
+    axes: list or tuple of int
+        A collection of axes that should be incremented together for parsing of split
+        indicies
+    stride: int [1]
+        The stride to use for the locked axes
+    """
+
+    def __init__(self, axes, stride=1):
+        self.axes = utils.listify(axes)
+        self.stride = stride
+
+    def __and__(self, other):
+        """
+        Returns true IFF :param:`other` shares any axes with this
+        :class:`stride_lock`
+        """
+
+        return len(set(self.axes) & set(other.axes))
+
+    def __contains__(self, axis):
+        """
+        Returns true IFF :param:`axis` is in this :class:`stride_lock`'s :attr:`axes`
+        """
+        return axis in self.axes
+
+
+class multi_index_iter(object):
+    """
+    This is a convenience class to provide a buffered access to a multi-dimensional
+    iteration (with specifiable iteration-order), while tracking a multi_index.
+
+    This is built to get around the limitations / slow speed of :class:`numpy.nditer`
+    which _can_ track the multi_index and control the iteration order, but _cannot_
+    do so in a buffered manner (which is crucial for efficient iteration)
+
+    Examples
+
+
+    Attributes
+    ----------
+    shape: tuple of int
+        The shape of the array to iterate over
+    order: ['C', 'F']
+        The iteration order
+    size_limit: int [2.5e7]
+        The number of integers than can be stored by this :class:`multi_index_iter`
+        to avoid huge memory usage while maintaining efficiency.  Default is
+        100Mb
+    """
+
+    def __init__(self, shape, order, size_limit=2.5e7):
+        self.shape = shape
+        self.total_size = np.prod(shape)
+        utils.check_order(order)
+        self.order = order
+
+        # and determine iteration order
+        self._iterorder = list(range(len(shape)))
+        if self.order == 'C':
+            self._iterorder = list(reversed(self._iterorder))
+
+        # and initialize counts / strides
+        self._counts = np.zeros(len(shape), dtype=np.int32)
+        self._cumstrides = np.zeros(len(shape), dtype=np.int32)
+
+        def _set_strides(size_limit, warn=True):
+            accum = 1
+            _per_axis = size_limit // len(shape)
+            for ax in self._iterorder:
+                stride = _per_axis // (accum * shape[ax])
+                if not stride:
+                    if warn:
+                        logger = logging.getLogger(__name__)
+                        logger.warn('Multi-indicies for array of shape {} cannot '
+                                    'fit in given size_limit for axis {}, with size '
+                                    '{}. The size limit will be increased.')
+                    return accum * shape[ax] * len(shape)
+                self._cumstrides[ax] = accum
+                accum *= shape[ax]
+
+            return False
+
+        # create index array holder
+        warned = False
+        while _set_strides(size_limit, not warned):
+            size_limit = _set_strides(size_limit, False)
+            warned = True
+
+        self.size_limit = int(size_limit)
+        self._per_axis = self.size_limit // len(shape)
+        self._indicies = np.empty((len(shape), self._per_axis),
+                                  dtype=np.int32)
+        self.finished = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        """
+        Get the next set of multi_indicies to be processed
+
+        Returns
+        -------
+        indicies: tuple of (:class:`numpy.ndarray`,)
+            The multi indicies to process for this iteration
+        """
+
+        if self.finished:
+            raise StopIteration
+
+        # for the current set of counts, go through the iterorder and populate
+        # the _indicies arrays
+        num = None
+        for i, ax in enumerate(self._iterorder):
+            # create arange bounds
+            count = self._counts[ax]
+            end = self.shape[ax]
+
+            # figure out tiling
+            repeats = int(np.ceil(self.total_size / (
+                (end - count) * self._cumstrides[ax])))
+            inds = np.tile(
+                np.arange(count, end), (self._cumstrides[ax], repeats)).flatten('F')
+
+            if num is None:
+                num = np.minimum(self._per_axis, inds.size)
+
+            assert inds.size >= num
+
+            # update indicies
+            self._indicies[ax, :num] = inds[:num]
+
+            # update counts
+            self._counts[ax] = end
+
+        # check for end of iteration
+        if np.array_equal(self._counts, self.shape):
+            self.finished = True
+
+        # and update counts
+        for ax in self._iterorder:
+            self._counts[ax] %= self.shape[ax]
+
+        return tuple(self._indicies[i, :num] for i in range(len(self.shape)))
+
+    def next(self):
+        return self.__next__()
+
+
+def parse_split_index(arr, splitter, ref_shape, mask, axes=(1,),
+                      stride_locked_indices=None, num_inds=None):
+    """
+    A helper method to get the index of an element in a split array for a given
+    set of indicies and axis.  This method is somewhat similar to :class:`indexer`
+    but differs in a few key respects:
+
+    1) First, this method properly tiles / repeats the indicies for splitting, e.g.,
+       let's say we want to look at the slice 1:3 for axes 0 & 1 for the unsplit
+       array "array":
+
+            array[1:3, 1:3]
+
+       Passing a mask of [[1,2,3], [1,2,3]], and axes of (0, 1) to the
+       :class:`indexer` would result in just six split indicies returned i.e., for
+       indicies (1,1), (2,2), and (3,3).
+
+       :func:`parse_split_index` will tile these indicies such that the split
+       indicies for each combination of the inputs will be returned.  In our example
+       this would correspond to nine split indicies, one each for each of (1,1)
+       (1,2), (1,3) ... (3,3).
+
+    2) This method also provides some additional levers and knobs needed to get
+       the correct strides / sizes for the split indices.  For more info see,
+       :param:`stride_arr` and :param:`num_inds`
+
+
+    Parameters
+    ----------
+    arr: :class:`numpy.ndarray`
+        The split array to compute the split indicies for
+    mask: :class:`numpy.ndarray` or list thereof
+        The indicies to determine
+    ref_ndim: int [2]
+        The dimension of the unsplit array
+    axes: int or list of int
+        The axes the mask's correspond to.
+        Must be of the same shape / size as mask
+    stride_locked_indices: :class:`stride_lock` or list thereof
+        Used to indicated that the given axes in the :class:`stride_lock` should
+        be incremented together, with the given stride.
+        The use case for this is e.g., an F-orderd deep-vectorized sparse Jacobian,
+        the size of the split dimension differs between the reference answer, and
+        the sparse matrix.  In order to get the comparison right, the sparse split
+        must use the strides of the reference answer in order to get proper tiling of
+        the mask.
+    num_inds: :class:`np.ndarray` or int
+        Used for converting from a split reference answer _to_ a sparse array, this
+        option lets you specify how many split indicies indicies you expect to see
+
+    Returns
+    -------
+    mask: tuple of int / slice
+        A proper indexing for the split array
+    """
+
+    _get_index = indexer(splitter, ref_shape)
+
+    mask = utils.listify(mask)
+    axes = utils.listify(axes)
+    size = np.prod([x.size for x in mask]) if num_inds is None else num_inds
+    assert len(axes) == len(mask), "Supplied mask doesn't match given axis/axes"
+
+    # get the index arrays for each mask / axes
+    inds = np.array(_get_index(mask, axes))
+
+    # get non-slice inds
+    non_slice = np.array([i for i, x in enumerate(inds)
+                          if isinstance(x, np.ndarray)], dtype=np.int32)
+
+    # create the output masker
+    # the base mask is a simple slice(None)
+    masking = np.array([slice(None)] * arr.ndim)
+    # however, the indices we have to populate
+    masking[non_slice] = [np.zeros(size, dtype=np.int32)
+                          for i in range(non_slice.size)]
+
+    offset = 0
+    for multi_index in multi_index_iter(ref_shape, splitter.data_order):
+        # convert multi indicies to split indices
+        inds = _get_index(multi_index, axes)
+        # get size
+        count = [mi.size for mi in multi_index if isinstance(mi, np.ndarray)]
+        assert all(count[0] == c for c in count[1:])
+        count = count[0]
+        # and put in mask
+        for i in range(non_slice.size):
+            np.put(masking[non_slice[i]], np.arange(offset, offset + count),
+                   inds[i], mode='raise')
+        offset += count
+
+    return tuple(masking)
+
+
+def parse_split_index_old(arr, splitter, ref_shape, mask, axis=(1,), stride_arr=None,
+                          size_arr=None):
     """
     A helper method to get the index of an element in a split array for a given
     set of indicies and axis.  This method is somewhat similar to :class:`indexer`
