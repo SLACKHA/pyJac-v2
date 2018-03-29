@@ -26,7 +26,7 @@ from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidOverrideException, \
-    IncorrectInputSpecificationException
+    InvalidInputSpecificationException
 from pyjac.loopy_utils.loopy_utils import load_platform
 from pyjac.kernel_utils.memory_manager import memory_limits, memory_type
 
@@ -722,7 +722,7 @@ def test_load_memory_limits():
         """))
         file.flush()
 
-        with assert_raises(IncorrectInputSpecificationException):
+        with assert_raises(InvalidInputSpecificationException):
             limits = memory_limits.get_limits(
                 __dummy_opts('nvidia'), [],
                 file.name)
@@ -747,7 +747,7 @@ def test_load_memory_limits():
         """))
         file.flush()
 
-        with assert_raises(IncorrectInputSpecificationException):
+        with assert_raises(InvalidInputSpecificationException):
             limits = memory_limits.get_limits(
                 __dummy_opts('nvidia'), [],
                 file.name)

@@ -35,7 +35,7 @@ from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
 from pyjac.core.rate_subs import assign_rates
-from pyjac.core.exceptions import IncorrectInputSpecificationException
+from pyjac.core.exceptions import InvalidInputSpecificationException
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
@@ -5198,7 +5198,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
             logger.error('Cannot used fixed array size of ({}) which is non-evenly'
                          'divisible by the vector size: ({})'.format(
                             fixed_size, vector_size))
-            raise IncorrectInputSpecificationException(['fixed_size', 'vector_size'])
+            raise InvalidInputSpecificationException(['fixed_size', 'vector_size'])
     if fixed_size is not None:
         logger.critical('Wrapping (and for OpenMP kernel execution) code is not yet '
                         'configured to handle fixed array sizes.  Use at your own '
@@ -5214,12 +5214,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     if wide and deep:
         logger.error('Cannot apply both a wide and deep vectorization at the same '
                      'time')
-        raise IncorrectInputSpecificationException(['wide', 'deep'])
+        raise InvalidInputSpecificationException(['wide', 'deep'])
     if vector_size is None and (wide or deep):
         logger.error('Cannot apply {} vectorization without a vector-size, use'
                      'the -v arguement to supply one'.format(
                         'wide' if wide else 'deep'))
-        raise IncorrectInputSpecificationException(['wide', 'deep', 'vector_size'])
+        raise InvalidInputSpecificationException(['wide', 'deep', 'vector_size'])
 
     # convert enums
     rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(

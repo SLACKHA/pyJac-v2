@@ -22,7 +22,7 @@ from pyjac import utils
 from pyjac.utils import func_logger
 from pyjac.schemas import build_and_validate, parse_bytestr
 from pyjac.core.exceptions import ValidationError, \
-    IncorrectInputSpecificationException
+    InvalidInputSpecificationException
 
 try:
     from pyopencl import device_type
@@ -320,7 +320,7 @@ class memory_limits(object):
                              'with specific overrides for a platform, or a '
                              'platform-specific memory-limits only.'.format(
                                 input_file, loopy_opts.platform_name))
-                raise IncorrectInputSpecificationException('memory-limits')
+                raise InvalidInputSpecificationException('memory-limits')
             assert len(user) <= 2
 
         if user:

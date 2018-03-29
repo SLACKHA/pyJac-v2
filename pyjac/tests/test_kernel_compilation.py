@@ -21,7 +21,7 @@ from pyjac.libgen import generate_library, build_type
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.array_creator import array_splitter, problem_size
 from pyjac.pywrap.pywrap_gen import generate_wrapper
-from pyjac.core.exceptions import IncorrectInputSpecificationException
+from pyjac.core.exceptions import InvalidInputSpecificationException
 
 
 class SubTest(TestClass):
@@ -148,7 +148,7 @@ class SubTest(TestClass):
 
     def test_fixed_size(self):
         # test bad fixed size
-        with assert_raises(IncorrectInputSpecificationException):
+        with assert_raises(InvalidInputSpecificationException):
             create_jacobian(
                 'opencl', gas=self.store.gas, vector_size=4, wide=True, fixed_size=1)
 

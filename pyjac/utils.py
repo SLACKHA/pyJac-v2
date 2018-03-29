@@ -11,6 +11,8 @@ import yaml
 import functools
 import six
 
+from pyjac.core.exceptions import InvalidInputSpecificationException
+
 __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
            'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
@@ -424,7 +426,7 @@ def is_integer(val):
 
 def check_lang(lang):
     """
-    Checks that 'lang' is a valid identified
+    Checks that 'lang' is a valid identifier
 
     Parameters
     ----------
@@ -437,6 +439,33 @@ def check_lang(lang):
     """
     if lang not in langs:
         raise NotImplementedError('Language {} not supported'.format(lang))
+
+
+def check_order(order):
+    """
+    Checks that the :param:`order` is valid
+
+    Parameters
+    ----------
+    order: ['C', 'F']
+        The order to use, 'C' corresponds to a row-major data ordering, while
+        'F' is a column-major data ordering.  See `row major`_ and `col major`_
+        for more info
+
+    .. _row major: https://docs.scipy.org/doc/numpy/glossary.html#term-row-major
+    .. _col major: https://docs.scipy.org/doc/numpy/glossary.html#term-column-major
+
+    Notes
+    -----
+    :class:`InvalidInputSpecificationException` raised if :param:`order` is not
+        valid
+    """
+
+    if order not in ['C', 'F']:
+        logger = logging.getLogger(__name__)
+        logger.error("Invalid data-ordering ('{}') supplied, allowed values are 'C'"
+                     " and 'F'".format(order))
+        raise InvalidInputSpecificationException('order')
 
 
 def get_parser():

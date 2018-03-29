@@ -203,7 +203,7 @@ class loopy_options(object):
         self.unr = unr
         utils.check_lang(lang)
         self.lang = lang
-        assert order in ['C', 'F'], 'Order {} unrecognized'.format(order)
+        utils.check_order(order)
         self.order = order
         self.rate_spec = rate_spec
         self.rate_spec_kernels = rate_spec_kernels

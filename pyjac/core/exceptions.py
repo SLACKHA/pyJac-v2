@@ -140,9 +140,9 @@ class InvalidTestEnivironmentException(Exception):
         super(InvalidTestEnivironmentException, self).__init__(self.message)
 
 
-class IncorrectInputSpecificationException(Exception):
+class InvalidInputSpecificationException(Exception):
     def __init__(self, bad_inputs):
         self.message = ('Inputs: ({}) were incorrectly, or conflictingly specified. '
                         'See debug output for more information'.format(
                             stringify_args(listify(bad_inputs))))
-        super(IncorrectInputSpecificationException, self).__init__(self.message)
+        super(InvalidInputSpecificationException, self).__init__(self.message)
