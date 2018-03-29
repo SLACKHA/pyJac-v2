@@ -11,7 +11,7 @@ import yaml
 import functools
 import six
 
-from pyjac.core.exceptions import InvalidInputSpecificationException
+from pyjac.core import exceptions
 
 __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
@@ -465,7 +465,7 @@ def check_order(order):
         logger = logging.getLogger(__name__)
         logger.error("Invalid data-ordering ('{}') supplied, allowed values are 'C'"
                      " and 'F'".format(order))
-        raise InvalidInputSpecificationException('order')
+        raise exceptions.InvalidInputSpecificationException('order')
 
 
 def get_parser():
