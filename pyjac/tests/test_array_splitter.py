@@ -11,7 +11,8 @@ from optionloop import OptionLoop
 
 from pyjac.core.array_creator import array_splitter
 from pyjac.core.instruction_creator import get_deep_specializer
-from pyjac.tests.test_utils import indexer, parse_split_index
+from pyjac.loopy_utils.loopy_utils import kernel_call
+from pyjac.tests.test_utils import indexer, get_split_elements
 
 VECTOR_WIDTH = 8
 
@@ -402,27 +403,32 @@ def test_indexer(state):
 
 @parameterized(lambda: opts_loop(skip_non_vec=False),
                doc_func=_split_doc)
-def test_parse_split_index(state):
+def test_get_split_elements(state):
     # create opts
     opts = dummy_loopy_opts(**state)
     asplit = array_splitter(opts)
 
-    def __test(shape):
+    def __test(shape, check_inds=None, check_axes=None):
         # make a dummy array
-        arr = np.arange(np.prod(shape)).reshape(shape)
+        arr = np.arange(1, np.prod(shape) + 1).reshape(shape)
         # split
         split_arr = asplit.split_numpy_arrays(arr)[0]
 
-        # create the indicies to check
-        check_inds = tuple(np.arange(x) for x in shape)
-        check_axes = tuple(range(len(shape)))
-
-        # parse for the split matrix
-        mask = parse_split_index(split_arr, asplit, arr.shape, check_inds,
-                                 check_axes)
+        if check_inds is None:
+            # create the indicies to check
+            check_inds = tuple(np.arange(x) for x in shape)
+            check_axes = tuple(range(len(shape)))
+            ans = arr.flatten(state['order'])
+        else:
+            assert check_axes is not None
+            assert check_inds is not None
+            ans = kernel_call('', arr, check_axes, [check_inds])._get_comparable(
+                arr, 0, True).flatten(state['order'])
 
         # and compare to the old (unsplit) matrix
-        assert np.allclose(split_arr[mask], arr.flatten(state['order']))
+        assert np.allclose(
+            get_split_elements(split_arr, asplit, arr.shape, check_inds, check_axes),
+            ans)
 
     # test with small square
     __test((10, 10))
@@ -432,7 +438,16 @@ def test_parse_split_index(state):
 
     # finally, try with 3d arrays
     __test((10, 10, 10))
+    # and some non-full check-inds / axes
+    __test((10, 10, 10), [np.arange(3, 7), np.arange(2, 4)], (0, 1))
+    __test((10, 10, 10), [np.arange(3, 7), np.arange(2, 4)], (1, 2))
+    __test((10, 10, 10), [np.arange(3, 7), np.arange(2, 4)], (0, 2))
+    __test((10, 10, 10), [np.arange(3, 7), np.arange(2, 4)], (0, 1))
     __test((16, 16, 16))
+    __test((16, 16, 16), [np.arange(3, 7), np.arange(2, 4)], (1, 2))
+    __test((16, 16, 16), [np.arange(3, 7), np.arange(2, 4)], (0, 2))
+    __test((16, 16, 16), [np.arange(3, 7), np.arange(2, 4)], (0, 1))
 
     # try with a really large array
-    __test((100000, 16, 16))
+    __test((100000, 16, 16), [np.arange(3, 50000), np.arange(2, 10), np.array([7])],
+           (0, 1, 2))
