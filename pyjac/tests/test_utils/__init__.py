@@ -487,6 +487,11 @@ def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,),
     _get_index = indexer(splitter, ref_shape)
 
     if not tiling:
+        if not len(mask) == len(ref_shape):
+            logger = logging.getLogger(__name__)
+            logger.info('When using non-tiling mode, if the mask is not fully '
+                        'specified (i.e., a mask for every array axis) this may '
+                        'return empty elements resulting from an array-split.')
         # check mask
         assert all(mask[0].size == m.size for m in mask[1:]), (
             "Supplied mask elements cannot have differing lengths in non-tiling "

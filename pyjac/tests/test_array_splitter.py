@@ -408,26 +408,34 @@ def test_get_split_elements(state):
     opts = dummy_loopy_opts(**state)
     asplit = array_splitter(opts)
 
-    def __test(shape, check_inds=None, check_axes=None):
+    def __test(shape, check_inds=None, check_axes=None, tiling=True):
         # make a dummy array
         arr = np.arange(1, np.prod(shape) + 1).reshape(shape)
         # split
         split_arr = asplit.split_numpy_arrays(arr)[0]
 
         if check_inds is None:
+            assert tiling
             # create the indicies to check
             check_inds = tuple(np.arange(x) for x in shape)
             check_axes = tuple(range(len(shape)))
             ans = arr.flatten(state['order'])
-        else:
+        elif tiling:
             assert check_axes is not None
             assert check_inds is not None
             ans = kernel_call('', arr, check_axes, [check_inds])._get_comparable(
                 arr, 0, True).flatten(state['order'])
+        else:
+            slicer = [slice(None)] * arr.ndim
+            assert all(check_inds[0].size == ci.size for ci in check_inds[1:])
+            for i, ax in enumerate(check_axes):
+                slicer[ax] = check_inds[i]
+            ans = arr[slicer].flatten(state['order'])
 
         # and compare to the old (unsplit) matrix
         assert np.allclose(
-            get_split_elements(split_arr, asplit, arr.shape, check_inds, check_axes),
+            get_split_elements(split_arr, asplit, arr.shape, check_inds, check_axes,
+                               tiling=tiling),
             ans)
 
     # test with small square
@@ -447,7 +455,16 @@ def test_get_split_elements(state):
     __test((16, 16, 16), [np.arange(3, 7), np.arange(2, 4)], (1, 2))
     __test((16, 16, 16), [np.arange(3, 7), np.arange(2, 4)], (0, 2))
     __test((16, 16, 16), [np.arange(3, 7), np.arange(2, 4)], (0, 1))
+    # and some non-tiled axes
+    __test((10, 10, 10), [np.arange(0, 4), np.arange(3, 7), np.arange(2, 6)],
+           (0, 1, 2), tiling=False)
+    __test((16, 16, 16), [np.arange(0, 4), np.arange(3, 7), np.arange(2, 6)],
+           (0, 1, 2), tiling=False)
+    __test((16, 16, 16), [np.arange(0, 4), np.arange(3, 7), np.arange(2, 6)],
+           (0, 1, 2), tiling=False)
 
     # try with a really large array
     __test((100000, 16, 16), [np.arange(3, 50000), np.arange(2, 10), np.array([7])],
            (0, 1, 2))
+    __test((100000, 16, 16), [np.arange(0, 4), np.arange(3, 7), np.arange(2, 6)],
+           (0, 1, 2), tiling=False)
