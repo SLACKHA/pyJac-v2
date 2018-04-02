@@ -877,7 +877,9 @@ class SubTest(TestClass):
             'phi': lambda x: np.array(
                 self.store.phi_cp, order=x, copy=True),
             'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)}
+                self.store.species_rates, order=x, copy=True),
+            'dphi': lambda x: np.zeros_like(
+                self.store.phi_cp, order=x)}
 
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
@@ -895,7 +897,9 @@ class SubTest(TestClass):
             'V_arr': lambda x: np.array(
                 self.store.V, order=x, copy=True),
             'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)}
+                self.store.species_rates, order=x, copy=True),
+            'dphi': lambda x: np.zeros_like(
+                self.store.phi_cp, order=x)}
         # test conv
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
