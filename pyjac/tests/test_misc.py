@@ -15,7 +15,9 @@ except:
 from pyjac.utils import enum_to_string, listify
 from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from pyjac.libgen import build_type
-from pyjac.tests.test_utils import skipif, dense_to_sparse_indicies, select_elements
+from pyjac.core.array_creator import array_splitter
+from pyjac.tests.test_utils import skipif, dense_to_sparse_indicies, \
+    select_elements, get_split_elements
 
 
 @parameterized([(JacobianType.exact, 'exact'),
@@ -124,12 +126,15 @@ def test_select_elements(shape, mask, axes, tiling=True):
     # create array
     arr = np.arange(1, np.prod(shape) + 1).reshape(shape)
 
-    if tiling:
-        slicer = [slice(None)] * arr.ndim
-        for i, ax in enumerate(axes):
-            slicer[ax] = mask[i]
-        ans = mask[slicer]
-    else:
-        ans = arr[mask]
+    dummy_opts = type('', (object,), {
+        'depth': None,
+        'width': None,
+        'order': 'C',
+        'is_simd': False})
+    asplit = array_splitter(dummy_opts)
 
-    assert np.allclose(select_elements(arr, mask, axes, tiling=tiling), ans)
+    assert np.allclose(
+        select_elements(arr, mask, axes, tiling=tiling).flatten(order='C'),
+        # despite the name, this can actually be used for both split & non-split
+        # elements and forms a nice test-case answer here
+        get_split_elements(arr, asplit, arr.shape, mask, axes, tiling=tiling))

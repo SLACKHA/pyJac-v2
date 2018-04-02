@@ -25,7 +25,6 @@ from pyjac import utils
 from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
-from pyjac.tests.test_utils import select_elements
 from pyjac.schemas import build_and_validate
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
@@ -1001,6 +1000,7 @@ class kernel_call(object):
             # see if it's a supplied callable
             return mask(self, variable, index, is_answer=is_answer)
 
+        from pyjac.tests.test_utils import select_elements
         return select_elements(variable, mask, self.compare_axis, tiling=self.tiling)
 
     def compare(self, output_variables):

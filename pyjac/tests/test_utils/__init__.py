@@ -737,7 +737,7 @@ def select_elements(arr, mask, axes, tiling=True):
 
     try:
         # test if list of indicies
-        if not tiling == -1:
+        if not tiling:
             return arr[mask].squeeze()
         # next try iterable
 
