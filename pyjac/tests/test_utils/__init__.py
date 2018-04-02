@@ -427,10 +427,13 @@ class multi_index_iter(object):
         return self.__next__()
 
 
-def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,)):
+def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,),
+                       tiling=True):
     """
     A helper method to get the elements in a split array for a given
     set of indicies and axis specified for the reference (unsplit) array.
+
+    .. _note-above:
 
     Note
     ----
@@ -465,9 +468,12 @@ def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,)):
         The indicies to determine
     ref_ndim: int [2]
         The dimension of the unsplit array
-    axes: int or list of int
-        The axes the mask's correspond to.
-        Must be of the same shape / size as mask
+    axes: list of int
+        The axes the mask's correspond to. Must be of the same shape / size as mask.
+    tiling: bool [True]
+        If False, turns off the tiling discussed in the
+        :ref:`note-above <note above>`_.  In this mode, each entry of the mask must
+        be the same length as all other entries
 
     Returns
     -------
@@ -479,6 +485,13 @@ def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,)):
     """
 
     _get_index = indexer(splitter, ref_shape)
+
+    if not tiling:
+        # check mask
+        assert all(mask[0].size == m.size for m in mask[1:]), (
+            "Supplied mask elements cannot have differing lengths in non-tiling "
+            "mode.")
+        return arr[_get_index(mask, axes)].flatten(splitter.data_order)
 
     # create outputs
     output = None
@@ -569,7 +582,7 @@ def combination(*arrays, **kwargs):
     return ix
 
 
-def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order):
+def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True):
     """
     Helper function to convert dense Jacboian indicies to their corresponding
     sparse indicies.
@@ -598,6 +611,11 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order):
         Either the column pointer or column index list
     row_inds: :class:`numpy.ndarray`
         Either the column pointer or column index list
+    tiling: bool [True]
+        If False, turns off the tiling discussed in
+        :ref:`note-above <get_split_elements>`_.
+        In this mode, each entry of the mask must be the same length as all other
+        entries.
 
     Returns
     -------
@@ -627,10 +645,12 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order):
 
     # extract row & column masks
     def __row_and_col_mask():
-        if axes == -1:
-            assert len(mask) == 3, ('The full mask (including slices) must be '
-                                    'included when using a compare_axis of -1')
-            return 1, mask[1], 2, mask[2]
+        if not tiling:
+            assert len(mask) >= 2, ('The mask must at least include row & column '
+                                    'elements when not using tiling mode.')
+            assert all(mask[0].size == m.size for m in mask[1:]), (
+                'All elements of the mask must have the same size in tiling mode.')
+            return len(mask) - 2, mask[-2], len(mask) - 1, mask[-1]
         row_ind = next(i for i, ind in enumerate(axes)
                        if ind == 1)
         row_mask = mask[row_ind]
@@ -649,19 +669,17 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order):
     # remove old inds
     mask = [mask[i] for i in range(len(mask)) if i not in [
         row_ind, col_ind]]
-    if axes != -1:
-        axes = tuple(x for i, x in enumerate(axes) if i not in [
-            row_ind, col_ind])
+    axes = tuple(x for i, x in enumerate(axes) if i not in [
+        row_ind, col_ind])
 
     # add the sparse indicies
-    if axes != -1:
+    if tiling:
         new_mask = combination(row_mask, col_mask, order=order)
     else:
         new_mask = np.vstack((row_mask.T, col_mask.T)).T
     mask.append(inNd(new_mask, inds))
     # and the new axis
-    if axes != -1:
-        axes = axes + (1,)
+    axes = axes + (1,)
 
     return axes, mask
 

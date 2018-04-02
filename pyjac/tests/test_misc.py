@@ -1,6 +1,6 @@
 # test various functions in the utils function, or elsewhere
 
-from parameterized import parameterized
+from parameterized import parameterized, param
 import numpy as np
 
 try:
@@ -35,17 +35,18 @@ def test_listify(value, expected):
     assert listify(value) == expected
 
 
-@parameterized([(
-    (1024, 4, 4), lambda y, z: y + z <= 4, [np.arange(4), np.arange(4)], (1, 2)), (
+@parameterized([param(
+    (1024, 4, 4), lambda y, z: y + z <= 4, [np.arange(4), np.arange(4)], (1, 2)),
+                param(
     (1024, 6, 6), lambda x, y: (x + y) % 3 != 0, [np.arange(3), np.arange(6)],
-        (1, 2)), (
+                    (1, 2)), param(
     (1024, 10, 10), lambda x, y: x == 0, [np.array([0], np.int32), np.arange(6)],
-        (1, 2)), (
-    (1024, 10, 10), lambda x, y: (x & y) != 0, [
-        slice(None), np.arange(4, 10), np.arange(6)], -1)
+                    (1, 2)), param(
+    (1024, 10, 10), lambda x, y: (x & y) != 0, [np.arange(4, 10), np.arange(6)],
+                    (1, 2), tiling=False)
     ])
 @skipif(csr_matrix is None, 'scipy missing')
-def test_dense_to_sparse_indicies(shape, sparse, mask, axes):
+def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
     for order in ['C', 'F']:
         # create matrix
         arr = np.arange(1, np.prod(shape) + 1).reshape(shape, order=order)
@@ -80,7 +81,7 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes):
         row, col = (matrix.indices, matrix.indptr) if order == 'C' \
             else (matrix.indptr, matrix.indices)
         sparse_axes, sparse_inds = dense_to_sparse_indicies(
-            mask, axes, row, col, order)
+            mask, axes, row, col, order, tiling=tiling)
         sparse_inds = sparse_inds[-1]
 
         # and check
@@ -91,7 +92,7 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes):
                 it.iternext()
                 continue
 
-            if axes == -1:
+            if not tiling:
                 if not (it.multi_index[0] in mask[-2] and
                         it.multi_index[1] == mask[-1][np.where(
                             it.multi_index[0] == mask[-2])]):
