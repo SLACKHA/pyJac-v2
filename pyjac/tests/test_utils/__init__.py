@@ -262,9 +262,9 @@ class indexer(object):
 
         Notes
         -----
-        This class is the "dumb" version of :func:`parse_split_index`, and shouldn't
+        This class is the "dumb" version of :func:`get_split_elements`, and shouldn't
         be used directly if you don't understand the differences between the two.
-        See :func:`parse_split_index` for a complete description of said differnences
+        See :func:`get_split_elements` for a complete description of said differnences
 
         Returns
         -------
@@ -782,8 +782,12 @@ class get_comparable(object):
     """
 
     def __init__(self, compare_mask, ref_answer, compare_axis=(1,), tiling=True):
-        self.compare_mask = utils.listify(compare_mask)
-        self.ref_answer = utils.listify(ref_answer)
+        self.compare_mask = compare_mask
+        if not isinstance(compare_mask, list):
+            self.compare_mask = [compare_mask]
+        self.ref_answer = ref_answer
+        if not isinstance(ref_answer, list):
+            self.ref_answer = [ref_answer]
         self.compare_axis = utils.listify(compare_axis)
         self.tiling = tiling
 
