@@ -804,25 +804,27 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     kernel_data.extend([wdot_lp, Edot_lp, T_lp, P_lp, Tdot_lp, mw_lp])
 
+    dE_init = '<>dE = 0.0d {id=dE_init}'
+
     if conp:
         pre_instructions = [
             Template('${Edot_str} = ${V_str} * ${Tdot_str} / ${T_str} \
                      {id=init}').safe_substitute(
                 **locals()),
-            '<>dE = 0.0d'
+            dE_init
         ]
     else:
         pre_instructions = [
             Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_str}\
                      {id=init}').safe_substitute(
                 **locals()),
-            '<>dE = 0.0d'
+            dE_init
         ]
 
     instructions = Template(
         """
-            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum}
-            """
+            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum, dep=dE_init}
+        """
     ).safe_substitute(**locals())
 
     if conp:
@@ -830,7 +832,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = ['<>dE = 0.0d']
+            pre_instructions = [dE_init]
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${V_str} * ${Tdot_str} / ${T_str} \
@@ -857,7 +859,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
     else:
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = ['<>dE = 0.0d']
+            pre_instructions = [dE_init]
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_str} \
