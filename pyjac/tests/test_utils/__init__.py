@@ -569,6 +569,103 @@ def combination(*arrays, **kwargs):
     return ix
 
 
+def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order):
+    """
+    Helper function to convert dense Jacboian indicies to their corresponding
+    sparse indicies.
+
+    Note
+    ----
+    The :param:`col_inds` and :param:`row_inds` are either a row/column pointer
+    or row/column indicies depending on the :param:`order`.  A "C"-ordered matrix
+    implies use of a compressed-row sparse matrix, while an "F"-ordered matrix uses
+    a compressed-column sparse matrix.
+
+    Typically, you can just pass the values stored in the :class:`kernel_call`'s
+    :attr:`row_inds` and :attr:`col_inds`
+
+    Parameters
+    ----------
+    mask: list of :class:`numpy.ndarray`
+        The dense Jacobian indicies to convert to sparse indicies.  Each entry in
+        :param:`mask` should correspond to an axis in :param:`axes`.
+    axes: list or tuple of int, or -1
+        The axes index of the Jacobian array that each entry of :param:`mask`
+        corresponds to.
+        If :param:`axes` is -1, this indicates that the :param:`mask` consists of
+        row & column indicies, but don't need to be combined via :func:`combination`
+    col_inds: :class:`numpy.ndarray`
+        Either the column pointer or column index list
+    row_inds: :class:`numpy.ndarray`
+        Either the column pointer or column index list
+
+    Returns
+    -------
+    sparse_axes: tuple of int
+        The axes corresponding to the sparse inds
+    sparse_inds: :class:`numpy.ndarray`
+        The sparse indicies
+    """
+
+    # helper methods
+    def __get_sparse_mat(as_inds=True):
+        # setup dummy sparse matrix
+        if order == 'C':
+            matrix = csr_matrix
+            inds = col_inds
+            indptr = row_inds
+        else:
+            matrix = csc_matrix
+            inds = row_inds
+            indptr = col_inds
+        # next create and get indicies
+        matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
+        row, col = matrix.row, matrix.col
+        if as_inds:
+            return np.asarray((row, col)).T
+        return row, col
+
+    # extract row & column masks
+    def __row_and_col_mask():
+        if axes == -1:
+            assert len(mask) == 3, ('The full mask (including slices) must be '
+                                    'included when using a compare_axis of -1')
+            return 1, mask[1], 2, mask[2]
+        row_ind = next(i for i, ind in enumerate(axes)
+                       if ind == 1)
+        row_mask = mask[row_ind]
+        col_ind = next(i for i, ind in enumerate(axes)
+                       if ind == 2)
+        col_mask = mask[col_ind]
+        return row_ind, row_mask, col_ind, col_mask
+
+    # need to collapse the mask
+    inds = __get_sparse_mat()
+
+    # next we need to find the 1D index of all the row, col pairs in
+    # the mask
+    row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
+
+    # remove old inds
+    mask = [mask[i] for i in range(len(mask)) if i not in [
+        row_ind, col_ind]]
+    if axes != -1:
+        axes = tuple(x for i, x in enumerate(axes) if i not in [
+            row_ind, col_ind])
+
+    # add the sparse indicies
+    if axes != -1:
+        new_mask = combination(row_mask, col_mask, order=order)
+    else:
+        new_mask = np.vstack((row_mask.T, col_mask.T)).T
+    mask.append(inNd(new_mask, inds))
+    # and the new axis
+    if axes != -1:
+        axes = axes + (1,)
+
+    return axes, mask
+
+
 class get_comparable(object):
     """
     A wrapper for the kernel_call's _get_comparable function that fixes
@@ -1314,6 +1411,80 @@ def xfail(condition=None, msg=''):
         return inner
 
     return xfail_decorator
+
+
+# based on
+# https://github.com/numpy/numpy/blob/v1.14.0/numpy/testing/nose_tools/decorators.py#L91-L165  # noqa
+def skipif(condition, msg=''):
+    """
+    Make function raise SkipTest exception if a given condition is true.
+    If the condition is a callable, it is used at runtime to dynamically
+    make the decision. This is useful for tests that may require costly
+    imports, to delay the cost until the test suite is actually executed.
+    Parameters
+    ----------
+    skip_condition : bool or callable
+        Flag to determine whether to skip the decorated test.
+    msg : str, optional
+        Message to give on raising a SkipTest exception. Default is None.
+    Returns
+    -------
+    decorator : function
+        Decorator which, when applied to a function, causes SkipTest
+        to be raised when `skip_condition` is True, and the function
+        to be called normally otherwise.
+    Notes
+    -----
+    The decorator itself is decorated with the ``nose.tools.make_decorator``
+    function in order to transmit function name, and various other metadata.
+    """
+
+    def skip_decorator(f):
+        # Local import to avoid a hard nose dependency and only incur the
+        # import time overhead at actual test-time.
+        import nose
+
+        # Allow for both boolean or callable skip conditions.
+        if isinstance(condition, collections.Callable):
+            skip_val = lambda: condition()  # noqa
+        else:
+            skip_val = lambda: condition  # noqa
+
+        def get_msg(func, msg=None):
+            """Skip message with information about function being skipped."""
+            if msg is None:
+                out = 'Test skipped due to test condition'
+            else:
+                out = msg
+
+            return "Skipping test: {}: {}".format(func.__name__, out)
+
+        # We need to define *two* skippers because Python doesn't allow both
+        # return with value and yield inside the same function.
+        def skipper_func(*args, **kwargs):
+            """Skipper for normal test functions."""
+            if skip_val():
+                raise SkipTest(get_msg(f, msg))
+            else:
+                return f(*args, **kwargs)
+
+        def skipper_gen(*args, **kwargs):
+            """Skipper for test generators."""
+            if skip_val():
+                raise SkipTest(get_msg(f, msg))
+            else:
+                for x in f(*args, **kwargs):
+                    yield x
+
+        # Choose the right skipper to use when building the actual decorator.
+        if nose.util.isgenerator(f):
+            skipper = skipper_gen
+        else:
+            skipper = skipper_func
+
+        return nose.tools.make_decorator(f)(skipper)
+
+    return skip_decorator
 
 
 class runner(object):
