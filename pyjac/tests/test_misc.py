@@ -1,4 +1,7 @@
-# test various functions in the utils function, or elsewhere
+"""
+Tests various functions in the utils function or parts of the test apparatus
+themselves
+"""
 
 from parameterized import parameterized, param
 import numpy as np
@@ -12,7 +15,7 @@ except:
 from pyjac.utils import enum_to_string, listify
 from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from pyjac.libgen import build_type
-from pyjac.tests.test_utils import skipif, dense_to_sparse_indicies
+from pyjac.tests.test_utils import skipif, dense_to_sparse_indicies, select_elements
 
 
 @parameterized([(JacobianType.exact, 'exact'),
@@ -108,3 +111,25 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
                           *it.multi_index)])
             it.iternext()
             i += 1
+
+
+@parameterized([param(
+    (1024, 4, 4), [np.arange(4), np.arange(4)], (1, 2)),
+                param(
+    (1024, 6, 6), [np.arange(3), np.arange(6)], (1, 2)), param(
+    (1024, 10, 10), [np.array([0], np.int32), np.arange(6)], (1, 2)), param(
+    (1024, 10, 10), [np.arange(4, 10), np.arange(6)], (1, 2), tiling=False)
+    ])
+def test_select_elements(shape, mask, axes, tiling=True):
+    # create array
+    arr = np.arange(1, np.prod(shape) + 1).reshape(shape)
+
+    if tiling:
+        slicer = [slice(None)] * arr.ndim
+        for i, ax in enumerate(axes):
+            slicer[ax] = mask[i]
+        ans = mask[slicer]
+    else:
+        ans = arr[mask]
+
+    assert np.allclose(select_elements(arr, mask, axes, tiling=tiling), ans)

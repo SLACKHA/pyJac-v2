@@ -25,6 +25,7 @@ from pyjac import utils
 from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
+from pyjac.tests.test_utils import select_elements
 from pyjac.schemas import build_and_validate
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
@@ -736,6 +737,7 @@ class kernel_call(object):
                  chain=None, check=True, post_process=None,
                  allow_skip=False, other_compare=None, atol=1e-8,
                  rtol=1e-5, equal_nan=False, ref_ans_compare_mask=None,
+                 tiling=True,
                  **input_args):
         """
         The initializer for the :class:`kernel_call` object
@@ -758,6 +760,13 @@ class kernel_call(object):
             Necessary for some kernel tests, as the reference answer is not the same
             size as the output, which causes issues for split arrays.
             If not supplied, the regular :param:`compare_mask` will be used
+        tiling: bool, [True]
+            If True (default), the elements in the :param:`compare_mask` should be
+            combined, e.g., if two arrays [[1, 2] and [3, 4]] are supplied to
+            :param:`compare_mask` with tiling turned on, four resulting indicies will
+            be compared -- [1, 3], [1, 4], [2, 3], and [2, 4].  If tiling is turned
+            of, the compare mask will be treated as a list of indicies, e.g., (for
+            the previous example) -- [1, 3] and [2, 4].
         out_mask : int, optional
             The index(ices) of the returned array to aggregate.
             Should match length of ref_answer
@@ -845,8 +854,9 @@ class kernel_call(object):
         self.current_order = None
         self.allow_skip = allow_skip
         self.other_compare = other_compare
+        self.tiling = tiling
         # pull any rtol / atol from env / test config as specified by user
-        from ..tests import _get_test_input
+        from pyjac.tests import _get_test_input
         rtol = float(_get_test_input('rtol', rtol))
         atol = float(_get_test_input('atol', atol))
 
@@ -991,33 +1001,7 @@ class kernel_call(object):
             # see if it's a supplied callable
             return mask(self, variable, index, is_answer=is_answer)
 
-        try:
-            # test if list of indicies
-            if self.compare_axis == -1:
-                return variable[mask].squeeze()
-            # next try iterable
-
-            # multiple axes
-            outv = variable
-            # account for change in variable size
-            ax_fac = 0
-            for i, ax in enumerate(self.compare_axis):
-                shape = len(outv.shape)
-                inds = mask[i]
-
-                # some versions of numpy complain about implicit casts of
-                # the indicies inside np.take
-                try:
-                    inds = inds.astype('int64')
-                except:
-                    pass
-                outv = np.take(outv, inds, axis=ax-ax_fac)
-                if len(outv.shape) != shape:
-                    ax_fac += shape - len(outv.shape)
-            return outv.squeeze()
-        except TypeError:
-            # finally, take a simple mask
-            return np.take(variable, mask, self.compare_axis).squeeze()
+        return select_elements(variable, mask, self.compare_axis, tiling=self.tiling)
 
     def compare(self, output_variables):
         """
@@ -1043,7 +1027,7 @@ class kernel_call(object):
             #    comparable entries on it's own
             assert (isinstance(mask, list) and
                     len(mask) == len(output_variables)) or \
-                self.compare_axis == -1 or six.callable(mask), (
+                not self.tiling or six.callable(mask), (
                     'Compare mask does not match output variables!')
 
         _check_mask(self.compare_mask)

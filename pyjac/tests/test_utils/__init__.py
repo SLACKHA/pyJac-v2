@@ -689,6 +689,81 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True)
     return axes, mask
 
 
+def select_elements(arr, mask, axes, tiling=True):
+    """
+    Selects elements in the rows/columns of the :param:`arr` that match the given
+    :param:`mask.
+
+    Notes
+    -----
+    This method is built for not-split arrays _only_, and is significantly simpler
+    than :func:`get_split_elements`.
+
+    As with :func:`get_split_elements`, each entry in the :param:`mask` corresponds
+    to an axis given in :param:`axes`.  However, the mask here simply tells us which
+    entries in an axis to select.  For example, for a 3x3 :param:`arr`, with
+    :param:`mask` == [[1, 2], [1]] and :param:`axes` == (0, 1), the result will be
+    arr[[1, 2], [1]]:
+
+    .. doctest::
+
+    >>> import numpy as np
+    >>> arr = np.arange(9).reshape((3, 3))
+    >>> select_elements(arr, [[1, 2], [1]], (0, 1))
+
+    .. testoutput:
+        array([4, 7])
+
+    Parameters
+    ----------
+    arr: :class:`numpy.ndarray`
+        The array to select from
+    mask: list of :class:`numpy.ndarray`
+        The selection mask
+    axes: list of int
+        The integer index of the axes to select from, each entry in :param:`mask`
+        should correspond to an axis in this parameter.
+    tiling: bool [True]
+        Whether tiling mode is turned on, see
+        :ref:`note-above <get_split_elements>`_.  By default this is True.
+
+    Returns
+    -------
+    selected: `class:`numpy.ndarray`
+        The selected array
+    """
+
+    assert len(axes) == len(mask), 'Given mask does not match compare axes.'
+
+    try:
+        # test if list of indicies
+        if not tiling == -1:
+            return arr[mask].squeeze()
+        # next try iterable
+
+        # multiple axes
+        outv = arr
+        # account for change in variable size
+        ax_fac = 0
+        for i, ax in enumerate(axes):
+            shape = len(outv.shape)
+            inds = mask[i]
+
+            # some versions of numpy complain about implicit casts of
+            # the indicies inside np.take
+            try:
+                inds = inds.astype('int64')
+            except:
+                pass
+            outv = np.take(outv, inds, axis=ax-ax_fac)
+            if len(outv.shape) != shape:
+                ax_fac += shape - len(outv.shape)
+        return outv.squeeze()
+    except TypeError:
+        # finally, take a simple mask
+        return np.take(arr, mask, axes).squeeze()
+
+
 class get_comparable(object):
     """
     A wrapper for the kernel_call's _get_comparable function that fixes
@@ -702,27 +777,20 @@ class get_comparable(object):
         of tuples of :class:`numpy.ndarray`'s corresponding to the compare axis
     ref_answer: :class:`numpy.ndarray`
         The answer to compare to, used to determine the proper shape
-    compare_axis: -1 or iterable of int
+    compare_axis: iterable of int
         The axis (or axes) to compare along
     """
 
-    def __init__(self, compare_mask, ref_answer, compare_axis=(1,)):
-        self.compare_mask = compare_mask
-        if not isinstance(self.compare_mask, list):
-            self.compare_mask = [self.compare_mask]
+    def __init__(self, compare_mask, ref_answer, compare_axis=(1,), tiling=True):
+        self.compare_mask = utils.listify(compare_mask)
+        self.ref_answer = utils.listify(ref_answer)
+        self.compare_axis = utils.listify(compare_axis)
+        self.tiling = tiling
 
-        self.ref_answer = ref_answer
-        if not isinstance(self.ref_answer, list):
-            self.ref_answer = [ref_answer]
-
-        self.compare_axis = compare_axis
-
-        from collections import Iterable
-        if isinstance(self.compare_axis, Iterable):
-            # if iterable, check that all the compare masks are of the same
-            # length as the compare axis
-            assert all(len(x) == len(self.compare_axis) for x in self.compare_mask),\
-                "Can't use dissimilar compare masks / axes"
+        # check that all the compare masks are of the same
+        # length as the compare axis
+        assert all(len(x) == len(self.compare_axis) for x in self.compare_mask),\
+            "Can't use dissimilar compare masks / axes"
 
     def __call__(self, kc, outv, index, is_answer=False):
         """
@@ -751,158 +819,22 @@ class get_comparable(object):
             axis = self.compare_axis
         ndim = ans.ndim
 
-        # helper methods
-        def __get_sparse_mat(as_inds=True):
-            # setup dummy sparse matrix
-            if kc.current_order == 'C':
-                matrix = csr_matrix
-                inds = kc.col_inds
-                indptr = kc.row_inds
-            else:
-                matrix = csc_matrix
-                inds = kc.row_inds
-                indptr = kc.col_inds
-            # next create and get indicies
-            matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
-            row, col = matrix.row, matrix.col
-            if as_inds:
-                return np.asarray((row, col)).T
-            return row, col
-
-        # extract row & column masks
-        def __row_and_col_mask():
-            if self.compare_axis == -1:
-                return 1, mask[1], 2, mask[2]
-            row_ind = next(i for i, ind in enumerate(self.compare_axis)
-                           if ind == 1)
-            row_mask = mask[row_ind]
-            col_ind = next(i for i, ind in enumerate(self.compare_axis)
-                           if ind == 2)
-            col_mask = mask[col_ind]
-            return row_ind, row_mask, col_ind, col_mask
-
         # check for sparse (ignore answers, which do not get transformed into
         # sparse and should be dealt with as usual)
-        stride_arr = None
-        size_arr = None
-        if kc.jac_format == JacobianFormat.sparse:
-            if not is_answer:
-                if csc_matrix is None and csr_matrix is None:
-                    raise SkipTest('Cannot test sparse matricies without scipy'
-                                   ' installed')
-                # need to collapse the mask
-                inds = __get_sparse_mat()
-
-                # next we need to find the 1D index of all the row, col pairs in
-                # the mask
-                row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
-
-                # remove old inds
-                mask = [mask[i] for i in range(len(mask)) if i not in [
-                    row_ind, col_ind]]
-                if self.compare_axis != -1:
-                    axis = tuple(x for i, x in enumerate(axis) if i not in [
-                        row_ind, col_ind])
-
-                # store ic mask in case we need strides array
-                ic_size = mask[0].size if mask and isinstance(mask[0], np.ndarray) \
-                    else ans.shape[0]
-
-                # add the sparse indicies
-                if self.compare_axis != -1:
-                    new_mask = combination(
-                        row_mask, col_mask, order=kc.current_order)
-                else:
-                    new_mask = np.vstack((row_mask.T, col_mask.T)).T
-                mask.append(inNd(new_mask, inds))
-                # and the new axis
-                if self.compare_axis != -1:
-                    axis = axis + (1,)
-                # and indicate that we've lost a dimension
-                ndim -= 1
-
-                if kc.current_order == 'F' and outv.ndim != ndim:
-                    # as the split array dimension differs, we need to supply the
-                    # same strides as the reference answer
-                    size_arr = [mask[row_ind].size]
-                    if len(self.compare_mask[index]) == 3:
-                        size_arr = [ic_size] + size_arr
-                    # and fix the stride such that the rows and columns
-                    # move together
-                    if kc.current_order == 'F':
-                        stride_arr = [1] + [ic_size, 1, 1]
-
-            else:
-                # we need to filter the reference answer based on what is actually in
-                # the sparse jacoban
-
-                # get the (row, col) indicies of the sparse matrix
-                inds = __get_sparse_mat()
-                # find the row & column mask
-                row_ind, row_mask, col_ind, col_mask = __row_and_col_mask()
-                # combine col & row masks
-                if self.compare_axis != -1:
-                    new_mask = combination(row_mask, col_mask,
-                                           order=kc.current_order)
-                else:
-                    new_mask = np.vstack((row_mask, col_mask)).T
-                # find where the sparse indicies correspond to our row & column masks
-                new_mask = new_mask[inNd(inds, new_mask)]
-                # split back into rows and columns
-                mask[row_ind] = new_mask[:, 0]
-                mask[col_ind] = new_mask[:, 1]
-
-                if outv.ndim == ndim:
-                    axis = -1
-                    if len(mask) == 3:
-                        # pre-filter IC array
-                        outv = outv[mask[0]]
-                        mask[0] = slice(None)
-                    else:
-                        mask.insert(0, slice(None))
-                else:
-                    # need to take the size to be the number of initial conditions
-                    # multiplied by the number of indicies in our mask
-                    ic_vals = mask[0] if len(mask) == 3 and isinstance(
-                        mask[0], np.ndarray) else np.arange(ans.shape[0])
-                    ic_size = ic_vals.size
-                    size_arr = [mask[row_ind].size]
-                    if len(mask) == 3:
-                        size_arr = [ic_size] + size_arr
-                    # and fix the stride such that the rows and columns
-                    # move together
-                    stride_arr = [1] * outv.ndim
-                    if kc.current_order == 'F':
-                        stride_arr = [1] + [np.unique(ic_vals).size, 1, 1]
-                    else:
-                        d, m = np_divmod(ic_vals, outv.shape[-1])
-                        stride_arr = [np.unique(d).size] \
-                            + [1, 1] + [np.unique(m).size]
+        if kc.jac_format == JacobianFormat.sparse and not is_answer:
+            if csc_matrix is None and csr_matrix is None:
+                raise SkipTest('Cannot test sparse matricies without scipy'
+                               ' installed')
+            axis, mask = dense_to_sparse_indicies(
+                mask, axis, kc.col_inds, kc.row_inds, kc.current_order)
 
         # check for vectorized data order
         if outv.ndim == ndim:
-            # return the default, as it can handle it
-            return kernel_call('', [], compare_mask=[mask],
-                               compare_axis=axis)._get_comparable(outv, 0)
-        elif axis != -1:
-            # get the split indicies
-            masking = parse_split_index(
-                outv, kc.current_split, ans.shape, mask, axis, stride_arr, size_arr)
-
+            # return the default select
+            return select_elements(outv, mask, axis, self.tiling)
         else:
-            # we supplied a list of indicies, all we really have to do is convert
-            # them and return
-
-            _get_index = indexer(kc.current_split, ans.shape)
-            # first check we have a reasonable mask
-            assert ndim == len(mask), "Can't use dissimilar compare masks / axes"
-            # dummy comparison axis
-            comp_axis = np.arange(ndim)
-            # convert inds
-            masking = tuple(_get_index(mask, comp_axis))
-
-        # and return
-        return outv[masking]
+            return get_split_elements(outv, kc.current_split, ans.shape, mask,
+                                      axis, tiling=self.tiling)
 
 
 def reduce_oploop(base, add=None):
@@ -1390,7 +1322,8 @@ def with_check_inds(check_inds={}, custom_checks={}):
                 for ax, ind in sorted(six.iteritems(check_inds), key=lambda x: x[0]):
                     axes.append(ax)
                     inds.append(ind)
-                return get_comparable([inds], [answer], tuple(axes))
+                return get_comparable([inds], [answer], tuple(axes),
+                                      tiling=kwargs.pop('tiling', True))
 
             def _set_at(array, value, order='C'):
                 """

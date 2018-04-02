@@ -2435,7 +2435,8 @@ class SubTest(TestClass):
                               compare_mask=[
                                 (slice(None), non_zero_inds[:, 0],
                                     non_zero_inds[:, 1])],
-                              compare_axis=-1)
+                              compare_axis=np.arange(len(jac_shape)),
+                              tiling=False)
 
         # and get mask
         kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
@@ -2666,7 +2667,7 @@ class SubTest(TestClass):
         }
 
         kc = kernel_call('index_test', ref_ans, compare_mask=[__get_compare],
-                         compare_axis=-1, **args)
+                         compare_axis=np.arange(ref_ans.ndim), tiling=False, **args)
 
         return self._generic_jac_tester(__kernel_creator, kc,
                                         sparse_only=True)
