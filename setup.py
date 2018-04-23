@@ -21,14 +21,8 @@ with open(path.join(here, 'README.md')) as readme_file:
 with open(path.join(here, 'CHANGELOG.md')) as changelog_file:
     changelog = changelog_file.read()
 
-# get user's siteconf.py from CMD/file, and write to pyjac's siteconf.py
-schema = get_config_schema()
-conf = get_config(schema, warn_about_no_config=False)
-schema.set_conf_dir(path.join(here, 'pyjac'))
-schema.write_config(conf)
-
-setup(
-    name='pyJac',
+with open(path.join(here, 'CITATION.md')) as citation_file:
+    citation = citation_file.read()
 
 desc = readme + '\n\n' + changelog + '\n\n' + citation
 try:
@@ -38,6 +32,15 @@ try:
         rst_readme.write(long_description)
 except (ImportError, OSError, IOError):
     long_description = desc
+
+# get user's siteconf.py from CMD/file, and write to pyjac's siteconf.py
+schema = get_config_schema()
+conf = get_config(schema, warn_about_no_config=False)
+schema.set_conf_dir(path.join(here, 'pyjac'))
+schema.write_config(conf)
+
+setup(
+    name='pyJac',
     description=('Create analytical Jacobian matrix source code for chemical '
                  'kinetics'),
     long_description=long_description,
