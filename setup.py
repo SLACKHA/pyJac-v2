@@ -4,7 +4,7 @@ https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
 
-from setuptools import setup
+from setuptools import setup, find_packages
 from codecs import open
 from os import path
 from setup_helper import get_config, ConfigSchema, get_config_schema
@@ -135,8 +135,6 @@ setup(
         'pyjac.schemas': ['*.yaml']
     },
     include_package_data=True,
-    tests_require=tests_require,
-    setup_requires=setup_requires,
     zip_safe=False,
 
     entry_points={
