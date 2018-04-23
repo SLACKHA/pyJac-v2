@@ -55,7 +55,7 @@ shared_flags = dict(c=['-fPIC'],
 shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
                          opencl=['-pie', '-Wl,-E'])
 
-opt_flags = ['-O3']
+opt_flags = ['-O3', '-mtune=native']
 debug_flags = ['-O0', '-g']
 compile_flags = debug_flags if 'PYJAC_DEBUG' in os.environ else opt_flags
 
@@ -213,6 +213,10 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
         os.remove(os.path.join(out_dir, libname + lib_ext(not shared)))
 
     libname += lib_ext(shared)
+
+    if shared:
+        # add optimization / debug flags
+        command.extend(compile_flags)
 
     if not shared and lang != 'cuda':
         command += [os.path.join(out_dir, libname)]

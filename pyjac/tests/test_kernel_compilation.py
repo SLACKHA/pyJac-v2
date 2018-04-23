@@ -1,21 +1,27 @@
 import os
-from ..core.rate_subs import get_specrates_kernel
-from . import TestClass
-from ..loopy_utils.loopy_utils import loopy_options
-from ..libgen import generate_library, build_type
-from ..core.mech_auxiliary import write_aux
-from ..core.array_creator import array_splitter
-from ..pywrap.pywrap_gen import generate_wrapper
-from . import test_utils as test_utils
-from optionloop import OptionLoop
 from collections import OrderedDict
 import shutil
 from string import Template
 import sys
 import subprocess
+import re
+
+from optionloop import OptionLoop
 import numpy as np
-from .. import utils
-from parameterized import parameterized
+from parameterized import parameterized, param
+from nose.tools import assert_raises
+
+from pyjac import utils
+from pyjac.core.rate_subs import get_specrates_kernel
+from pyjac.core.create_jacobian import get_jacobian_kernel, \
+    finite_difference_jacobian, create_jacobian
+from pyjac.tests import TestClass, test_utils
+from pyjac.loopy_utils.loopy_utils import loopy_options
+from pyjac.libgen import generate_library, build_type
+from pyjac.core.mech_auxiliary import write_aux
+from pyjac.core.array_creator import array_splitter, problem_size
+from pyjac.pywrap.pywrap_gen import generate_wrapper
+from pyjac.core.exceptions import IncorrectInputSpecificationException
 
 
 class SubTest(TestClass):
@@ -41,10 +47,10 @@ class SubTest(TestClass):
         # write header
         write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
-    def __get_objs(self, lang='opencl'):
+    def __get_objs(self, lang='opencl', depth=None, width=None, order='C'):
         opts = loopy_options(lang=lang,
-                             width=None, depth=None, ilp=False,
-                             unr=None, order='C', platform='CPU')
+                             width=width, depth=depth, ilp=False,
+                             unr=None, order=order, platform='CPU')
 
         oploop = OptionLoop(OrderedDict([
             ('conp', [True]),
@@ -92,6 +98,70 @@ class SubTest(TestClass):
                 sys.version_info[0], sys.version_info[1])
             subprocess.check_call([python_str,
                                    os.path.join(lib_dir, 'test_import.py')])
+
+    def __test_cases():
+        for state in OptionLoop(OrderedDict(
+                [('lang', ['opencl', 'c']),
+                 (('jac_type'), ['exact', 'approximate', 'finite_difference'])])):
+            yield param(state)
+
+    @parameterized.expand(__test_cases,
+                          testcase_func_name=lambda x, y, z:
+                          '{0}_{1}_{2}'.format(x.__name__, z[0][0]['lang'],
+                                               z[0][0]['jac_type']))
+    def test_compile_jacobian(self, state):
+        lang = state['lang']
+        jac_type = state['jac_type']
+        opts, oploop = self.__get_objs(lang=lang)
+        build_dir = self.store.build_dir
+        obj_dir = self.store.obj_dir
+        lib_dir = self.store.lib_dir
+        packages = {'c': 'pyjac_c', 'opencl': 'pyjac_ocl'}
+        for state in oploop:
+            # clean old
+            self.__cleanup()
+            # create / write files
+            build_dir = self.store.build_dir
+            conp = state['conp']
+            method = get_jacobian_kernel
+            if jac_type == 'finite_difference':
+                method = finite_difference_jacobian
+            kgen = method(self.store.reacs, self.store.specs, opts,
+                          conp=conp)
+            # generate
+            kgen.generate(build_dir)
+            # write header
+            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+            # test wrapper generation
+            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
+                             btype=build_type.jacobian)
+
+            # create the test importer, and run
+            imp = test_utils.get_import_source()
+            with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
+                file.write(imp.substitute(path=lib_dir, package=packages[lang]))
+
+            python_str = 'python{}.{}'.format(
+                sys.version_info[0], sys.version_info[1])
+            subprocess.check_call([python_str,
+                                   os.path.join(lib_dir, 'test_import.py')])
+
+    def test_fixed_size(self):
+        # test bad fixed size
+        with assert_raises(IncorrectInputSpecificationException):
+            create_jacobian(
+                'opencl', gas=self.store.gas, vector_size=4, wide=True, fixed_size=1)
+
+        # test good fixed size
+        # create w/ fixed size
+        create_jacobian('c', gas=self.store.gas, fixed_size=1, data_order='F',
+                        build_path=self.store.build_dir)
+        # read resulting file
+        with open(os.path.join(self.store.build_dir, 'jacobian_kernel.c'),
+                  'r') as file:
+            file = file.read()
+        # and make sure we don't have 'problem_size'
+        assert not re.search(r'\b{}\b'.format(problem_size.name), file)
 
     def test_read_initial_conditions(self):
         build_dir = self.store.build_dir

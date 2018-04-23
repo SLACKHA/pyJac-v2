@@ -6,8 +6,8 @@ import subprocess
 from string import Template
 import logging
 
-from ..libgen import generate_library, build_type
-from .. import siteconf as site
+from pyjac.libgen import generate_library, build_type
+from pyjac import siteconf as site
 
 
 def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,

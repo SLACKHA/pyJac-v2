@@ -1,0 +1,29 @@
+####################################################################################
+#       An example of test platforms specification, e.g., for unit-testing or      #
+#       performance / validation studies                                           #
+#                                                                                  #
+#       To see specification of a platform for codegeneration, see                 #
+#       :file:`codegen_platform.yaml`                                              #
+####################################################################################
+
+platform-list:
+  # a CPU platform using AMD-OpenCL, wide/deep vectorizations and atomics
+  - name: amd
+    lang: opencl
+    vectype: [wide, deep, par]
+    # use a vector width of 2 & 4
+    vecsize: [2, 4]
+    atomics: True
+  # a CPU platform using C and no vectorizations
+  - name: openmp
+    lang: c
+    # only test C-ordered
+    # order: ['C']
+    vectype: [par]
+    # a GPU platform using OpenCL, wide vectorizations and a vector width of 64
+    # without atomics
+  - name: nvidia
+    lang: opencl
+    vectype: [wide]
+    vecsize: [64, 128, 256]
+    atomics: False

@@ -9,7 +9,7 @@ import subprocess
 import textwrap
 
 # local imports
-from .. import utils
+from pyjac import utils
 
 
 def get_standard_headers(lang):

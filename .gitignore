@@ -77,6 +77,8 @@ pytchem_wrapper.c
 
 # configuration files
 pyjac/siteconf.py
-test_platforms.yaml
 run_performance.sh
 run_validation.sh
+
+# paper matricies
+pyjac/examples/paper_*_matrix.yaml

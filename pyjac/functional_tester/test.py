@@ -22,19 +22,15 @@ from nose.tools import nottest
 import tables
 
 # Local imports
-from ..core.mech_interpret import read_mech_ct
-
-from ..tests.test_utils import parse_split_index, _run_mechanism_tests, runner, inNd
-from ..tests import test_utils, get_platform_file, _get_test_input, \
-    get_mem_limits_file
-from ..loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
-from ..libgen import build_type, generate_library
-from ..core.create_jacobian import determine_jac_inds
-from ..utils import EnumType, inf_cutoff
-
-# turn off cache
-import loopy as lp
-lp.set_caching_enabled(False)
+from pyjac.core.mech_interpret import read_mech_ct
+from pyjac.tests.test_jacobian import _get_fd_jacobian
+from pyjac.tests.test_utils import parse_split_index, _run_mechanism_tests, runner, \
+    inNd
+from pyjac.tests import test_utils, get_matrix_file, _get_test_input
+from pyjac.loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
+from pyjac.libgen import build_type, generate_library
+from pyjac.core.create_jacobian import determine_jac_inds
+from pyjac.utils import EnumType, inf_cutoff
 
 
 def getf(x):
@@ -173,7 +169,8 @@ class hdf5_store(object):
         self.handles.clear()
 
     def output_to_pytables(self, name, dirname, ref_ans, order, asplit,
-                           filename=None, pytables_name=None):
+                           filename=None, pytables_name=None,
+                           num_conditions=None):
         """
         Converts the binary output file in :param:`filename` to a HDF5 pytables file
         in order to avoid memory errors
@@ -203,6 +200,9 @@ class hdf5_store(object):
             The filename of the pytables_output.  If not supplied, it will be the
             same as :param:`filename` with the '.bin' prefix replaced with
             '.hdf5'
+        num_conditions: int [None]
+            If specified, a limit on the number of conditions that were tested
+            due to memory constraints
 
         Returns
         -------
@@ -231,8 +231,14 @@ class hdf5_store(object):
         hdf5_file = tables.open_file(pytables_name, mode='w')
         # add compression
         filters = tables.Filters(complevel=5, complib='blosc')
+        # get the reference answer shape
+        ref_ans_shape = list(ref_ans.shape)
+        # check for limits
+        if num_conditions:
+            ref_ans_shape[0] = num_conditions
         # get the reference answer in order to get shape, etc.
-        shape, grow_axis, split_axis = asplit.split_shape(ref_ans)
+        shape, grow_axis, split_axis = asplit.split_shape(
+            type('', (object,), {'shape': ref_ans_shape}))
 
         # and set the enlargable shape for the pytables array
         eshape = tuple(shape[i] if i != grow_axis else 0
@@ -286,14 +292,15 @@ class validation_runner(runner, hdf5_store):
         rtype: :class:`build_type` [build_type.jacobian]
             The type of test to run
         """
-        runner.__init__(self, rtype)
+
+        runner.__init__(self, filetype='_err.npz', rtype=rtype)
         hdf5_store.__init__(self)
         self.base_chunk_size = self.chunk_size
 
         self.eval_class = eval_class
         self.mod_test = test_utils.get_run_source()
 
-    def check_file(self, filename, _):
+    def check_file(self, filename, _, __):
         """Checks file for existing data, returns number of completed runs
 
         Parameters
@@ -311,20 +318,7 @@ class validation_runner(runner, hdf5_store):
         Ns = self.gas.n_species
         Nr = self.gas.n_reactions
         Nrev = len([x for x in self.gas.reactions() if x.reversible])
-        return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecwidth)
-
-    def get_filename(self, state):
-        self.current_vecwidth = state['vecsize']
-        desc = self.descriptor
-        if self.rtype == build_type.jacobian:
-            desc += '_sparse' if EnumType(JacobianFormat)(state['sparse'])\
-                 == JacobianFormat.sparse else '_full'
-        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                desc, state['lang'], state['vecsize'], state['order'],
-                'w' if state['wide'] else 'd' if state['deep'] else 'par',
-                state['platform'], state['rate_spec'],
-                'split' if state['split_kernels'] else 'single',
-                state['num_cores'], 'conp' if state['conp'] else 'conv') + '_err.npz'
+        return self.helper.check_file(filename, Ns, Nr, Nrev, self.current_vecsize)
 
     def pre(self, gas, data, num_conditions, max_vec_width):
         """
@@ -421,7 +415,7 @@ class validation_runner(runner, hdf5_store):
             # next find the grow dimension
             _, grow_dim, split_dim = asplit.split_shape(arr)
             # we need to slice on the grow dim to pull into memory
-            # create empty slices in other dimensions -- vecwidth dim is full by
+            # create empty slices in other dimensions -- vecsize dim is full by
             # defn
             inds = [slice(None) for x in range(arr.ndim)]
             inds[grow_dim] = np.unique(mask[grow_dim])
@@ -477,8 +471,9 @@ class validation_runner(runner, hdf5_store):
         np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
 
         num_conditions = self.num_conditions
-        if limits and state['sparse'] in limits:
-            num_conditions = limits[state['sparse']]
+        limited_num_conditions = self.have_limit(state, limits)
+        if limited_num_conditions is not None:
+            num_conditions = limited_num_conditions
 
         # call
         subprocess.check_call([os.path.join(my_test, lib),
@@ -491,7 +486,7 @@ class validation_runner(runner, hdf5_store):
         for name, ref_ans in zip(*(self.helper.output_names, answers)):
             outputs.append(
                 self.output_to_pytables(name, my_test, ref_ans, state['order'],
-                                        asplit))
+                                        asplit, num_conditions=num_conditions))
 
         # now loop through the output in error chunks increments to get error
         offset = 0
@@ -531,11 +526,13 @@ class eval(hdf5_store):
         raise NotImplementedError
 
     def _check_file(self, err, names, mods):
-        try:
-            return all(n + mod in err and np.all(np.isfinite(err[n + mod]))
-                       for n in names for mod in mods)
-        except:
-            return False
+        allclear = all(n + mod in err for n in names for mod in mods)
+        if allclear and not all(np.all(np.isfinite(err[n + mod]))
+                                for n in names for mod in mods):
+            raise Exception('Infinite/NaN data detected in {}'.format(
+                next(n for n in names for mod in mods if not np.all(np.isfinite(
+                    err[n + mod])))))
+        return allclear
 
 
 class spec_rate_eval(eval):
@@ -804,15 +801,15 @@ class spec_rate_eval(eval):
 
         return err_dict
 
-    def _check_size(self, err, names, mods, size, vecwidth):
+    def _check_size(self, err, names, mods, size, vecsize):
         non_conformant = [n + mod for n in names for mod in mods
                           if err[n + mod].size != size]
         if not non_conformant:
             return True
-        return all(np.all(err[x][size:] == 0) and err[x].size % vecwidth == 0
+        return all(np.all(err[x][size:] == 0) and err[x].size % vecsize == 0
                    for x in non_conformant)
 
-    def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
+    def check_file(self, filename, Ns, Nr, Nrev, current_vecsize):
         """
         Checks a species validation file for completion
 
@@ -826,10 +823,10 @@ class spec_rate_eval(eval):
             The number of reactions in the mechanism
         Nrev: int
             The number of reversible reactions in the mechanism
-        current_vecwidth: int
+        current_vecsize: int
             The curent vector width being used.  If the current state results in
             an array split, this may make the stored error arrays larger than
-            expected, so we must check that they are divisible by current_vecwidth
+            expected, so we must check that they are divisible by current_vecsize
             and the extra entries are identically zero
 
         Returns
@@ -848,15 +845,15 @@ class spec_rate_eval(eval):
             # check Nr size
             allclear = allclear and self._check_size(
                 err, [x for x in names if ('rop_fwd' in x or 'rop_net' in x)],
-                mods, Nr, current_vecwidth)
+                mods, Nr, current_vecsize)
             # check reversible
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'rop_rev' in x],
-                mods, Nrev, current_vecwidth)
+                mods, Nrev, current_vecsize)
             # check Ns size
             allclear = allclear and self._check_size(
                 err, [x for x in names if 'phi' in x], mods, Ns + 1,
-                current_vecwidth)
+                current_vecsize)
             return allclear
         except (OSError, IOError) as e:
             # check for simple file not found error
@@ -865,14 +862,14 @@ class spec_rate_eval(eval):
                 return False
             warn = e
         except Exception as e:
-            warn = True
-            return e
+            warn = e
         finally:
             if warn:
                 logger = logging.getLogger(__name__)
                 logger.warn('Error checking species validation file {}'.format(
                     filename))
                 logger.exception(warn)
+                return False
 
 
 class jacobian_eval(eval):
@@ -900,6 +897,35 @@ class jacobian_eval(eval):
             self.non_zero_specs = self.non_zero_specs[:-1]
 
         super(jacobian_eval, self).__init__()
+
+    def release(self):
+        """
+        Force remove old hdf5 files out of paranoia
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        # ensure that the FD jacobians are removed
+        def try_delete(file):
+            try:
+                os.remove(file)
+            except (IOError, OSError):
+                pass
+
+        try_delete('fd_jac_cp.hdf5')
+        try_delete('fd_jac_cp_sp_C.hdf5')
+        try_delete('fd_jac_cp_sp_F.hdf5')
+        try_delete('fd_jac_cv.hdf5')
+        try_delete('fd_jac_cv_sp.hdf5')
+        try_delete('fd_jac_cv_sp_C.hdf5')
+        try_delete('fd_jac_cv_sp_F.hdf5')
+        super(jacobian_eval, self).release()
 
     def __sparsify(self, jac, name, order, check=True):
         # get the sparse indicies
@@ -967,19 +993,22 @@ class jacobian_eval(eval):
         settings = np.seterr(**settings)
         return out, np.sqrt(threshold)
 
-    def __fast_jac(self, conp, sparse, order):
+    def __fast_jac(self, conp, sparse, order, require=False):
         jac = None
         # check for stored jacobian
         name = 'fd_jac_' + ('cp' if conp else 'cv')
         if hasattr(self, name):
             jac = getattr(self, name)
 
+        assert (not require) or jac is not None, ('Jacobian {} missing'.format(
+            name))
         if jac is None:
             return None
 
         if sparse == 'sparse':
             # check for stored sparse matrix
-            name += '_sp'
+            name += '_sp_{}'.format(order)
+            assert (not require) or hasattr(self, name)
             if hasattr(self, name):
                 return getattr(self, name)
         return jac
@@ -1002,7 +1031,6 @@ class jacobian_eval(eval):
         phi_mask = np.array([0] + list(range(2, phi.shape[1])))
         # note that we have to do this piecewise in order to avoid memory overflows
         # eval jacobian
-        from ..tests.test_jacobian import _get_fd_jacobian
         P = phi[:, 1] if state['conp'] else phi[:, 2]
         V = phi[:, 2] if state['conp'] else phi[:, 1]
 
@@ -1088,10 +1116,19 @@ class jacobian_eval(eval):
 
         if state['sparse'] == 'sparse':
             name += '_sp'
-            jac, threshold = self.__sparsify(jac, name, state['order'], check=True)
-            # store
-            setattr(self, name, jac)
-            setattr(self, thresh_name + '_sp', threshold)
+            thresh_name += '_sp'
+
+            def __sparsify_order(order):
+                order_name = name + '_{}'.format(order)
+                order_thresh_name = thresh_name + '_{}'.format(order)
+                sjac, threshold = self.__sparsify(
+                    jac, order_name, order, check=True)
+                setattr(self, order_name, sjac)
+                setattr(self, order_thresh_name, threshold)
+
+            # do C-order
+            __sparsify_order('C')
+            __sparsify_order('F')
 
         return jac
 
@@ -1100,6 +1137,7 @@ class jacobian_eval(eval):
         name = 'threshold_' + 'cp' if state['conp'] else 'cv'
         if state['sparse'] == 'sparse':
             name += '_sp'
+            name += '_{}'.format(state['order'])
         return getattr(self, name)
 
     @property
@@ -1108,7 +1146,8 @@ class jacobian_eval(eval):
         return ['jac']
 
     def ref_answers(self, state):
-        return [self.__fast_jac(state['conp'], state['sparse'], state['order'])]
+        return [self.__fast_jac(state['conp'], state['sparse'], state['order'],
+                                require=True)]
 
     def eval_error(self, offset, this_run, state, outputs, answers, err_dict):
         def __update_key(key, value, op='norm'):
@@ -1223,7 +1262,7 @@ class jacobian_eval(eval):
 
         return err_dict
 
-    def check_file(self, filename, Ns, Nr, Nrev, current_vecwidth):
+    def check_file(self, filename, Ns, Nr, Nrev, current_vecsize):
         """
         Checks a jacobian validation file for completion
 
@@ -1237,7 +1276,7 @@ class jacobian_eval(eval):
             Unused
         Nrev: int
             Unused
-        current_vecwidth: int
+        current_vecsize: int
             Unused
 
         Returns
@@ -1275,19 +1314,18 @@ class jacobian_eval(eval):
                 return False
             warn = e
         except Exception as e:
-            warn = True
-            return e
+            warn = e
         finally:
             if warn:
                 logger = logging.getLogger(__name__)
                 logger.warn('Error checking jacobian validation file {}'.format(
                     filename))
                 logger.exception(warn)
+                return False
 
 
 @nottest
-def species_rate_tester(work_dir='error_checking', test_platform=None, prefix='',
-                        mem_limits=''):
+def species_rate_tester(work_dir='error_checking', test_matrix=None, prefix=''):
     """Runs validation testing on pyJac's species_rate kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
     a numpy zip file (.npz) with the error of various outputs (rhs vector, ROP, etc.)
@@ -1297,6 +1335,8 @@ def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''
     ----------
     work_dir : str
         Working directory with mechanisms and for data
+    test_matrix: str
+        The testing matrix file, specifing the configurations to test
 
     Returns
     -------
@@ -1305,23 +1345,19 @@ def species_rate_tester(work_dir='error_checking', test_platform=None, prefix=''
     """
 
     raise_on_missing = True
-    if not test_platform:
+    if not test_matrix:
         # pull default test platforms if available
-        test_platform = get_platform_file()
+        test_matrix = get_matrix_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
-    if not mem_limits:
-        # pull user specified memory limits if available
-        mem_limits = get_mem_limits_file()
 
     valid = validation_runner(spec_rate_eval, build_type.species_rates)
-    _run_mechanism_tests(work_dir, test_platform, prefix, valid,
-                         mem_limits, raise_on_missing=raise_on_missing)
+    _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
+                         raise_on_missing=raise_on_missing)
 
 
 @nottest
-def jacobian_tester(work_dir='error_checking', test_platform=None, prefix='',
-                    mem_limits=''):
+def jacobian_tester(work_dir='error_checking', test_matrix=None, prefix=''):
     """Runs validation testing on pyJac's jacobian kernel, reading a series
     of mechanisms and datafiles from the :param:`work_dir`, and outputting
     a numpy zip file (.npz) with the error of Jacobian as compared to a
@@ -1331,6 +1367,8 @@ def jacobian_tester(work_dir='error_checking', test_platform=None, prefix='',
     ----------
     work_dir : str
         Working directory with mechanisms and for data
+    test_matrix: str
+        The testing matrix file, specifing the configurations to test
 
     Returns
     -------
@@ -1339,15 +1377,12 @@ def jacobian_tester(work_dir='error_checking', test_platform=None, prefix='',
     """
 
     raise_on_missing = True
-    if not test_platform:
+    if not test_matrix:
         # pull default test platforms if available
-        test_platform = get_platform_file()
+        test_matrix = get_matrix_file()
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
-    if not mem_limits:
-        # pull user specified memory limits if available
-        mem_limits = get_mem_limits_file()
 
     valid = validation_runner(jacobian_eval, build_type.jacobian)
-    _run_mechanism_tests(work_dir, test_platform, prefix, valid,
-                         mem_limits, raise_on_missing=raise_on_missing)
+    _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
+                         raise_on_missing=raise_on_missing)

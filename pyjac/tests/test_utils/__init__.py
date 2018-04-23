@@ -9,19 +9,21 @@ from multiprocessing import cpu_count
 import subprocess
 import sys
 from functools import wraps
+from nose import SkipTest
 
-from ...loopy_utils.loopy_utils import (get_device_list, kernel_call, populate,
-                                        auto_run, RateSpecialization, loopy_options,
-                                        JacobianType, JacobianFormat)
-from ...core.exceptions import MissingPlatformError, BrokenPlatformError
-from ...kernel_utils import kernel_gen as k_gen
-from ...core import array_creator as arc
-from ...core.mech_auxiliary import write_aux
-from .. import get_test_platforms
-from ...pywrap import generate_wrapper
-from ... import utils
-from ...libgen import build_type
-
+from pyjac.loopy_utils.loopy_utils import (
+    get_device_list, kernel_call, populate,
+    auto_run, RateSpecialization, loopy_options,
+    JacobianType, JacobianFormat)
+from pyjac.core.exceptions import MissingPlatformError, BrokenPlatformError
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core import array_creator as arc
+from pyjac.core.mech_auxiliary import write_aux
+from pyjac.pywrap import generate_wrapper
+from pyjac import utils
+from pyjac.libgen import build_type
+from pyjac.tests import platform_is_gpu
+from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix
 except:
@@ -29,7 +31,6 @@ except:
     csc_matrix = None
 
 
-from unittest.case import SkipTest
 from optionloop import OptionLoop
 import numpy as np
 try:
@@ -117,7 +118,8 @@ class kernel_runner(object):
             loopy_opts=loopy_opts,
             kernels=infos,
             namestore=namestore,
-            test_size=self.test_size
+            test_size=self.test_size,
+            for_testing=True
         )
         gen._make_kernels()
         # setup kernel call and output names
@@ -586,13 +588,42 @@ class get_comparable(object):
         return outv[masking]
 
 
+def reduce_oploop(base, add=None):
+    """
+    Convenience method to turn :param:`base` into an :class:`oploopconcat`
+
+    Parameters
+    ----------
+    base: list of list of tuples
+        Each list inside of base should be convertible to an OrderedDict
+    add: list of tuples [None]
+        If specified, add this list of tuples to each internal :class:`OptionLoop`
+
+    Returns
+    -------
+    concat: :class:`oploopconcat`
+        The concatentated option loops
+    """
+
+    out = None
+    for b in base:
+        if add is not None:
+            b += add
+        val = OptionLoop(OrderedDict(b), lambda: False)
+        if out is None:
+            out = val
+        else:
+            out = out + val
+
+    return out
+
+
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
-                langs=['opencl'], do_vector=True, do_sparse=False,
+                langs=['c', 'opencl'], do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False):
 
-    platforms = get_test_platforms(owner.store.test_platforms,
-                                   do_vector=do_vector, langs=langs)
+    platforms = load_platforms(owner.store.test_platforms, langs=langs)
     oploop = [('order', ['C', 'F']),
               ('auto_diff', [False])
               ]
@@ -605,6 +636,8 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
             ('rop_net_kernels', [True])]
     if do_conp:
         oploop += [('conp', [True, False])]
+    else:
+        oploop += [('conp', [True])]
     if sparse_only:
         oploop += [('jac_format', [JacobianFormat.sparse])]
     elif do_sparse:
@@ -618,21 +651,14 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
     else:
         oploop += [('jac_type', [JacobianType.exact])]
     oploop += [('knl_type', ['map'])]
-    out = None
-    for p in platforms:
-        val = OptionLoop(OrderedDict(p + oploop))
-        if out is None:
-            out = val
-        else:
-            out = out + val
 
-    return out
+    return reduce_oploop(platforms, oploop)
 
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                     do_ropsplit=False, do_conp=False, do_vector=True,
-                    do_sparse=False, langs=['opencl'],
-                    sparse_only=False, **kw_args):
+                    do_sparse=False, langs=None,
+                    sparse_only=False, **kwargs):
     """
     A generic testing method that can be used for to test the correctness of
     any _pyJac_ kernel via the supplied :class:`kernel_call`'s
@@ -668,8 +694,15 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         Any additional arguements to pass to the :param:`func`
     """
 
+    if langs is None:
+        from pyjac.tests import get_test_langs
+        langs = get_test_langs()
+
+    if 'conp' in kwargs:
+        do_conp = False
+
     oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                         do_conp=do_conp, do_sparse=do_sparse,
+                         langs=langs, do_conp=do_conp, do_sparse=do_sparse,
                          sparse_only=sparse_only)
 
     reacs = owner.store.reacs
@@ -706,10 +739,10 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
         try:
-            conp = state['conp']
+            conp = kwargs['conp']
         except:
             try:
-                conp = kw_args['conp']
+                conp = state['conp']
             except:
                 conp = True
         # create namestore
@@ -717,7 +750,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                                   owner.store.test_size)
         # create the kernel info
         infos = func(opt, namestore,
-                     test_size=owner.store.test_size, **kw_args)
+                     test_size=owner.store.test_size, **kwargs)
 
         if not isinstance(infos, list):
             try:
@@ -741,7 +774,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             loopy_opts=opt,
             kernels=infos,
             namestore=namestore,
-            test_size=owner.store.test_size
+            test_size=owner.store.test_size,
+            for_testing=True
         )
 
         knl._make_kernels()
@@ -828,7 +862,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         # check to see if device is CPU
         # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
-        #        and (opts.depth is None or not opts.use_atomics):
+        #        and (not bool(opts.depth) or not opts.use_atomics):
         #    opts.use_private_memory = True
 
         conp = state['conp']
@@ -1062,14 +1096,38 @@ def with_check_inds(check_inds={}, custom_checks={}):
     return check_inds_decorator
 
 
+# xfail based on https://stackoverflow.com/a/9615578/1667311
+def xfail(condition=None, msg=''):
+    """
+        An implementation of an expected fail for Nose w/ an optional condition
+    """
+    def xfail_decorator(test):
+        # check that condition is valid
+        if condition is not None and not condition:
+            return test
+
+        @wraps(test)
+        def inner(*args, **kwargs):
+            try:
+                test(*args, **kwargs)
+            except Exception:
+                raise SkipTest(msg)
+            else:
+                raise AssertionError('Failure expected')
+        return inner
+
+    return xfail_decorator
+
+
 class runner(object):
     """
     A base class for running the :func:`_run_mechanism_tests`
     """
 
-    def __init__(self, rtype=build_type.jacobian):
+    def __init__(self, filetype, rtype=build_type.jacobian):
         self.rtype = rtype
         self.descriptor = 'jac' if rtype == build_type.jacobian else 'spec'
+        self.filetype = filetype
 
     def pre(self, gas, data, num_conditions, max_vec_width):
         raise NotImplementedError
@@ -1077,10 +1135,7 @@ class runner(object):
     def run(self, state, asplit, dirs, data_output, limits):
         raise NotImplementedError
 
-    def get_filename(self, state):
-        raise NotImplementedError
-
-    def check_file(self, file, state):
+    def check_file(self, file, state, limits={}):
         raise NotImplementedError
 
     @property
@@ -1093,11 +1148,67 @@ class runner(object):
                                np.reshape(extra, (-1, 1)),
                                moles[:, :-1]), axis=1)
 
+    def have_limit(self, state, limits):
+        """
+        Returns the appropriate limit on the number of initial conditions
+        based on the runtype
+
+        Parameters
+        ----------
+        state: dict
+            The current run's parameters
+        limits: dict
+            If supplied, a limit on the number of conditions that may be tested
+            at once. Important for larger mechanisms that may cause memory overflows
+
+        Returns
+        -------
+        num_conditions: int or None
+            The limit on the number of initial conditions for this runtype
+            If None is returned, the limit is not supplied
+        """
+
+        # check rtype
+        rtype_str = str(self.rtype)
+        rtype_str = rtype_str[rtype_str.index('.') + 1:]
+        if limits and rtype_str in limits:
+            if self.rtype == build_type.jacobian:
+                # check sparsity
+                if state['sparse'] in limits[rtype_str]:
+                    return limits[rtype_str][state['sparse']]
+            else:
+                return limits[rtype_str]
+
+        return None
+
+    def get_filename(self, state):
+        # store vector size
+        self.current_vecsize = state['vecsize']
+        desc = self.descriptor
+        if self.rtype == build_type.jacobian:
+            desc += '_sparse' if utils.EnumType(JacobianFormat)(state['sparse'])\
+                 == JacobianFormat.sparse else '_full'
+        if utils.EnumType(JacobianType)(state['jac_type']) == \
+                JacobianType.finite_difference:
+            desc = 'fd' + desc
+
+        vecsize = state['vecsize'] if utils.can_vectorize_lang[state['lang']] and \
+            (state['wide'] or state['deep']) else '1'
+        vectype = 'w' if state['wide'] else 'd' if state['deep'] else 'par'
+        platform = state['platform']
+        split = 'split' if state['split_kernels'] else 'single'
+        conp = 'conp' if state['conp'] else 'conv'
+
+        return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                desc, state['lang'], vecsize, state['order'],
+                vectype, platform, state['rate_spec'],
+                split, state['num_cores'], conp) + self.filetype
+
     def post(self):
         pass
 
 
-def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
+def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                          raise_on_missing=True):
     """
     This method is used to consolidate looping for the :mod:`peformance_tester`
@@ -1109,12 +1220,12 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         The directory to run / check in
     run: :class:`runner`
         The code / function to be run for each state of the :class:`OptionLoop`
-    test_platforms: str
-        The testing platforms file, specifing the configurations to test
+    test_matrix: str
+        The testing matrix file, specifing the configurations to test
     prefix: str
         a prefix within the work directory to store the output of this run
     raise_on_missing: bool
-        Raise an exception of the specified :param:`test_platforms` file is not found
+        Raise an exception of the specified :param:`test_matrix` file is not found
 
     Returns
     -------
@@ -1129,15 +1240,15 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
     test_dir = 'test'
 
     # check if validation
-    from ...functional_tester.test import validation_runner
+    from pyjac.functional_tester.test import validation_runner
     for_validation = isinstance(run, validation_runner)
 
     # imports needed only for this tester
-    from . import get_test_matrix as tm
-    from . import data_bin_writer as dbw
-    from ...core.mech_interpret import read_mech_ct
-    from ...core.array_creator import array_splitter
-    from ...core.create_jacobian import find_last_species, create_jacobian
+    from pyjac.tests.test_utils import get_test_matrix as tm
+    from pyjac.tests.test_utils import data_bin_writer as dbw
+    from pyjac.core.mech_interpret import read_mech_ct
+    from pyjac.core.array_creator import array_splitter
+    from pyjac.core.create_jacobian import find_last_species, create_jacobian
     import cantera as ct
 
     work_dir = os.path.abspath(work_dir)
@@ -1154,7 +1265,8 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         return True
 
     mechanism_list, oploop, max_vec_width = tm.get_test_matrix(
-        work_dir, run.rtype, test_platforms, raise_on_missing)
+        work_dir, run.rtype, test_matrix, for_validation,
+        raise_on_missing)
 
     if len(mechanism_list) == 0:
         logger = logging.getLogger(__name__)
@@ -1220,9 +1332,57 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         # rewrite data to file in 'C' order
         dbw.write(this_dir, num_conditions=num_conditions, data=data)
 
+        # apply species mapping to data
+        data[:, 2:] = data[:, 2 + gas_map]
+
         # figure out the number of conditions to test
         num_conditions = int(
             np.floor(num_conditions / max_vec_width) * max_vec_width)
+
+        # check limits
+        if 'limits' in mech_info:
+            def __try_convert(enumtype, value):
+                try:
+                    value = utils.EnumType(enumtype)(value)
+                except KeyError:
+                    logger = logging.getLogger(__name__)
+                    logger.warn('Unknown limit type {} found in mechanism info file '
+                                'for mech {}'.format(value, mech_name))
+                    return False
+                return value
+
+            def __change_limit(keylist):
+                subdict = mech_info['limits']
+                keylist = [str(key)[str(key).index('.') + 1:].lower()
+                           for key in keylist]
+                for i, key in enumerate(keylist):
+                    if key not in subdict:
+                        return
+                    if i < len(keylist) - 1:
+                        # recurse
+                        subdict = subdict[key]
+                    else:
+                        lim = int(np.floor(subdict[key] / max_vec_width)
+                                  * max_vec_width)
+                        if lim != subdict[key]:
+                            subdict[key] = lim
+                            logger = logging.getLogger(__name__)
+                            logger.info(
+                                'Changing limit for mech {name} ({keys}) '
+                                'from {old} to {new} to ensure even '
+                                'divisbility by vector width'.format(
+                                    name=mech_name,
+                                    keys='.'.join(keylist),
+                                    old=subdict[key],
+                                    new=lim))
+
+            for btype in mech_info['limits']:
+                btype = __try_convert(build_type, btype)
+                if btype == build_type.jacobian:
+                    __change_limit([btype, JacobianFormat.sparse])
+                    __change_limit([btype, JacobianFormat.full])
+                else:
+                    __change_limit([btype])
 
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
@@ -1231,9 +1391,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         V = np.ones_like(P)
 
         # resize data
-        moles = data[:num_conditions, 2:]
-        # and reorder
-        moles = moles[:, gas_map].copy()
+        moles = data[:num_conditions, 2:].copy()
 
         run.pre(gas, {'T': T, 'P': P, 'V': V, 'moles': moles},
                 num_conditions, max_vec_width)
@@ -1243,6 +1401,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
         del T
         del P
         del V
+        del moles
 
         # begin iterations
         from collections import defaultdict
@@ -1268,6 +1427,11 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
             par_check = tuple(state[x] for x in state if x != 'vecsize')
             sparse = state['sparse']
             jac_type = state['jac_type']
+
+            if 'models' in state and mech_name not in state['models']:
+                # we've decided to skip this model for this configuration
+                continue
+
             if platform in bad_platforms:
                 continue
             if not (deep or wide) and done_parallel[par_check]:
@@ -1290,7 +1454,7 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
 
             # if already run, continue
             data_output = os.path.join(this_dir, data_output)
-            if run.check_file(data_output, state.copy()):
+            if run.check_file(data_output, state.copy(), mech_info['limits']):
                 continue
 
             # store phi path
@@ -1313,14 +1477,15 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
                                     rate_specialization=rate_spec,
                                     split_rop_net_kernels=split_kernels,
                                     output_full_rop=(
-                                        rtype == build_type.species_rates),
+                                        rtype == build_type.species_rates
+                                        and for_validation),
                                     conp=conp,
                                     use_atomics=state['use_atomics'],
                                     jac_format=sparse,
                                     jac_type=jac_type,
                                     for_validation=for_validation,
                                     seperate_kernels=state['seperate_kernels'],
-                                    mem_limits=mem_limits)
+                                    mem_limits=test_matrix)
             except MissingPlatformError:
                 # can't run on this platform
                 bad_platforms.update([platform])
@@ -1350,40 +1515,6 @@ def _run_mechanism_tests(work_dir, test_platforms, prefix, run, mem_limits='',
     del run
 
 
-def platform_is_gpu(platform):
-    """
-    Attempts to determine if the given platform name corresponds to a GPU
-
-    Parameters
-    ----------
-    platform_name: str or :class:`pyopencl.platform`
-        The name of the platform to check
-
-    Returns
-    -------
-    is_gpu: bool or None
-        True if platform found and the device type is GPU
-        False if platform found and the device type is not GPU
-        None otherwise
-    """
-    # filter out C or other non pyopencl platforms
-    if not platform:
-        return False
-    try:
-        import pyopencl as cl
-        if isinstance(platform, cl.Platform):
-            return platform.get_devices()[0].type == cl.device_type.GPU
-
-        for p in cl.get_platforms():
-            if platform.lower() in p.name.lower():
-                # match, get device type
-                dtype = set(d.type for d in p.get_devices())
-                assert len(dtype) == 1, (
-                    "Mixed device types on platform {}".format(p.name))
-                # fix cores for GPU
-                if cl.device_type.GPU in dtype:
-                    return True
-                return False
-    except ImportError:
-        pass
-    return None
+__all__ = ["indexer", "parse_split_index", "kernel_runner", "inNd",
+           "get_comparable", "combination", "reduce_oploop", "_generic_tester",
+           "_full_kernel_test", "_run_mechanism_tests", "runner"]

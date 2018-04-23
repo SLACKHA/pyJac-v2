@@ -5,20 +5,24 @@ for kernel creation
 
 from __future__ import division
 
-from .. import utils
-
 from string import Template
-import numpy as np
-import loopy as lp
-from loopy.types import to_loopy_type
-import re
-import yaml
-from enum import Enum
 import six
 import logging
-from ..core.array_creator import problem_size as p_size
+import re
+
+import numpy as np
+import loopy as lp
+from enum import Enum
+from loopy.types import to_loopy_type
 #  import resource
 #  align_size = resource.getpagesize()
+
+from pyjac.core.array_creator import problem_size as p_size
+from pyjac import utils
+from pyjac.utils import func_logger
+from pyjac.schemas import build_and_validate, parse_bytestr
+from pyjac.core.exceptions import ValidationError, \
+    IncorrectInputSpecificationException
 
 try:
     from pyopencl import device_type
@@ -38,6 +42,41 @@ class memory_type(Enum):
         return self.value
 
 
+@func_logger
+def load_memory_limits(input_file, schema='common_schema.yaml'):
+    """
+    Conviencence method for loading inputs from memory limits file
+
+    Parameters
+    ----------
+    input_file:
+        The input file to load
+    """
+
+    def __limitfy(limits):
+        # note: this is only safe because we've already validated.
+        # hence, NO ERRORS!
+        if limits:
+            return {k: parse_bytestr(object, v) if not k == 'platforms' else v
+                    for k, v in six.iteritems(limits)}
+    if input_file:
+        try:
+            memory_limits = build_and_validate('common_schema.yaml', input_file,
+                                               allow_unknown=True)
+            return [__limitfy(memory_limits['memory-limits'])]
+        except ValidationError:
+            # TODO: fix this -- need a much better way of specifying / passing in
+            # limits
+            memory_limits = build_and_validate('test_matrix_schema.yaml', input_file,
+                                               allow_unknown=True)
+            return [__limitfy(x) for x in memory_limits['memory-limits']]
+        except KeyError:
+            # no limits
+            pass
+
+    return {}
+
+
 class memory_limits(object):
     """
     Helps determine whether a kernel is using too much constant / shared memory,
@@ -52,19 +91,70 @@ class memory_limits(object):
     limits: dict
         A dictionary with keys 'shared', 'constant' and 'local' indicated the
         total amount of each memory type available on the device
+    string_strides: list of compiled regular expressions
+        A list of regular expression that may be used as array sizes (i.e.,
+        for the 'problem_size' variable)
+    dtype: np.dtype [np.int32]
+            The index type of the kernel to be generated. Default is a 32-bit int
+    limit_int_overflow: bool
+        If true, limit the maximum number of conditions that can be run to avoid
+        int32 overflow
     """
 
-    def __init__(self, lang, arrays, limits, string_strides=[]):
+    def __init__(self, lang, order, arrays, limits, string_strides=[],
+                 dtype=np.int32, limit_int_overflow=False):
         """
         Initializes a :class:`memory_limits`
         """
         self.lang = lang
+        self.order = order
         self.arrays = arrays
         self.limits = limits
         self.string_strides = [re.compile(re.escape(s)) if isinstance(s, str)
                                else s for s in string_strides]
+        self.dtype = dtype
+        self.limit_int_overflow = limit_int_overflow
+        self.integer_warned = False
 
-    def can_fit(self, type=memory_type.m_constant, with_type_changes={}):
+    def integer_limited_problem_size(self, arry, dtype=np.int32):
+        """
+        A convenience method to determine the maximum problem size that will not
+        result in an integer overflow in index (mainly, Intel OpenCL).
+
+        This is calculated by determining the maximum index of the array, and then
+        dividing the maximum value of :param:`dtype` by this stride
+
+        Parameters
+        ----------
+        arry: lp.ArrayBase
+            The array to test
+        dtype: np.dtype [np.int32]
+            The integer type to use
+
+        Returns
+        -------
+        num_ics: int
+            The number of initial conditions that can be tested for this array
+            without integer overflow in addressing
+        """
+
+        # convert problem_size -> 1 in order to determine max per-run size
+        # from array shape
+        def floatify(val):
+            if not (isinstance(val, float) or isinstance(val, int)):
+                ss = next((s for s in self.string_strides if s.search(
+                    str(val))), None)
+                assert ss is not None, 'malformed strides'
+                from pymbolic import parse
+                # we're interested in the number of conditions we can test
+                # hence, we substitute '1' for the problem size, and divide the
+                # array stisize by the # of
+                val = parse(str(val).replace(p_size.name, '1'))
+                assert isinstance(val, (float, int)), (arry.name, val)
+            return val
+        return int(np.iinfo(dtype).max // np.prod([floatify(x) for x in arry.shape]))
+
+    def can_fit(self, mtype=memory_type.m_constant, with_type_changes={}):
         """
         Determines whether the supplied :param:`arrays` of type :param:`type`
         can fit on the device
@@ -86,17 +176,15 @@ class memory_limits(object):
             can be fit
         """
 
-        if self.lang == 'c':
-            return True
-
         # filter arrays by type
-        arrays = self.arrays[type]
+        arrays = self.arrays[mtype]
         arrays = [a for a in arrays if not any(
-            a in v for k, v in six.iteritems(with_type_changes) if k != type)]
+            a in v for k, v in six.iteritems(with_type_changes) if k != mtype)]
 
         per_alloc_ic_limit = np.iinfo(np.int).max
         per_ic = 0
         static = 0
+        logger = logging.getLogger(__name__)
         for array in arrays:
             size = 1
             is_ic_dep = False
@@ -121,13 +209,33 @@ class memory_limits(object):
             else:
                 static += size
 
+            # check for integer overflow -- this does not depend on any particular
+            # memory limit
+            if is_ic_dep and self.limit_int_overflow:
+                old = per_alloc_ic_limit
+                per_alloc_ic_limit = np.minimum(
+                    per_alloc_ic_limit, self.integer_limited_problem_size(
+                        array, self.dtype))
+                if old != per_alloc_ic_limit and not self.integer_warned:
+                    stype = str(mtype)
+                    stype = stype[stype.index('.') + 3:]
+                    logger.warn(
+                        'Allocation of {} memory array {}'
+                        ' may result in integer overflow in indexing, and '
+                        'cause failure on execution, limiting per-run size. '
+                        'Note: only the first such array will be displayed '
+                        'there may be more arrays that would result in '
+                        'overflow.'
+                        .format(stype, array.name)
+                        )
+                    self.integer_warned = True
+
             # also need to check the maximum allocation size for opencl
-            logger = logging.getLogger(__name__)
-            if self.lang == 'opencl':
+            if memory_type.m_alloc in self.limits:
                 if is_ic_dep:
                     per_alloc_ic_limit = np.minimum(
                         per_alloc_ic_limit,
-                        np.floor(self.limits[memory_type.m_alloc] / per_ic))
+                        np.floor(self.limits[memory_type.m_alloc] / size))
                 else:
                     if static >= self.limits[memory_type.m_alloc]:
                         logger.warn(
@@ -141,13 +249,19 @@ class memory_limits(object):
         if per_ic == 0:
             per_ic = 1
 
-        # return the number of times we can fit these array
-        return int(np.maximum(np.minimum(
-            np.floor((self.limits[type] - static) / per_ic), per_alloc_ic_limit), 0))
+        # finally, check the number of times we can fit these array in the memory
+        # limits of this type
+
+        if mtype in self.limits:
+            per_alloc_ic_limit = np.minimum(np.floor((
+                self.limits[mtype] - static) / per_ic), per_alloc_ic_limit)
+
+        return int(np.maximum(per_alloc_ic_limit, 0))
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',
-                   string_strides=[p_size.name]):
+                   string_strides=[p_size.name],
+                   dtype=np.int32, limit_int_overflow=False):
         """
         Utility method to load shared / constant memory limits from a file or
         :mod:`pyopencl` as needed
@@ -167,6 +281,11 @@ class memory_limits(object):
         string_strides: str
             The strides of host & device buffers dependent on user input
             Need special handling in size determination
+        dtype: np.dtype [np.int32]
+            The index type of the kernel to be generated. Default is a 32-bit int
+        limit_int_overflow: bool [False]
+            If true, turn on limiting array sizes to avoid integer overflow.
+            Currently only needed for Intel OpenCL
 
         Returns
         -------
@@ -174,6 +293,7 @@ class memory_limits(object):
             An initialized :class:`memory_limits` that can determine the total
             'global', 'constant' and 'local' memory available on the device
         """
+
         limits = {}  # {memory_type.m_pagesize: align_size}
         if loopy_opts.lang == 'opencl':
             try:
@@ -185,28 +305,49 @@ class memory_limits(object):
                     memory_type.m_alloc: loopy_opts.device.max_mem_alloc_size})
             except AttributeError:
                 pass
-        if input_file:
-            with open(input_file, 'r') as file:
+        user = load_memory_limits(input_file)
+        # find limit(s) that applies to us
+        user = [u for u in user if 'platforms' not in u or
+                loopy_opts.platform_name.lower() in u['platforms']]
+        if len(user) > 1:
+            # check that we don't have multiple limits with this platforms specified
+            if len([u for u in user if 'platforms' in u]) > 1 or len(
+                    [u for u in user if 'platforms' not in u]) > 1:
+                logger = logging.getLogger(__name__)
+                logger.error('Multiple memory-limits supplied by name in file ({}) '
+                             'for platform {}.  Valid configurations are either one '
+                             'default memory-limits specification for all platforms '
+                             'with specific overrides for a platform, or a '
+                             'platform-specific memory-limits only.'.format(
+                                input_file, loopy_opts.platform_name))
+                raise IncorrectInputSpecificationException('memory-limits')
+            assert len(user) <= 2
+
+        if user:
+            logger = logging.getLogger(__name__)
+            for lim in sorted(user, key=lambda x: 'platforms' in x):
                 # load from file
-                lims = yaml.load(file.read())
                 mtype = utils.EnumType(memory_type)
                 user_limits = {}
-                choices = [mt.name.lower()[2:] for mt in memory_type] + ['alloc']
-                for key, value in six.iteritems(lims):
+                for key, value in six.iteritems(lim):
+                    if key == 'platforms':
+                        continue
                     # check in memory type
-                    if not key.lower() in choices:
-                        msg = ', '.join(choices)
-                        msg = '{0}: use one of {1}'.format(memory_type.name, msg)
-                        raise Exception(msg)
                     key = 'm_' + key
                     # update with enum
+                    logger.info('Overriding memory-limit for type {} from value '
+                                '({}) to value ({}) from {} limits.'.format(
+                                    key,
+                                    limits[mtype(key)] if mtype(key) in limits
+                                    else None, value,
+                                    'per-platform' if 'platforms' in lim else
+                                    'default'))
                     user_limits[mtype(key)] = value
                 # and overwrite default limits w/ user
                 limits.update(user_limits)
 
-        return memory_limits(loopy_opts.lang, arrays,
-                             {k: v for k, v in six.iteritems(limits)},
-                             string_strides)
+        return memory_limits(loopy_opts.lang, loopy_opts.order, arrays,
+                             limits, string_strides, dtype, limit_int_overflow)
 
 
 asserts = {'c': Template('cassert(${call}, "${message}");'),
@@ -581,7 +722,7 @@ class mapped_memory(memory_strategy):
         sync = {}
         __update('sync', sync)
 
-        __update('use_full', not utils.can_vectorize_lang[lang])
+        __update('use_full', False)
         use_full = overrides['use_full']
         copy_in_2d = self._get_2d_templates(
             lang, to_device=True, ndim=2, use_full=use_full)
@@ -840,7 +981,6 @@ class memory_manager(object):
                          np.dtype('float64'): 'double'}
         self.dev_type = dev_type
         self.use_pinned = self.dev_type is not None and self.dev_type == DTYPE_CPU
-        self.string_strides = [p_size.name]
         kwargs = {}
         if not utils.can_vectorize_lang[lang] and strided_c_copy:
             kwargs['use_full'] = False
@@ -853,17 +993,25 @@ class memory_manager(object):
             'const ${type} h_${name} [${size}] = {${init}}'
             )
 
+        self.string_strides, self.div_mod_strides = \
+            memory_manager.get_string_strides()
+
+    @staticmethod
+    def get_string_strides():
+        string_strides = [p_size.name]
         # convert string strides to regex, and include the div/mod form
-        ss_size = len(self.string_strides)
-        self.div_mod_strides = []
+        ss_size = len(string_strides)
+        div_mod_strides = []
         for i in range(ss_size):
-            name = self.string_strides[i]
+            name = string_strides[i]
             div_mod_re = re.compile(
                 r'\(-1\)\*\(\(\(-1\)\*{}\) // (\d+)\)'.format(name))
             # convert the name to a regex
-            self.string_strides[i] = re.compile(re.escape(name))
+            string_strides[i] = re.compile(re.escape(name))
             # and add the divmod
-            self.div_mod_strides.append(div_mod_re)
+            div_mod_strides.append(div_mod_re)
+
+        return string_strides, div_mod_strides
 
     def add_arrays(self, arrays=[], in_arrays=[], out_arrays=[],
                    host_constants=[]):

@@ -14,9 +14,10 @@ from functools import wraps
 
 import loopy as lp
 from loopy.types import AtomicType
-from .array_creator import var_name, jac_creator
 from pytools import UniqueNameGenerator
 import numpy as np
+
+from pyjac.core.array_creator import var_name, jac_creator
 
 
 def use_atomics(loopy_opts):
@@ -169,7 +170,7 @@ class atomic_deep_specialization(within_inames_specializer):
         self.split_ids = _listify(split_ids)[:]
         self.init_ids = _listify(init_ids)[:]
         if self.split_ids:
-            assert split_size is not None
+            assert bool(split_size)
         self.split_size = split_size
 
         # and parent constructor

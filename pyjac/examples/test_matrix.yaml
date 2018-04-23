@@ -1,0 +1,86 @@
+# an example of specifying the test matrix for pyJac's performance or validation
+
+# mechanisms are specified by a name and cantera format mechanism and optional path
+model-list:
+  - name: TestMech
+    mech: test.cti
+    # specify the path to the model -- if not specified, the model is assumed to
+    # be in either validation/name/ or performance/name/ depending on the test type
+    path: 'pyjac/tests/'
+    # limit the number of initial conditions tested (usually, due to memory
+    # limitations)
+    limits:
+      species_rates: 10000000
+      jacobian:
+        sparse:
+          100000
+        full:
+          1000
+  - name: CH4
+    # alternatively, one can specify the path to Null in order to load default
+    # cantera mechnisms
+    path:
+    mech: gri30.cti
+
+# memory limits
+memory-limits:
+    # for intel only
+  - platforms: [intel]
+    # 5 gigabyte total on global memory usage
+    global: 5GB
+    # 1 megabyte local memory
+    local: 1MB
+    # 64 kb constant memory
+    constant: 64kb
+    # 1gb limit on allocation of a single array
+    alloc: 1 gb
+  # now define one for OpenMP
+  - platforms: [openmp]
+    # 50 gig limit on OMP global mem
+    global: 50 GB
+
+# list of platforms to use
+platform-list:
+  - name: intel
+    lang: opencl
+    vectype: [wide, par]
+    # use a vector width of 2, 4 & 8
+    vecsize: [2, 4, 8]
+    atomics: False
+  - name: openmp
+    lang: c
+    vectype: [par]
+
+# test list
+test-list:
+  # a validation test for both spurce rates & jacobian
+  - test-type: validation
+    eval-type: both
+  # source rate performance test
+  - test-type: performance
+    eval-type: species_rates
+    # overrides, controlling the species_rates test
+    species_rates:
+      order: ['F']
+# a performance test for the jacobian
+  - test-type: performance
+    # limit to intel
+    platforms: [intel]
+    eval-type: jacobian
+    # overrides, controlling the finite_difference tests
+    finite_difference:
+      both:
+        # limit number of cores
+        num_cores: [1]
+        # use only parallel FD-evaluation
+        vecsize: []
+        vectype: ['par']
+        # C-order only
+        order: ['C']
+        # conp-only
+        conp: ['conp']
+    # overrides for the exact jacobian
+    exact:
+      both:
+        # only test vector width of 4
+        vecsize: [4]

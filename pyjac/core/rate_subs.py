@@ -18,17 +18,17 @@ from collections import OrderedDict
 import loopy as lp
 import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
-from ..loopy_utils import loopy_utils as lp_utils
 
 # Local imports
-from .. import utils
-from . import chem_model as chem
-from ..kernel_utils import kernel_gen as k_gen
-from . reaction_types import reaction_type, falloff_form, thd_body_type
-from . import array_creator as arc
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from . import instruction_creator as ic
-from .array_creator import (global_ind, var_name, default_inds)
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac import utils
+from pyjac.core import chem_model as chem
+from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core import array_creator as arc
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core import instruction_creator as ic
+from pyjac.core.array_creator import (global_ind, var_name, default_inds)
 
 
 def assign_rates(reacs, specs, rate_spec):
@@ -3148,9 +3148,6 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     if test_size == 'problem_size':
         knl_data.append(namestore.problem_size)
 
-    if loopy_opts.width is not None and loopy_opts.depth is not None:
-        raise Exception('Cannot specify both SIMD/SIMT width and depth')
-
     # get correctly ordered arrays / strings
     a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)
     a_hi_lp, _ = mapstore.apply_maps(namestore.a_hi, loop_index, param_ind)
@@ -3287,25 +3284,4 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
 if __name__ == "__main__":
     utils.setup_logging()
-    args = utils.get_parser()
-
-    from .create_jacobian import create_jacobian
-    create_jacobian(lang=args.lang,
-                    mech_name=args.input,
-                    therm_name=args.thermo,
-                    vector_size=args.vector_size,
-                    wide=args.wide,
-                    deep=args.deep,
-                    unr=args.unroll,
-                    build_path=args.build_path,
-                    last_spec=args.last_species,
-                    platform=args.platform,
-                    data_order=args.data_order,
-                    rate_specialization=args.rate_specialization,
-                    split_rate_kernels=args.split_rate_kernels,
-                    split_rop_net_kernels=args.split_rop_net_kernels,
-                    conp=args.conp,
-                    use_atomics=args.use_atomics,
-                    skip_jac=True,
-                    mem_limits=args.memory_limits
-                    )
+    utils.create()

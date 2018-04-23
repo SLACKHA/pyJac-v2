@@ -9,24 +9,25 @@ import re
 from string import Template
 import logging
 from collections import defaultdict
-
 import six
 from six.moves import reduce
+
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
 import pyopencl as cl
 import numpy as np
 import cgen
 
-from . import file_writers as filew
-from .memory_manager import memory_manager, memory_limits, memory_type, guarded_call
-from .. import siteconf as site
-from .. import utils
-from ..loopy_utils import loopy_utils as lp_utils
-from ..loopy_utils import preambles_and_manglers as lp_pregen
-from ..core.array_creator import problem_size as p_size
-from ..core.array_creator import global_ind
-from ..core import array_creator as arc
+from pyjac.kernel_utils import file_writers as filew
+from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
+    memory_type, guarded_call
+from pyjac import siteconf as site
+from pyjac import utils
+from pyjac.loopy_utils import loopy_utils as lp_utils
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core.array_creator import problem_size as p_size
+from pyjac.core.array_creator import global_ind
+from pyjac.core import array_creator as arc
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -39,25 +40,25 @@ class vecwith_fixer(object):
 
     clean : :class:`loopy.LoopyKernel`
         The 'clean' version of the kernel, that will be used for
-        determination of the gridsize / vecwidth
-    vecwidth : int
+        determination of the gridsize / vecsize
+    vecsize : int
         The desired vector width
     """
 
-    def __init__(self, clean, vecwidth):
+    def __init__(self, clean, vecsize):
         self.clean = clean
-        self.vecwidth = vecwidth
+        self.vecsize = vecsize
 
     def __call__(self, insn_ids, ignore_auto=False):
         # fix for variable too small for vectorization
         grid_size, lsize = self.clean.get_grid_sizes_for_insn_ids(
             insn_ids, ignore_auto=ignore_auto)
-        lsize = lsize if self.vecwidth is None else \
-            self.vecwidth
+        lsize = lsize if not bool(self.vecsize) else \
+            self.vecsize
         return grid_size, (lsize,)
 
 
-def make_kernel_generator(loopy_opts, *args, **kw_args):
+def make_kernel_generator(loopy_opts, *args, **kwargs):
     """
     Factory generator method to return the appropriate
     :class:`kernel_generator` type based on the target language in the
@@ -69,18 +70,18 @@ def make_kernel_generator(loopy_opts, *args, **kw_args):
         The specified user options
     *args : tuple
         The other positional args to pass to the :class:`kernel_generator`
-    **kw_args : dict
+    **kwargs : dict
         The keyword args to pass to the :class:`kernel_generator`
     """
     if loopy_opts.lang == 'c':
         if not loopy_opts.auto_diff:
-            return c_kernel_generator(loopy_opts, *args, **kw_args)
+            return c_kernel_generator(loopy_opts, *args, **kwargs)
         if loopy_opts.auto_diff:
-            return autodiff_kernel_generator(loopy_opts, *args, **kw_args)
+            return autodiff_kernel_generator(loopy_opts, *args, **kwargs)
     if loopy_opts.lang == 'opencl':
-        return opencl_kernel_generator(loopy_opts, *args, **kw_args)
+        return opencl_kernel_generator(loopy_opts, *args, **kwargs)
     if loopy_opts.lang == 'ispc':
-        return ispc_kernel_generator(loopy_opts, *args, **kw_args)
+        return ispc_kernel_generator(loopy_opts, *args, **kwargs)
     raise NotImplementedError()
 
 
@@ -101,10 +102,12 @@ class kernel_generator(object):
                  array_props={},
                  barriers=[],
                  extra_kernel_data=[],
+                 extra_global_kernel_data=[],
                  extra_preambles=[],
                  is_validation=False,
                  fake_calls={},
-                 mem_limits=''):
+                 mem_limits='',
+                 for_testing=False):
         """
         Parameters
         ----------
@@ -137,6 +140,9 @@ class kernel_generator(object):
             List of global memory barriers needed, (knl1, knl2, barrier_type)
         extra_kernel_data : list of :class:`loopy.ArrayBase`
             Extra kernel arguements to add to this kernel
+        extra_global_kernel_data : list of :class:`loopy.ArrayBase`
+            Extra kernel arguements to add _only_ to this kernel (and not any
+            subkernels)
         extra_preambles: list of :class:`PreambleGen`
             Preambles to add to subkernels
         is_validation: bool [False]
@@ -152,6 +158,8 @@ class kernel_generator(object):
             the generated pyjac code may allocate.  Useful for testing, or otherwise
             limiting memory usage during runtime. The keys of this file are the
             members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        for_testing: bool [False]
+            If true, this kernel generator will be used for unit testing
         """
 
         self.compiler = None
@@ -181,6 +189,7 @@ class kernel_generator(object):
         from loopy.types import to_loopy_type
         self.type_map[to_loopy_type(np.float64)] = 'double'
         self.type_map[to_loopy_type(np.int32)] = 'int'
+        self.type_map[to_loopy_type(np.int64)] = 'long int'
 
         self.filename = ''
         self.bin_name = ''
@@ -211,6 +220,8 @@ class kernel_generator(object):
 
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = extra_kernel_data[:]
+        # extra kernel parameters to be added only to this subkernel
+        self.extra_global_kernel_data = extra_global_kernel_data[:]
 
         self.extra_preambles = extra_preambles[:]
         # check for Jacobian type
@@ -236,6 +247,8 @@ class kernel_generator(object):
 
         # set kernel attribute
         self.kernel = None
+        # set testing
+        self.for_testing = for_testing
 
     def apply_barriers(self, instructions, use_sub_barriers=True):
         """
@@ -283,7 +296,7 @@ class kernel_generator(object):
         # get vector width
         vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
             else self.loopy_opts.width
-        if vec_width is not None:
+        if bool(vec_width):
             assumpt_list.append('{0} mod {1} = 0'.format(
                 test_size, vec_width))
         return assumpt_list
@@ -830,6 +843,8 @@ ${name} : ${type}
 
         if knl is None:
             knl = self.kernel
+            if self.extra_global_kernel_data:
+                knl = knl.copy(args=self.extra_global_kernel_data + self.kernel.args)
         if passed_locals:
             knl = self.__migrate_locals(knl, passed_locals)
         defn_str = lp_utils.get_header(knl)
@@ -860,8 +875,9 @@ ${name} : ${type}
 
         # default is the generated kernel
         if knl is None:
-            args = self.kernel_data + [x for x in self.extra_kernel_data
-                                       if isinstance(x, lp.KernelArgument)]
+            args = self.kernel_data + [
+                x for x in self.extra_global_kernel_data + self.extra_kernel_data
+                if isinstance(x, lp.KernelArgument)]
             if passed_locals:
                 # put a dummy object that we can reference the name of in the
                 # arguements
@@ -947,7 +963,7 @@ ${name} : ${type}
                 and not isinstance(arg, lp.ValueArg)))
 
         # find problem_size
-        problem_size = next(x for x in defines if x == p_size)
+        problem_size = next((x for x in defines if x == p_size), None)
 
         # remove other value args
         defines = [x for x in defines if not isinstance(x, lp.ValueArg)]
@@ -1014,7 +1030,8 @@ ${name} : ${type}
             temps.append(same_names[0])
 
         # add problem size arg to front
-        kernel_data.insert(0, problem_size)
+        if problem_size is not None:
+            kernel_data.insert(0, problem_size)
         # and save
         self.kernel_data = kernel_data[:]
 
@@ -1023,9 +1040,9 @@ ${name} : ${type}
 
         # generate the kernel definition
         self.vec_width = self.loopy_opts.depth
-        if self.vec_width is None:
+        if not bool(self.vec_width):
             self.vec_width = self.loopy_opts.width
-        if self.vec_width is None:
+        if not bool(self.vec_width):
             self.vec_width = 0
 
         # keep track of local / global / constant memory allocations
@@ -1057,7 +1074,8 @@ ${name} : ${type}
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(
             self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
-            input_file=self.mem_limits)
+            input_file=self.mem_limits,
+            limit_int_overflow=self.loopy_opts.limit_int_overflow)
         data_size = len(kernel_data)
         read_size = len(read_only)
         if not mem_limits.can_fit():
@@ -1096,7 +1114,8 @@ ${name} : ${type}
 
             mem_limits = memory_limits.get_limits(
                 self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
-                input_file=self.mem_limits)
+                input_file=self.mem_limits,
+                limit_int_overflow=self.loopy_opts.limit_int_overflow)
 
         # update the memory manager with new args / input arrays
         if len(kernel_data) != data_size:
@@ -1148,7 +1167,7 @@ ${name} : ${type}
         instructions = []
         local_decls = []
 
-        def _update_for_host_constants(kernel):
+        def _update_for_host_constants(kernel, return_new_args=False):
             """
             Moves temporary variables to global arguments based on the
             host constants for this kernel
@@ -1166,9 +1185,12 @@ ${name} : ${type}
                     dim_tags=v.dim_tags)
                     for t, v in six.iteritems(kernel.temporary_variables)
                     if t in transferred]
-                kernel = kernel.copy(
+                if return_new_args:
+                    return new_args
+                return kernel.copy(
                     args=kernel.args + new_args, temporary_variables=new_temps)
-            return kernel
+            elif not return_new_args:
+                return kernel
 
         def _get_func_body(cgr, subs={}):
             """
@@ -1222,9 +1244,16 @@ ${name} : ${type}
                                            subs)
 
                 if self.fake_calls:
+                    # update host constants in subkernel
+                    new_args = _update_for_host_constants(k, True)
                     # find out which kernel this belongs to
                     sub = next(x for x in self.depends_on
                                if k.name in [y.name for y in x.kernels])
+                    # update sub for host constants
+                    if new_args:
+                        sub.kernel = sub.kernel.copy(args=sub.kernel.args + [
+                            x for x in new_args if x.name not in
+                            set([y.name for y in sub.kernel.args])])
                     # and add the instructions to this fake kernel
                     extra_fake_kernels[sub].append(insns)
                     # and clear insns
@@ -1335,8 +1364,10 @@ ${name} : ${type}
         # fix extra fake kernels
         for gen in self.fake_calls:
             dep = self.fake_calls[gen]
+            # update host constants in subkernel
+            knl = _update_for_host_constants(gen.kernel)
             # replace call in instructions to call to kernel
-            knl_call = gen._get_kernel_call(passed_locals=local_decls)
+            knl_call = gen._get_kernel_call(knl=knl, passed_locals=local_decls)
             instructions = [x.replace(dep, knl_call[:-2]) for x in instructions]
             # and put the kernel in the extra's
             sub_instructions = extra_fake_kernels[gen]
@@ -1346,7 +1377,8 @@ ${name} : ${type}
 ${defn}
 {
     ${insns}
-}""", defn=gen.__get_kernel_defn(passed_locals=local_decls),
+}""", defn=gen.__get_kernel_defn(knl=knl,
+                                 passed_locals=local_decls),
                                  insns='\n'.join(sub_instructions))
             # and place within a single extra kernel
             extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
@@ -1640,7 +1672,7 @@ ${defn}
         if vecspec:
             knl = vecspec(knl)
 
-        if vec_width is not None:
+        if bool(vec_width):
             # finally apply the vector width fix above
             ggs = vecwith_fixer(knl.copy(), vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
@@ -1660,13 +1692,30 @@ class c_kernel_generator(kernel_generator):
     A C-kernel generator that handles OpenMP parallelization
     """
 
-    def __init__(self, *args, **kw_args):
+    def __init__(self, *args, **kwargs):
 
-        super(c_kernel_generator, self).__init__(*args, **kw_args)
+        super(c_kernel_generator, self).__init__(*args, **kwargs)
 
         self.extern_defn_template = Template(
             'extern ${type}* ${name}' + utils.line_end[self.lang])
-        self.skeleton = """
+
+        if not self.for_testing:
+            # add the 'this_run' arguement to the list of kernel args for the
+            # wrapping kernel
+            self.extra_global_kernel_data.append(lp.ValueArg(
+                'this_run', dtype=np.int32))
+            # add 'global_ind' to the list of extra kernel data to be added to
+            # subkernels
+            self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
+            # add the number of conditions to solve (which may be )
+            # clear list of inames added to sub kernels, as the OpenMP loop over
+            # the states is implemented in the wrapping kernel
+            self.inames = []
+            # clear list of inames domains added to sub kernels, as the OpenMP loop
+            # over the states is implemented in the wrapping kernel
+            self.iname_domains = []
+            # and modify the skeleton to remove the outer loop
+            self.skeleton = """
         ${pre}
         for ${var_name}
             ${main}
@@ -1674,21 +1723,15 @@ class c_kernel_generator(kernel_generator):
         ${post}
         """
 
-        # clear list of inames added to sub kernels, as the OpenMP loop over
-        # the states is implemented in the wrapping kernel
-        self.inames = []
-
-        # clear list of inames domains added to sub kernels, as the OpenMP loop
-        # over the states is implemented in the wrapping kernel
-        self.iname_domains = []
-
-        # add 'global_ind' to the list of extra kernel data to be added to subkernels
-        self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
-
     def get_inames(self, test_size):
         """
         Returns the inames and iname_ranges for subkernels created using
-        this generator
+        this generator.
+
+        This is an override of the base :func:`get_inames` that decides which form
+        of the inames to return based on :attr:`for_testing`.  If False, the
+        complete iname set will be returned.  If True, the outer loop iname
+        will be removed from the inames / domain
 
         Parameters
         ----------
@@ -1704,6 +1747,10 @@ class c_kernel_generator(kernel_generator):
         iname_domains : list of str
             The iname domains to add to created subkernels by default
         """
+
+        if self.for_testing:
+            return super(c_kernel_generator, self).get_inames(test_size)
+
         return self.inames, self.iname_domains
 
     def get_assumptions(self, test_size):
@@ -1768,9 +1815,12 @@ class autodiff_kernel_generator(c_kernel_generator):
     autodifferentiation scheme.  Handles adding jacobian, etc.
     """
 
-    def __init__(self, *args, **kw_args):
+    def __init__(self, *args, **kwargs):
 
-        super(autodiff_kernel_generator, self).__init__(*args, **kw_args)
+        # no matter the 'testing' status, the autodiff always needs the outer loop
+        # migrated out
+        kwargs['for_testing'] = False
+        super(autodiff_kernel_generator, self).__init__(*args, **kwargs)
 
         from ..loopy_utils.loopy_utils import AdeptCompiler
         self.compiler = AdeptCompiler()
@@ -1796,8 +1846,8 @@ class autodiff_kernel_generator(c_kernel_generator):
 
 class ispc_kernel_generator(kernel_generator):
 
-    def __init__(self, *args, **kw_args):
-        super(ispc_kernel_generator, self).__init__(*args, **kw_args)
+    def __init__(self, *args, **kwargs):
+        super(ispc_kernel_generator, self).__init__(*args, **kwargs)
 
     # TODO: fill in
 
@@ -1808,8 +1858,8 @@ class opencl_kernel_generator(kernel_generator):
     An opencl specific kernel generator
     """
 
-    def __init__(self, *args, **kw_args):
-        super(opencl_kernel_generator, self).__init__(*args, **kw_args)
+    def __init__(self, *args, **kwargs):
+        super(opencl_kernel_generator, self).__init__(*args, **kwargs)
 
         # opencl specific items
         self.set_knl_arg_array_template = Template(
@@ -1828,6 +1878,7 @@ class opencl_kernel_generator(kernel_generator):
         # these don't need to be volatile, as they are on the host side
         self.type_map[to_loopy_type(np.float64, for_atomic=True)] = 'double'
         self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
+        self.type_map[to_loopy_type(np.int64, for_atomic=True)] = 'long int'
 
     def _special_kernel_subs(self, file_src):
         """
@@ -1864,11 +1915,18 @@ class opencl_kernel_generator(kernel_generator):
         kernel_paths = ', '.join('"{}"'.format(x)
                                  for x in kernel_paths if x.strip())
 
-        # find maximum size of device arrays
-        max_size = str(max(np.prod(np.fromstring(
+        # find maximum size of device arrays (that are allocated per-run)
+        p_var = p_size.name
+        # filter arrays to those depending on problem size
+        arrays = [a for a in self.mem.arrays if any(
+            p_var in str(x) for x in a.shape)]
+        # next convert to size
+        arrays = [np.prod(np.fromstring(
             self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
-            for a in self.mem.arrays))
-        max_size = str(max_size) + ' * {}'.format(p_size.name)
+            for a in arrays]
+        # and get max size
+        max_size = str(max(arrays)) + ' * {}'.format(
+            self.arg_name_maps[p_size])
 
         # find converted constant variables -> global args
         host_constants = self.mem.get_host_constants()
@@ -2196,7 +2254,7 @@ def _find_indent(template_str, key, value):
     return '\n'.join(result)
 
 
-def subs_at_indent(template_str, **kw_args):
+def subs_at_indent(template_str, **kwargs):
     """
     Substitutes keys of :params:`kwargs` for values in :param:`template_str`
     ensuring that the indentation of the value is the same as that of the key
@@ -2217,4 +2275,4 @@ def subs_at_indent(template_str, **kw_args):
     return Template(template_str).safe_substitute(
         **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
                              value if isinstance(value, str) else str(value))
-            for key, value in six.iteritems(kw_args)})
+            for key, value in six.iteritems(kwargs)})
