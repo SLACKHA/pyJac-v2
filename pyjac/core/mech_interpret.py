@@ -1082,14 +1082,9 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
                     reac.troe_par[2] = 1e-30
                     do_warn = True
                 if do_warn:
-<<<<<<< HEAD
-                    logging.warn('Troe parameters in reaction {} modified to avoid'
-                                 ' division by zero!.'.format(len(reacs)))
-=======
                     logger = logging.getLogger(__name__)
                     logger.warn('Troe parameters in reaction {} modified to avoid'
                                 ' division by zero!.'.format(len(reacs)))
->>>>>>> incorporate upstream changes in interpreter
             elif rxn.falloff.type == 'SRI':
                 reac.sri = True
                 reac.sri_par = rxn.falloff.parameters.tolist()
