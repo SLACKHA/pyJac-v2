@@ -1244,8 +1244,12 @@ class AdeptCompiler(CPlusPlusCompiler):
     def __init__(self, *args, **kwargs):
         from ..siteconf import ADEPT_INC_DIR, ADEPT_LIB_DIR, ADEPT_LIBNAME
         from ..siteconf import LDFLAGS, CXXFLAGS
-        defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
-                    'ldflags': '-O3 -shared -fopenmp -fPIC'.split()}
+        from pyjac.libgen.libgen import compile_flags
+
+        defaults = {'cflags': '{opt_flags} -fopenmp -fPIC'.format(
+                        opt_flags=' '.join(compile_flags)).split(),
+                    'ldflags': '{opt_flags} -shared -fopenmp -fPIC'.format(
+                        opt_flags=' '.join(compile_flags)).split()}
         defaults['libraries'] = ADEPT_LIBNAME
         if CXXFLAGS:
             defaults['cflags'].extend([x for x in CXXFLAGS

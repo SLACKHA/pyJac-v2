@@ -13,6 +13,8 @@ import six
 from six.moves import reduce
 
 import loopy as lp
+# loo.py compatibility -- fixes for v2018.1 are in explicit simd branch
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2017_2_1  # noqa
 from loopy.kernel.data import temp_var_scope as scopes
 import pyopencl as cl
 import numpy as np
