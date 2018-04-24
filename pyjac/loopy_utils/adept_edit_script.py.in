@@ -76,7 +76,7 @@ def substitute(filename, text_in=None):
                         try:
                             float(group)
                             continue
-                        except:
+                        except ValueError:
                             # found non-float
                             group = ind + 1
                             break
