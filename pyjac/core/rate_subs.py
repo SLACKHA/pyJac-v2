@@ -2139,14 +2139,14 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
         """
         <>lower = ${logP} <= ${pressure_lo} # check below range
         if lower
-            <>lo_ind = 0 {id=ind00}
-            <>hi_ind = 0 {id=ind01}
+            <>lo_ind = 0 {id=ind00, nosync=ind10}
+            <>hi_ind = 0 {id=ind01, nosync=ind11}
         end
         <>numP = ${plog_num_param_str} - 1
         <>upper = ${logP} > ${pressure_hi} # check above range
         if upper
-            lo_ind = numP {id=ind10}
-            hi_ind = numP {id=ind11}
+            lo_ind = numP {id=ind10, nosync=ind00}
+            hi_ind = numP {id=ind11, nosync=ind01}
         end
         <>oor = lower or upper
         for k
@@ -2156,8 +2156,8 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
             <> midcheck = (k < numP) and (${logP} > ${pressure_mid_lo}) \
                 and (${logP} <= ${pressure_mid_hi})
             if midcheck
-                lo_ind = k {id=ind20}
-                hi_ind = k + 1 {id=ind21}
+                lo_ind = k {id=ind20, dep=ind10:ind00}
+                hi_ind = k + 1 {id=ind21, dep=ind11:ind01}
             end
         end
         # load pressure and reaction parameters into temp arrays
@@ -2172,9 +2172,9 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
         if not oor
             # if not out of bounds, compute interpolant
             kf_temp = (-logk1 + logk2) * (${logP} - low[0]) / (hi[0] - low[0]) + \
-                kf_temp {id=a_found, dep=a1:a2}
+                kf_temp {id=a_found, dep=a1:a2:a_oor}
         end
-        ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
+        ${kf_str} = exp(kf_temp) {id=kf, dep=a_found}
 """).safe_substitute(**locals())
 
     vec_spec = ic.write_race_silencer(['kf'])
