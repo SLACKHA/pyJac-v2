@@ -656,6 +656,7 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_Troe.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
+                'Fi': lambda x: np.zeros_like(ref_Pr, order=x)
                 }
 
         # get Troe reaction mask
@@ -679,13 +680,16 @@ class SubTest(TestClass):
             np.in1d(self.store.fall_inds, self.store.lind_inds))[0]
         if not lind_mask.size:
             return
+
+        args = {'Fi': lambda x: np.zeros_like(self.store.ref_Pr, order=x)}
         # need a seperate answer mask to deal with the shape difference
         # in split arrays
         ans_mask = np.arange(self.store.lind_inds.size, dtype=np.int32)
         # create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
                          compare_mask=[get_comparable((lind_mask,), ref_ans)],
-                         ref_ans_compare_mask=[get_comparable((ans_mask,), ref_ans)])
+                         ref_ans_compare_mask=[get_comparable((ans_mask,), ref_ans)],
+                         **args)
         self.__generic_rate_tester(get_lind_kernel, kc)
 
     @attr('long')
