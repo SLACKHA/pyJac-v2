@@ -2269,12 +2269,12 @@ def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
     pr_instructions = Template("""
 if ${fall_type_str}
     # chemically activated
-    <>k0 = ${kf_str} {id=k0_c}
-    <>kinf = ${kf_fall_str} {id=kinf_c}
+    <>k0 = ${kf_str} {id=k0_c, nosync=k0_f}
+    <>kinf = ${kf_fall_str} {id=kinf_c, nosync=kinf_f}
 else
     # fall-off
-    kinf = ${kf_str} {id=kinf_f}
-    k0 = ${kf_fall_str} {id=k0_f}
+    kinf = ${kf_str} {id=kinf_f, nosync=kinf_c}
+    k0 = ${kf_fall_str} {id=k0_f, nosync=k0_c}
 end
 # prevent reduced pressure from ever being truly zero
 ${Pr_str} = fmax(1e-300d, ${thd_conc_str} * k0 / kinf) {id=set, dep=k*}
