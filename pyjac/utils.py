@@ -108,6 +108,25 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
                   )
 """dict: exp10 functions for various languages"""
 
+
+def power_function(lang, is_integer_power=True):
+    """
+    Returns the best power function to use for a given :param:`lang` and
+    choice of :param:`is_integer_power`
+    """
+
+    if lang == 'opencl' and is_integer_power:
+        # opencl has it's own integer power function
+        # this also is nice for loopy, as it handles the vectorizability check
+        return 'pown'
+    elif is_integer_power:
+        # use internal integer power function
+        return 'fast_powi'
+    else:
+        # use default
+        return 'pow'
+
+
 inf_cutoff = 1e285
 """float: A cutoff above which values are considered infinite.
           Used in testing and validation to filter values that should only

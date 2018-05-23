@@ -107,10 +107,30 @@ class fastpowi_PreambleGen(PreambleGen):
         self.code = """
    inline double fast_powi(double val, int pow)
    {
-        double retval = 1;
-        for (int i = 0; i < pow; ++i)
-            retval *= val;
-        return retval;
+        // get sign
+        double retval = (val > 0) - (val < 0);
+        pow = abs(pow);
+        switch(pow)
+        {
+            case 0:
+                return 1;
+            case 1:
+                return retval * val;
+            case 2:
+                return retval * val * val;
+            case 3:
+                return retval * val * val * val;
+            case 4:
+                return retval * val * val * val * val;
+            case 5:
+                return retval * val * val * val * val * val;
+            default:
+                for (int i = 0; i < pow; ++i)
+                {
+                    retval *= val;
+                }
+                return retval;
+        }
    }
             """
 
