@@ -1440,9 +1440,10 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                               kernel_data=kernel_data,
                               extra_inames=extra_inames,
                               mapstore=maps[direction],
-                              preambles=[
-            # fast_powi *might* be called
-            lp_pregen.fastpowi_PreambleGen()])
+                              manglers=lp_pregen.power_function_manglers(
+                                loopy_opts, power_func),
+                              preambles=lp_pregen.power_function_preambles(
+                                loopy_opts, power_func))
 
     infos = [__rop_create('fwd')]
     if namestore.rop_rev is not None:

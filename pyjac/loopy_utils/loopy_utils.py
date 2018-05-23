@@ -327,6 +327,16 @@ class loopy_options(object):
         return True
 
     @property
+    def vector_width(self):
+        """
+        Returns the vector width for this :class:`loopy_options` or None if
+        unvectorized
+        """
+        if not (self.width or self.depth):
+            return None
+        return self.width if self.width else self.depth
+
+    @property
     def has_scatter(self):
         """
         Utility to determine whether the target supports scatter writes
