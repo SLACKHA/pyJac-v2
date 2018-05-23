@@ -1418,7 +1418,8 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
         # if all integers, it's much faster to use multiplication
         allint_eval = Template(
             """
-    rop_temp = rop_temp * fast_powi(${concs_str}, ${nu_str}) {id=rop_fin}
+    rop_temp = rop_temp * fast_powi(${concs_str}, ${nu_str}) {id=rop_fin, \
+        dep=rop_init}
     """).safe_substitute(
             nu_str=nu_str,
             concs_str=concs_str)
@@ -1429,7 +1430,8 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
     if int(${nu_str}) == ${nu_str}
         ${allint}
     else
-        rop_temp = rop_temp * fast_powf(${concs_str}, ${nu_str}) {id=rop_fin2}
+        rop_temp = rop_temp * fast_powf(${concs_str}, ${nu_str}) {id=rop_fin2, \
+            dep=rop_init}
     end
     """).safe_substitute(nu_str=nu_str,
                          concs_str=concs_str)
