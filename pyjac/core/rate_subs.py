@@ -1415,35 +1415,19 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                          spec_str=spec_str,
                          spec_ind=spec_ind)
 
+        power_func = utils.power_function(loopy_opts.lang, allint['net'])
         # if all integers, it's much faster to use multiplication
-        allint_eval = Template(
+        roptemp_eval = Template(
             """
-    rop_temp = rop_temp * fast_powi(${concs_str}, ${nu_str}) {id=rop_fin, \
+    rop_temp = rop_temp * ${power_func}(${concs_str}, ${nu_str}) {id=rop_fin, \
         dep=rop_init}
     """).safe_substitute(
             nu_str=nu_str,
-            concs_str=concs_str)
+            concs_str=concs_str,
+            power_func=power_func)
 
-        # if we need to use powers, do so
-        fractional_eval = Template(
-            """
-    if int(${nu_str}) == ${nu_str}
-        ${allint}
-    else
-        rop_temp = rop_temp * fast_powf(${concs_str}, ${nu_str}) {id=rop_fin2, \
-            dep=rop_init}
-    end
-    """).safe_substitute(nu_str=nu_str,
-                         concs_str=concs_str)
-        fractional_eval = k_gen.subs_at_indent(
-            fractional_eval, allint=allint_eval)
-
-        if not allint['net']:
-            rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                                                    rop_temp_eval=fractional_eval)
-        else:
-            rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                                                    rop_temp_eval=allint_eval)
+        rop_instructions = k_gen.subs_at_indent(rop_instructions,
+                                                rop_temp_eval=roptemp_eval)
 
         # and finally extra inames
         extra_inames = [
@@ -1457,8 +1441,8 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                               extra_inames=extra_inames,
                               mapstore=maps[direction],
                               preambles=[
-            lp_pregen.fastpowi_PreambleGen(),
-            lp_pregen.fastpowf_PreambleGen()])
+            # fast_powi *might* be called
+            lp_pregen.fastpowi_PreambleGen()])
 
     infos = [__rop_create('fwd')]
     if namestore.rop_rev is not None:

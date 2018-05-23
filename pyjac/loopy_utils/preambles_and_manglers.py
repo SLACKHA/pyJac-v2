@@ -143,32 +143,6 @@ class fastpowi_PreambleGen(PreambleGen):
         return 'cust_funcs_fastpowi'
 
 
-class fastpowf_PreambleGen(PreambleGen):
-    def __init__(self):
-        # operators
-        self.code = """
-   inline double fast_powf(double val, double pow)
-   {
-        double retval = 1;
-        for (int i = 0; i < pow; ++i)
-            retval *= val;
-        if (pow != (int)pow)
-        {
-            retval *= powf(val, pow - (int) pow);
-        }
-        return retval;
-   }
-            """
-
-        super(fastpowf_PreambleGen, self).__init__(
-            'fast_powf', self.code,
-            (np.float64, np.float64),
-            (np.float64))
-
-    def get_descriptor(self, func_match):
-        return 'cust_funcs_fastpowf'
-
-
 class fmax(MangleGen):
     def __init__(self, name='fmax', arg_dtypes=(np.float64, np.float64),
                  result_dtypes=np.float64):
