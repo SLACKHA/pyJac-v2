@@ -12,10 +12,11 @@ class MangleGen(object):
             return vals
         return (vals,)
 
-    def __init__(self, name, arg_dtypes, result_dtypes):
+    def __init__(self, name, arg_dtypes, result_dtypes, raise_on_fail=True):
         self.name = name
         self.arg_dtypes = self.__tuple_gen(arg_dtypes)
         self.result_dtypes = self.__tuple_gen(result_dtypes)
+        self.raise_on_fail = raise_on_fail
 
     def __call__(self, kernel, name, arg_dtypes):
         """
@@ -41,7 +42,7 @@ class MangleGen(object):
                                                           len(arg_dtypes)))
 
         for i, (d1, d2) in enumerate(zip(self.arg_dtypes, arg_dtypes)):
-            if not __compare(d1, d2):
+            if not __compare(d1, d2) and self.raise_on_fail:
                 raise Exception('Argument at index {} for mangler {} does not match'
                                 'expected dtype.  Expected {}, got {}'.format(
                                     i, self.name, str(d1), str(d2)))
@@ -164,15 +165,17 @@ def power_function_preambles(loopy_opts, power_function):
 
 
 class pown(MangleGen):
+    # turn off raise_on_fail, as multiple versions of this might be added
     def __init__(self, name='pown', arg_dtypes=(np.float64, np.int32),
-                 result_dtypes=np.float64):
-        super(fmax, self).__init__(name, arg_dtypes, result_dtypes)
+                 result_dtypes=np.float64, raise_on_fail=False):
+        super(pown, self).__init__(name, arg_dtypes, result_dtypes,
+                                   raise_on_fail=raise_on_fail)
 
 
 class pow(MangleGen):
     def __init__(self, name='pow', arg_dtypes=(np.float64, np.float64),
                  result_dtypes=np.float64):
-        super(fmax, self).__init__(name, arg_dtypes, result_dtypes)
+        super(pow, self).__init__(name, arg_dtypes, result_dtypes)
 
 
 def power_function_manglers(loopy_opts, power_function):
@@ -191,7 +194,6 @@ def power_function_manglers(loopy_opts, power_function):
 
     if power_function == 'pown':
         # opencl only
-        from loopy.kernel.opencl import vec
         # create manglers
         manglers = []
         # 1) float and short integer
@@ -199,19 +201,20 @@ def power_function_manglers(loopy_opts, power_function):
         # 2) float and long integer
         manglers.append(pown(arg_dtypes=(np.float64, np.int64)))
         if loopy_opts.is_simd:
+            from loopy.target.opencl import vec
             vfloat = vec.types[np.float64, loopy_opts.vector_width]
+            vlong = vec.types[np.int64, loopy_opts.vector_width]
             vint = vec.types[np.int32, loopy_opts.vector_width]
-            vlong = vec.types[np.int32, loopy_opts.vector_width]
             # 3) vector float and short integers
             manglers.append(pown(arg_dtypes=(vfloat, np.int32),
-                                 return_dtypes=vfloat))
+                                 result_dtypes=vfloat))
             manglers.append(pown(arg_dtypes=(vfloat, vint),
-                                 return_dtypes=vfloat))
+                                 result_dtypes=vfloat))
             # 4) vector float and long integers
             manglers.append(pown(arg_dtypes=(vfloat, np.int64),
-                                 return_dtypes=vfloat))
+                                 result_dtypes=vfloat))
             manglers.append(pown(arg_dtypes=(vfloat, vlong),
-                                 return_dtypes=vfloat))
+                                 result_dtypes=vfloat))
         return manglers
     elif power_function == 'fast_powi':
         # skip, handled as preamble
