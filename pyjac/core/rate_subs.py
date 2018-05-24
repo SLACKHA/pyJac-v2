@@ -1251,16 +1251,19 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
                 rop_rev_str=rop_rev_str))
 
         # pmod update
-        pmod_update_instructions = ic.get_update_instruction(
-            __get_map('pres_mod'), namestore.pres_mod,
-            Template(
-                """
-            net_rate = net_rate * ${pres_mod_str} \
-                {id=rate_update_pmod, dep=rate_update${rev_dep}}
-            """).safe_substitute(
-                rev_dep=':rate_update_rev' if namestore.rop_rev is not None
-                    else '',
-                pres_mod_str=pres_mod_str))
+        if namestore.pres_mod is not None:
+            pmod_update_instructions = ic.get_update_instruction(
+                __get_map('pres_mod'), namestore.pres_mod,
+                Template(
+                    """
+                net_rate = net_rate * ${pres_mod_str} \
+                    {id=rate_update_pmod, dep=rate_update${rev_dep}}
+                """).safe_substitute(
+                    rev_dep=':rate_update_rev' if namestore.rop_rev is not None
+                        else '',
+                    pres_mod_str=pres_mod_str))
+        else:
+            pmod_update_instructions = ''
 
         instructions = Template(instructions).safe_substitute(
             rev_update=rev_update_instructions,
