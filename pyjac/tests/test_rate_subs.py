@@ -632,7 +632,9 @@ class SubTest(TestClass):
         ref_Pr = self.store.ref_Pr
         ref_ans = self.store.ref_Sri.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
-                'phi': lambda x: np.array(ref_phi, order=x, copy=True)
+                'phi': lambda x: np.array(ref_phi, order=x, copy=True),
+                'X': lambda x: np.zeros_like(self.store.ref_Sri, order=x),
+                'Fi': lambda x: np.zeros_like(ref_Pr, order=x)
                 }
 
         # get SRI reaction mask
