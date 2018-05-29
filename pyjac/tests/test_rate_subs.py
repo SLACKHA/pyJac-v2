@@ -658,7 +658,10 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_Troe.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
-                'Fi': lambda x: np.zeros_like(ref_Pr, order=x)
+                'Fi': lambda x: np.zeros_like(ref_Pr, order=x),
+                'Atroe': lambda x: np.zeros_like(self.store.ref_Troe, order=x),
+                'Btroe': lambda x: np.zeros_like(self.store.ref_Troe, order=x),
+                'Fcent': lambda x: np.zeros_like(self.store.ref_Troe, order=x)
                 }
 
         # get Troe reaction mask
