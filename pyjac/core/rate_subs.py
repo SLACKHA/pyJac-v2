@@ -1295,7 +1295,7 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
             else:
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_net_str} * ${pres_mod_str} {id=rop_net_pmod}
+            ${rop_net_str} = ${rop_net_str} * ${pres_mod_str} {id=rop_net_pres_mod}
                     """).safe_substitute(pres_mod_str=pres_mod_str,
                                          rop_net_str=rop_strs['pres_mod'])
 
@@ -2687,8 +2687,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
         # get rate equations
         rate_eqn_pre = Template(
-            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv}").safe_substitute(
-            **locals())
+            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv} {id=rate_eval}"
+            ).safe_substitute(**locals())
         rate_eqn_pre_noTa = Template(
             "${A_str} + ${logT} * ${b_str}").safe_substitute(**locals())
         rate_eqn_pre_nobeta = Template(
@@ -2830,6 +2830,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     out_specs = {}
     # and do some finalizations for the specializations
     for rtype, info in specializations.items():
+        # turn off warning
+        info.silenced_warnings = ["write_race(rate_eval)"]
         # this is handled above
         if rtype < 0:
             out_specs[rtype] = info
