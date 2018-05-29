@@ -3210,7 +3210,7 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
             if ${Tval} < ${T_mid_str}
                 ${out_str} = ${lo_eq} {id=low, nosync=hi}
             else
-                ${out_str} = ${hi_eq} {id=hi, nosync=lo}
+                ${out_str} = ${hi_eq} {id=hi, nosync=low}
             end
         end
         """).safe_substitute(**locals()),
