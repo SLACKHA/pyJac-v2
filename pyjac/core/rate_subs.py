@@ -971,15 +971,15 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
 
     pre_instructions = [Template(
         """
-        <> upper = 0
-        <> lower = 0
+        <> upper = 0 {id=uinit}
+        <> lower = 0 {id=linit}
         # handled by reset_arrays
         # ${Tdot_str} = 0 {id=init}
         """).safe_substitute(**locals())]
     instructions = Template(
         """
-            upper = upper + ${energy_str} * ${wdot_str} {id=sum1}
-            lower = lower + ${conc_str} * ${spec_heat_str} {id=sum2}
+            upper = upper + ${energy_str} * ${wdot_str} {id=sum1, dep=uinit}
+            lower = lower + ${conc_str} * ${spec_heat_str} {id=sum2, dep=linit}
         """
     ).safe_substitute(**locals())
 
@@ -1809,7 +1809,8 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
 <> thd_temp = ${P_str} * not_spec / (R * ${T_str}) {id=thd1, dep=num0}
 for ${spec_loop}
     <> ${spec_ind} = ${thd_spec} {id=ind1}
-    thd_temp = thd_temp + (${thd_eff} - not_spec) * ${conc_thd_spec} {id=thdcalc, dep=ind1}
+    thd_temp = thd_temp + (${thd_eff} - not_spec) * ${conc_thd_spec} {id=thdcalc,\
+        dep=ind1:thd1}
 end
 ${thd_str} = thd_temp {dep=thd*}
 """).safe_substitute(
@@ -3180,9 +3181,9 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     return k_gen.knl_info(instructions=Template("""
         for k
             if ${Tval} < ${T_mid_str}
-                ${out_str} = ${lo_eq}
+                ${out_str} = ${lo_eq} {id=low, nosync=low}
             else
-                ${out_str} = ${hi_eq}
+                ${out_str} = ${hi_eq} {id=hi, nosync=hi}
             end
         end
         """).safe_substitute(**locals()),
