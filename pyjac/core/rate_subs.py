@@ -1415,7 +1415,8 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                          spec_str=spec_str,
                          spec_ind=spec_ind)
 
-        power_func = utils.power_function(loopy_opts.lang, allint['net'])
+        power_func = utils.power_function(loopy_opts.lang,
+                                          is_integer_power=allint['net'])
         # if all integers, it's much faster to use multiplication
         roptemp_eval = Template(
             """
@@ -1659,7 +1660,8 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                         B_lp, Kc_lp, nu_lp, kf_arr, kr_arr])
 
     # get the right power function
-    power_func = utils.power_function(loopy_opts.lang, allint['net'])
+    power_func = utils.power_function(loopy_opts.lang,
+                                      is_integer_power=allint['net'])
 
     # create the pressure product loop
     pressure_prod = Template("""
@@ -2338,7 +2340,8 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     kernel_data.extend([troe_a_lp, troe_T3_lp, troe_T1_lp, troe_T2_lp])
 
     # get generic power function
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=False)
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
+                                      is_positive_power=True)
 
     # make the instructions
     troe_instructions = Template("""
@@ -2439,19 +2442,21 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     Tval = 'Tval'
 
     # get generic power function
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=False)
+    pos_power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
+                                          is_positive_power=True)
+    gen_power_func = utils.power_function(loopy_opts.lang)
 
     # create instruction set
     sri_instructions = Template("""
     <>logPr = log10(fmax(1e-300d, ${Pr_str}))
     <>X_temp = 1 / (logPr * logPr + 1) {id=X_decl}
-    <>Fi_temp = ${power_func}((${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
+    <>Fi_temp = ${pos_power_func}((${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
         exp(-${Tval} / ${sri_c_str})), X_temp) {id=Fi_decl, dep=X_decl}
     if ${sri_d_str} != 1.0
         Fi_temp = Fi_temp * ${sri_d_str} {id=Fi_decl1, dep=Fi_decl}
     end
     if ${sri_e_str} != 0.0
-        Fi_temp = Fi_temp * ${power_func(${Tval},${sri_e_str}) \
+        Fi_temp = Fi_temp * ${gen_power_func}(${Tval}, ${sri_e_str}) \
             {id=Fi_decl2, dep=Fi_decl1}
     end
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
@@ -2468,9 +2473,9 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
                            mapstore=mapstore,
                            manglers=[lp_pregen.fmax()] +
                            lp_pregen.power_function_manglers(
-                               loopy_opts, power_func),
+                               loopy_opts, [pos_power_func + gen_power_func]),
                            preambles=lp_pregen.power_function_preambles(
-                               loopy_opts, power_func))]
+                               loopy_opts, [pos_power_func + gen_power_func]))]
 
 
 def get_lind_kernel(loopy_opts, namestore, test_size=None):

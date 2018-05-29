@@ -109,16 +109,19 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
-def power_function(lang, is_integer_power=True):
+def power_function(lang, is_integer_power=False, is_positive_power=False):
     """
     Returns the best power function to use for a given :param:`lang` and
-    choice of :param:`is_integer_power`
+    choice of :param:`is_integer_power` / :param:`is_positive_power`
     """
 
     if lang == 'opencl' and is_integer_power:
         # opencl has it's own integer power function
         # this also is nice for loopy, as it handles the vectorizability check
         return 'pown'
+    elif lang == 'opencl' and is_positive_power:
+        # opencl positive power function
+        return 'powr'
     elif is_integer_power:
         # use internal integer power function
         return 'fast_powi'

@@ -1,6 +1,8 @@
 from string import Template
 import numpy as np
 
+from pyjac import utils as utils
+
 
 class MangleGen(object):
     """
@@ -178,13 +180,19 @@ class pow(MangleGen):
         super(pow, self).__init__(name, arg_dtypes, result_dtypes)
 
 
-def power_function_manglers(loopy_opts, power_function):
+class powr(MangleGen):
+    def __init__(self, name='powr', arg_dtypes=(np.float64, np.float64),
+                 result_dtypes=np.float64):
+        super(pow, self).__init__(name, arg_dtypes, result_dtypes)
+
+
+def power_function_manglers(loopy_opts, power_functions):
     """
     Parameters
     ----------
     loopy_opts: :class:`loopy_options`
         The code-generation options, used for determining vector-width / SIMD
-    power_function: str
+    power_function: str or list of string
         The power function used
     Returns
     -------
@@ -192,36 +200,47 @@ def power_function_manglers(loopy_opts, power_function):
         power function manglers for  a given :param:`power_function`.
     """
 
-    if power_function == 'pown':
-        # opencl only
-        # create manglers
-        manglers = []
-        # 1) float and short integer
-        manglers.append(pown())
-        # 2) float and long integer
-        manglers.append(pown(arg_dtypes=(np.float64, np.int64)))
-        if loopy_opts.is_simd:
-            from loopy.target.opencl import vec
-            vfloat = vec.types[np.dtype(np.float64), loopy_opts.vector_width]
-            vlong = vec.types[np.dtype(np.int64), loopy_opts.vector_width]
-            vint = vec.types[np.dtype(np.int32), loopy_opts.vector_width]
-            # 3) vector float and short integers
-            # note: return type must be non-vector form (this will c)
-            manglers.append(pown(arg_dtypes=(vfloat, np.int32),
-                                 result_dtypes=np.float64))
-            manglers.append(pown(arg_dtypes=(vfloat, vint),
-                                 result_dtypes=np.float64))
-            # 4) vector float and long integers
-            manglers.append(pown(arg_dtypes=(vfloat, np.int64),
-                                 result_dtypes=np.float64))
-            manglers.append(pown(arg_dtypes=(vfloat, vlong),
-                                 result_dtypes=np.float64))
-        return manglers
-    elif power_function == 'fast_powi':
-        # skip, handled as preamble
-        return []
-    else:
-        return [pow()]
+    def __manglers(power_function):
+        if loopy_opts.lang == 'opencl' and 'pow' in power_function:
+            # opencl only
+            # create manglers
+            manglers = []
+
+            mangler_type = next((
+                mangler for mangler in [pown, pow, powr]
+                if mangler.name == 'power_function'), None)
+            if mangler_type is None:
+                raise Exception('Unknown OpenCL power function {}'.format(
+                    power_function))
+            # 1) float and short integer
+            manglers.append(pown())
+            # 2) float and long integer
+            manglers.append(pown(arg_dtypes=(np.float64, np.int64)))
+            if loopy_opts.is_simd:
+                from loopy.target.opencl import vec
+                vfloat = vec.types[np.dtype(np.float64), loopy_opts.vector_width]
+                vlong = vec.types[np.dtype(np.int64), loopy_opts.vector_width]
+                vint = vec.types[np.dtype(np.int32), loopy_opts.vector_width]
+                # 3) vector float and short integers
+                # note: return type must be non-vector form (this will c)
+                manglers.append(pown(arg_dtypes=(vfloat, np.int32),
+                                     result_dtypes=np.float64))
+                manglers.append(pown(arg_dtypes=(vfloat, vint),
+                                     result_dtypes=np.float64))
+                # 4) vector float and long integers
+                manglers.append(pown(arg_dtypes=(vfloat, np.int64),
+                                     result_dtypes=np.float64))
+                manglers.append(pown(arg_dtypes=(vfloat, vlong),
+                                     result_dtypes=np.float64))
+            return manglers
+        elif power_function == 'fast_powi':
+            # skip, handled as preamble
+            return []
+        else:
+            return [pow()]
+
+    return [mangler for power_func in utils.listify(power_functions)
+            for mangler in __manglers(power_func)]
 
 
 class fmax(MangleGen):
