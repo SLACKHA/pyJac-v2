@@ -608,7 +608,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
 
     pre_instructions = Template(
         """<>V_inv = 1.0d / ${V_str}
-           <>n_sum = 0
+           <>n_sum = 0 {id=n_init}
            ${cns_str} = ${P_str} / (R_u * ${T_str}) {id=cns_init}
         """).substitute(
             P_str=P_str,
@@ -619,7 +619,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     instructions = Template(
         """
             ${conc_str} = ${n_str} * V_inv {id=cn_init}
-            n_sum = n_sum + ${n_str} {id=n_update}
+            n_sum = n_sum + ${n_str} {id=n_update, dep=n_init}
         """).substitute(
             conc_str=conc_str,
             n_str=n_str
