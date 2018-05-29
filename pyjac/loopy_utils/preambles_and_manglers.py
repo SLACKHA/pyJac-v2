@@ -174,16 +174,16 @@ class pown(MangleGen):
                                    raise_on_fail=raise_on_fail)
 
 
-class pow(MangleGen):
+class powf(MangleGen):
     def __init__(self, name='pow', arg_dtypes=(np.float64, np.float64),
                  result_dtypes=np.float64):
-        super(pow, self).__init__(name, arg_dtypes, result_dtypes)
+        super(powf, self).__init__(name, arg_dtypes, result_dtypes)
 
 
 class powr(MangleGen):
     def __init__(self, name='powr', arg_dtypes=(np.float64, np.float64),
                  result_dtypes=np.float64):
-        super(pow, self).__init__(name, arg_dtypes, result_dtypes)
+        super(powr, self).__init__(name, arg_dtypes, result_dtypes)
 
 
 def power_function_manglers(loopy_opts, power_functions):
@@ -207,7 +207,7 @@ def power_function_manglers(loopy_opts, power_functions):
             manglers = []
 
             mangler_type = next((
-                mangler for mangler in [pown, pow, powr]
+                mangler for mangler in [pown, powf, powr]
                 if mangler.name == 'power_function'), None)
             if mangler_type is None:
                 raise Exception('Unknown OpenCL power function {}'.format(
@@ -237,7 +237,7 @@ def power_function_manglers(loopy_opts, power_functions):
             # skip, handled as preamble
             return []
         else:
-            return [pow()]
+            return [powf()]
 
     return [mangler for power_func in utils.listify(power_functions)
             for mangler in __manglers(power_func)]
