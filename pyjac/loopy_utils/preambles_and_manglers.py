@@ -219,7 +219,7 @@ def power_function_manglers(loopy_opts, power_function):
         return manglers
     elif power_function == 'fast_powi':
         # skip, handled as preamble
-        pass
+        return []
     else:
         return [pow()]
 
