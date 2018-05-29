@@ -208,14 +208,14 @@ def power_function_manglers(loopy_opts, power_functions):
 
             mangler_type = next((
                 mangler for mangler in [pown, powf, powr]
-                if mangler.name == 'power_function'), None)
+                if mangler().name == power_function), None)
             if mangler_type is None:
                 raise Exception('Unknown OpenCL power function {}'.format(
                     power_function))
             # 1) float and short integer
-            manglers.append(pown())
+            manglers.append(mangler_type())
             # 2) float and long integer
-            manglers.append(pown(arg_dtypes=(np.float64, np.int64)))
+            manglers.append(mangler_type(arg_dtypes=(np.float64, np.int64)))
             if loopy_opts.is_simd:
                 from loopy.target.opencl import vec
                 vfloat = vec.types[np.dtype(np.float64), loopy_opts.vector_width]
@@ -223,15 +223,15 @@ def power_function_manglers(loopy_opts, power_functions):
                 vint = vec.types[np.dtype(np.int32), loopy_opts.vector_width]
                 # 3) vector float and short integers
                 # note: return type must be non-vector form (this will c)
-                manglers.append(pown(arg_dtypes=(vfloat, np.int32),
-                                     result_dtypes=np.float64))
-                manglers.append(pown(arg_dtypes=(vfloat, vint),
-                                     result_dtypes=np.float64))
+                manglers.append(mangler_type(arg_dtypes=(vfloat, np.int32),
+                                             result_dtypes=np.float64))
+                manglers.append(mangler_type(arg_dtypes=(vfloat, vint),
+                                             result_dtypes=np.float64))
                 # 4) vector float and long integers
-                manglers.append(pown(arg_dtypes=(vfloat, np.int64),
-                                     result_dtypes=np.float64))
-                manglers.append(pown(arg_dtypes=(vfloat, vlong),
-                                     result_dtypes=np.float64))
+                manglers.append(mangler_type(arg_dtypes=(vfloat, np.int64),
+                                             result_dtypes=np.float64))
+                manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
+                                             result_dtypes=np.float64))
             return manglers
         elif power_function == 'fast_powi':
             # skip, handled as preamble

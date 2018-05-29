@@ -2473,9 +2473,9 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
                            mapstore=mapstore,
                            manglers=[lp_pregen.fmax()] +
                            lp_pregen.power_function_manglers(
-                               loopy_opts, [pos_power_func + gen_power_func]),
+                               loopy_opts, [pos_power_func, gen_power_func]),
                            preambles=lp_pregen.power_function_preambles(
-                               loopy_opts, [pos_power_func + gen_power_func]))]
+                               loopy_opts, [pos_power_func, gen_power_func]))]
 
 
 def get_lind_kernel(loopy_opts, namestore, test_size=None):
