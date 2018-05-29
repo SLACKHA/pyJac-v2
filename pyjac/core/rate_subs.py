@@ -2648,8 +2648,10 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                             ic.default_pre_instructs(Tval, T_str, 'VAL')}
 
     # generic kf assigment str
-    kf_assign = Template("${kf_str} = ${rate}")
-    expkf_assign = Template("${kf_str} = exp(${rate}) {id=rate_eval}")
+    kf_assign = Template("${kf_str} = ${rate} {id=simple_rate_eval, \
+                         nosync=${deps}}")
+    expkf_assign = Template("${kf_str} = exp(${rate}) {id=rate_eval${id}, \
+                            nosync=${deps}}")
 
     def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                            single_kernel_rtype=None, Tval=Tval, logT=logT,
@@ -2696,25 +2698,48 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
             "${A_str} - ${Ta_str} * ${Tinv}").safe_substitute(
             **locals())
 
+        def __deps(assign):
+            if single_kernel_rtype is None:
+                # not a combined kernel
+                return ' '
+            elif assign == expkf_assign:
+                rate_evals = [2, 3, 4] if full else [2] if hybrid else []
+                rate_evals = ':'.join(['rate_eval{}'.format(x) for x in rate_evals])
+                return 'simple_rate_eval:a*{}'.format(
+                    ':' + rate_evals if rate_evals else '')
+            elif assign == kf_assign:
+                return 'rate_eval*:a*'
+            else:
+                return 'simple_rate_eval:rate_eval*'
+
         preambles = []
+        manglers = []
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
-            retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
+            retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre),
+                                                deps=__deps(expkf_assign),
+                                                id=rtype)
         # otherwise check type and return appropriate instructions with
         # array strings substituted in
         elif rtype == 0:
-            retv = kf_assign.safe_substitute(rate=A_str)
+            retv = kf_assign.safe_substitute(rate=A_str, deps=__deps(kf_assign))
         elif rtype == 1:
             if beta_iter > 1:
+                power_func = utils.power_function(
+                    loopy_opts.lang, is_integer_power=True, is_positive_power=True)
                 beta_iter_str = Template("""
                 <int32> b_end = abs(${b_str})
-                kf_temp = kf_temp * fast_powi(T_iter, b_end) {id=a4, dep=a3:a2:a1}
-                ${kf_str} = kf_temp {dep=a4}
-                """).safe_substitute(b_str=b_str)
-                preambles.append(lp_pregen.fastpowi_PreambleGen())
+                kf_temp = kf_temp * ${power_func}(T_iter, b_end) \
+                    {id=a4, dep=a3:a2:a1}
+                ${kf_str} = kf_temp {dep=a4, nosync=${deps}}
+                """).safe_substitute(b_str=b_str, power_func=power_func)
+                preambles.append(lp_pregen.power_function_preambles(power_func))
+                manglers.append(lp_pregen.power_function_manglers(power_func))
             else:
-                beta_iter_str = ("${kf_str} = kf_temp * T_iter"
-                                 " {id=a4, dep=a3:a2:a1}")
+                beta_iter_str = Template(
+                    "${kf_str} = kf_temp * T_iter"
+                    " {id=a4, dep=a3:a2:a1, nosync=${deps}}").safe_substitute(
+                        deps=__deps(''))
 
             retv = Template(
                 """
@@ -2727,12 +2752,14 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 """).safe_substitute(**locals())
         elif rtype == 2:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre_noTa))
+                rate=str(rate_eqn_pre_noTa), deps=__deps(expkf_assign),
+                id=rtype)
         elif rtype == 3:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre_nobeta))
+                rate=str(rate_eqn_pre_nobeta), deps=__deps(expkf_assign),
+                id=rtype)
 
-        return Template(retv).safe_substitute(kf_str=kf_str), preambles
+        return Template(retv).safe_substitute(kf_str=kf_str), preambles, manglers
 
     # various specializations of the rate form
     specializations = {}
@@ -2802,10 +2829,11 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         if len(specializations) > 1:
             instruction_list = []
             pre = []
+            man = []
             for i in specializations:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                insns, preambles = __get_instructions(
+                insns, preambles, manglers = __get_instructions(
                     -1,
                     arc.MapStore(loopy_opts, mapstore.map_domain,
                                  mapstore.mask_domain),
@@ -2817,6 +2845,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 instruction_list.append('end')
                 if preambles:
                     pre.extend(preambles)
+                if manglers:
+                    man.extend(manglers)
         # and combine them
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
@@ -2826,17 +2856,26 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                            mapstore=mapstore,
                            kernel_data=specializations[0].kernel_data,
                            var_name=var_name,
-                           preambles=pre)}
+                           preambles=pre,
+                           manglers=man,
+                           silenced_warnings=['write_race(rate_eval2)',
+                                              'write_race(rate_eval3)',
+                                              'write_race(rate_eval4)',
+                                              'write_race(simple_rate_eval)',
+                                              'write_race(a4)'])}
 
     out_specs = {}
     # and do some finalizations for the specializations
     for rtype, info in specializations.items():
-        # turn off warning
-        info.silenced_warnings = ["write_race(rate_eval)"]
         # this is handled above
         if rtype < 0:
             out_specs[rtype] = info
             continue
+
+        # turn off warning
+        info.kwargs['silenced_warnings'] = ['write_race(rate_eval{})'.format(rtype),
+                                            'write_race(simple_rate_eval)',
+                                            'write_race(a4)']
 
         domain, _, num = rdomain(rtype)
         if domain is None or not domain.initializer.size:
@@ -2851,7 +2890,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
         # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions, info.preambles = __get_instructions(
+            info.instructions, info.preambles, info.manglers = __get_instructions(
                 rtype, mapper, info.kernel_data, beta_iter)
 
         out_specs[rtype] = info

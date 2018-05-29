@@ -528,8 +528,8 @@ class SubTest(TestClass):
             if len(out[0].shape) == 3:
                 # vectorized data order
                 # get the new indicies
-                _get_index = indexer(ref_const.ndim, out[0].ndim, out[0].shape,
-                                     kc.current_order)
+
+                _get_index = indexer(kc.current_split, ref_const.shape)
                 inds = _get_index((self.store.thd_inds,), (1,))
                 pmod_inds = _get_index((np.arange(self.store.thd_inds.size),), (1,))
                 # split the pres mod
