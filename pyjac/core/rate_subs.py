@@ -1283,19 +1283,19 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
             if kernel == 'fwd':
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_fwd_str}
+            ${rop_net_str} = ${rop_fwd_str} {id=rop_net_fwd}
                     """).safe_substitute(rop_fwd_str=rop_fwd_str,
                                          rop_net_str=rop_strs['fwd'])
             elif kernel == 'rev':
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_net_str} - ${rop_rev_str}
+            ${rop_net_str} = ${rop_net_str} - ${rop_rev_str} {id=rop_net_rev}
                     """).safe_substitute(rop_rev_str=rop_rev_str,
                                          rop_net_str=rop_strs['rev'])
             else:
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_net_str} * ${pres_mod_str}
+            ${rop_net_str} = ${rop_net_str} * ${pres_mod_str} {id=rop_net_pmod}
                     """).safe_substitute(pres_mod_str=pres_mod_str,
                                          rop_net_str=rop_strs['pres_mod'])
 
@@ -1305,7 +1305,9 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
                                         instructions=instructions,
                                         var_name=var_name,
                                         kernel_data=kernel_data[kernel],
-                                        mapstore=maps[kernel]))
+                                        mapstore=maps[kernel],
+                                        silenced_warnings=['write_race(rop_net_{})'
+                                        .format(kernel)]))
         return infos
 
 
@@ -1511,7 +1513,7 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=thd_map,
-                           ignored_warnings=['write_race(set_pres_mod)'])]
+                           silenced_warnings=['write_race(set_pres_mod)'])]
 
     # check for empty
     if namestore.num_fall is None:
