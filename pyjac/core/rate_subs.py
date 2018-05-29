@@ -2525,14 +2525,15 @@ def get_lind_kernel(loopy_opts, namestore, test_size=None):
 
     # create instruction set
     lind_instructions = Template("""
-    ${Fi_str} = 1
+    ${Fi_str} = 1 {id=Fi_init}
     """).safe_substitute(Fi_str=Fi_str)
 
     return [k_gen.knl_info('fall_lind',
                            instructions=lind_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=mapstore)]
+                           mapstore=mapstore,
+                           silenced_warnings=['write_race(Fi_init)'])]
 
 
 def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
