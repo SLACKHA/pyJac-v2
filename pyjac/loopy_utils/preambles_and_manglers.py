@@ -202,19 +202,20 @@ def power_function_manglers(loopy_opts, power_function):
         manglers.append(pown(arg_dtypes=(np.float64, np.int64)))
         if loopy_opts.is_simd:
             from loopy.target.opencl import vec
-            vfloat = vec.types[np.float64, loopy_opts.vector_width]
-            vlong = vec.types[np.int64, loopy_opts.vector_width]
-            vint = vec.types[np.int32, loopy_opts.vector_width]
+            vfloat = vec.types[np.dtype(np.float64), loopy_opts.vector_width]
+            vlong = vec.types[np.dtype(np.int64), loopy_opts.vector_width]
+            vint = vec.types[np.dtype(np.int32), loopy_opts.vector_width]
             # 3) vector float and short integers
+            # note: return type must be non-vector form (this will c)
             manglers.append(pown(arg_dtypes=(vfloat, np.int32),
-                                 result_dtypes=vfloat))
+                                 result_dtypes=np.float64))
             manglers.append(pown(arg_dtypes=(vfloat, vint),
-                                 result_dtypes=vfloat))
+                                 result_dtypes=np.float64))
             # 4) vector float and long integers
             manglers.append(pown(arg_dtypes=(vfloat, np.int64),
-                                 result_dtypes=vfloat))
+                                 result_dtypes=np.float64))
             manglers.append(pown(arg_dtypes=(vfloat, vlong),
-                                 result_dtypes=vfloat))
+                                 result_dtypes=np.float64))
         return manglers
     elif power_function == 'fast_powi':
         # skip, handled as preamble
