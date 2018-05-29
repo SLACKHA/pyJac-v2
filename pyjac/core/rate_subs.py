@@ -3201,9 +3201,9 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     return k_gen.knl_info(instructions=Template("""
         for k
             if ${Tval} < ${T_mid_str}
-                ${out_str} = ${lo_eq} {id=low, nosync=low}
+                ${out_str} = ${lo_eq} {id=low, nosync=hi}
             else
-                ${out_str} = ${hi_eq} {id=hi, nosync=hi}
+                ${out_str} = ${hi_eq} {id=hi, nosync=lo}
             end
         end
         """).safe_substitute(**locals()),
