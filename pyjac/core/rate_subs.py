@@ -2649,7 +2649,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate}")
-    expkf_assign = Template("${kf_str} = exp(${rate})")
+    expkf_assign = Template("${kf_str} = exp(${rate}) {id=rate_eval}")
 
     def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                            single_kernel_rtype=None, Tval=Tval, logT=logT,
@@ -2688,7 +2688,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
         # get rate equations
         rate_eqn_pre = Template(
-            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv} {id=rate_eval}"
+            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv}"
             ).safe_substitute(**locals())
         rate_eqn_pre_noTa = Template(
             "${A_str} + ${logT} * ${b_str}").safe_substitute(**locals())
