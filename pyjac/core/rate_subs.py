@@ -1658,6 +1658,9 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     kernel_data.extend([nu_sum_lp, spec_lp, num_spec_offsets_lp,
                         B_lp, Kc_lp, nu_lp, kf_arr, kr_arr])
 
+    # get the right power function
+    power_func = utils.power_function(loopy_opts.lang, allint['net'])
+
     # create the pressure product loop
     pressure_prod = Template("""
     <> P_sum_end = abs(${nu_sum}) {id=P_bound}
@@ -1666,27 +1669,9 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     else
         P_val = R_u / P_a {id=P_val_decl1}
     end
-    <> P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
-    """).substitute(nu_sum=nu_sum_str)
-
-    if not allint['net']:
-        # if not all integers, need to add outer if statment to check integer
-        # status
-        pressure_prod_temp = Template("""
-    <> P_sum_end = abs(${nu_sum}) {id=P_bound}
-    if ${nu_sum} > 0
-        <> P_val = P_a / R_u {id=P_val_decl}
-    else
-        P_val = R_u / P_a {id=P_val_decl1}
-    end
-    if (int)${nu_sum} == ${nu_sum}
-        P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
-    else
-        P_sum = fast_powf(P_val, fabs(${nu_sum})) {id=P_accum2, dep=P_val_decl*}
-    end""").substitute(nu_sum=nu_sum_str)
-
-        pressure_prod = k_gen.subs_at_indent(pressure_prod_temp, 'pprod',
-                                             pressure_prod)
+    <> P_sum = ${power_func}(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
+    """).substitute(nu_sum=nu_sum_str,
+                    power_func=power_func)
 
     # and the b sum loop
     Bsum_inst = Template("""
@@ -1733,8 +1718,10 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                           parameters={
                               'P_a': np.float64(chem.PA),
                               'R_u': np.float64(chem.RU)},
-                          preambles=[lp_pregen.fastpowi_PreambleGen(),
-                                     lp_pregen.fastpowf_PreambleGen()])
+                          manglers=lp_pregen.power_function_manglers(
+                                loopy_opts, power_func),
+                          preambles=lp_pregen.power_function_preambles(
+                                loopy_opts, power_func))
 
 
 def get_thd_body_concs(loopy_opts, namestore, test_size=None):
