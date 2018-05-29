@@ -160,7 +160,7 @@ def power_function_preambles(loopy_opts, power_function):
     """
 
     if power_function == 'fast_powi':
-        return [fastpowi_PreambleGen]
+        return [fastpowi_PreambleGen()]
     return []
 
 
