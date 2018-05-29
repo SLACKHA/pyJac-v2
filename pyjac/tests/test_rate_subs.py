@@ -787,6 +787,8 @@ class SubTest(TestClass):
     @attr('long')
     def test_rop_net(self):
         fwd_removed = self.store.fwd_rxn_rate.copy()
+        # turn off division by zero warnings temporarily
+        hold = np.seterr(invalid='ignore')
         fwd_removed[:, self.store.thd_inds] = fwd_removed[
             :, self.store.thd_inds] / self.store.ref_pres_mod
         thd_in_rev = np.where(
@@ -796,6 +798,7 @@ class SubTest(TestClass):
         rev_removed = self.store.rev_rxn_rate.copy()
         rev_removed[:, rev_update_map] = rev_removed[
             :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
+        np.seterr(**hold)
 
         # remove ref pres mod = 0 (this is a 0 rate)
         fwd_removed[np.where(np.isnan(fwd_removed))] = 0
