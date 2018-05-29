@@ -111,30 +111,34 @@ class fastpowi_PreambleGen(PreambleGen):
         self.code = Template("""
    inline double fast_powi(double val, ${int_str} pow)
    {
-        // get sign
-        double retval = (val > 0) - (val < 0);
-        pow = abs(pow);
+        // account for negatives
+        if (pow < 0)
+        {
+            val = 1.0 / val;
+            pow = -pow;
+        }
+        // switch for speed
         switch(pow)
         {
             case 0:
                 return 1;
             case 1:
-                return retval * val;
+                return val;
             case 2:
-                return retval * val * val;
+                return val * val;
             case 3:
-                return retval * val * val * val;
+                return val * val * val;
             case 4:
-                return retval * val * val * val * val;
+                return val * val * val * val;
             case 5:
-                return retval * val * val * val * val * val;
-            default:
-                for (${int_str} i = 0; i < pow; ++i)
-                {
-                    retval *= val;
-                }
-                return retval;
+                return val * val * val * val * val;
         }
+        double retval = 1;
+        for (${int_str} i = 0; i < pow; ++i)
+        {
+            retval *= val;
+        }
+        return retval;
    }
             """).substitute(int_str=int_str)
 
@@ -153,7 +157,7 @@ def power_function_preambles(loopy_opts, power_function):
     ----------
     loopy_opts: :class:`loopy_options`
         unused, included for consistent interface
-    power_function: str
+    power_function: str or list thereof
         The power function used
     Returns
     -------
@@ -161,7 +165,7 @@ def power_function_preambles(loopy_opts, power_function):
         power function preambles for  a given :param:`power_function`.
     """
 
-    if power_function == 'fast_powi':
+    if 'fast_powi' in utils.listify(power_function):
         return [fastpowi_PreambleGen()]
     return []
 
