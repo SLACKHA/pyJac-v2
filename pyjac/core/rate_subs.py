@@ -1497,7 +1497,7 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
                                                        *default_inds)
 
         thd_instructions = Template("""
-        ${pres_mod} = ${thd_conc}
+        ${pres_mod} = ${thd_conc} {id=set_pres_mod}
         """).safe_substitute(pres_mod=pres_mod_str,
                              thd_conc=thd_str)
 
@@ -1510,7 +1510,8 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
                            instructions=thd_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=thd_map)]
+                           mapstore=thd_map,
+                           ignored_warnings=['write_race(set_pres_mod)'])]
 
     # check for empty
     if namestore.num_fall is None:
