@@ -76,6 +76,7 @@ def get_mechanism_file():
     return _get_test_input('gas', 'test.cti')
 
 
+@nottest
 def get_test_langs():
     """
     Returns the languages to use in unit testing, defaults to OpenCL & C
