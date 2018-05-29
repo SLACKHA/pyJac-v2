@@ -176,14 +176,16 @@ class pown(MangleGen):
 
 class powf(MangleGen):
     def __init__(self, name='pow', arg_dtypes=(np.float64, np.float64),
-                 result_dtypes=np.float64):
-        super(powf, self).__init__(name, arg_dtypes, result_dtypes)
+                 result_dtypes=np.float64, raise_on_fail=False):
+        super(powf, self).__init__(name, arg_dtypes, result_dtypes,
+                                   raise_on_fail=raise_on_fail)
 
 
 class powr(MangleGen):
     def __init__(self, name='powr', arg_dtypes=(np.float64, np.float64),
-                 result_dtypes=np.float64):
-        super(powr, self).__init__(name, arg_dtypes, result_dtypes)
+                 result_dtypes=np.float64, raise_on_fail=False):
+        super(powr, self).__init__(name, arg_dtypes, result_dtypes,
+                                   raise_on_fail=raise_on_fail)
 
 
 def power_function_manglers(loopy_opts, power_functions):
@@ -215,21 +217,24 @@ def power_function_manglers(loopy_opts, power_functions):
             # 1) float and short integer
             manglers.append(mangler_type())
             # 2) float and long integer
-            manglers.append(mangler_type(arg_dtypes=(np.float64, np.int64)))
+            if power_function == 'pown':
+                manglers.append(mangler_type(arg_dtypes=(np.float64, np.int64)))
             if loopy_opts.is_simd:
                 from loopy.target.opencl import vec
                 vfloat = vec.types[np.dtype(np.float64), loopy_opts.vector_width]
                 vlong = vec.types[np.dtype(np.int64), loopy_opts.vector_width]
                 vint = vec.types[np.dtype(np.int32), loopy_opts.vector_width]
                 # 3) vector float and short integers
-                # note: return type must be non-vector form (this will c)
-                manglers.append(mangler_type(arg_dtypes=(vfloat, np.int32),
-                                             result_dtypes=np.float64))
-                manglers.append(mangler_type(arg_dtypes=(vfloat, vint),
-                                             result_dtypes=np.float64))
+                # note: return type must be non-vector form (this will converted
+                # by loopy in privatize)
+                if power_function == 'pown':
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, np.int32),
+                                                 result_dtypes=np.float64))
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, vint),
+                                                 result_dtypes=np.float64))
                 # 4) vector float and long integers
-                manglers.append(mangler_type(arg_dtypes=(vfloat, np.int64),
-                                             result_dtypes=np.float64))
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, np.int64),
+                                                 result_dtypes=np.float64))
                 manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
                                              result_dtypes=np.float64))
             return manglers

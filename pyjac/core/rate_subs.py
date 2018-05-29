@@ -2444,7 +2444,9 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     # get generic power function
     pos_power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
                                           is_positive_power=True)
-    gen_power_func = utils.power_function(loopy_opts.lang)
+    gen_power_func = utils.power_function(loopy_opts.lang,
+                                          is_positive_power=isinstance(
+                                            sri_e_lp.dtype, np.integer))
 
     # create instruction set
     sri_instructions = Template("""
