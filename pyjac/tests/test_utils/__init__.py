@@ -1223,8 +1223,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         last_zeros = np.where(self.store.ref_Pr == 0)[0]
         if last_zeros.size:
             if kgen.array_split._have_split():
-                ravel_ind = parse_split_index(test, kgen.array_split, ref_shape,
-                                              (last_zeros,), axis=(0,))
+                ravel_ind = indexer(kgen.array_split, ref_shape)(
+                    (last_zeros,), axes=(0,))
                 # and list
                 ravel_ind = np.array(ravel_ind)
 
