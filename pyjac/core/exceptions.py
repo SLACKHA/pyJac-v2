@@ -5,8 +5,6 @@ Contains custom errors / exceptions / error processing
 
 import six
 
-from pyjac import utils
-
 
 class MissingPlatformError(Exception):
     """
@@ -110,9 +108,10 @@ class UnknownOverrideException(Exception):
 
 class InvalidOverrideException(Exception):
     def __init__(self, otype, value, allowed):
+        from pyjac.utils import stringify_args
         self.message = (
             'Value "{}" for override type "{}" is not allowed. '
-            'Allowed values are: {}'.format(otype, value, utils.stringify_args(
+            'Allowed values are: {}'.format(otype, value, stringify_args(
                 allowed)))
         super(InvalidOverrideException, self).__init__(self.message)
 
@@ -144,7 +143,8 @@ class InvalidTestEnivironmentException(Exception):
 
 class InvalidInputSpecificationException(Exception):
     def __init__(self, bad_inputs):
+        from pyjac.utils import stringify_args, listify
         self.message = ('Inputs: ({}) were incorrectly, or conflictingly specified. '
                         'See debug output for more information'.format(
-                            utils.stringify_args(utils.listify(bad_inputs))))
+                            stringify_args(listify(bad_inputs))))
         super(InvalidInputSpecificationException, self).__init__(self.message)
