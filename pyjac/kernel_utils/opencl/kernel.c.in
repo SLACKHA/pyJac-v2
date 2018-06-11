@@ -55,6 +55,10 @@ void execute_kernel(size_t problem_size, ${knl_args})
         size_t this_run = problem_size - offset < per_run ? problem_size - offset : per_run;
         size_t global_work_size = this_run;
         size_t local_work_size = ${vec_width};
+        #ifdef EXPLICIT_SIMD
+            global_work_size /= ${vec_width};
+            local_work_size = 1;
+        #endif
         #ifdef DEEP
             //need to multiply global worksize by local worksize
             //to get correct number of global items

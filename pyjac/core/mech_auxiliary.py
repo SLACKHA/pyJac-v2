@@ -42,3 +42,5 @@ def write_vec_header(path, lang, loopy_opts):
             file.add_define('VECWIDTH', loopy_opts.depth)
             if loopy_opts.order == 'F':
                 file.add_define('SPLIT', 'VECWIDTH')
+        if loopy_opts.is_simd:
+            file.add_define('EXPLICIT_SIMD')
