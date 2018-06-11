@@ -877,18 +877,19 @@ ${name} : ${type}
                         "non-global temporary")
 
         def __argify(temp):
+            # FIXME: temporarily use our own LocalArg branch while waiting for
+            # superceding loopy branch
             if isinstance(temp, lp.TemporaryVariable):
-                return TemporaryArg(
-                    scopes=scopes.GLOBAL,
+                return lp.LocalArg(
                     **{k: v for k, v in six.iteritems(vars(temp))
-                       if k in ['name', 'shape', 'dtype']})
+                       if k in ['name', 'shape', 'dtype', 'dim_tags']})
             # turn CLLocal or the like back into a temporary variable
             from loopy.target.c import POD
             # find actual decl for dtype and name
             while not isinstance(temp, POD):
                 temp = temp.subdecl
-            return TemporaryArg(temp.name, scope=scopes.GLOBAL, dtype=temp.dtype,
-                                shape=(1,))
+            return lp.LocalArg(temp.name, dtype=temp.dtype, shape=(1,),
+                               dim_tags="C")
         # migrate locals to kernel args
         return kernel.copy(
             args=kernel.args[:] + [__argify(x) for x in ldecls],
