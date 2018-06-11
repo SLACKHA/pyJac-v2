@@ -173,7 +173,7 @@ class FileWriter(object):
         in_preamble = True
         brace_counter = 0
         for line in lines:
-            if 'void' in line:
+            if any(x in line for x in ['void', 'inline double']):
                 in_preamble = False
                 assert brace_counter == 0
 
