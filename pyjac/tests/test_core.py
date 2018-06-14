@@ -4,20 +4,10 @@ from __future__ import division
 
 import sys
 
-from ..core import cache_optimizer
 from ..core import chem_utilities
 from ..core import create_jacobian
 from ..core import mech_auxiliary
 from ..core import rate_subs
-from ..core import shared_memory
-
-class TestCacheOptimizer(object):
-    """
-    """
-    def test_imported(self):
-        """Ensure cache_optimizer module imported.
-        """
-        assert 'pyjac.core.cache_optimizer' in sys.modules
 
 class TestChemUtilities(object):
     """
@@ -50,11 +40,3 @@ class TestRateSubs(object):
         """Ensure rate_subs module imported.
         """
         assert 'pyjac.core.rate_subs' in sys.modules
-
-class TestSharedMemory(object):
-    """
-    """
-    def test_imported(self):
-        """Ensure shared_memory module imported.
-        """
-        assert 'pyjac.core.shared_memory' in sys.modules
