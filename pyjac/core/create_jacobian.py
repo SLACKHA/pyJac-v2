@@ -990,6 +990,9 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
     parameters = {}
     pre_instructions = []
+
+    # TODO: forward allint to this function
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=True)
     if not do_ns:
         if not conp and \
                 rxn_type not in [reaction_type.plog, reaction_type.cheb]:
@@ -1313,12 +1316,12 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
             if net_spec == ${ns}
                 nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) \
+            Sns_fwd = Sns_fwd * ${power_func}(${conc_str}, nu_fwd) \
                 {id=Sns_fwd_up, dep=nuf_inner_up}
             if net_spec == ${ns}
                 nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) \
+            Sns_rev = Sns_rev * ${power_func}(${conc_str}, nu_rev) \
                 {id=Sns_rev_up, dep=nur_inner_up}
         end
         <> dRopi_dE = (Sns_fwd * ${kf_str} - Sns_rev * kr_i) * ci \
@@ -1365,8 +1368,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles=[lp_pregen.fastpowi_PreambleGen(),
-                   lp_pregen.fastpowf_PreambleGen()],
+        preambles = lp_pregen.power_function_preambles(loopy_opts, power_func),
+        manglers = lp_pregen.power_function_manglers(loopy_opts, power_func),
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec
@@ -2625,6 +2628,10 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     kernel_data.extend([T_lp, V_lp, rev_mask_lp, thd_mask_lp, pres_mod_lp,
                         nu_offset_lp, nu_lp, spec_lp])
 
+    # get the appropriate power function
+    # TODO: forward allint to this function
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=True)
+
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
@@ -2952,8 +2959,8 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles=[lp_pregen.fastpowi_PreambleGen(),
-                   lp_pregen.fastpowf_PreambleGen()],
+        preambles = lp_pregen.power_function_preambles(loopy_opts, power_func),
+        manglers = lp_pregen.power_function_manglers(loopy_opts, power_func),
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec
@@ -4193,10 +4200,13 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
         extra_inames.append(
             (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
+    # get the appropriate power function
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint)
     if not do_ns:
         jac_update_insn = (
             "${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev)"
             "* ci * nu_k {id=jac, dep=${deps}}")
+
         # and finally the jacobian
         jac_lp, jac_update_insn = jac_create(
             mapstore, namestore.jac, global_ind, *jac_map,
@@ -4220,9 +4230,9 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                         if ${spec_inner} == ${spec_j}
                             nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
                         end
-                        Sj_fwd = Sj_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                        Sj_fwd = Sj_fwd * ${power_func}(${conc_inner_str}, nu_fwd) \
                             {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
-                        Sj_rev = Sj_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                        Sj_rev = Sj_rev * ${power_func}(${conc_inner_str}, nu_rev) \
                             {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
                     end
                     # and update Jacobian
@@ -4253,14 +4263,14 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                     nu_fwd = nu_fwd - 1 \
                         {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
                 end
-                Sns_fwd = Sns_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                Sns_fwd = Sns_fwd * ${power_func}(${conc_inner_str}, nu_fwd) \
                     {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
                 if ${spec_inner} == ${ns}
                     Sns_rev = Sns_rev * nu_rev {id=Sns_rev_up, dep=Sns_rev_init}
                     nu_rev = nu_rev - 1 \
                         {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
                 end
-                Sns_rev = Sns_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                Sns_rev = Sns_rev * ${power_func}(${conc_inner_str}, nu_rev) \
                     {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
             end
             # and update Jacobian for all species in this row
@@ -4317,9 +4327,10 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                           kernel_data=kernel_data,
                           extra_inames=extra_inames,
                           mapstore=mapstore,
-                          preambles=[
-                               lp_pregen.fastpowi_PreambleGen(),
-                               lp_pregen.fastpowf_PreambleGen()],
+                          preambles = lp_pregen.power_function_preambles(
+                            loopy_opts, power_func),
+                          manglers = lp_pregen.power_function_manglers(
+                            loopy_opts, power_func),
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec
                           )
