@@ -2355,7 +2355,7 @@ class SubTest(TestClass):
     def test_index_determination(self):
         try:
             from scipy.sparse import csr_matrix, csc_matrix
-        except:
+        except ImportError:
             raise SkipTest('Cannot test sparse Jacobian without scipy')
         # find FD jacobian
         jac = self.__get_full_jac(True)
