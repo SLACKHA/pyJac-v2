@@ -2634,7 +2634,13 @@ class SubTest(TestClass):
                             kernel_data=kernel_data,
                             extra_inames=extra_inames,
                             preambles=[lookup],
-                            seq_dependencies=True)
+                            seq_dependencies=True,
+                            silenced_warnings=['write_race(set1)',
+                                               'write_race(set2)',
+                                               'write_race(set3)',
+                                               'write_race(set4)',
+                                               'write_race(set5)',
+                                               'write_race(set6)'])
 
         # create reference answer
         # get number of non-zero jacobian inds
@@ -2649,8 +2655,7 @@ class SubTest(TestClass):
 
         def __get_compare(kc, outv, index, is_answer=False):
             from .test_utils import indexer
-            _get_index = indexer(ref_ans.ndim, outv.ndim, outv.shape,
-                                 kc.current_order)
+            _get_index = indexer(kc.current_split, ref_ans.shape)
             # first check we have a reasonable mask
             assert ref_ans.ndim == len(compare_mask), (
                 "Can't use dissimilar compare masks / axes")
