@@ -822,6 +822,7 @@ class get_comparable(object):
         except:
             axis = self.compare_axis
         ndim = ans.ndim
+        ref_shape = ans.shape
 
         # check for sparse (ignore answers, which do not get transformed into
         # sparse and should be dealt with as usual)
@@ -831,13 +832,16 @@ class get_comparable(object):
                                ' installed')
             axis, mask = dense_to_sparse_indicies(
                 mask, axis, kc.col_inds, kc.row_inds, kc.current_order)
+            # and change the reference shape
+            ref_shape = kc.ref_jac_shape
+            ndim = len(ref_shape)
 
         # check for vectorized data order
         if outv.ndim == ndim:
             # return the default select
             return select_elements(outv, mask, axis, self.tiling)
         else:
-            return get_split_elements(outv, kc.current_split, ans.shape, mask,
+            return get_split_elements(outv, kc.current_split, ref_shape, mask,
                                       axis, tiling=self.tiling)
 
 
