@@ -493,7 +493,9 @@ def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,),
                         'specified (i.e., a mask for every array axis) this may '
                         'return empty elements resulting from an array-split.')
         # check mask
-        assert all(mask[0].size == m.size for m in mask[1:]), (
+        # get a size
+        size = next(m.size for m in mask if isinstance(m, np.ndarray))
+        assert all(m.size == size for m in mask if isinstance(m, np.ndarray)), (
             "Supplied mask elements cannot have differing lengths in non-tiling "
             "mode.")
         return arr[_get_index(mask, axes)].flatten(splitter.data_order)

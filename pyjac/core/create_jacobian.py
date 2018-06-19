@@ -1611,9 +1611,10 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str})
             ${jac_str} = ${jac_str} - (${Tdot_str} * ${spec_heat_ns_str} \
-                / (Ru * ${T_str})) * spec_inv {id=jac_split, dep=${deps}, nosync=up}
+                / (Ru * ${T_str})) * spec_inv {id=jac_split, dep=${deps}, \
+                nosync=up:jac}
             ${jac_str} = ${jac_str} - (sum * Vinv) * spec_inv \
-                {id=jac, dep=${deps}, nosync=up}
+                {id=jac, dep=${deps}, nosync=jac_split:up}
                     """).safe_substitute(**locals())
         deps = '*'
         post_deps = 'up'
@@ -1976,10 +1977,10 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
         # sum finish
         post_instructions = Template("""
             ${jac_str} = ${jac_str} + Ru * ${T_str} * ${V_str} * sum / ${P_str} \
-                {id=jac, dep=${deps}, nosync=sum}
+                {id=jac, dep=${deps}, nosync=sum:jac_split}
             ${jac_str} = ${jac_str} + ${V_str} * Tinv * \
                 (${dTdot_dT_str} - Tinv * ${Tdot_str}) {id=jac_split, dep=${deps},\
-                    nosync=sum}
+                    nosync=sum:jac}
         """).safe_substitute(**locals())
     else:
         pre_instructions.append(Template(
@@ -1989,10 +1990,11 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
                 ${wdot_str}) {id=sum, dep=${deps}}
         """).safe_substitute(**locals())
         post_instructions = Template("""
-            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum, dep=${deps}}
+            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum:jac_split,\
+                dep=${deps}}
             ${jac_str} = ${jac_str} + ${P_str} * \
                 (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv {id=jac_split, \
-                dep=${deps}, nosync=sum}
+                dep=${deps}, nosync=sum:jac}
         """).safe_substitute(**locals())
 
     _, instructions = jac_create(
