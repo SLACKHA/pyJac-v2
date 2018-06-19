@@ -821,7 +821,7 @@ class get_comparable(object):
         ans = self.ref_answer[index]
         try:
             axis = self.compare_axis[:]
-        except:
+        except TypeError:
             axis = self.compare_axis
         ndim = ans.ndim
         ref_shape = ans.shape
