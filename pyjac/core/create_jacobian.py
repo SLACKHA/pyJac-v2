@@ -1734,9 +1734,9 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
         mapstore, namestore.jac, global_ind, 0, 1, entry_exists=True)
     post_instructions = Template("""
         ${jac_str} = ${jac_str} + Ru * ${T_str} * sum / ${param_str} \
-            {id=jac, dep=${deps}, nosync=up}
+            {id=jac, dep=${deps}, nosync=up:jac_split}
         ${jac_str} = ${jac_str} + (${var_str} * ${dTdot_de_str} + ${Tdot_str}) \
-            / ${T_str} {id=jac_split, dep=${deps}, nosync=up}
+            / ${T_str} {id=jac_split, dep=${deps}, nosync=up:jac}
     """).safe_substitute(**locals())
     _, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 1, 1, insn=post_instructions,
