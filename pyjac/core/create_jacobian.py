@@ -4327,9 +4327,9 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                           kernel_data=kernel_data,
                           extra_inames=extra_inames,
                           mapstore=mapstore,
-                          preambles = lp_pregen.power_function_preambles(
+                          preambles=lp_pregen.power_function_preambles(
                             loopy_opts, power_func),
-                          manglers = lp_pregen.power_function_manglers(
+                          manglers=lp_pregen.power_function_manglers(
                             loopy_opts, power_func),
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec
@@ -4802,7 +4802,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
             klist = kernels
         try:
             klist.extend(knls)
-        except:
+        except (TypeError, AttributeError):
             klist.append(knls)
 
     # barrier management
