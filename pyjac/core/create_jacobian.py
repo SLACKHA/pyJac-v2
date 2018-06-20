@@ -1210,20 +1210,20 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                         (${Tmax_str} - ${Tmin_str})
                     <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / \
                         (${Pmax_str} - ${Pmin_str})
-                    ${ppoly0_str} = 1
-                    ${ppoly1_str} = 2 * Pred # derivative by P
-                    ${tpoly0_str} = 1
-                    ${tpoly1_str} = Tred
+                    ${ppoly0_str} = 1 {id=ppoly_init1}
+                    ${ppoly1_str} = 2 * Pred {id=ppoly_init2} # derivative by P
+                    ${tpoly0_str} = 1 {id=tpoly_init1}
+                    ${tpoly1_str} = Tred {id=tpoly_init2}
 
                     # compute polynomial terms
                     for p
                         if p < numP
                             ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - \
-                                ${ppolypm2_str} {id=ppoly, dep=plim}
+                                ${ppolypm2_str} {id=ppoly, dep=plim:ppoly_init*}
                         end
                         if p < numT
                             ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - \
-                                ${tpolypm2_str} {id=tpoly, dep=tlim}
+                                ${tpolypm2_str} {id=tpoly, dep=tlim:tpoly_init*}
                         end
                     end
 
@@ -2809,20 +2809,20 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
                     (${Tmax_str} - ${Tmin_str})
                 <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / \
                     (${Pmax_str} - ${Pmin_str})
-                ${ppoly0_str} = 1
-                ${ppoly1_str} = Pred
-                ${tpoly0_str} = 1
-                ${tpoly1_str} = 2 * Tred
+                ${ppoly0_str} = 1 {id=ppoly_init1}
+                ${ppoly1_str} = Pred {id=ppoly_init2}
+                ${tpoly0_str} = 1 {id=tpoly_init1}
+                ${tpoly1_str} = 2 * Tred {id=tpoly_init2}
 
                 # compute polynomial terms
                 for p
                     if p < numP
                         ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - \
-                            ${ppolypm2_str} {id=ppoly, dep=plim}
+                            ${ppolypm2_str} {id=ppoly, dep=plim:ppoly_init*}
                     end
                     if p < numT
                         ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - \
-                            ${tpolypm2_str} {id=tpoly, dep=tlim}
+                            ${tpolypm2_str} {id=tpoly, dep=tlim:tpoly_init*}
                     end
                 end
 
