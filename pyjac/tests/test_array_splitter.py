@@ -217,32 +217,34 @@ def test_npy_array_splitter(state):
     _test((16, 16, 16))
 
 
-def _create(order='C'):
+def _create(order='C', loop_bound=10, size=10):
     # create a test kernel
-    arg1 = lp.GlobalArg('a1', shape=(10, 10), order=order)
+    arg1 = lp.GlobalArg('a1', shape=(size, size), order=order)
     arg2 = lp.GlobalArg('a2', shape=(16, 16), order=order)
 
     return lp.make_kernel(
-        '{[i]: 0 <= i < 10}',
+        '{{[i]: 0 <= i < {}}}'.format(loop_bound),
         """
             a1[0, i] = 1 {id=a1}
             a2[0, i] = 1 {id=a2}
         """,
-        [arg1, arg2])
+        [arg1, arg2],
+        silenced_warnings=['no_device_in_pre_codegen_checks'],
+        target=lp.OpenCLTarget())
 
 
 @parameterized(opts_loop,
                doc_func=_split_doc)
 def test_lpy_array_splitter(state):
     from pymbolic.primitives import Subscript, Variable, Product, Sum
-
     # create opts
     opts = dummy_loopy_opts(**state)
 
     # create array split
     asplit = array_splitter(opts)
 
-    k = lp.split_iname(_create(state['order']), 'i', VECTOR_WIDTH,
+    k = lp.split_iname(_create(state['order'], VECTOR_WIDTH * 2, VECTOR_WIDTH * 3),
+                       'i', VECTOR_WIDTH,
                        inner_tag='l.0' if not state['is_simd'] else 'vec')
     a1_hold = k.arg_dict['a1'].copy()
     a2_hold = k.arg_dict['a2'].copy()
@@ -298,7 +300,8 @@ def test_atomic_deep_vec_with_small_split():
             end
             """,
             [lp.GlobalArg('a1', shape=(loop_size,), order='C', dtype=np.float32)],
-            target=lp.PyOpenCLTarget())
+            target=lp.OpenCLTarget(),
+            silenced_warnings=['no_device_in_pre_codegen_checks'])
         loopy_opts = type('', (object,), {'depth': vec_width, 'order': 'C',
                                           'use_atomics': True})
         knl = lp.split_iname(knl, 'i', vec_width, inner_tag='l.0')
