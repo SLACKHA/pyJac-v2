@@ -591,7 +591,7 @@ def combination(*arrays, **kwargs):
 
 def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True):
     """
-    Helper function to convert dense Jacboian indicies to their corresponding
+    Helper function to convert dense Jacobian indicies to their corresponding
     sparse indicies.
 
     Note
@@ -841,7 +841,14 @@ class get_comparable(object):
         # check for vectorized data order
         if outv.ndim == ndim:
             # return the default select
-            return select_elements(outv, mask, axis, self.tiling)
+            retv = select_elements(outv, mask, axis, self.tiling)
+            if kc.jac_format == JacobianFormat.sparse and is_answer and \
+                    retv.ndim > 1:
+                # flatten non-IC axes of answer for comparison to sparse output
+                retv = retv.reshape((-1, int(np.prod(retv.shape[1:]))),
+                                    order=kc.current_order)
+
+            return retv
         else:
             return get_split_elements(outv, kc.current_split, ref_shape, mask,
                                       axis, tiling=self.tiling)
