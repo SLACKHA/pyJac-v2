@@ -264,7 +264,8 @@ class indexer(object):
         -----
         This class is the "dumb" version of :func:`get_split_elements`, and shouldn't
         be used directly if you don't understand the differences between the two.
-        See :func:`get_split_elements` for a complete description of said differnences
+        See :func:`get_split_elements` for a complete description of said
+        differnences
 
         Returns
         -------
@@ -755,7 +756,7 @@ def select_elements(arr, mask, axes, tiling=True):
             # the indicies inside np.take
             try:
                 inds = inds.astype('int64')
-            except:
+            except (AttributeError, TypeError):
                 pass
             outv = np.take(outv, inds, axis=ax-ax_fac)
             if len(outv.shape) != shape:
