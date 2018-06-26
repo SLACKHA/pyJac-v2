@@ -946,7 +946,6 @@ class kernel_call(object):
                 namestore.flat_jac_col_inds.initializer],
                 order=order,
                 copy=True)
-            self.ref_jac_shape = self.kernel_args['jac'].shape[:]
             # save for comparable
             self.row_inds = namestore.jac_row_inds.initializer
             self.col_inds = namestore.jac_col_inds.initializer

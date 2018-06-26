@@ -590,6 +590,92 @@ def combination(*arrays, **kwargs):
     return ix
 
 
+# helper methods
+def sparse_to_dense_indices(col_inds, row_inds, order, as_inds=True):
+    """
+    Converts the supplied :param:`col_inds` and :param:`row_inds` to a sparse matrix
+    of format :class:`scipy.coo_matrix`and returns an array (or tuple, for
+    :param:`as_inds` == False) of the dense indicies that correspond to the supplied
+    sparse indicies.
+
+    Notes
+    -----
+    This method is primarily useful to give a "filtered" list of dense-indicies,
+    that is, with identically-zero dense-indicies removed.  Additionally, this
+    handles ordering concerns for flattening of dense matricies (i.e., returns the
+    proper dense indicies for conversion to a :class:`scipy.csr_matrix` or
+    class:`scipy.csc_matrix` depending on :param:`order`)
+
+    Parameters
+    ----------
+    col_inds: :class:`numpy.ndarray`
+        Either the column pointer or column index list (depending on :param:`order`)
+    row_inds: :class:`numpy.ndarray`
+        Either the row pointer or row index list (depending on :param:`order`)
+    order: ['C', 'F']
+        The data ordering
+    as_inds: bool [True]
+        - If True, return dense indicies as a numpy array of shape [Nx2], where N is
+        the number of non-zero dense indices
+        - If False, these indicies are returned as a tuple
+
+    Returns
+    -------
+    dense_inds: :class:`numpy.ndarray` or tuple
+        The "filtered", ordered dense indicies corresponding to the supplied sparse
+        indicies.  Numpy array of shape [Nx2] if :param:`as_inds`, else tuple
+
+    """
+    # setup dummy sparse matrix
+    if order == 'C':
+        matrix = csr_matrix
+        inds = col_inds
+        indptr = row_inds
+    else:
+        matrix = csc_matrix
+        inds = row_inds
+        indptr = col_inds
+    # next create and get indicies
+    matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
+    row, col = matrix.row, matrix.col
+    if as_inds:
+        return np.asarray((row, col)).T
+    return row, col
+
+
+def sparsify(array, col_inds, row_inds, order):
+    """
+    Returns a sparse version of the dense :param:`array`.
+    Useful to convert reference answers to sparse format before splitting / selecting
+    elements for comparison.
+
+    Parameters
+    ----------
+    array: :class:`np.ndarray`
+        The dense array to convert to sparse representation
+    col_inds: :class:`numpy.ndarray`
+        Either the column pointer or column index list (depending on :param:`order`)
+    row_inds: :class:`numpy.ndarray`
+        Either the row pointer or row index list (depending on :param:`order`)
+    order: ['C', 'F']
+        The data ordering
+
+    Returns
+    -------
+    sparse: :class:`np.ndarray`
+        The converted sparse array
+
+    See Also
+    --------
+    :func:`pyjac.functional_tester.test.jacobian_eval.__sparsify`
+    """
+
+    inds = sparse_to_dense_indices(col_inds, row_inds, order, as_inds=False)
+    index_tuple = [slice(None) for x in six.moves.range(array.ndim)]
+    index_tuple[-len(inds):] = inds
+    return array[index_tuple]
+
+
 def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True):
     """
     Helper function to convert dense Jacobian indicies to their corresponding
@@ -616,9 +702,11 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True)
         If :param:`axes` is -1, this indicates that the :param:`mask` consists of
         row & column indicies, but don't need to be combined via :func:`combination`
     col_inds: :class:`numpy.ndarray`
-        Either the column pointer or column index list
+        Either the column pointer or column index list (depending on :param:`order`)
     row_inds: :class:`numpy.ndarray`
-        Either the column pointer or column index list
+        Either the row pointer or row index list (depending on :param:`order`)
+    order: ['C', 'F']
+        The data ordering
     tiling: bool [True]
         If False, turns off the tiling discussed in
         :ref:`note-above <get_split_elements>`_.
@@ -632,24 +720,6 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True)
     sparse_inds: :class:`numpy.ndarray`
         The sparse indicies
     """
-
-    # helper methods
-    def __get_sparse_mat(as_inds=True):
-        # setup dummy sparse matrix
-        if order == 'C':
-            matrix = csr_matrix
-            inds = col_inds
-            indptr = row_inds
-        else:
-            matrix = csc_matrix
-            inds = row_inds
-            indptr = col_inds
-        # next create and get indicies
-        matrix = matrix((np.ones(inds.size), inds, indptr)).tocoo()
-        row, col = matrix.row, matrix.col
-        if as_inds:
-            return np.asarray((row, col)).T
-        return row, col
 
     # extract row & column masks
     def __row_and_col_mask():
@@ -668,7 +738,7 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True)
         return row_ind, row_mask, col_ind, col_mask
 
     # need to collapse the mask
-    inds = __get_sparse_mat()
+    inds = sparse_to_dense_indices(col_inds, row_inds, order)
 
     # next we need to find the 1D index of all the row, col pairs in
     # the mask
@@ -827,29 +897,24 @@ class get_comparable(object):
         ndim = ans.ndim
         ref_shape = ans.shape
 
-        # check for sparse (ignore answers, which do not get transformed into
-        # sparse and should be dealt with as usual)
-        if kc.jac_format == JacobianFormat.sparse and not is_answer:
+        # check for sparse
+        if kc.jac_format == JacobianFormat.sparse:
             if csc_matrix is None and csr_matrix is None:
                 raise SkipTest('Cannot test sparse matricies without scipy'
                                ' installed')
             axis, mask = dense_to_sparse_indicies(
                 mask, axis, kc.col_inds, kc.row_inds, kc.current_order)
-            # and change the reference shape
-            ref_shape = kc.ref_jac_shape
-            ndim = len(ref_shape)
+
+            if is_answer:
+                outv = sparsify(outv, kc.col_inds, kc.row_inds, kc.current_order)
+            # and change the reference shape to mark
+            ref_shape = outv.shape
+            ndim -= 1
 
         # check for vectorized data order
         if outv.ndim == ndim:
             # return the default select
-            retv = select_elements(outv, mask, axis, self.tiling)
-            if kc.jac_format == JacobianFormat.sparse and is_answer and \
-                    retv.ndim > 1:
-                # flatten non-IC axes of answer for comparison to sparse output
-                retv = retv.reshape((-1, int(np.prod(retv.shape[1:]))),
-                                    order=kc.current_order)
-
-            return retv
+            return select_elements(outv, mask, axis, self.tiling)
         else:
             return get_split_elements(outv, kc.current_split, ref_shape, mask,
                                       axis, tiling=self.tiling)
