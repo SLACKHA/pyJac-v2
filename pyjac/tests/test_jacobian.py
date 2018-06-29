@@ -16,9 +16,8 @@ from pyjac.core.rate_subs import (
     polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
     get_rev_rates, get_temperature_rate, get_extra_var_rates)
 from pyjac.loopy_utils.loopy_utils import (
-    loopy_options, RateSpecialization,
-    kernel_call, set_adept_editor, populate,
-    FiniteDifferenceMode)
+    loopy_options, RateSpecialization, kernel_call, set_adept_editor, populate,
+    FiniteDifferenceMode, get_target)
 from pyjac.core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
@@ -2499,9 +2498,10 @@ class SubTest(TestClass):
                 mapstore, namestore.jac, global_ind, var_name, 'spec + 2',
                 insn='${jac_str} = jac_index {id=set6, nosync=set*, dep=${deps}}')
 
+            target = get_target(loopy_opts.lang, device=loopy_opts.device)
             lookup = jac_indirect_lookup(
                 namestore.jac_col_inds if loopy_opts.order == 'C'
-                else namestore.jac_row_inds)
+                else namestore.jac_row_inds, target)
 
             kernel_data.append(jac_lp)
             # create get species -> rxn offsets & rxns

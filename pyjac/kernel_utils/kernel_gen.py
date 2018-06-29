@@ -182,7 +182,8 @@ class kernel_generator(object):
                  is_validation=False,
                  fake_calls={},
                  mem_limits='',
-                 for_testing=False):
+                 for_testing=False,
+                 compiler=None):
         """
         Parameters
         ----------
@@ -235,12 +236,17 @@ class kernel_generator(object):
             members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
         for_testing: bool [False]
             If true, this kernel generator will be used for unit testing
+        compiler: :class:`loopy.CCompiler` [None]
+            An instance of a loopy compiler (or subclass there-of, e.g.
+            :class:`pyjac.loopy_utils.AdeptCompiler`), or None
         """
 
-        self.compiler = None
+        self.compiler = compiler
         self.loopy_opts = loopy_opts
         self.array_split = arc.array_splitter(loopy_opts)
         self.lang = loopy_opts.lang
+        self.target = lp_utils.get_target(self.lang, self.loopy_opts.device,
+                                          self.compiler)
         self.mem_limits = mem_limits
 
         # Used for pinned memory kernels to enable splitting evaluation over multiple
@@ -308,7 +314,7 @@ class kernel_generator(object):
             # and the preamble
             self.extra_preambles.append(lp_pregen.jac_indirect_lookup(
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
-                else self.namestore.jac_row_inds))
+                else self.namestore.jac_row_inds, self.target))
 
         # calls smuggled past loopy
         self.fake_calls = fake_calls.copy()
@@ -431,8 +437,6 @@ class kernel_generator(object):
         # to functions, in the meantime use a Template
 
         # now create the kernels!
-        self.target = lp_utils.get_target(self.lang, self.loopy_opts.device,
-                                          self.compiler)
         for i, info in enumerate(self.kernels):
             # if external, or already built
             if isinstance(info, lp.LoopKernel):
@@ -1689,7 +1693,7 @@ ${defn}
             knl = lp.register_preamble_generators(knl, preambles)
             # also register their function manglers
             knl = lp.register_function_manglers(knl, [
-                p.get_func_mangler() for p in preambles])
+                p.func_mangler for p in preambles])
 
         return self.remove_unused_temporaries(knl)
 
@@ -1904,11 +1908,10 @@ class autodiff_kernel_generator(c_kernel_generator):
 
         # no matter the 'testing' status, the autodiff always needs the outer loop
         # migrated out
+        from pyjac.loopy_utils.loopy_utils import AdeptCompiler
         kwargs['for_testing'] = False
+        kwargs.setdefault('compiler', AdeptCompiler())
         super(autodiff_kernel_generator, self).__init__(*args, **kwargs)
-
-        from ..loopy_utils.loopy_utils import AdeptCompiler
-        self.compiler = AdeptCompiler()
 
     def add_jacobian(self, jacobian):
         """

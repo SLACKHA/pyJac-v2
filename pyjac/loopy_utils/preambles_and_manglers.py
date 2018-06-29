@@ -2,6 +2,7 @@ from string import Template
 import numpy as np
 
 from pyjac import utils as utils
+from loopy import to_loopy_type
 
 
 class MangleGen(object):
@@ -19,6 +20,13 @@ class MangleGen(object):
         self.arg_dtypes = self.__tuple_gen(arg_dtypes)
         self.result_dtypes = self.__tuple_gen(result_dtypes)
         self.raise_on_fail = raise_on_fail
+
+    def __eq__(self, other):
+        return (isinstance(other, type(self))
+                and self.name == other.name
+                and self.arg_dtypes == other.arg_dtypes
+                and self.result_dtypes == other.result_dtypes
+                and self.raise_on_fail == other.raise_on_fail)
 
     def __call__(self, kernel, name, arg_dtypes):
         """
@@ -69,7 +77,6 @@ class PreambleGen(object):
         return (vals,)
 
     def __init__(self, name, code, arg_dtypes, result_dtypes):
-        self.func_mangler = MangleGen(name, arg_dtypes, result_dtypes)
         self.name = name
         self.code = code
         self.arg_dtypes = self.__tuple_gen(arg_dtypes)
@@ -81,11 +88,18 @@ class PreambleGen(object):
     def get_descriptor(self, func_match):
         raise NotImplementedError
 
-    def get_func_mangler(self):
-        return self.func_mangler
+    @property
+    def func_mangler(self):
+        return MangleGen(self.name, self.arg_dtypes, self.result_dtypes)
 
     def match(self, func_sig):
         return func_sig.name == self.name
+
+    def __eq__(self, other):
+        return (isinstance(other, type(self))
+                and self.name == other.name
+                and self.arg_dtypes == other.arg_dtypes
+                and self.result_dtypes == other.result_dtypes)
 
     def __call__(self, preamble_info):
         # find a function matching this name
@@ -95,7 +109,6 @@ class PreambleGen(object):
         desc = self.get_descriptor(func_match)
         code = ''
         if func_match is not None:
-            from loopy.types import to_loopy_type
             # check types
             if tuple(to_loopy_type(x) for x in self.arg_dtypes) == \
                     func_match.arg_dtypes:
@@ -261,7 +274,7 @@ class fmax(MangleGen):
 class jac_indirect_lookup(PreambleGen):
     name = 'jac_indirect'
 
-    def __init__(self, array):
+    def __init__(self, array, target):
         self.code = Template("""
     int ${name}(int start, int end, int match)
     {
@@ -276,14 +289,21 @@ class jac_indirect_lookup(PreambleGen):
     """).safe_substitute(name=jac_indirect_lookup.name, array=array.name)
         from loopy.kernel.data import temp_var_scope as scopes
         from loopy.kernel.data import TemporaryVariable
+
+        int_dtype = to_loopy_type(array.dtype, target=target)
         self.array = TemporaryVariable(array.name, shape=array.shape,
-                                       dtype=array.dtype,
+                                       dtype=int_dtype,
                                        initializer=array.initializer,
                                        scope=scopes.GLOBAL, read_only=True)
 
         super(jac_indirect_lookup, self).__init__(
             jac_indirect_lookup.name, self.code,
-            (np.int32, np.int32, np.int32), (np.int32))
+            (int_dtype, int_dtype, int_dtype), (int_dtype))
+
+    def __eq__(self, other):
+        return (super(jac_indirect_lookup, self).__eq__(other)
+                and self.code == other.code
+                and self.array == other.array)
 
     def generate_code(self, preamble_info):
         from cgen import Initializer
