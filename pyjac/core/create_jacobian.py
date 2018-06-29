@@ -3762,7 +3762,8 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
     # and jacobian
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, *jac_map,
-        affine={x: 2 for x in jac_map}, insn=jac_update_insn, deps='fall:spec_k'
+        affine={x: 2 for x in jac_map}, insn=jac_update_insn,
+        deps='fall:spec_k:ropi_up'
     )
     kernel_data.append(jac_lp)
     # update the subtitution args
