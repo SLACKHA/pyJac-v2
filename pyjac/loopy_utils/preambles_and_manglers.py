@@ -220,22 +220,22 @@ def power_function_manglers(loopy_opts, power_functions):
     """
 
     def __manglers(power_function):
-        powf = power_function.name
-        if loopy_opts.lang == 'opencl' and 'pow' in powf:
+        pow_name = power_function.name
+        if loopy_opts.lang == 'opencl' and 'pow' in pow_name:
             # opencl only
             # create manglers
             manglers = []
 
             mangler_type = next((
                 mangler for mangler in [pown, powf, powr]
-                if mangler().name == powf), None)
+                if mangler().name == pow_name), None)
             if mangler_type is None:
                 raise Exception('Unknown OpenCL power function {}'.format(
-                    powf))
+                    pow_name))
             # 1) float and short integer
             manglers.append(mangler_type())
             # 2) float and long integer
-            if powf == 'pown':
+            if pow_name == 'pown':
                 manglers.append(mangler_type(arg_dtypes=(np.float64, np.int64)))
             if loopy_opts.is_simd:
                 from loopy.target.opencl import vec
@@ -245,7 +245,7 @@ def power_function_manglers(loopy_opts, power_functions):
                 # 3) vector float and short integers
                 # note: return type must be non-vector form (this will converted
                 # by loopy in privatize)
-                if powf == 'pown':
+                if pow_name == 'pown':
                     manglers.append(mangler_type(arg_dtypes=(vfloat, np.int32),
                                                  result_dtypes=np.float64))
                     manglers.append(mangler_type(arg_dtypes=(vfloat, vint),
@@ -256,7 +256,7 @@ def power_function_manglers(loopy_opts, power_functions):
                 manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
                                              result_dtypes=np.float64))
             return manglers
-        elif powf == 'fast_powi':
+        elif pow_name == 'fast_powi':
             # skip, handled as preamble
             return []
         else:
