@@ -4218,7 +4218,7 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
         jac_lp, jac_update_insn = jac_create(
             mapstore, namestore.jac, global_ind, *jac_map,
             affine={x: 2 for x in jac_map},
-            deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k', insn=jac_update_insn
+            deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k:kf:kr2', insn=jac_update_insn
         )
         inner = ("""
             for ${net_ind_j}
