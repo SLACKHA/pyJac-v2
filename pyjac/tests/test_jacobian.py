@@ -7,6 +7,11 @@ import cantera as ct
 from nose.plugins.attrib import attr
 from unittest.case import SkipTest
 from parameterized import parameterized
+try:
+    from scipy.sparse import csr_matrix, csc_matrix
+except ImportError:
+    csr_matrix = None
+    csc_matrix = None
 
 from pyjac.core.rate_subs import (
     get_concentrations,
@@ -32,7 +37,7 @@ from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.tests import get_test_langs, TestClass
 from pyjac.tests.test_utils import (
     kernel_runner, get_comparable, _generic_tester,
-    _full_kernel_test, with_check_inds, inNd)
+    _full_kernel_test, with_check_inds, inNd, skipif)
 from pyjac.libgen import build_type
 from pyjac import utils
 
@@ -2351,11 +2356,8 @@ class SubTest(TestClass):
         self.__run_test_dedot_de(False)
 
     @attr('long')
+    @skipif(csr_matrix is None, 'Cannot test sparse Jacobian without scipy')
     def test_index_determination(self):
-        try:
-            from scipy.sparse import csr_matrix, csc_matrix
-        except ImportError:
-            raise SkipTest('Cannot test sparse Jacobian without scipy')
         # find FD jacobian
         jac = self.__get_full_jac(True)
         # find our non-zero indicies
