@@ -222,7 +222,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
             (row_F, [col] * row_F.size), dtype=np.int32).T
         offset += row_F.size
 
-    # turn into row and colum counts
+    # turn into row and column counts
     row_ptr = []
     col_ind = []
 
