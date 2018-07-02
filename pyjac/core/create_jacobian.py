@@ -1736,7 +1736,7 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """).safe_substitute(**locals())
     jac_lp, instructions = jac_create(
         mapstore, namestore.jac, global_ind, var_name, 1, affine={var_name: 2},
-        deps='index*', insn=instructions,
+        deps='init:index*', insn=instructions,
         entry_exists=True,  # as we're looping over non-zero
     )
 
@@ -1753,7 +1753,7 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """).safe_substitute(**locals())
     _, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 1, 1, insn=post_instructions,
-        deps='up', entry_exists=True)
+        deps='up:init', entry_exists=True)
 
     parameters = {'Ru': chem.RU}
 
@@ -2001,8 +2001,10 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
                     nosync=sum:jac}
         """).safe_substitute(**locals())
     else:
+        myname = precompute.reserve_name()
         pre_instructions.append(Template(
-            '<> fac = ${T_str} / ${V_str}').safe_substitute(**locals()))
+            '<> fac = ${T_str} / ${V_str} {id=${myname}}').safe_substitute(
+            **locals()))
         instructions = Template("""
             sum = sum + (1 - ${mw_str}) * (${jac_str} * fac + \
                 ${wdot_str}) {id=sum, dep=${deps}}
@@ -2017,7 +2019,7 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
 
     _, instructions = jac_create(
         mapstore, namestore.jac, global_ind, var_name, 0, affine={var_name: 2},
-        insn=instructions, deps='*')
+        insn=instructions, deps='*:init:' + precompute.basename + '*')
     jac_lp, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 1, 0, insn=post_instructions,
         deps='sum')
@@ -3193,7 +3195,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
-        }, insn=dnkdnj_insn, deps='*')
+        }, insn=dnkdnj_insn, deps='*:init')
     # and the dedot / dnj instruction
     dedotdnj_insn = Template(
         "${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + "
