@@ -287,7 +287,14 @@ class PrecomputedInstructions(object):
         return Template("<>${result} = ${value} {id=${id}}").safe_substitute(
             result=result_name,
             value=default_preinstructs[INSN_KEY],
-            id=self.namer(self.basename))
+            id=self.reserve_name())
+
+    def reserve_name(self):
+        """
+        Let custom PrecomputedInstructions reserve their own name from the same
+        object to avoid comflicts
+        """
+        return self.namer(self.basename)
 
 
 def get_update_instruction(mapstore, mask_arr, base_update_insn):
