@@ -150,8 +150,8 @@ def power_function(lang, is_integer_power=False, is_positive_power=False,
         # opencl positive power function -- no need for guard
         return PowerFunction('powr', lang)
     elif is_integer_power:
-        # use internal integer power function, no need for guard
-        return PowerFunction('fast_powi', lang)
+        # use internal integer power function
+        return PowerFunction('fast_powi', lang, guard_nonzero=guard_nonzero)
     else:
         # use default
         return PowerFunction('pow', lang, guard_nonzero=guard_nonzero)
