@@ -991,8 +991,6 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
     parameters = {}
     pre_instructions = []
 
-    # TODO: forward allint to this function
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=True)
     if not do_ns:
         if not conp and \
                 rxn_type not in [reaction_type.plog, reaction_type.cheb]:
@@ -1266,6 +1264,14 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
         conc_lp, conc_str = mapstore.apply_maps(
             namestore.conc_arr, global_ind, 'net_spec')
+        # TODO: forward allint to this function
+        # get the appropriate power function and calls
+        power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
+                                          guard_nonzero=True)
+        nu_fwd = 'nu_fwd'
+        nu_rev = 'nu_rev'
+        pow_conc_fwd = power_func(conc_str, nu_fwd)
+        pow_conc_rev = power_func(conc_str, nu_rev)
 
         if conp:
             pre_instructions.append(Template(
@@ -1309,20 +1315,18 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         <> Sns_fwd = ${ns_reac_nu_str} {id=Sns_fwd_init}
         <> Sns_rev = ${ns_prod_nu_str} {id=Sns_rev_init}
         for ${net_ind}
-            <> nu_fwd = ${net_reac_nu_str} {id=nuf_inner}
-            <> nu_rev = ${net_prod_nu_str} {id=nur_inner}
+            <> ${nu_fwd} = ${net_reac_nu_str} {id=nuf_inner}
+            <> ${nu_rev} = ${net_prod_nu_str} {id=nur_inner}
             <> net_spec = ${spec_str}
             # handle nu
             if net_spec == ${ns}
-                nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+                ${nu_fwd} = ${nu_fwd} - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * ${power_func}(${conc_str}, nu_fwd) \
-                {id=Sns_fwd_up, dep=nuf_inner_up}
+            Sns_fwd = Sns_fwd * ${pow_conc_fwd} {id=Sns_fwd_up, dep=nuf_inner_up}
             if net_spec == ${ns}
-                nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                ${nu_rev} = ${nu_rev} - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * ${power_func}(${conc_str}, nu_rev) \
-                {id=Sns_rev_up, dep=nur_inner_up}
+            Sns_rev = Sns_rev * ${pow_conc_rev} {id=Sns_rev_up, dep=nur_inner_up}
         end
         <> dRopi_dE = (Sns_fwd * ${kf_str} - Sns_rev * kr_i) * ci \
             * fac {id=dE_final, dep=Sns*}
@@ -1368,8 +1372,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles = lp_pregen.power_function_preambles(loopy_opts, power_func),
-        manglers = lp_pregen.power_function_manglers(loopy_opts, power_func),
+        preambles=lp_pregen.power_function_preambles(loopy_opts, power_func),
+        manglers=lp_pregen.power_function_manglers(loopy_opts, power_func),
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec
@@ -2628,10 +2632,6 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     kernel_data.extend([T_lp, V_lp, rev_mask_lp, thd_mask_lp, pres_mod_lp,
                         nu_offset_lp, nu_lp, spec_lp])
 
-    # get the appropriate power function
-    # TODO: forward allint to this function
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=True)
-
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
@@ -2959,8 +2959,6 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles = lp_pregen.power_function_preambles(loopy_opts, power_func),
-        manglers = lp_pregen.power_function_manglers(loopy_opts, power_func),
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec
