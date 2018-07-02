@@ -43,7 +43,6 @@ from pyjac import utils
 
 
 class editor(object):
-
     def __init__(self, independent, dependent,
                  problem_size, order, do_not_set=[],
                  skip_on_missing=None):
