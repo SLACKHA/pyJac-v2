@@ -489,10 +489,11 @@ def get_split_elements(arr, splitter, ref_shape, mask, axes=(1,),
 
     if not tiling:
         if not len(mask) == len(ref_shape):
-            logger = logging.getLogger(__name__)
-            logger.info('When using non-tiling mode, if the mask is not fully '
-                        'specified (i.e., a mask for every array axis) this may '
-                        'return empty elements resulting from an array-split.')
+            # copy to slice form
+            index = [slice(None) for x in six.moves.range(arr.ndim)]
+            for i, ax in enumerate(axes):
+                index[ax] = mask[i]
+            mask = tuple(index)
         # check mask
         # get a size
         size = next(m.size for m in mask if isinstance(m, np.ndarray))
@@ -811,6 +812,12 @@ def select_elements(arr, mask, axes, tiling=True):
     try:
         # test if list of indicies
         if not tiling:
+            if len(mask) != arr.ndim:
+                # copy to slice form
+                index = [slice(None) for x in six.moves.range(arr.ndim)]
+                for i, ax in enumerate(axes):
+                    index[ax] = mask[i]
+                mask = tuple(index)
             return arr[mask].squeeze()
         # next try iterable
 
@@ -903,12 +910,12 @@ class get_comparable(object):
                 raise SkipTest('Cannot test sparse matricies without scipy'
                                ' installed')
             axis, mask = dense_to_sparse_indicies(
-                mask, axis, kc.col_inds, kc.row_inds, kc.current_order)
-
-            if is_answer:
-                outv = sparsify(outv, kc.col_inds, kc.row_inds, kc.current_order)
-            # and change the reference shape to mark
-            ref_shape = outv.shape
+                mask, axis, kc.col_inds, kc.row_inds, kc.current_order,
+                tiling=self.tiling)
+            # update the reference shape
+            ref_shape = sparsify(ans, kc.col_inds,
+                                 kc.row_inds, kc.current_order).shape
+            # indicate the drop in dimension
             ndim -= 1
 
         # check for vectorized data order

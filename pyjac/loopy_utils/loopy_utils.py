@@ -12,13 +12,14 @@ from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
+import warnings
+
 try:
     import pyopencl as cl
-    import warnings
-except:
+    from pyopencl.tools import clear_first_arg_caches
+except ImportError:
     cl = None
     pass
-from pyopencl.tools import clear_first_arg_caches
 
 # local imports
 from pyjac import utils
@@ -934,6 +935,7 @@ class kernel_call(object):
 
         self.jac_format = jac_format
         if jac_format == JacobianFormat.sparse:
+            from pyjac.tests.test_utils import sparsify
             # need to convert the jacobian arg to a sparse representation
             # the easiest way to deal with this is to convert the kernel argument
             # to the sparse dimensions
@@ -949,6 +951,11 @@ class kernel_call(object):
             # save for comparable
             self.row_inds = namestore.jac_row_inds.initializer
             self.col_inds = namestore.jac_col_inds.initializer
+
+            # sparsify transformed answer
+            self.transformed_ref_ans = [sparsify(
+                array, self.col_inds, self.row_inds, self.current_order)
+                for array in self.transformed_ref_ans]
 
         # and finally feed through the array splitter
         self.current_split = array_splitter
