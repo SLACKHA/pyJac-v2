@@ -4201,8 +4201,14 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
         extra_inames.append(
             (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
-    # get the appropriate power function
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint)
+    # get the appropriate power function and calls
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint,
+                                      guard_nonzero=True)
+    nu_fwd = 'nu_fwd'
+    nu_rev = 'nu_rev'
+    pow_conc_fwd = power_func(conc_inner_str, nu_fwd)
+    pow_conc_rev = power_func(conc_inner_str, nu_rev)
+
     if not do_ns:
         jac_update_insn = (
             "${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev)"
@@ -4221,19 +4227,21 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                     <> Sj_fwd = ${spec_j_reac_nu_str} {id=Sj_fwd_init}
                     <> Sj_rev = ${spec_j_prod_nu_str} {id=Sj_rev_init}
                     for ${net_ind_inner}
-                        <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
-                        <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
+                        <> ${nu_fwd} = ${inner_reac_nu_str} {id=nuf_inner}
+                        <> ${nu_rev} = ${inner_prod_nu_str} {id=nur_inner}
                         <> ${spec_inner} = ${spec_inner_str}
                         # handle nu
                         if ${spec_inner} == ${spec_j}
-                            nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+                            ${nu_fwd} = ${nu_fwd} - 1 \
+                                {id=nuf_inner_up, dep=nuf_inner}
                         end
                         if ${spec_inner} == ${spec_j}
-                            nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                            ${nu_rev} = ${nu_rev} - 1 \
+                                {id=nur_inner_up, dep=nur_inner}
                         end
-                        Sj_fwd = Sj_fwd * ${power_func}(${conc_inner_str}, nu_fwd) \
+                        Sj_fwd = Sj_fwd * ${pow_conc_fwd} \
                             {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
-                        Sj_rev = Sj_rev * ${power_func}(${conc_inner_str}, nu_rev) \
+                        Sj_rev = Sj_rev * ${pow_conc_rev} \
                             {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
                     end
                     # and update Jacobian
@@ -4255,23 +4263,23 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
             <> Sns_fwd = 1.0d {id=Sns_fwd_init}
             <> Sns_rev = 1.0d {id=Sns_rev_init}
             for ${net_ind_inner}
-                <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
-                <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
+                <> ${nu_fwd} = ${inner_reac_nu_str} {id=nuf_inner}
+                <> ${nu_rev} = ${inner_prod_nu_str} {id=nur_inner}
                 <> ${spec_inner} = ${spec_inner_str}
                 # handle nu
                 if ${spec_inner} == ${ns}
                     Sns_fwd = Sns_fwd * nu_fwd {id=Sns_fwd_up, dep=Sns_fwd_init}
-                    nu_fwd = nu_fwd - 1 \
+                    ${nu_fwd} = ${nu_fwd} - 1 \
                         {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
                 end
-                Sns_fwd = Sns_fwd * ${power_func}(${conc_inner_str}, nu_fwd) \
+                Sns_fwd = Sns_fwd * ${pow_conc_fwd} \
                     {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
                 if ${spec_inner} == ${ns}
                     Sns_rev = Sns_rev * nu_rev {id=Sns_rev_up, dep=Sns_rev_init}
-                    nu_rev = nu_rev - 1 \
+                    ${nu_rev} = ${nu_rev} - 1 \
                         {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
                 end
-                Sns_rev = Sns_rev * ${power_func}(${conc_inner_str}, nu_rev) \
+                Sns_rev = Sns_rev * ${pow_conc_rev} \
                     {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
             end
             # and update Jacobian for all species in this row

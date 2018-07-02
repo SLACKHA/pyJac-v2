@@ -170,7 +170,7 @@ def power_function_preambles(loopy_opts, power_function):
     ----------
     loopy_opts: :class:`loopy_options`
         unused, included for consistent interface
-    power_function: str or list thereof
+    power_function: :class:`PowerFunction` or list thereof
         The power function used
     Returns
     -------
@@ -178,7 +178,7 @@ def power_function_preambles(loopy_opts, power_function):
         power function preambles for  a given :param:`power_function`.
     """
 
-    if 'fast_powi' in utils.listify(power_function):
+    if 'fast_powi' in [x.name for x in utils.listify(power_function)]:
         return [fastpowi_PreambleGen()]
     return []
 
@@ -220,21 +220,22 @@ def power_function_manglers(loopy_opts, power_functions):
     """
 
     def __manglers(power_function):
-        if loopy_opts.lang == 'opencl' and 'pow' in power_function:
+        powf = power_function.name
+        if loopy_opts.lang == 'opencl' and 'pow' in powf:
             # opencl only
             # create manglers
             manglers = []
 
             mangler_type = next((
                 mangler for mangler in [pown, powf, powr]
-                if mangler().name == power_function), None)
+                if mangler().name == powf), None)
             if mangler_type is None:
                 raise Exception('Unknown OpenCL power function {}'.format(
-                    power_function))
+                    powf))
             # 1) float and short integer
             manglers.append(mangler_type())
             # 2) float and long integer
-            if power_function == 'pown':
+            if powf == 'pown':
                 manglers.append(mangler_type(arg_dtypes=(np.float64, np.int64)))
             if loopy_opts.is_simd:
                 from loopy.target.opencl import vec
@@ -244,7 +245,7 @@ def power_function_manglers(loopy_opts, power_functions):
                 # 3) vector float and short integers
                 # note: return type must be non-vector form (this will converted
                 # by loopy in privatize)
-                if power_function == 'pown':
+                if powf == 'pown':
                     manglers.append(mangler_type(arg_dtypes=(vfloat, np.int32),
                                                  result_dtypes=np.float64))
                     manglers.append(mangler_type(arg_dtypes=(vfloat, vint),
@@ -255,14 +256,20 @@ def power_function_manglers(loopy_opts, power_functions):
                 manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
                                              result_dtypes=np.float64))
             return manglers
-        elif power_function == 'fast_powi':
+        elif powf == 'fast_powi':
             # skip, handled as preamble
             return []
         else:
             return [powf()]
 
+    # check for fmax guards
+    guards = []
+    if any([power_func.guard_nonzero for power_func in utils.listify(
+            power_functions)]):
+        guards += [fmax()]
+
     return [mangler for power_func in utils.listify(power_functions)
-            for mangler in __manglers(power_func)]
+            for mangler in __manglers(power_func)] + guards
 
 
 class fmax(MangleGen):

@@ -109,7 +109,34 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
-def power_function(lang, is_integer_power=False, is_positive_power=False):
+class PowerFunction(object):
+    """
+    A simple wrapper that contains the name of a power function for a given language
+    as well as any options
+    """
+
+    def __init__(self, name, lang, guard_nonzero=False):
+        self.name = name
+        self.lang = lang
+        self.guard_nonzero = guard_nonzero
+
+    def __repr__(self):
+        return self.name
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __call__(self, base, power):
+        template = '{func}({base}, {power})'
+        guard = 'fmax(1e-300d, {base})'
+        if self.guard_nonzero:
+            guard = guard.format(base=base)
+            return template.format(func=self, base=guard, power=power)
+        return template.format(func=self, base=base, power=power)
+
+
+def power_function(lang, is_integer_power=False, is_positive_power=False,
+                   guard_nonzero=False):
     """
     Returns the best power function to use for a given :param:`lang` and
     choice of :param:`is_integer_power` / :param:`is_positive_power`
@@ -118,16 +145,16 @@ def power_function(lang, is_integer_power=False, is_positive_power=False):
     if lang == 'opencl' and is_integer_power:
         # opencl has it's own integer power function
         # this also is nice for loopy, as it handles the vectorizability check
-        return 'pown'
+        return PowerFunction('pown', lang, guard_nonzero=guard_nonzero)
     elif lang == 'opencl' and is_positive_power:
-        # opencl positive power function
-        return 'powr'
+        # opencl positive power function -- no need for guard
+        return PowerFunction('powr', lang)
     elif is_integer_power:
-        # use internal integer power function
-        return 'fast_powi'
+        # use internal integer power function, no need for guard
+        return PowerFunction('fast_powi', lang)
     else:
         # use default
-        return 'pow'
+        return PowerFunction('pow', lang, guard_nonzero=guard_nonzero)
 
 
 inf_cutoff = 1e285
