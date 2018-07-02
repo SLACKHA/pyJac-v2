@@ -991,6 +991,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
     parameters = {}
     pre_instructions = []
+    manglers = []
+    preambles = []
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
 
@@ -1275,6 +1277,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
         pow_conc_rev = power_func(conc_str, nu_rev)
+        manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
+        preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
 
         if conp:
             pre_instructions.append(Template(
@@ -1375,8 +1379,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles=lp_pregen.power_function_preambles(loopy_opts, power_func),
-        manglers=lp_pregen.power_function_manglers(loopy_opts, power_func),
+        preambles=preambles,
+        manglers=manglers,
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec
