@@ -83,10 +83,10 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
             i += 1
 
         # get the sparse indicies
-        row, col = (matrix.indices, matrix.indptr) if order == 'C' \
-            else (matrix.indptr, matrix.indices)
+        row, col = (matrix.indptr, matrix.indices) if order == 'C' \
+            else (matrix.indices, matrix.indptr)
         sparse_axes, sparse_inds = dense_to_sparse_indicies(
-            mask, axes, row, col, order, tiling=tiling)
+            mask, axes, col, row, order, tiling=tiling)
         sparse_inds = sparse_inds[-1]
 
         # and check
