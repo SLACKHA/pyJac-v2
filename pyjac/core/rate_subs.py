@@ -710,7 +710,10 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
                                       *fixed_inds)
 
     V_val = 'V_val'
-    pre_instructions = ic.default_pre_instructs(V_val, V_str, 'VAL')
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
+    pre_instructions = precompute(V_val, V_str, 'VAL')
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
@@ -1931,8 +1934,11 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
     # preinstructions
     logP = 'logP'
     Tinv = 'Tinv'
-    preinstructs = [ic.default_pre_instructs(logP, P_str, 'LOG'),
-                    ic.default_pre_instructs(Tinv, T_str, 'INV')]
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
+    preinstructs = [precompute(logP, P_str, 'LOG'),
+                    precompute(Tinv, T_str, 'INV')]
 
     # various strings for preindexed limits, params, etc
     _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
@@ -2159,13 +2165,16 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
 
     vec_spec = ic.write_race_silencer(['kf'])
 
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
                            pre_instructions=[
-                               ic.default_pre_instructs(Tinv, T_str, 'INV'),
-                               ic.default_pre_instructs(logT, T_str, 'LOG'),
-                               ic.default_pre_instructs(logP, P_str, 'LOG')],
+                               precompute(Tinv, T_str, 'INV'),
+                               precompute(logT, T_str, 'LOG'),
+                               precompute(logP, P_str, 'LOG')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2366,9 +2375,11 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     """).safe_substitute(**locals())
 
     vec_spec = ic.write_race_silencer(['Fi'])
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     return [k_gen.knl_info('fall_troe',
-                           pre_instructions=[ic.default_pre_instructs(
+                           pre_instructions=[precompute(
                                'T', T_str, 'VAL')],
                            instructions=troe_instructions,
                            var_name=var_name,
@@ -2467,12 +2478,14 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
     ${X_sri_str} = X_temp
     """).safe_substitute(**locals())
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                               ic.default_pre_instructs(Tval, T_str, 'VAL'),
-                               ic.default_pre_instructs(Tinv, T_str, 'INV')],
+                               precompute(Tval, T_str, 'VAL'),
+                               precompute(Tinv, T_str, 'INV')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2640,12 +2653,14 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     Tinv = 'Tinv'
     logT = 'logT'
     Tval = 'Tval'
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
     default_preinstructs = {Tinv:
-                            ic.default_pre_instructs(Tinv, T_str, 'INV'),
+                            precompute(Tinv, T_str, 'INV'),
                             logT:
-                            ic.default_pre_instructs(logT, T_str, 'LOG'),
+                            precompute(logT, T_str, 'LOG'),
                             Tval:
-                            ic.default_pre_instructs(Tval, T_str, 'VAL')}
+                            precompute(Tval, T_str, 'VAL')}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate} {id=simple_rate_eval, \
@@ -3239,11 +3254,13 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
         {'a' + str(i): a_hi for i, a_hi in enumerate(a_hi_strs)})
 
     Tval = 'T'
-    preinstructs = [ic.default_pre_instructs(Tval, T_str, 'VAL')]
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+    preinstructs = [precompute(Tval, T_str, 'VAL')]
     if nicename in ['db', 'b']:
-        preinstructs.append(ic.default_pre_instructs('Tinv', T_str, 'INV'))
+        preinstructs.append(precompute('Tinv', T_str, 'INV'))
         if nicename == 'b':
-            preinstructs.append(ic.default_pre_instructs('logT', T_str, 'LOG'))
+            preinstructs.append(precompute('logT', T_str, 'LOG'))
 
     return k_gen.knl_info(instructions=Template("""
         for k

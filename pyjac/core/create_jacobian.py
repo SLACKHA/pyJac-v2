@@ -18,6 +18,7 @@ import os
 import numpy as np
 import loopy as lp
 from loopy.kernel.data import temp_var_scope as scopes
+from pytools import UniqueNameGenerator
 
 # Local imports
 from pyjac import utils
@@ -501,6 +502,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     factor = 'dci_thd_dE_fac'
     # the pressure modification term to use (pres_mod for thd, Pr for falloff)
     fall_instructions = ''
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dE'
@@ -551,10 +554,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
             b_lp, b_str = mapstore.apply_maps(namestore.sri_b, var_name)
             c_lp, c_str = mapstore.apply_maps(namestore.sri_c, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp])
-            pre_instructions.append(
-                ic.default_pre_instructs('Tval', T_str, 'VAL'))
-            pre_instructions.append(
-                ic.default_pre_instructs('Tinv', T_str, 'INV'))
+            pre_instructions.append(precompute('Tval', T_str, 'VAL'))
+            pre_instructions.append(precompute('Tinv', T_str, 'INV'))
             manglers.append(lp_pregen.fmax())
 
             sri_fac = (Template("""\
@@ -990,6 +991,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
     parameters = {}
     pre_instructions = []
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     if not do_ns:
         if not conp and \
@@ -1080,9 +1083,9 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                 kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
                 # add plog instruction
-                pre_instructions.extend([ic.default_pre_instructs(
-                    'logP', P_str, 'LOG'), ic.default_pre_instructs(
-                    'logT', T_str, 'LOG'), ic.default_pre_instructs(
+                pre_instructions.extend([precompute(
+                    'logP', P_str, 'LOG'), precompute(
+                    'logT', T_str, 'LOG'), precompute(
                     'Tinv', T_str, 'INV')])
 
                 # and dkf instructions
@@ -1161,8 +1164,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
                 # preinstructions
                 pre_instructions.extend(
-                    [ic.default_pre_instructs('logP', P_str, 'LOG'),
-                     ic.default_pre_instructs('Tinv', T_str, 'INV')])
+                    [precompute('logP', P_str, 'LOG'),
+                     precompute('Tinv', T_str, 'INV')])
 
                 # various strings for preindexed limits, params, etc
                 _, Pmin_str = mapstore.apply_maps(
@@ -1587,6 +1590,8 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     # molecular weights
     mw_lp, mw_str = mapstore.apply_maps(
         namestore.mw_post_arr, var_name)
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     # setup instructions
     parameters = {}
@@ -1609,7 +1614,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
         post_deps = 'up*'
     else:
         pre_instructions = ['<> sum = 0',
-                            ic.default_pre_instructs('Vinv', V_str, 'INV')]
+                            precompute('Vinv', V_str, 'INV')]
         parameters['Ru'] = chem.RU
         instructions = [(True, Template("""
             sum = sum + (${spec_energy_str} - ${spec_energy_ns_str} * \
@@ -1866,14 +1871,17 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     kernel_data.extend([spec_heat_tot_lp, dTdt_lp, spec_heat_lp, dspec_heat_lp,
                         spec_energy_lp, mw_lp, conc_lp, V_lp, wdot_lp, T_lp])
 
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
     pre_instructions = Template("""
     <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) \
         * ${conc_ns_str}) {id=split}
     <> rate_sum = 0
     """).safe_substitute(**locals()).split('\n')
     pre_instructions.extend([
-        ic.default_pre_instructs('Vinv', V_str, 'INV'),
-        ic.default_pre_instructs('Tinv', T_str, 'INV')])
+        precompute('Vinv', V_str, 'INV'),
+        precompute('Tinv', T_str, 'INV')])
 
     # add create molar rate update insn
     jac_update = Template("""
@@ -1971,11 +1979,14 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
     # instructions
     _, dTdot_dT_str = jac_create(
         mapstore, namestore.jac, global_ind, 0, 0)
-    pre_instructions = ['<> sum = 0',
-                        ic.default_pre_instructs('Tinv', T_str, 'INV')]
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
+    pre_instructions = ['<> sum = 0 {id=init}',
+                        precompute('Tinv', T_str, 'INV')]
     if conp:
         pre_instructions.append(
-            ic.default_pre_instructs('Vinv', V_str, 'INV'))
+            precompute('Vinv', V_str, 'INV'))
         # sums
         instructions = Template("""
             sum = sum + (1 - ${mw_str}) * (Vinv * ${jac_str} + Tinv * \
@@ -2185,8 +2196,10 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
                         T_lp, V_lp, P_lp])
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
-    pre_instructions = [ic.default_pre_instructs('Tinv', T_str, 'INV')]
+    pre_instructions = [precompute('Tinv', T_str, 'INV')]
     parameters = {}
     manglers = []
     # by default we are using the third body factors (these may be changed
@@ -2240,7 +2253,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
                                 troe_T1_lp, troe_T2_lp, troe_T3_lp])
             pre_instructions.append(
-                ic.default_pre_instructs('Tval', T_str, 'VAL'))
+                precompute('Tval', T_str, 'VAL'))
             dFi_instructions = Template("""
                 <> dFcent = -${troe_a_str} * ${troe_T1_str} * \
                 exp(-Tval * ${troe_T1_str}) + (${troe_a_str} - 1) * ${troe_T3_str} *\
@@ -2270,7 +2283,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
             pre_instructions.append(
-                ic.default_pre_instructs('Tval', T_str, 'VAL'))
+                precompute('Tval', T_str, 'VAL'))
             manglers.append(lp_pregen.fmax())
 
             dFi_instructions = Template("""
@@ -2631,6 +2644,8 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     # add to data
     kernel_data.extend([T_lp, V_lp, rev_mask_lp, thd_mask_lp, pres_mod_lp,
                         nu_offset_lp, nu_lp, spec_lp])
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
@@ -2655,7 +2670,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         kernel_data.extend([
             beta_lp, Ta_lp, rop_fwd_lp, rop_rev_lp, dB_lp])
 
-        pre_instructions = [ic.default_pre_instructs(
+        pre_instructions = [precompute(
             'Tinv', T_str, 'INV')]
         if rxn_type == reaction_type.plog:
             lo_ind = 'lo'
@@ -2692,7 +2707,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
             kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
             # add plog instruction
-            pre_instructions.append(ic.default_pre_instructs(
+            pre_instructions.append(precompute(
                 'logP', P_str, 'LOG'))
 
             # and dkf instructions
@@ -2768,7 +2783,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
 
             # preinstructions
             pre_instructions.extend(
-                [ic.default_pre_instructs('logP', P_str, 'LOG')])
+                [precompute('logP', P_str, 'LOG')])
 
             # various strings for preindexed limits, params, etc
             _, Pmin_str = mapstore.apply_maps(
@@ -4576,7 +4591,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         mem_kind = ', mem_kind=global'
 
     # now create our instructions
-    from pytools import UniqueNameGenerator
     namer = UniqueNameGenerator()
 
     # initialize sum
