@@ -3835,12 +3835,12 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
         <> Fi_fac = dFi {id=dFi_fac_init, dep=dFi}
         if ${fall_type_str}
             # chemically activated
-            <>k0 = ${kf_str} {id=kf_chem}
-            <>kinf = ${kf_fall_str} {id=kinf_chem}
+            <>k0 = ${kf_str} {id=kf_chem, nosync=kf_fall}
+            <>kinf = ${kf_fall_str} {id=kinf_chem, nosync=kinf_fall}
         else
             # fall-off
-            kinf = ${kf_str} {id=kinf_fall}
-            k0 = ${kf_fall_str} {id=kf_fall}
+            kinf = ${kf_str} {id=kinf_fall, nosync=kinf_chem}
+            k0 = ${kf_fall_str} {id=kf_fall, nosync=kf_chem}
             Fi_fac = ${Pr_str} * Fi_fac + 1 {id=dFi_fac_up, dep=dFi_fac_init}
         end
 
