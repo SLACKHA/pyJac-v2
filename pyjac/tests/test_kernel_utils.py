@@ -11,7 +11,7 @@ import numpy as np
 from optionloop import OptionLoop
 from parameterized import parameterized
 from loopy.kernel.data import temp_var_scope as scopes
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from pytools.py_codegen import remove_common_indentation
 
 from pyjac.core.array_creator import array_splitter, problem_size, MapStore, creator

@@ -10,6 +10,7 @@ from parameterized import parameterized, param
 import numpy as np
 import loopy as lp
 from optionloop import OptionLoop
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
 from pyjac.libgen.libgen import compiler, file_struct, libgen
 from pyjac.kernel_utils.memory_manager import memory_manager, host_langs

@@ -4,7 +4,7 @@ from collections import OrderedDict
 
 import numpy as np
 import loopy as lp
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from parameterized import parameterized, param
 from unittest.case import SkipTest
 from optionloop import OptionLoop
