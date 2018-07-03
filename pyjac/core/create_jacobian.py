@@ -3226,8 +3226,7 @@ def thermo_temperature_derivative(nicename, loopy_opts, namestore,
         The generated infos for feeding into the kernel generator
     """
 
-    return rate.polyfit_kernel_gen(
-        nicename, loopy_opts, namestore, test_size)
+    return rate.polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size)
 
 
 @ic.with_conditional_jacobian
@@ -3498,12 +3497,12 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
         if loopy_opts.use_atomics and loopy_opts.depth else
         '... nop {id=break, dep=init}')
     pre_instructions = Template("""
-        <>spec_tot = 0
+        <>spec_tot = 0 {id=spec_init}
         ${spec_heat_total_str} = 0 {id=init}
         """).safe_substitute(**locals())
     instructions = Template("""
-        spec_tot = spec_tot + ${spec_heat_str} * \
-            ${conc_str} {id=update}
+        spec_tot = spec_tot + ${spec_heat_str} * ${conc_str} {id=update, \
+            dep=spec_init}
     """).safe_substitute(**locals())
     post_instructions = Template("""
         ${barrier}
