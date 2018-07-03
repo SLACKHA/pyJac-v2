@@ -2694,6 +2694,8 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
     parameters = {}
     pre_instructions = []
+    manglers = []
+    preambles = []
     if not do_ns:
         # get rxn parameters, these are based on the simple index
         beta_lp, beta_str = mapstore.apply_maps(
@@ -2960,6 +2962,18 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         conc_lp, conc_str = mapstore.apply_maps(
             namestore.conc_arr, global_ind, 'net_spec')
 
+        # TODO: forward allint to this function
+        # create appropriate power functions
+        power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
+                                          guard_nonzero=True)
+        nu_fwd = 'nu_fwd'
+        nu_rev = 'nu_rev'
+        pow_conc_fwd = power_func(conc_str, nu_fwd)
+        pow_conc_rev = power_func(conc_str, nu_rev)
+
+        preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
+        manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
+
         # create Ns nu's
         _, ns_reac_nu_str = mapstore.apply_maps(
             namestore.rxn_to_spec_reac_nu, 'offset_next',
@@ -2974,33 +2988,33 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         instructions = Template("""
         <> kr_i = 0 {id=kr_in}
         if ${rev_mask_str} >= 0
-            kr_i = ${kr_str} {id=kr_up}
+            kr_i = ${kr_str} {id=kr_up, dep=kr_in}
         end
         <> ci = 1 {id=ci_init}
         if ${thd_mask_str} >= 0
-            ci = ${pres_mod_str} {id=ci}
+            ci = ${pres_mod_str} {id=ci, dep=ci_init}
         end
         <> Sns_fwd = ${ns_reac_nu_str} {id=Sns_fwd_init}
         <> Sns_rev = ${ns_prod_nu_str} {id=Sns_rev_init}
         for ${net_ind}
-            <> nu_fwd = ${net_reac_nu_str} {id=nuf_inner}
-            <> nu_rev = ${net_prod_nu_str} {id=nur_inner}
+            <> ${nu_fwd} = ${net_reac_nu_str} {id=nuf_inner}
+            <> ${nu_rev} = ${net_prod_nu_str} {id=nur_inner}
             <> net_spec = ${spec_str}
             # handle nu
             if net_spec == ${ns}
-                nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+                ${nu_fwd} = ${nu_fwd} - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) \
-                {id=Sns_fwd_up, dep=nuf_inner_up}
+            Sns_fwd = Sns_fwd * ${pow_conc_fwd} {id=Sns_fwd_up, \
+                dep=nuf_inner_up:Sns_fwd_init}
             if net_spec == ${ns}
-                nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                ${nu_rev} = ${nu_rev} - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) \
-                {id=Sns_rev_up, dep=nur_inner_up}
+            Sns_rev = Sns_rev * ${pow_conc_rev} {id=Sns_rev_up, \
+                dep=nur_inner_up:Sns_rev_init}
         end
         <> dRopidT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * \
             ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) \
-            {id=Ropi_final, dep=Sns*}
+            {id=Ropi_final, dep=Sns*:ci*:kr*}
         """).substitute(**locals())
 
     # get nuk's
@@ -3046,6 +3060,8 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec,
+        preambles=preambles,
+        manglers=manglers,
         # expected vectorized scatter load instructions for plog parameters
         # with wide vectorization (pressure non-constant between vector-lanes)
         silenced_warnings=['vectorize_failed']
