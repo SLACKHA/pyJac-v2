@@ -1017,14 +1017,15 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                     'dRopi_dE = dRopi_dE + nu_rev * ${rop_rev_str} \
                 {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
 
-            deps = ':'.join(['dE_update'] if rev_update else [])
-            pres_mod_update = ''
+            pmod_deps = ':'.join(['dE_update'] if rev_update else [])
+            pres_mod_update = '... nop {{id=dE_final, dep={pmod_deps}}}'.format(
+                pmod_deps=pmod_deps)
             if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
                 pres_mod_update = ic.get_update_instruction(
                     mapstore, namestore.pres_mod,
                     Template(
                         'dRopi_dE = dRopi_dE * ${pres_mod_str} \
-                    {id=dE_final, dep=${deps}}').safe_substitute(**locals()))
+                    {id=dE_final, dep=${pmod_deps}}').safe_substitute(**locals()))
 
             # if conp, need to include the fwd / reverse ROP an extra time
             # to account for the qi term resulting from d/dV (qi * V)
@@ -1232,17 +1233,17 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
                     <> dkf = 0 {id=dkf_init}
                     for m
-                        <>temp = 0
+                        <>temp = 0 {id=temp_init}
                         for k
                             # derivative by P
                             temp = temp + (k + 1) * ${ppoly_str} * \
-                                ${params_str} {id=temp, dep=ppoly:tpoly}
+                                ${params_str} {id=temp, dep=ppoly:tpoly:temp_init}
                         end
                         dkf = dkf + ${tpoly_str} * temp \
                             {id=dkf_update, dep=temp:dkf_init}
                     end
                     dkf = dkf * 2 * logten / (${P_str} * \
-                        (${Pmax_str} - ${Pmin_str})) {id=dkf, dep=dkf_update}
+                        (${Pmax_str} - ${Pmin_str})) {id=dkf_final, dep=dkf_update}
                 """).safe_substitute(**locals())
                 parameters['logten'] = log(10)
 
@@ -1302,9 +1303,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
         rev_update = ic.get_update_instruction(
             mapstore, namestore.kr,
-            Template(
-                'kr_i = ${kr_str} \
-                    {id=kr_up, dep=kr_in}').safe_substitute(**locals()))
+            Template('kr_i = ${kr_str} {id=kr_up, dep=kr_in}').safe_substitute(
+                **locals()))
 
         pres_mod_update = ''
         if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
@@ -1329,14 +1329,16 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
             if net_spec == ${ns}
                 ${nu_fwd} = ${nu_fwd} - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * ${pow_conc_fwd} {id=Sns_fwd_up, dep=nuf_inner_up}
+            Sns_fwd = Sns_fwd * ${pow_conc_fwd} {id=Sns_fwd_up, \
+                dep=nuf_inner_up:Sns_fwd_init}
             if net_spec == ${ns}
                 ${nu_rev} = ${nu_rev} - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * ${pow_conc_rev} {id=Sns_rev_up, dep=nur_inner_up}
+            Sns_rev = Sns_rev * ${pow_conc_rev} {id=Sns_rev_up, \
+                dep=nur_inner_up:Sns_rev_init}
         end
         <> dRopi_dE = (Sns_fwd * ${kf_str} - Sns_rev * kr_i) * ci \
-            * fac {id=dE_final, dep=Sns*}
+            * fac {id=dE_final, dep=Sns*:kr_up:ci}
         """).substitute(**locals())
 
     # get nuk's
@@ -1350,7 +1352,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         "* dRopi_dE {id=jac, dep=${deps}}").safe_substitute(**locals())
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2},
-        insn=jac_update_insn, deps='dE*:')
+        insn=jac_update_insn, deps='*:dE_final')
     kernel_data.append(jac_lp)
     instructions = Template("""
         <> offset = ${nu_offset_str}
@@ -1600,14 +1602,14 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     # setup instructions
     parameters = {}
     if conp:
-        pre_instructions = ['<> dTsum = 0',
+        pre_instructions = ['<> dTsum = 0 {id=dTinit}',
                             '<> specsum = 0']
         instructions = [(True, Template("""
             specsum = specsum + (${spec_energy_str} - ${spec_energy_ns_str} * \
                 ${mw_str}) * (${jac_str} - ${wdot_str}) {id=up, dep=${deps}}
             """).safe_substitute(**locals())), (False, Template("""
             dTsum = dTsum + (${spec_heat_str} - ${spec_heat_ns_str}) * \
-                ${conc_str} {id=up2, dep=*}
+                ${conc_str} {id=up2, dep=*:dTinit}
             """).safe_substitute(**locals()))]
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str} * ${V_str})
@@ -2730,10 +2732,10 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
                 end
                 if logP > ${pressure_hi} # out of range above
                     <> dkf = (${beta_hi_str} + ${Ta_hi_str} * Tinv) * Tinv \
-                        {id=dkf_init_hi, dep=set_*}
+                        {id=dkf_init_hi, dep=set_*, nosync=dkf_init_lo}
                 else
                     dkf = (${beta_lo_str} + ${Ta_lo_str} * Tinv) * Tinv \
-                        {id=dkf_init_lo, dep=set_*}
+                        {id=dkf_init_lo, dep=set_*, nosync=dkf_init_hi}
                 end
                 if logP > ${pressure_lo} and logP <= ${pressure_hi}
                     # not out of range
@@ -2849,11 +2851,11 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
 
                 <> dkf = 0 {id=dkf_init}
                 for m
-                    <>temp = 0
+                    <>temp = 0 {id=temp_init}
                     for k
                         if k < numP
                             temp = temp + ${ppoly_str} * ${params_str} \
-                                {id=temp, dep=ppoly:tpoly}
+                                {id=temp, dep=ppoly:tpoly:temp_init}
                         end
                     end
                     if m < numT
@@ -2876,16 +2878,17 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         <> dRopidT = ${rop_fwd_str} * dkf {id=init, dep=dkf*}
         <> ci = 1 {id=ci_init}
         if ${rev_mask_str} >= 0
-            <> dBk_sum = 0
+            <> dBk_sum = 0 {id=dBk_init}
             for ${net_ind}
                 dBk_sum = dBk_sum + \
-                    (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} {id=up}
+                    (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} \
+                    {id=up, dep=dBk_init}
             end
             dRopidT = dRopidT - ${rop_rev_str} * \
                 (dkf - dBk_sum) {id=rev, dep=init:up}
         end
         if ${thd_mask_str} >= 0
-            ci = ${pres_mod_str} {id=ci}
+            ci = ${pres_mod_str} {id=ci, dep=ci_init}
         end
         dRopidT = dRopidT * ci * ${V_str} {id=Ropi_final, dep=rev:ci*}
         """).safe_substitute(**locals())

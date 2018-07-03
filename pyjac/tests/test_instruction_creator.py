@@ -45,7 +45,7 @@ def test_get_update_instruction():
     # test #2, empty map produces no-op with correct ID
     test_instrution = '<> test = domain[i] {id=anchor}'
     insn = get_update_instruction(mapstore, None, test_instrution)
-    assert insn == '.. noop {id=anchor}'
+    assert insn == '... nop {id=anchor}'
 
     # test #3, non-transformed domain doesn't result in guarded update insn
     insn = get_update_instruction(mapstore, domain, test_instrution)

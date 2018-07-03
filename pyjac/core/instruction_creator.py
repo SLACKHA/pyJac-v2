@@ -336,7 +336,7 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
     if not mask_arr:
         # get id for noop anchor
         idx = re.search(r'id=([^,}]+)', base_update_insn)
-        return '.. noop {{id={id}}}'.format(id=idx.group(1))
+        return '... nop {{id={id}}}'.format(id=idx.group(1))
 
     # ensure mask array in domains
     assert mask_arr in mapstore.domain_to_nodes, (
