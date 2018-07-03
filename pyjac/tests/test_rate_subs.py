@@ -788,7 +788,7 @@ class SubTest(TestClass):
     def test_rop_net(self):
         fwd_removed = self.store.fwd_rxn_rate.copy()
         # turn off division by zero warnings temporarily
-        hold = np.seterr(invalid='ignore')
+        hold = np.seterr(divide='ignore', invalid='ignore')
         fwd_removed[:, self.store.thd_inds] = fwd_removed[
             :, self.store.thd_inds] / self.store.ref_pres_mod
         thd_in_rev = np.where(
