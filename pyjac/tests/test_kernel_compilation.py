@@ -177,7 +177,8 @@ class SubTest(TestClass):
             ('order', ['C', 'F']),
             ('depth', [4, None]),
             ('width', [4, None]),
-            ('lang', ['c'])]))
+            ('lang', ['c']),
+            ('is_simd', [False])]))
         for state in oploop:
             if state['depth'] and state['width']:
                 continue
