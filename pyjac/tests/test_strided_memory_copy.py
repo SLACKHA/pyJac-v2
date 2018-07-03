@@ -115,7 +115,7 @@ def test_strided_copy(state):
     lp_arrays = asplit.split_loopy_arrays(knl).args
 
     # now create a simple library
-    mem = memory_manager(opts.lang, opts.order, asplit._have_split(),
+    mem = memory_manager(opts.lang, opts.order, asplit,
                          dev_type=state['device_type'],
                          strided_c_copy=lang == 'c')
     mem.add_arrays([x for x in lp_arrays],

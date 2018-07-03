@@ -948,7 +948,7 @@ class memory_manager(object):
     Aids in defining & allocating arrays for various languages
     """
 
-    def __init__(self, lang, order, have_split,
+    def __init__(self, lang, order, array_splitter,
                  dev_type=None, strided_c_copy=False):
         """
         Parameters
@@ -957,15 +957,20 @@ class memory_manager(object):
             The language used in this memory initializer
         order: ['F', 'C']
             The order of the arrays used
-        have_split: bool
-            If true, the arrays in this manager correspond to a C-split or
-            F-split format (depending on :param:`order`)
+        array_splitter: :class:`array_splitter`
+            Used to determine whether copies to/from the device correspond to a
+            C-split or F-split format (depending on :param:`order`)
         dev_type: :class:`pyopencl.device_type` [None]
             The device type.  If CPU, the host buffers will be used for input /
             output variables
         strided_c_copy: bool [False]
             Used in testing strided memory copies for c-targets
         """
+
+        # no need to do 2-d copy if we're doing a wide-vectorized 'F' ordered SIMD
+        have_split = array_splitter._have_split() and not (
+            array_splitter.is_simd and order == 'F')
+
         self.arrays = []
         self.in_arrays = []
         self.out_arrays = []

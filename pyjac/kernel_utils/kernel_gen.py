@@ -254,7 +254,7 @@ class kernel_generator(object):
         self.arg_name_maps = {p_size: 'per_run'}
 
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
-                                  self.array_split._have_split(),
+                                  self.array_split,
                                   dev_type=self.loopy_opts.device_type)
         self.name = name
         self.kernels = kernels
