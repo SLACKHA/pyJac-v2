@@ -955,7 +955,7 @@ class kernel_call(object):
             # sparsify transformed answer
             self.transformed_ref_ans = [
                 sparsify(array, self.col_inds, self.row_inds, self.current_order)
-                if array.ndim >=3 else array for array in self.transformed_ref_ans]
+                if array.ndim >= 3 else array for array in self.transformed_ref_ans]
 
         # and finally feed through the array splitter
         self.current_split = array_splitter
