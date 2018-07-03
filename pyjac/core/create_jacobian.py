@@ -544,7 +544,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 * (0.14 * ${Atroe_str} + ${Btroe_str}) * \
                 (mod ${conp_theta_pr_fac}) / \
                 (fmax(1e-300d, ${Pr_str}) * absqsq * logten) \
-                    {id=dFi_final, dep=ab_fin}
+                    {id=dFi_final, dep=ab_fin:mod_final}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
             manglers.append(lp_pregen.fmax())
@@ -570,7 +570,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 <> dFi = -2 * ${X_str} * ${X_str} * (\
                     mod ${conp_theta_pr_fac}) * ${sri_fac} * \
                     log(fmax(1e-300d, ${Pr_str})) / \
-                    (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi_final}
+                    (fmax(1e-300d, ${Pr_str}) * logtensquared) \
+                        {id=dFi_final, dep=mod_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
         else:
@@ -2352,20 +2353,20 @@ def __dcidT(loopy_opts, namestore, test_size=None,
         fall_instructions = Template("""
         if ${fall_type_str}
             # chemically activated
-            <>kf_0 = ${kf_str} {id=kf_chem}
-            <>beta_0 = ${s_beta_str} {id=beta0_chem}
-            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem}
-            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
-            <>beta_inf = ${f_beta_str} {id=betaf_chem}
-            <>Ta_inf = ${f_Ta_str} {id=Taf_chem}
+            <>kf_0 = ${kf_str} {id=kf_chem, nosync=kf_fall}
+            <>beta_0 = ${s_beta_str} {id=beta0_chem, nosync=beta0_fall}
+            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem, nosync=Ta0_fall}
+            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem, nosync=kf_inf_fall}
+            <>beta_inf = ${f_beta_str} {id=betaf_chem, nosync=betaf_fall}
+            <>Ta_inf = ${f_Ta_str} {id=Taf_chem, nosync=Taf_fall}
         else
             # fall-off
-            kf_0 = ${kf_fall_str} {id=kf_fall}
-            beta_0 = ${f_beta_str} {id=beta0_fall}
-            Ta_0 = ${f_Ta_str} {id=Ta0_fall}
-            kf_inf = ${kf_str} {id=kf_inf_fall}
-            beta_inf = ${s_beta_str} {id=betaf_fall}
-            Ta_inf = ${s_Ta_str} {id=Taf_fall}
+            kf_0 = ${kf_fall_str} {id=kf_fall, nosync=kf_chem}
+            beta_0 = ${f_beta_str} {id=beta0_fall, nosync=beta0_chem}
+            Ta_0 = ${f_Ta_str} {id=Ta0_fall, nosync=Ta0_chem}
+            kf_inf = ${kf_str} {id=kf_inf_fall, nosync=kf_inf_chem}
+            beta_inf = ${s_beta_str} {id=betaf_fall, nosync=betaf_chem}
+            Ta_inf = ${s_Ta_str} {id=Taf_fall, nosync=Taf_chem}
         end
         <> pmod = ${pres_mod_str}
         <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) \
@@ -2389,7 +2390,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
         "${factor} {id=jac, dep=${deps}}").safe_substitute(**locals())
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2},
-        insn=jac_update_insn)
+        insn=jac_update_insn, deps='dfall_final')
     kernel_data.append(jac_lp)
 
     rop_net_rev_update = ic.get_update_instruction(
