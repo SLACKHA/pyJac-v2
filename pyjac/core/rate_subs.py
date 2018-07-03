@@ -2179,7 +2179,10 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            extra_inames=extra_inames,
-                           vectorization_specializer=vec_spec)]
+                           vectorization_specializer=vec_spec,
+                           # silence warning about scatter load of plog parameters
+                           # due to varying pressure
+                           silenced_warnings=['vectorize_failed'])]
 
 
 def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
