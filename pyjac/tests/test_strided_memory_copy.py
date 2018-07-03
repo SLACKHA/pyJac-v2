@@ -25,13 +25,19 @@ def __test_cases():
     for state in OptionLoop(OrderedDict(
             [('lang', ['opencl', 'c']), ('order', ['C', 'F']),
              ('width', [4, None]), ('depth', [4, None]),
-             ('device_type', (cl.device_type.CPU, cl.device_type.GPU, None))])):
+             ('device_type', (cl.device_type.CPU, cl.device_type.GPU, None)),
+             ('is_simd', [True, False])])):
         if state['depth'] and state['width']:
             continue
         elif (state['depth'] is not None or state['width'] is not None) \
                 and state['lang'] == 'c':
             continue
         elif (state['lang'] == 'c' and state['device_type'] is not None):
+            continue
+        elif state['is_simd'] and (
+                state['lang'] == 'c' or
+                state['device_type'] != cl.device_type.CPU or
+                not state['width']):
             continue
         yield param(state)
 
@@ -88,8 +94,7 @@ def test_strided_copy(state):
     dtype = 'double'
 
     # create array splitter
-    opts = type('', (object,), {'width': width, 'depth': depth, 'order': order,
-                                'lang': lang})
+    opts = type('', (object,), state)
     asplit = array_splitter(opts)
 
     # split numpy
