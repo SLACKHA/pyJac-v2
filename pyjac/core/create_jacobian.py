@@ -1637,7 +1637,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     parameters = {}
     if conp:
         pre_instructions = ['<> dTsum = 0 {id=dTinit}',
-                            '<> specsum = 0']
+                            '<> specsum = 0 {id=specsum}']
         instructions = [(True, Template("""
             specsum = specsum + (${spec_energy_str} - ${spec_energy_ns_str} * \
                 ${mw_str}) * (${jac_str} - ${wdot_str}) {id=up, dep=${deps}}
@@ -1650,10 +1650,10 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
             ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum - specsum) * \
                 spec_inv {id=jac, dep=${deps}, nosync=up*}
             """).safe_substitute(**locals())
-        deps = '*'
+        deps = '*:specsum'
         post_deps = 'up*'
     else:
-        pre_instructions = ['<> sum = 0',
+        pre_instructions = ['<> sum = 0 {id=sum}',
                             precompute('Vinv', V_str, 'INV')]
         parameters['Ru'] = chem.RU
         instructions = [(True, Template("""
@@ -1668,7 +1668,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
             ${jac_str} = ${jac_str} - (sum * Vinv) * spec_inv \
                 {id=jac, dep=${deps}, nosync=jac_split:up}
                     """).safe_substitute(**locals())
-        deps = '*'
+        deps = '*:sum'
         post_deps = 'up'
 
     # jacobian entries
