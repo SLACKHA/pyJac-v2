@@ -727,7 +727,9 @@ def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True)
         if not tiling:
             assert len(mask) >= 2, ('The mask must at least include row & column '
                                     'elements when not using tiling mode.')
-            assert all(mask[0].size == m.size for m in mask[1:]), (
+            # check size of non slices
+            submask = [x for x in mask if isinstance(x, np.ndarray)]
+            assert all(submask[0].size == m.size for m in submask[1:]), (
                 'All elements of the mask must have the same size in tiling mode.')
             return len(mask) - 2, mask[-2], len(mask) - 1, mask[-1]
         row_ind = next(i for i, ind in enumerate(axes)

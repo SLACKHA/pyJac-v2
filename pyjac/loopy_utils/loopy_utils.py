@@ -953,9 +953,9 @@ class kernel_call(object):
             self.col_inds = namestore.jac_col_inds.initializer
 
             # sparsify transformed answer
-            self.transformed_ref_ans = [sparsify(
-                array, self.col_inds, self.row_inds, self.current_order)
-                for array in self.transformed_ref_ans]
+            self.transformed_ref_ans = [
+                sparsify(array, self.col_inds, self.row_inds, self.current_order)
+                if array.ndim >=3 else array for array in self.transformed_ref_ans]
 
         # and finally feed through the array splitter
         self.current_split = array_splitter

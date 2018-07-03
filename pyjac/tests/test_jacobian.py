@@ -2445,7 +2445,7 @@ class SubTest(TestClass):
         return self._generic_jac_tester(reset_arrays, kc)
 
     def test_sparse_indexing(self):
-        from ..core import instruction_creator as ic
+        from pyjac.core import instruction_creator as ic
         # a simple test to ensure our sparse indexing is working correctly
 
         @ic.with_conditional_jacobian
@@ -2655,7 +2655,7 @@ class SubTest(TestClass):
         compare_mask = (slice(None), np.arange(num_nonzero_jac))
 
         def __get_compare(kc, outv, index, is_answer=False):
-            from .test_utils import indexer
+            from pyjac.tests.test_utils import indexer
             _get_index = indexer(kc.current_split, ref_ans.shape)
             # first check we have a reasonable mask
             assert ref_ans.ndim == len(compare_mask), (
