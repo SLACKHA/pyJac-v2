@@ -2752,6 +2752,31 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
             pre_instructions.append(precompute(
                 'logP', P_str, 'LOG'))
 
+            plog_preloads = ''
+            if loopy_opts.is_simd:
+                # add some pre-loads for the plog parameters to avoid
+                # precompute avoid errors with lookup of individual SIMD-vector
+                # elements
+
+                plog_preloads = Template("""
+                with {id_prefix=set_lo, dep=set_lo}
+                    <> p_lo = ${pres_lo_str}
+                    <> beta_lo = ${beta_lo_str}
+                    <> Ta_lo = ${Ta_lo_str}
+                end
+                with {id_prefix=set_hi, dep=set_hi}
+                    <> p_hi = ${pres_hi_str}
+                    <> beta_hi = ${beta_hi_str}
+                    <> Ta_hi = ${Ta_hi_str}
+                end""").safe_substitute(**locals())
+                # and update strings
+                pres_lo_str = 'p_lo'
+                beta_lo_str = 'beta_lo'
+                Ta_lo_str = 'Ta_lo'
+                pres_hi_str = 'p_hi'
+                beta_hi_str = 'beta_hi'
+                Ta_hi_str = 'Ta_hi'
+
             # and dkf instructions
             dkf_instructions = Template("""
                 <> lo = 0 {id=lo_init}
@@ -2764,6 +2789,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
                         hi = ${param_ind} + 1 {id=set_hi, dep=hi_init}
                     end
                 end
+                ${plog_preloads}
                 if logP > ${pressure_hi} # out of range above
                     <> dkf = (${beta_hi_str} + ${Ta_hi_str} * Tinv) * Tinv \
                         {id=dkf_init_hi, dep=set_*, nosync=dkf_init_lo}
@@ -3019,7 +3045,10 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         mapstore=mapstore,
         parameters=parameters,
         can_vectorize=can_vectorize,
-        vectorization_specializer=vec_spec
+        vectorization_specializer=vec_spec,
+        # expected vectorized scatter load instructions for plog parameters
+        # with wide vectorization (pressure non-constant between vector-lanes)
+        silenced_warnings=['vectorize_failed']
     )
 
 
