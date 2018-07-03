@@ -126,8 +126,11 @@ def platform_is_gpu(platform):
     return None
 
 
-class storage(object):
+def set_seed(seed=0):
+    np.random.seed(seed)
 
+
+class storage(object):
     def __init__(self, test_platforms, gas, specs, reacs):
         self.test_platforms = test_platforms
         self.gas = gas
@@ -152,7 +155,7 @@ class storage(object):
         self.jac_dim = self.gas.n_species - 1 + 2
 
         # create states
-        np.random.seed(0)
+        set_seed()
         self.T = np.random.uniform(600, 2200, size=test_size)
         self.P = np.random.uniform(0.5, 50, size=test_size) * ct.one_atm
         self.V = np.random.uniform(1e-3, 1, size=test_size)

@@ -24,8 +24,9 @@ from pyjac.utils import enum_to_string, listify
 from pyjac.libgen import build_type
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
     select_elements, get_split_elements, sparsify
+from pyjac.tests import set_seed
 
-np.random.seed(0)
+set_seed()
 
 
 @parameterized([(JacobianType.exact, 'exact'),
