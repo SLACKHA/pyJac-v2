@@ -1917,7 +1917,7 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     pre_instructions = Template("""
     <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) \
         * ${conc_ns_str}) {id=split}
-    <> rate_sum = 0
+    <> rate_sum = 0 {id=rate_sum}
     """).safe_substitute(**locals()).split('\n')
     pre_instructions.extend([
         precompute('Vinv', V_str, 'INV'),
@@ -1927,17 +1927,18 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     jac_update = Template("""
         rate_sum = rate_sum + Vinv * ${jac_str} * \
             (-${spec_energy_str} + ${spec_energy_ns_str} * ${mw_str}) \
-                {id=rate_update, dep=${deps}}
+                {id=rate_update, dep=${deps}, nosync=rate_sum2}
     """).safe_substitute(**locals())
     _, jac_update = jac_create(
         mapstore, namestore.jac, global_ind, var_name, 0, affine={var_name: 2},
-        insn=jac_update, deps='*')
+        insn=jac_update, deps='*:precompute*:rate_sum')
     # and place in inner loop
     instructions = Template("""
         dTsum = dTsum + (${spec_heat_ns_str} * Tinv - ${dspec_heat_str}) \
-            * ${conc_str}
+            * ${conc_str} {id=dTsum_up, dep=split}
         rate_sum = rate_sum + ${wdot_str} * \
-            (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str})
+            (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str}) {id=rate_sum2, \
+                nosync=rate_update, dep=rate_sum}
         ${jac_update}
     """).safe_substitute(**locals())
 
@@ -1948,7 +1949,8 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     # jacobian entry
     jac_lp, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 0, 0,
-        entry_exists=True, insn=post_instructions, deps='rate_update')
+        entry_exists=True, insn=post_instructions,
+        deps='rate_update:dTsum_up:rate_sum*')
     kernel_data.append(jac_lp)
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
