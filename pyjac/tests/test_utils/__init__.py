@@ -1929,6 +1929,48 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
     del run
 
 
+class TestingLogger(object):
+    def start_capture(self, loglevel=logging.DEBUG):
+        """ Start capturing log output to a string buffer.
+            @param newLogLevel: Optionally change the global logging level, e.g.
+            logging.DEBUG
+        """
+        self.buffer = six.StringIO()
+        self.buffer.write("Log output")
+
+        logger = logging.getLogger()
+        if loglevel:
+            self.oldloglevel = logger.getEffectiveLevel()
+            logger.setLevel(loglevel)
+        else:
+            self.oldloglevel = None
+
+        self.loghandler = logging.StreamHandler(self.buffer)
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s "
+                                      "- %(message)s")
+        self.loghandler.setFormatter(formatter)
+        logger.addHandler(self.loghandler)
+
+    def stop_capture(self):
+        """ Stop capturing log output.
+
+        @return: Collected log output as string
+        """
+
+        # Remove our handler
+        logger = logging.getLogger()
+
+        # Restore logging level (if any)
+        if self.oldloglevel is not None:
+            logger.setLevel(self.oldloglevel)
+        logger.removeHandler(self.loghandler)
+
+        self.loghandler.flush()
+        self.buffer.flush()
+
+        return self.buffer.getvalue()
+
+
 __all__ = ["indexer", "get_split_elements", "kernel_runner", "inNd",
            "get_comparable", "combination", "reduce_oploop", "_generic_tester",
-           "_full_kernel_test", "_run_mechanism_tests", "runner"]
+           "_full_kernel_test", "_run_mechanism_tests", "runner", "TestingLogger"]

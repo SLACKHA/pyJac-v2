@@ -326,20 +326,22 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
     logger = logging.getLogger(__name__)
     if not mapstore.is_finalized:
         _, _, line_number, function_name, _, _ = inspect.stack()[1]
-        logger.warn('Call to get_update_instruction() from {0}:{1}'
-                    ' used non-finalized mapstore, finalizing now...'.format(
+        logger.warn('Call to get_update_instruction() from {0}:{1} '
+                    'used non-finalized mapstore, finalizing now...'.format(
                          function_name, line_number))
 
         mapstore.finalize()
 
     # empty mask
     if not mask_arr:
-        return ''
+        # get id for noop anchor
+        idx = re.search(r'id=([^,}]+)', base_update_insn)
+        return '.. noop {{id={id}}}'.format(id=idx.group(1))
 
     # ensure mask array in domains
     assert mask_arr in mapstore.domain_to_nodes, (
         'Cannot create update instruction - mask array '
-        ' {} not in mapstore domains'.format(
+        '{} not in mapstore domains'.format(
             mask_arr.name))
 
     # check to see if there are any empty mask entries
