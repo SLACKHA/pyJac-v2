@@ -2253,7 +2253,8 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     # in the falloff types below)
     factor = 'dci_thd_dT_fac'
     thd_fac = ' * {} * rop_net '.format(V_str)
-    fall_instructions = ''
+    # use a no-op for third body reactions, w/ anchor for dependencies
+    fall_instructions = '... nop {id=dfall_final}'
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dT'
