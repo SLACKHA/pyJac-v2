@@ -592,26 +592,27 @@ def __dcidE(loopy_opts, namestore, test_size=None,
         ${fall_instructions}
         if ${fall_type_str}
             # chemically activated
-            <>kf_0 = ${kf_str} {id=kf_chem}
-            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
+            <>kf_0 = ${kf_str} {id=kf_chem , nosync=kf_fall}
+            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem, nosync=kf_inf_fall}
         else
             # fall-off
-            kf_0 = ${kf_fall_str} {id=kf_fall}
-            kf_inf = ${kf_str} {id=kf_inf_fall}
+            kf_0 = ${kf_fall_str} {id=kf_fall, nosync=kf_chem}
+            kf_inf = ${kf_str} {id=kf_inf_fall, nosync=kf_inf_chem}
         end
         mod = mod${Pfac} * rt_inv * kf_0 / \
             kf_inf {id=mod_final, dep=kf*:mod_mix:mod_spec}
         ${dFi_instructions}
         <> dci_fall_dE = ${pres_mod_str} * \
             ((-mod${conp_theta_pr_fac})/ (${Pr_str} + 1) + \
-                dFi) {id=dci_fall_init}
+                dFi) {id=dci_fall_init, dep=mod_final}
         if not ${fall_type_str}
             # falloff
             dci_fall_dE = dci_fall_dE + ${Fi_str} * mod / (${Pr_str} + 1) \
-                ${conp_theta_pr_outer_fac} {id=dci_fall_up1, dep=dci_fall_init}
+                ${conp_theta_pr_outer_fac} \
+                {id=dci_fall_up1, dep=dci_fall_init:mod_final}
         end
         dci_fall_dE = dci_fall_dE * ${fall_finish} \
-            {id=dci_fall_final, dep=dci_fall_up1}
+            {id=dci_fall_final, dep=dci_fall_up1:rop_net_up}
         """).safe_substitute(**locals())
 
     rop_net_rev_update = ic.get_update_instruction(
@@ -649,10 +650,11 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     thd_mod_insns = Template("""
     ${mod_init}
     if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
-        mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
+        mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init, nosync=mod_spec}
     end
     if ${thd_type_str} == ${spec}
-        mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
+        mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init, \
+            nosync=mod_mix}
     end
     ${mod_update}
     ${thd_factor_set}
