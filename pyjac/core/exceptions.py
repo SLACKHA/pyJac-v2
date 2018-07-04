@@ -43,6 +43,18 @@ class CompilationError(Exception):
         super(CompilationError, self).__init__(self.message)
 
 
+class LinkingError(Exception):
+    """
+    Error during linking
+    """
+
+    def __init__(self, files):
+        if isinstance(files, str):
+            files = [files]
+        self.message = 'Error linking file(s): {}.'.format(','.join(files))
+        super(CompilationError, self).__init__(self.message)
+
+
 class BrokenPlatformError(Exception):
     """
     The combination of platform and vectorization options is broken

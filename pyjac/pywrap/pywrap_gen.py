@@ -5,6 +5,7 @@ import os
 import subprocess
 from string import Template
 import logging
+import multiprocessing
 
 from pyjac.libgen import generate_library, build_type
 from pyjac import siteconf as site
@@ -122,8 +123,8 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
     platform : Optional[str]
         Optional; if specified, the platform for OpenCL execution
     output_full_rop : bool
-        If ``True``, output forward and reversse rates of progress
-        -- Useful in testing, as there are serious floating point errors for
+        If ``True``, output forward and reverse rates of progress
+        -- Useful in testing, as there are floating point errors for
         net production rates near equilibrium, invalidating direct comparison to
         Cantera
     Returns
@@ -181,21 +182,11 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
                    btype=btype)
 
     python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
+    setupfile = os.path.join(home_dir, setupfile[:setupfile.index('.in')])
+    # build
+    call = [python_str, setupfile, 'build_ext', '--build-lib', out_dir,
+            '--build-temp', obj_dir, '-j', str(multiprocessing.cpu_count())]
+    if rpath:
+        call += ['--rpath', rpath]
 
-    # save current
-    cwd = os.getcwd()
-    try:
-        # change to the script dir to avoid long build path
-        os.chdir(home_dir)
-        # buold
-        call = [python_str, os.path.join(home_dir,
-                                         setupfile[:setupfile.index('.in')]),
-                'build_ext', '--build-lib', out_dir
-                ]
-        if rpath:
-            call += ['--rpath', rpath]
-
-        subprocess.check_call(call)
-    finally:
-        # and return to base dir
-        os.chdir(cwd)
+    subprocess.check_call(call)

@@ -1,16 +1,11 @@
-from distutils.core import setup, Extension
-import distutils.ccompiler
-
-from Cython.Distutils import build_ext
-import parallel_compiler as pcc
+from distutils.core import setup
+from distutils.extension import Extension
+from Cython.Build import cythonize
 import numpy
-import os
 
 sources = ['${wrapper}']
 includes = ['$buildpath/', '$homepath/'] + [${extra_include_dirs}]
 includes = [x for x in includes if x.strip()]
-
-distutils.ccompiler.CCompiler.compile = pcc.parallel_compile
 
 ext_modules = [Extension("pyjac_c",
                          sources=sources,
@@ -19,12 +14,10 @@ ext_modules = [Extension("pyjac_c",
                              '-frounding-math', '-fsignaling-nans', '-fopenmp',
                              '-std=c99'],
                          language='c',
-                         extra_objects=[os.path.join('$outpath', '$libname'),
-                                        '-fopenmp']
+                         extra_objects=['$libname', '-fopenmp']
                          )]
 
 setup(
     name='pyjac_c',
-    ext_modules=ext_modules,
-    cmdclass={'build_ext': build_ext}
+    ext_modules=cythonize(ext_modules, include_path=includes)
 )

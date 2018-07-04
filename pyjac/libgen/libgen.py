@@ -12,7 +12,7 @@ import logging
 from pyjac import utils
 from pyjac import siteconf as site
 from enum import Enum
-from pyjac.core.exceptions import CompilationError
+from pyjac.core.exceptions import CompilationError, LinkingError
 
 
 class build_type(Enum):
@@ -245,12 +245,14 @@ def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
         logging.error(
             'Compiler {} not found, generation of pyjac library failed.'.format(
                 command[0]))
-        sys.exit(-1)
+        raise LinkingError([
+            os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
     except subprocess.CalledProcessError as exc:
         logger = logging.getLogger(__name__)
         logger.error('Generation of pyjac library failed with error: {}'.format(
             exc.output))
-        sys.exit(exc.returncode)
+        raise LinkingError([
+            os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
 
     return libname
 
@@ -425,7 +427,7 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
                            source_dir, obj_dir, shared, as_executable)
                for f in files]
 
-    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count)
+    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
     results = pool.imap(compiler, structs)
     pool.close()
     pool.join()
