@@ -9,10 +9,10 @@ import multiprocessing
 import platform
 import logging
 
-from .. import utils
-from .. import siteconf as site
+from pyjac import utils
+from pyjac import siteconf as site
 from enum import Enum
-from ..core.exceptions import CompilationError
+from pyjac.core.exceptions import CompilationError
 
 
 class build_type(Enum):
@@ -425,8 +425,8 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
                            source_dir, obj_dir, shared, as_executable)
                for f in files]
 
-    pool = multiprocessing.Pool()
-    results = pool.map(compiler, structs)
+    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count)
+    results = pool.imap(compiler, structs)
     pool.close()
     pool.join()
     if any(r != 0 for r in results):

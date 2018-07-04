@@ -2,7 +2,7 @@
 """
 
 import multiprocessing
-from multiprocessing.pool import ThreadPool
+from multiprocessing import Pool
 import distutils.ccompiler
 
 N = multiprocessing.cpu_count()
@@ -50,10 +50,15 @@ def parallel_compile(self, sources, output_dir=None, macros=None,
     def _single_compile(obj):
         """Compile single file.
         """
-        try: src, ext = build[obj]
-        except KeyError: return
+        try:
+            src, ext = build[obj]
+        except KeyError:
+            return
         self._compile(obj, src, ext, cc_args, extra_postargs, pp_opts)
 
-    # convert to list, imap is evaluated on-demand
-    list(ThreadPool(N).imap(_single_compile, objects))
+    pool = Pool(N)
+    pool.imap(_single_compile, objects)
+    pool.close()
+    pool.join()
+
     return objects
