@@ -1932,7 +1932,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
 
 
 class TestingLogger(object):
-    def start_capture(self, loglevel=logging.DEBUG):
+    def start_capture(self, logname=None, loglevel=logging.DEBUG):
         """ Start capturing log output to a string buffer.
             @param newLogLevel: Optionally change the global logging level, e.g.
             logging.DEBUG
@@ -1940,7 +1940,10 @@ class TestingLogger(object):
         self.buffer = six.StringIO()
         self.buffer.write("Log output")
 
-        logger = logging.getLogger()
+        if logname:
+            logger = logging.getLogger(logname)
+        else:
+            logger = logging.getLogger()
         if loglevel:
             self.oldloglevel = logger.getEffectiveLevel()
             logger.setLevel(loglevel)

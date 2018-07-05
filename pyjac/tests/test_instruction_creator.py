@@ -35,7 +35,7 @@ def test_get_update_instruction():
     # test #1, non-finalized mapstore produces warming
     # capture logging
     tl = TestingLogger()
-    tl.start_capture()
+    tl.start_capture(logname='pyjac.core.instruction_creator')
 
     get_update_instruction(mapstore, map_domain, 'dummy')
 
