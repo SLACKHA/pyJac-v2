@@ -138,6 +138,9 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
     if out_dir is None:
         out_dir = os.getcwd()
 
+    if obj_dir is None:
+        obj_dir = os.path.join(os.getcwd(), 'obj')
+
     if build_dir is None:
         build_dir = os.path.join('build', distutils_dir_name('temp'))
 
