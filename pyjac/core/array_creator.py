@@ -1801,10 +1801,19 @@ class NameStore(object):
                               dtype=np.float64,
                               order=self.order)
 
+        self.mw_inv = creator('mw_inv', shape=(rate_info['Ns'] - 1,),
+                              initializer=1. / rate_info['mws'][:-1],
+                              dtype=np.float64,
+                              order=self.order)
+
         self.mw_post_arr = creator('mw_factor', shape=(rate_info['Ns'] - 1,),
                                    initializer=rate_info['mw_post'],
                                    dtype=np.float64,
                                    order=self.order)
+
+        self.mw_work = creator('mw_work', shape=(test_size,),
+                               dtype=np.float64,
+                               order=self.order)
 
         # net species rates data
 

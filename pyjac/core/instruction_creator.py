@@ -16,6 +16,7 @@ import loopy as lp
 from loopy.types import AtomicType
 from pytools import UniqueNameGenerator
 import numpy as np
+import six
 
 from pyjac.core.array_creator import var_name, jac_creator
 
@@ -32,12 +33,44 @@ def use_atomics(loopy_opts):
 
     Returns
     -------
-    use_atomics : [bool]
+    use_atomics: bool
         Whether an atomic specializer would be returned by
         :meth:`get_deep_specializer`
     """
 
     return loopy_opts.depth and loopy_opts.use_atomics
+
+
+def get_barrier(loopy_opts, local_memory=True, **loopy_kwds):
+    """
+    Returns the correct barrier type depending on the vectorization type / presence
+    of atomics
+
+    Parameters
+    ----------
+    loopy_opts: :class:`loopy_utils.loopy_opts`
+        The loopy options used to create this kernel.
+    local_memory: bool [True]
+        If true, this barrier will be used for memory in the "local" address spaces.
+        Only applicable to OpenCL
+    loopy_kwds: dict
+        Any other loopy keywords to put in the instruction options
+
+    Returns
+    -------
+    barrier: str
+        The built barrier instruction
+    """
+
+    mem_kind = ''
+    barrier_kind = 'nop'
+    if use_atomics(loopy_opts):
+        mem_kind = 'local' if local_memory else 'global'
+        barrier_kind = 'lbarrier'
+        loopy_kwds['mem_kind'] = mem_kind
+
+    return '...' + barrier_kind + '{' + ', '.join([
+        '{}={}'.format(k, v) for k, v in six.iteritems(loopy_kwds)]) + '}'
 
 
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],

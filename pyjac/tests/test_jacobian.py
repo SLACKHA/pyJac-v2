@@ -2675,8 +2675,7 @@ class SubTest(TestClass):
         kc = kernel_call('index_test', ref_ans, compare_mask=[__get_compare],
                          compare_axis=np.arange(ref_ans.ndim), tiling=False, **args)
 
-        return self._generic_jac_tester(__kernel_creator, kc,
-                                        sparse_only=True)
+        return self._generic_jac_tester(__kernel_creator, kc, sparse_only=True)
 
     @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')

@@ -226,6 +226,7 @@ class storage(object):
         self.ref_Lind = np.ones((test_size, self.lind_inds.size))
         self.ref_Fall = np.ones((test_size, self.fall_inds.size))
         self.ref_B_rev = np.zeros((test_size, gas.n_species))
+        self.mw = np.zeros(test_size)
         # and the corresponding reactions
         fall_reacs = [gas.reaction(j) for j in self.fall_inds]
         sri_reacs = [gas.reaction(j) for j in self.sri_inds]
@@ -243,6 +244,9 @@ class storage(object):
         for i in range(test_size):
             self.gas.TPY = self.T[i], self.P[i], self.Y[i, :]
             self.concs[i, :] = self.gas.concentrations[:]
+            self.mw[i] = self.gas.mean_molecular_weight
+            # and reset Y from gas mass fractions for normalized
+            self.Y[i, :] = self.gas.Y[:]
 
             # set moles
             self.n[i, :] = self.concs[i, :-1] * self.V[i]

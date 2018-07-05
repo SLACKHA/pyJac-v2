@@ -747,8 +747,7 @@ class kernel_call(object):
                  chain=None, check=True, post_process=None,
                  allow_skip=False, other_compare=None, atol=1e-8,
                  rtol=1e-5, equal_nan=False, ref_ans_compare_mask=None,
-                 tiling=True,
-                 **input_args):
+                 tiling=True, **input_args):
         """
         The initializer for the :class:`kernel_call` object
 
