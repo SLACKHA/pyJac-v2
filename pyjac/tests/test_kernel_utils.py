@@ -20,6 +20,7 @@ from pyjac.kernel_utils.memory_manager import memory_limits, memory_type, \
 from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
     _unSIMDable_arrays, knl_info, make_kernel_generator
 from pyjac.loopy_utils import loopy_options
+from pyjac.tests.test_utils import xfail
 
 
 def opts_loop(langs=['opencl'],
@@ -126,6 +127,8 @@ def test_get_kernel_input_and_output():
     assert find_inputs_and_outputs(knl) == set(['b', 'c'])
 
 
+@xfail(msg="Loopy currently doesn't allow vector inames in conditionals, have "
+           "to rethink this test.")
 def test_unsimdable():
     from loopy.kernel.array import (VectorArrayDimTag)
     inds = ('j', 'i')
