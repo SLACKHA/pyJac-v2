@@ -160,25 +160,24 @@ class loopy_options(object):
             used
         *   If a vendor specific string, it will be passed to pyopencl to get
             the platform
-    knl_type : ['mask', 'map']
-        The type of opencl kernels to create:
-        * A masked kernel loops over all available indicies (e.g. reactions)
-            and uses a mask to determine what to do.
-            Note: **Suggested for deep vectorization**
-        * A mapped kernel loops over only necessary indicies
-            (e.g. plog reactions vs all) This may be faster for a
-            non-vectorized kernel or wide-vectorization
+    use_working_buffers : bool [True]
+        If True, use internal working buffers where appropriate.  The main effect
+        of this option is that the typical array size (e.g.,):
+            ```
+                arr.shape = (problem_size, X, Y)
+            ```
+        may be dropped down to:
+            ```
+                arr.shape = (num_threads, X, Y)
+            ```
+        potentially saving huge amounts of memory.  However, this won't be usable
+        for unit-testing until loopy's new kernel-calling interface is complete.
     use_atomic_doubles : bool [True]
         Use atomic updates where necessary for proper deep-vectorization
         If not, a sequential deep-vectorization (with only one thread/lane
         active) will be used
     use_atomic_ints : bool [True]
         Use atomic integer operations for the driver kernel.
-    use_private_memory : bool [False]
-        If True, use private CUDA/OpenCL memory for internal work arrays (e.g.,
-        concentrations).  If False, use global device memory (requiring passing in
-        from kernel call). Note for C use_private_memory==True corresponds to
-        stack based memory allocation
     jac_type: :class:`JacobianType` [JacobianType.full]
         The type of Jacobian kernel (full or approximate) to generate
     jac_format: :class:`JacobianFormat` [JacobianFormat.full]
@@ -194,7 +193,7 @@ class loopy_options(object):
                  rate_spec_kernels=False, rop_net_kernels=False,
                  platform='', knl_type='map', auto_diff=False,
                  use_atomic_doubles=True, use_atomic_ints=True,
-                 use_private_memory=False, jac_type=JacobianType.exact,
+                 use_working_buffers=True, jac_type=JacobianType.exact,
                  jac_format=JacobianFormat.full, seperate_kernels=True,
                  device=None, device_type=None, is_simd=None):
         self.width = width
@@ -217,12 +216,10 @@ class loopy_options(object):
         self.platform = platform
         self.device_type = device_type
         self.device = device
-        assert knl_type in ['mask', 'map']
-        self.knl_type = knl_type
         self.auto_diff = auto_diff
         self.use_atomic_doubles = use_atomic_doubles
         self.use_atomic_ints = use_atomic_ints
-        self.use_private_memory = use_private_memory
+        self.use_working_buffers = use_working_buffers
         self.jac_format = jac_format
         self.jac_type = jac_type
         self.seperate_kernels = seperate_kernels

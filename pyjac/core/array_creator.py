@@ -623,12 +623,6 @@ class MapStore(object):
 
     loopy_opts : :class:`LoopyOptions`
         The loopy options for kernel creation
-    use_private_memory : Bool [False]
-        If True, use _private_ OpenCL/CUDA/etc. memory for array creation.
-        If False, use _global_ memory.
-    knl_type : ['map', 'mask']
-        The kernel mapping / masking type.  Controls whether this kernel should
-        generate maps vs masks and the index ranges
     map_domain : :class:`creator`
         The domain of the iname to use for a mapped kernel
     mask_domain : :class:`creator`
@@ -649,8 +643,6 @@ class MapStore(object):
     def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
                  raise_on_final=True):
         self.loopy_opts = loopy_opts
-        self.use_private_memory = loopy_opts.use_private_memory
-        self.knl_type = loopy_opts.knl_type
         self.map_domain = map_domain
         self.mask_domain = mask_domain
         self._check_is_valid_domain(self.map_domain)
@@ -671,7 +663,7 @@ class MapStore(object):
         Return true if map kernel
         """
 
-        return self.knl_type == 'map'
+        return True
 
     @property
     def transform_insns(self):
@@ -973,12 +965,7 @@ class MapStore(object):
         """
         Conviencience method to get domain agnostic of map / mask type
         """
-        if self.knl_type == 'map':
-            return self.map_domain
-        elif self.knl_type == 'mask':
-            return self.mask_domain
-        else:
-            raise NotImplementedError
+        return self.map_domain
 
     def check_and_add_transform(self, variable, domain, iname=None,
                                 force_inline=False):
@@ -1564,15 +1551,16 @@ class NameStore(object):
         If true, use the constant pressure formulation
     test_size : str or int
         Optional size used in testing.  If not supplied, this is a kernel arg
-    use_private_memory : Bool [False]
-        If True, use _private_ OpenCL/CUDA/etc. memory for array creation.
-        If False, use _global_ memory.
+    use_working_buffers : bool
+        If True, use internal buffers for OpenCL/CUDA/etc. array creation
+        where possible. If False, use full sized arrays.
+    kernel_type:
     """
 
-    def __init__(self, loopy_opts, rate_info, conp=True,
-                 test_size='problem_size'):
+    def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size',
+                 ):
         self.loopy_opts = loopy_opts
-        self.use_private_memory = loopy_opts.use_private_memory
+        self.use_working_buffers = loopy_opts.use_working_buffers
         self.rate_info = rate_info
         self.order = loopy_opts.order
         self.test_size = test_size
@@ -1589,15 +1577,6 @@ class NameStore(object):
             return super(NameStore, self).__getattr__(self, name)
         except AttributeError:
             return None
-
-    def __check(self, add_map=True):
-        """ Ensures that maps are only added to map kernels etc. """
-        if add_map:
-            assert self.loopy_opts.knl_type == 'map', ('Cannot add'
-                                                       ' map to mask kernel')
-        else:
-            assert self.loopy_opts.knl_type == 'mask', ('Cannot add'
-                                                        ' mask to map kernel')
 
     def __make_offset(self, arr):
         """

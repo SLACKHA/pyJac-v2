@@ -1201,11 +1201,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             logger.info('Skipping bad platform: {}'.format(e.message))
             continue
 
-        # check to see if device is CPU
-        # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
-        #        and (not bool(opts.depth) or not opts.use_atomic_doubles):
-        #    opts.use_private_memory = True
-
         conp = state['conp']
 
         # generate kernel
