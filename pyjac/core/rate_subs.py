@@ -24,7 +24,7 @@ from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac import utils
 from pyjac.core import chem_model as chem
 from pyjac.kernel_utils import kernel_gen as k_gen
-from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.core import instruction_creator as ic

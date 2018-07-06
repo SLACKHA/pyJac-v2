@@ -16,7 +16,7 @@ from pyjac.core.exceptions import BrokenPlatformError
 from pyjac.loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
                                            kernel_call)
 from pyjac.tests import TestClass, test_utils, get_test_langs
-from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
 from pyjac.tests.test_utils import (get_comparable, indexer, _generic_tester,
                                     _full_kernel_test)
 from pyjac.libgen import build_type

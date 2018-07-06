@@ -9,6 +9,7 @@ from cantera import __version__ as ct_version
 from pyjac.tests import script_dir
 from pyjac.core.mech_interpret import read_mech, read_mech_ct
 from pyjac.tests.test_utils import xfail
+from pyjac.core.enum_types import reaction_sorting
 
 
 ck_file = os.path.join(script_dir, 'test.inp')
@@ -64,3 +65,44 @@ def test_equality_checking():
     assert specs_ck[0] == specs_cti[0]
     for i in range(1, len(specs_ck)):
         assert specs_ck[0] != specs_cti[i]
+
+
+def test_mechanism_sorting():
+    # perform sort
+    _, specs_ck, reacs_ck = read_mech(ck_file, None, reaction_sorting.simd)
+    # ensure we have a good sort
+    from pyjac.core.enum_types import (
+        reaction_type, falloff_form, reversible_type, thd_body_type)
+
+    enum_order = (reaction_type, falloff_form, thd_body_type, reversible_type)
+
+    def check(start=0, end=len(reacs_ck), depth=0):
+        if depth == len(enum_order):
+            return
+        for enum in enum_order[depth]:
+            this_start = None
+            this_end = None
+            # pass #1, find start and end of this enum
+            for i in range(start, end):
+                if reacs_ck[i].match(enum) and this_start is None:
+                    this_start = i
+                    continue
+                if not reacs_ck[i].match(enum) and (
+                        this_end is None and this_start is not None):
+                    # end of this section
+                    this_end = i - 1
+                    break
+                elif this_start is not None:
+                    # should all by of this type
+                    assert reacs_ck[i].match(enum)
+
+            if this_start is None:
+                # no matches, nothing futher to check for this enum
+                continue
+            if this_end is None:
+                # all matches
+                this_end = end
+
+            check(this_start, this_end, depth+1)
+
+    check()

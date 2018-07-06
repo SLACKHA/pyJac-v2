@@ -43,3 +43,8 @@ class reversible_type(Enum):
 
     def __int__(self):
         return self.value
+
+
+class reaction_sorting(Enum):
+    none = 0,
+    simd = 1

@@ -32,7 +32,7 @@ from pyjac.core.create_jacobian import (
     determine_jac_inds, reset_arrays, get_jacobian_kernel,
     finite_difference_jacobian)
 from pyjac.core import array_creator as arc
-from pyjac.core.reaction_types import reaction_type, falloff_form
+from pyjac.core.enum_types import reaction_type, falloff_form
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.tests import get_test_langs, TestClass
 from pyjac.tests.test_utils import (

@@ -31,7 +31,7 @@ from pyjac.loopy_utils import JacobianType, JacobianFormat, \
     FiniteDifferenceMode, load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
-from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
 from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
