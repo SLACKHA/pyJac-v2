@@ -25,10 +25,11 @@ from pyjac import utils
 from pyjac.core import mech_interpret as mech
 from pyjac.core import rate_subs as rate
 from pyjac.core import mech_auxiliary as aux
+from pyjac.core.enum_types import (JacobianType, JacobianFormat,
+    FiniteDifferenceMode, RateSpecialization)
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
-from pyjac.loopy_utils import JacobianType, JacobianFormat, \
-    FiniteDifferenceMode, load_platform
+from pyjac.loopy_utils import load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
@@ -5359,7 +5360,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         raise InvalidInputSpecificationException(['wide', 'deep', 'vector_size'])
 
     # convert enums
-    rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(
+    rate_spec_val = utils.EnumType(RateSpecialization)(
         rate_specialization.lower())
     jac_format = utils.EnumType(JacobianFormat)(
         jac_format.lower())
@@ -5368,7 +5369,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
     if jac_type == JacobianType.finite_difference:
         # convert mode
-        fd_mode = utils.EnumType(lp_utils.FiniteDifferenceMode)(
+        fd_mode = utils.EnumType(FiniteDifferenceMode)(
             fd_mode.lower())
 
     # load platform if supplied

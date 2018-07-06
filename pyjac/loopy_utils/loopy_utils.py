@@ -8,7 +8,6 @@ import six
 from string import Template
 
 # package imports
-from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
@@ -23,6 +22,7 @@ except ImportError:
 
 # local imports
 from pyjac import utils
+from pyjac.core.enum_types import (RateSpecialization, JacobianType, JacobianFormat)
 from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
@@ -32,53 +32,6 @@ edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                            'loopy_edit_script.py')
 adept_edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                                  'adept_edit_script.py')
-
-
-class RateSpecialization(IntEnum):
-    fixed = 0,
-    hybrid = 1,
-    full = 2
-
-
-class JacobianType(IntEnum):
-    """
-    The Jacobian type to be constructed.
-
-    - An exact Jacobian has no approximations for reactions including the last
-      species,
-    - An approximate Jacobian ignores the derivatives of these reactions from
-      species not directly involved (i.e. fwd/rev stoich coeff == 0, and not a third
-      body species) while in a reaction including the last species
-    - A finite differnce Jacobian is constructed from finite differences of the
-      species rate kernel
-    """
-    exact = 0,
-    approximate = 1,
-    finite_difference = 2
-
-    # TODO - provide an "approximate" FD?
-
-
-class JacobianFormat(IntEnum):
-    """
-    The Jacobian format to use, full or sparse.
-
-    A full Jacobian will include all zeros, while a sparse Jacobian will use either
-    a Compressed Row/Column storage based format depending on the data-order ('C'
-    and 'F' respectively)
-    """
-    full = 0,
-    sparse = 1
-
-
-class FiniteDifferenceMode(IntEnum):
-    """
-    The mode of finite differences--forwards, backwards or central--used to create
-    the finite difference Jacobian
-    """
-    forward = 0,
-    central = 1,
-    backward = 2
 
 
 def load_platform(codegen):

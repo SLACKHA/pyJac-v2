@@ -8,10 +8,9 @@ import six
 from optionloop import OptionLoop
 
 from pyjac.tests import _get_test_input, get_test_langs, platform_is_gpu
-from pyjac.libgen import build_type
+from pyjac.core.enum_types import kernel_type, JacobianType, JacobianFormat
 from pyjac.utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
     stringify_args
-from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidTestEnivironmentException, \
@@ -230,7 +229,7 @@ jacobian_sub_override_keys['both'] = jacobian_sub_override_keys.copy()
 allowed_override_keys = {
     enum_to_string(JacobianType.exact): jacobian_sub_override_keys,
     enum_to_string(JacobianType.finite_difference): jacobian_sub_override_keys,
-    enum_to_string(build_type.species_rates): allowed_overrides}
+    enum_to_string(kernel_type.species_rates): allowed_overrides}
 # and add handlers here
 
 
@@ -260,8 +259,8 @@ def load_tests(matrix, filename):
             return JacobianType
         except ArgumentTypeError:
             try:
-                EnumType(build_type)(ttype)
-                return build_type
+                EnumType(kernel_type)(ttype)
+                return kernel_type
             except:
                 EnumType(JacobianFormat)(ttype)
                 return JacobianFormat
@@ -272,9 +271,9 @@ def load_tests(matrix, filename):
         descriptors = [test['test-type'] + ' - ' + test['eval-type']]
         if test['eval-type'] == 'both':
             descriptors = [test['test-type'] + ' - ' + enum_to_string(
-                                build_type.jacobian),
+                                kernel_type.jacobian),
                            test['test-type'] + ' - ' + enum_to_string(
-                                build_type.species_rates)]
+                                kernel_type.species_rates)]
         if set(descriptors) & dupes:
             raise DuplicateTestException(test['test-type'], test['eval-type'],
                                          filename)
@@ -360,14 +359,14 @@ def get_overrides(test, eval_type, jac_type, sparse_type):
     test: dict
         The test with specified overrides
     eval_type: str
-        The stringified :class:`build_type`
+        The stringified :class:`kernel_type`
     jac_type: str
         The stringified :class:`JacobianType`
     sparse_type: str
         The stringified :class:`JacobianFormat`
     """
 
-    if eval_type == enum_to_string(build_type.species_rates):
+    if eval_type == enum_to_string(kernel_type.species_rates):
         if eval_type in test:
             return test[eval_type].copy()
         return {}
@@ -395,7 +394,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     ----------
     work_dir : str
         Working directory with mechanisms and for data
-    test_type: :class:`build_type.jacobian`
+    test_type: :class:`kernel_type.jacobian`
         Controls some testing options (e.g., whether to do a sparse matrix or not)
     test_matrix: str
         The test matrix file to load
@@ -437,7 +436,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
 
     # load the models
     models = load_models(work_dir, test_matrix)
-    assert isinstance(test_type, build_type)
+    assert isinstance(test_type, kernel_type)
 
     # load tests
     tests = load_tests(test_matrix, matrix_name)
@@ -454,15 +453,15 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                          test_type)))
 
     # get defaults we haven't migrated to schema yet
-    rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
+    rate_spec = ['fixed', 'hybrid'] if test_type != kernel_type.jacobian \
         else ['fixed']
     sparse = ([enum_to_string(JacobianFormat.sparse),
                enum_to_string(JacobianFormat.full)]
-              if test_type == build_type.jacobian else [
+              if test_type == kernel_type.jacobian else [
                enum_to_string(JacobianFormat.full)])
     jac_types = [enum_to_string(JacobianType.exact),
                  enum_to_string(JacobianType.finite_difference)] if (
-                    test_type == build_type.jacobian and not for_validation) else [
+                    test_type == kernel_type.jacobian and not for_validation) else [
                  enum_to_string(JacobianType.exact)]
     split_kernels = [False]
 

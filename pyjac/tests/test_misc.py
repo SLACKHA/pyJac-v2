@@ -18,10 +18,10 @@ except ImportError:
     csc_matrix = None
 
 # local includes
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType, kernel_call
+from pyjac.loopy_utils.loopy_utils import kernel_call
 from pyjac.core.array_creator import array_splitter
 from pyjac.utils import enum_to_string, listify
-from pyjac.libgen import build_type
+from pyjac.core.enum_types import (kernel_type, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
     select_elements, get_split_elements, sparsify
 from pyjac.tests import set_seed
@@ -34,9 +34,9 @@ set_seed()
                 (JacobianType.finite_difference, 'finite_difference'),
                 (JacobianFormat.sparse, 'sparse'),
                 (JacobianFormat.full, 'full'),
-                (build_type.chem_utils, 'chem_utils'),
-                (build_type.species_rates, 'species_rates'),
-                (build_type.jacobian, 'jacobian')])
+                (kernel_type.chem_utils, 'chem_utils'),
+                (kernel_type.species_rates, 'species_rates'),
+                (kernel_type.jacobian, 'jacobian')])
 def test_enum_to_string(enum, string):
     assert enum_to_string(enum) == string
 

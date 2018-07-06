@@ -27,10 +27,10 @@ from pyjac.tests.test_jacobian import _get_fd_jacobian
 from pyjac.tests.test_utils import parse_split_index, _run_mechanism_tests, runner, \
     inNd
 from pyjac.tests import test_utils, get_matrix_file, _get_test_input
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
-from pyjac.libgen import build_type, generate_library
+from pyjac.core.enum_types import (kernel_type, RateSpecialization)
+from pyjac.libgen import generate_library
 from pyjac.core.create_jacobian import determine_jac_inds
-from pyjac.utils import EnumType, inf_cutoff
+from pyjac.utils import inf_cutoff
 
 
 def getf(x):
@@ -281,7 +281,7 @@ class hdf5_store(object):
 
 
 class validation_runner(runner, hdf5_store):
-    def __init__(self, eval_class, rtype=build_type.jacobian):
+    def __init__(self, eval_class, rtype=kernel_type.jacobian):
         """Runs validation testing for pyJac for a mechanism
 
         Properties
@@ -289,7 +289,7 @@ class validation_runner(runner, hdf5_store):
         eval_class: :class:`eval`
             Evaluate the answer and error for the current state, called on every
             iteration
-        rtype: :class:`build_type` [build_type.jacobian]
+        rtype: :class:`kernel_type` [kernel_type.jacobian]
             The type of test to run
         """
 
@@ -1351,7 +1351,7 @@ def species_rate_tester(work_dir='error_checking', test_matrix=None, prefix=''):
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
 
-    valid = validation_runner(spec_rate_eval, build_type.species_rates)
+    valid = validation_runner(spec_rate_eval, kernel_type.species_rates)
     _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
                          raise_on_missing=raise_on_missing)
 
@@ -1383,6 +1383,6 @@ def jacobian_tester(work_dir='error_checking', test_matrix=None, prefix=''):
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
 
-    valid = validation_runner(jacobian_eval, build_type.jacobian)
+    valid = validation_runner(jacobian_eval, kernel_type.jacobian)
     _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
                          raise_on_missing=raise_on_missing)

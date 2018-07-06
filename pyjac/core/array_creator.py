@@ -11,7 +11,7 @@ from string import Template
 import loopy as lp
 import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
+from pyjac.core.enum_types import JacobianFormat, JacobianType
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.utils import listify
 
@@ -1554,7 +1554,8 @@ class NameStore(object):
     use_working_buffers : bool
         If True, use internal buffers for OpenCL/CUDA/etc. array creation
         where possible. If False, use full sized arrays.
-    kernel_type:
+    kernel_type: :class:`pyjac.enum_types.kernel_type`
+
     """
 
     def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size',

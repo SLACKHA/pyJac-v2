@@ -15,8 +15,7 @@ from tempfile import NamedTemporaryFile
 from pytools.py_codegen import remove_common_indentation
 
 # internal
-from pyjac.libgen.libgen import build_type
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
+from pyjac.core.enum_types import kernel_type, JacobianFormat, JacobianType
 from pyjac.utils import func_logger, enum_to_string, listify, is_iterable
 from pyjac.tests.test_utils import xfail
 from pyjac.tests import script_dir as test_mech_dir
@@ -160,9 +159,9 @@ def test_parse_models():
             else:
                 root = root[stype]
 
-    __test_limit(build_type.species_rates, 10000000)
-    __test_limit([build_type.jacobian, JacobianFormat.sparse], 100000)
-    __test_limit([build_type.jacobian, JacobianFormat.full], 1000)
+    __test_limit(kernel_type.species_rates, 10000000)
+    __test_limit([kernel_type.jacobian, JacobianFormat.sparse], 100000)
+    __test_limit([kernel_type.jacobian, JacobianFormat.full], 1000)
 
     # test gri-mech
     assert 'CH4' in models
@@ -386,7 +385,7 @@ def test_get_test_matrix():
     test_matrix = __prefixify('test_matrix.yaml', examples_dir)
 
     # get the species validation test
-    _, loop, max_vec_width = get_test_matrix('.', build_type.species_rates,
+    _, loop, max_vec_width = get_test_matrix('.', kernel_type.species_rates,
                                              test_matrix, True,
                                              langs=current_test_langs,
                                              raise_on_missing=True)
@@ -414,7 +413,7 @@ def test_get_test_matrix():
     run(base, loop, final_checks=check_final_vecsizes)
 
     # repeat for jacobian
-    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+    _, loop, _ = get_test_matrix('.', kernel_type.jacobian,
                                  test_matrix, True,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
@@ -427,7 +426,7 @@ def test_get_test_matrix():
     run(jacbase, loop, final_checks=check_final_vecsizes)
 
     # next, do species performance
-    _, loop, _ = get_test_matrix('.', build_type.species_rates,
+    _, loop, _ = get_test_matrix('.', kernel_type.species_rates,
                                  test_matrix, False,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
@@ -436,7 +435,7 @@ def test_get_test_matrix():
     run(want, loop, final_checks=check_final_vecsizes)
 
     # and finally, the Jacobian performance
-    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+    _, loop, _ = get_test_matrix('.', kernel_type.jacobian,
                                  test_matrix, False,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
@@ -491,7 +490,7 @@ def test_get_test_matrix():
         """)
         file.flush()
 
-        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+        _, loop, _ = get_test_matrix('.', kernel_type.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
@@ -540,7 +539,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
-        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+        _, loop, _ = get_test_matrix('.', kernel_type.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
@@ -579,7 +578,7 @@ def test_get_test_matrix():
         file.flush()
 
         with assert_raises(InvalidOverrideException):
-            get_test_matrix('.', build_type.jacobian,
+            get_test_matrix('.', kernel_type.jacobian,
                             file.name, False,
                             langs=current_test_langs,
                             raise_on_missing=True)
@@ -612,7 +611,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
-        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+        _, loop, _ = get_test_matrix('.', kernel_type.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
@@ -657,7 +656,7 @@ def test_get_test_matrix():
                         models: []
             """))
         file.flush()
-        _, loop, _ = get_test_matrix('.', build_type.species_rates,
+        _, loop, _ = get_test_matrix('.', kernel_type.species_rates,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)

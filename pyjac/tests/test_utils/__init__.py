@@ -14,21 +14,20 @@ import collections
 from nose import SkipTest
 
 from pyjac.loopy_utils.loopy_utils import (
-    get_device_list, kernel_call, populate,
-    auto_run, RateSpecialization, loopy_options,
-    JacobianType, JacobianFormat)
+    get_device_list, kernel_call, populate, auto_run, loopy_options)
+from pyjac.core.enum_types import RateSpecialization, JacobianType, JacobianFormat
 from pyjac.core.exceptions import MissingPlatformError, BrokenPlatformError
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.pywrap import generate_wrapper
 from pyjac import utils
-from pyjac.libgen import build_type
+from pyjac.core.enum_types import kernel_type
 from pyjac.tests import platform_is_gpu, _get_test_input
 from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix
-except:
+except ImportError:
     csr_matrix = None
     csc_matrix = None
 
@@ -38,7 +37,7 @@ import numpy as np
 try:
     # compatability for older numpy
     np_divmod = np.divmod
-except:
+except AttributeError:
     def np_divmod(a, b, **kwargs):
         div, mod = divmod(a, b)
         return np.asarray(div, **kwargs), np.asarray(mod, **kwargs)
@@ -1535,9 +1534,9 @@ class runner(object):
     A base class for running the :func:`_run_mechanism_tests`
     """
 
-    def __init__(self, filetype, rtype=build_type.jacobian):
+    def __init__(self, filetype, rtype=kernel_type.jacobian):
         self.rtype = rtype
-        self.descriptor = 'jac' if rtype == build_type.jacobian else 'spec'
+        self.descriptor = 'jac' if rtype == kernel_type.jacobian else 'spec'
         self.filetype = filetype
 
     def pre(self, gas, data, num_conditions, max_vec_width):
@@ -1583,7 +1582,7 @@ class runner(object):
         rtype_str = str(self.rtype)
         rtype_str = rtype_str[rtype_str.index('.') + 1:]
         if limits and rtype_str in limits:
-            if self.rtype == build_type.jacobian:
+            if self.rtype == kernel_type.jacobian:
                 # check sparsity
                 if state['sparse'] in limits[rtype_str]:
                     return limits[rtype_str][state['sparse']]
@@ -1596,7 +1595,7 @@ class runner(object):
         # store vector size
         self.current_vecsize = state['vecsize']
         desc = self.descriptor
-        if self.rtype == build_type.jacobian:
+        if self.rtype == kernel_type.jacobian:
             desc += '_sparse' if utils.EnumType(JacobianFormat)(state['sparse'])\
                  == JacobianFormat.sparse else '_full'
         if utils.EnumType(JacobianType)(state['jac_type']) == \
@@ -1788,8 +1787,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     new=lim))
 
             for btype in mech_info['limits']:
-                btype = __try_convert(build_type, btype)
-                if btype == build_type.jacobian:
+                btype = __try_convert(kernel_type, btype)
+                if btype == kernel_type.jacobian:
                     __change_limit([btype, JacobianFormat.sparse])
                     __change_limit([btype, JacobianFormat.full])
                 else:
@@ -1881,14 +1880,14 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     deep=deep,
                                     data_order=order,
                                     build_path=my_build,
-                                    skip_jac=rtype == build_type.species_rates,
+                                    skip_jac=rtype == kernel_type.species_rates,
                                     platform=platform,
                                     data_filename=phi_path,
                                     split_rate_kernels=split_kernels,
                                     rate_specialization=rate_spec,
                                     split_rop_net_kernels=split_kernels,
                                     output_full_rop=(
-                                        rtype == build_type.species_rates
+                                        rtype == kernel_type.species_rates
                                         and for_validation),
                                     conp=conp,
                                     use_atomic_doubles=state['use_atomic_doubles'],

@@ -21,8 +21,8 @@ from pyjac.core.rate_subs import (
     polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
     get_rev_rates, get_temperature_rate, get_extra_var_rates)
 from pyjac.loopy_utils.loopy_utils import (
-    loopy_options, RateSpecialization, kernel_call, set_adept_editor, populate,
-    FiniteDifferenceMode, get_target)
+    loopy_options, kernel_call, set_adept_editor, populate, get_target)
+from pyjac.core.enum_types import RateSpecialization, FiniteDifferenceMode
 from pyjac.core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
@@ -38,7 +38,7 @@ from pyjac.tests import get_test_langs, TestClass
 from pyjac.tests.test_utils import (
     kernel_runner, get_comparable, _generic_tester,
     _full_kernel_test, with_check_inds, inNd, skipif)
-from pyjac.libgen import build_type
+from pyjac.core.enum_types import kernel_type
 from pyjac import utils
 
 
@@ -2450,13 +2450,13 @@ class SubTest(TestClass):
 
         @ic.with_conditional_jacobian
         def __kernel_creator(loopy_opts, namestore, test_size=None, jac_create=None):
-            from ..loopy_utils.loopy_utils import JacobianFormat
+            from pyjac.core.enum_types import JacobianFormat
             if loopy_opts.jac_format != JacobianFormat.sparse:
                 raise SkipTest('Not relevant')
-            from ..core import array_creator as arc
-            from ..kernel_utils.kernel_gen import knl_info
+            from pyjac.core import array_creator as arc
+            from pyjac.kernel_utils.kernel_gen import knl_info
             from string import Template
-            from ..loopy_utils.preambles_and_manglers import jac_indirect_lookup
+            from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
             # get ptrs and inds
             if loopy_opts.order == 'C':
                 inds = namestore.jac_col_inds
@@ -2682,7 +2682,7 @@ class SubTest(TestClass):
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=build_type.jacobian, call_name='jacobian')
+                          btype=kernel_type.jacobian, call_name='jacobian')
 
     @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
@@ -2781,7 +2781,7 @@ class SubTest(TestClass):
         # we meet some _reasonable_ (but large) tolerances
         _full_kernel_test(self, lang, finite_difference_jacobian, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=build_type.jacobian, call_name='jacobian',
+                          btype=kernel_type.jacobian, call_name='jacobian',
                           do_finite_difference=True,
                           atol=100, rtol=100, loose_rtol=1e7, loose_atol=100,
                           looser_tol_finder=__looser_tol_finder,

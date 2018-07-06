@@ -20,11 +20,11 @@ import numpy as np
 from loopy.kernel.data import temp_var_scope as scopes
 
 # Local imports
-from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac import utils
 from pyjac.core import chem_model as chem
 from pyjac.kernel_utils import kernel_gen as k_gen
-from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type,\
+    RateSpecialization
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.core import instruction_creator as ic
@@ -61,7 +61,7 @@ def assign_rates(reacs, specs, rate_spec):
         1 -> kf = A * T * T * T ...
         2 -> kf = exp(logA + b * logT - Ta / T)
 
-    if rate_spec == lp_utils.rate_specialization.fixed
+    if rate_spec == RateSpecialization.fixed
         0 -> kf = exp(logA + b * logT - Ta / T)
 
     Note that the reactions in 'fall', 'chem' and 'thd' are also in
@@ -76,11 +76,11 @@ def assign_rates(reacs, specs, rate_spec):
         offset, maps, etc.
     """
 
-    assert rate_spec in lp_utils.RateSpecialization
+    assert rate_spec in RateSpecialization
     # determine specialization
-    full = rate_spec == lp_utils.RateSpecialization.full
-    # hybrid = rate_spec == lp_utils.RateSpecialization.hybrid
-    fixed = rate_spec == lp_utils.RateSpecialization.fixed
+    full = rate_spec == RateSpecialization.full
+    # hybrid = rate_spec == RateSpecialization.hybrid
+    fixed = rate_spec == RateSpecialization.fixed
 
     # find fwd / reverse rate parameters
     # first, the number of each
@@ -2616,9 +2616,9 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         rdomain = get_rdomain
 
     # first assign the reac types, parameters
-    full = loopy_opts.rate_spec == lp_utils.RateSpecialization.full
-    hybrid = loopy_opts.rate_spec == lp_utils.RateSpecialization.hybrid
-    fixed = loopy_opts.rate_spec == lp_utils.RateSpecialization.fixed
+    full = loopy_opts.rate_spec == RateSpecialization.full
+    hybrid = loopy_opts.rate_spec == RateSpecialization.hybrid
+    fixed = loopy_opts.rate_spec == RateSpecialization.fixed
     separated_kernels = loopy_opts.rate_spec_kernels
     logger = logging.getLogger(__name__)
     if fixed and separated_kernels:

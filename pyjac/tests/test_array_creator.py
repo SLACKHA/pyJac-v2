@@ -5,7 +5,7 @@ from six.moves import range
 from pyjac.core import array_creator as arc
 from pyjac.tests import TestClass
 from pyjac.core.rate_subs import assign_rates
-from pyjac.loopy_utils.loopy_utils import RateSpecialization
+from pyjac.core.enum_types import RateSpecialization
 
 # nose tools
 from nose.tools import assert_raises

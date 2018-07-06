@@ -13,13 +13,12 @@ from pyjac.core.rate_subs import (
     get_temperature_rate, get_concentrations,
     get_molar_rates, get_extra_var_rates, reset_arrays)
 from pyjac.core.exceptions import BrokenPlatformError
-from pyjac.loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
-                                           kernel_call)
+from pyjac.loopy_utils.loopy_utils import (loopy_options, kernel_call)
 from pyjac.tests import TestClass, test_utils, get_test_langs
-from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
+    kernel_type, RateSpecialization
 from pyjac.tests.test_utils import (get_comparable, indexer, _generic_tester,
                                     _full_kernel_test)
-from pyjac.libgen import build_type
 
 # modules
 import cantera as ct
@@ -989,5 +988,5 @@ class SubTest(TestClass):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp
                           else self.store.dphi_cv,
-                          btype=build_type.species_rates, call_name='species_rates',
+                          btype=kernel_type.species_rates, call_name='species_rates',
                           loose_rtol=5e-3)
