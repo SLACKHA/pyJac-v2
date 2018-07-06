@@ -157,8 +157,10 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                     inner_loop.append((x, None))
 
             # check for atomics
-            if 'atomics' in p:
-                inner_loop.append(('use_atomics', p['atomics']))
+            if 'atomic_doubles' in p:
+                inner_loop.append(('use_atomic_doubles', p['atomic_doubles']))
+            if 'atomic_ints' in p:
+                inner_loop.append(('use_atomic_ints', p['atomic_ints']))
 
             # and store platform
             inner_loop.append(('platform', p['name']))
@@ -196,11 +198,16 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                             devices = p.get_devices(dev_type)
                             if devices:
                                 plist = [('platform', p.name)]
-                                use_atomics = False
-                                if 'cl_khr_int64_base_atomics' in \
-                                        devices[0].extensions:
-                                    use_atomics = True
-                                plist.append(('use_atomics', use_atomics))
+                                use_atomic_doubles = (
+                                    'cl_khr_int64_base_atomics' in
+                                    devices[0].extensions)
+                                use_atomic_ints = (
+                                    'cl_khr_global_int32_base_atomics' in
+                                    devices[0].extensions)
+                                plist.append(('use_atomic_doubles',
+                                              use_atomic_doubles))
+                                plist.append(('use_atomic_ints',
+                                              use_atomic_ints))
                                 platform_list.append(plist)
                     for p in platform_list:
                         # create option loop and add

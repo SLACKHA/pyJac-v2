@@ -114,8 +114,10 @@ def load_platform(codegen):
     kwargs = {}
     if 'order' in platform and platform['order'] is not None:
         kwargs['order'] = platform['order']
-    if 'atomics' in platform:
-        kwargs['use_atomics'] = platform['atomics']
+    if 'atomic_doubles' in platform:
+        kwargs['use_atomic_doubles'] = platform['atomic_doubles']
+    if 'atomic_ints' in platform:
+        kwargs['use_atomic_ints'] = platform['atomic_ints']
     return loopy_options(width=width, depth=depth, lang=platform['lang'],
                          platform=platform['name'], **kwargs)
 
@@ -166,10 +168,12 @@ class loopy_options(object):
         * A mapped kernel loops over only necessary indicies
             (e.g. plog reactions vs all) This may be faster for a
             non-vectorized kernel or wide-vectorization
-    use_atomics : bool [True]
+    use_atomic_doubles : bool [True]
         Use atomic updates where necessary for proper deep-vectorization
         If not, a sequential deep-vectorization (with only one thread/lane
         active) will be used
+    use_atomic_ints : bool [True]
+        Use atomic integer operations for the driver kernel.
     use_private_memory : bool [False]
         If True, use private CUDA/OpenCL memory for internal work arrays (e.g.,
         concentrations).  If False, use global device memory (requiring passing in
@@ -188,7 +192,8 @@ class loopy_options(object):
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False, rop_net_kernels=False,
-                 platform='', knl_type='map', auto_diff=False, use_atomics=True,
+                 platform='', knl_type='map', auto_diff=False,
+                 use_atomic_doubles=True, use_atomic_ints=True,
                  use_private_memory=False, jac_type=JacobianType.exact,
                  jac_format=JacobianFormat.full, seperate_kernels=True,
                  device=None, device_type=None, is_simd=None):
@@ -215,7 +220,8 @@ class loopy_options(object):
         assert knl_type in ['mask', 'map']
         self.knl_type = knl_type
         self.auto_diff = auto_diff
-        self.use_atomics = use_atomics
+        self.use_atomic_doubles = use_atomic_doubles
+        self.use_atomic_ints = use_atomic_ints
         self.use_private_memory = use_private_memory
         self.jac_format = jac_format
         self.jac_type = jac_type

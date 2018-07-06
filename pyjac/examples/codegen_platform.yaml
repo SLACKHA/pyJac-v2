@@ -16,7 +16,8 @@ platform:
     # use a vector size of 4
     vecsize: 4
     # Atomics are present in the POCL runtime
-    atomics: True
+    atomic_doubles: True
+    atomic_ints: True
 
 # limit memory usage
 memory-limits:

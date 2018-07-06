@@ -22,9 +22,12 @@ from pyjac.core.array_creator import var_name, jac_creator
 
 
 def use_atomics(loopy_opts):
-    """ Convenience method to detect whether atomics will be used or not.
-        Useful in that we need to apply atomic modifiers to some instructions,
-        but _not_ the sequential specializer
+    """
+    Convenience method to detect whether atomic should be for double precision
+    floating point operations.
+
+    Useful in that we need to apply atomic modifiers to some instructions,
+    but _not_ the sequential specializer
 
     Parameters
     ----------
@@ -38,7 +41,7 @@ def use_atomics(loopy_opts):
         :meth:`get_deep_specializer`
     """
 
-    return loopy_opts.depth and loopy_opts.use_atomics
+    return loopy_opts.depth and loopy_opts.use_atomic_doubles
 
 
 def get_barrier(loopy_opts, local_memory=True, **loopy_kwds):
@@ -74,7 +77,7 @@ def get_barrier(loopy_opts, local_memory=True, **loopy_kwds):
 
 
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
-                         use_atomics=True, is_write_race=True,
+                         atomic=True, is_write_race=True,
                          split_size=None):
     """
     Returns a deep specializer to enable deep vectorization using either
@@ -101,8 +104,8 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         the number of vector lanes contributing
     init_ids: list of str
         List of instructions that initialize atomic variables
-    use_atomics: bool [True]
-        Use atomics if available
+    atomic: bool [True]
+        Use atomics for double precision floating point operations if available
     is_write_race: bool [True]
         If False, this kernel is guarenteed not to have a write race by nature
         of it's access pattern. Hence we only need to return a
@@ -121,7 +124,7 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         # no need to do anything
         return True, None
 
-    if loopy_opts.use_atomics and use_atomics:
+    if use_atomics(loopy_opts) and atomic:
         return True, atomic_deep_specialization(
             loopy_opts.depth, atomic_ids=atomic_ids,
             split_ids=split_ids, init_ids=init_ids,

@@ -81,7 +81,8 @@ def test_load_test_platforms():
     # amd
     amd = next(p for p in platforms if 'amd' in p['platform'].lower())
     assert amd['lang'] == 'opencl'
-    assert amd['use_atomics'] is True
+    assert amd['use_atomic_doubles'] is True
+    assert amd['use_atomic_ints'] is True
 
     def __fuzz_equal(arr):
         return arr == [2, 4, None] or arr == [2, 4]
@@ -96,11 +97,12 @@ def test_load_test_platforms():
     assert openmp['depth'] is None
 
     # nvidia
-    openmp = next(p for p in platforms if 'nvidia' in p['platform'].lower())
-    assert openmp['lang'] == 'opencl'
-    assert openmp['width'] == [64, 128, 256]
-    assert openmp['depth'] is None
-    assert openmp['use_atomics'] is False
+    nvidia = next(p for p in platforms if 'nvidia' in p['platform'].lower())
+    assert nvidia['lang'] == 'opencl'
+    assert nvidia['width'] == [64, 128, 256]
+    assert nvidia['depth'] is None
+    assert nvidia['use_atomic_doubles'] is False
+    assert nvidia['use_atomic_ints'] is True
 
     # test empty platform w/ raise -> assert
     with assert_raises(Exception):
@@ -126,7 +128,7 @@ def test_load_codegen():
     assert isinstance(platform.platform, Platform)
     assert platform.width == 4
     assert not platform.depth
-    assert platform.use_atomics is True
+    assert platform.use_atomic_doubles is True
 
 
 def test_matrix_schema_specification():
@@ -176,7 +178,7 @@ def test_load_platforms_from_matrix():
 
     intel = next(p for p in platforms if 'intel' in p['platform'].lower())
     assert intel['lang'] == 'opencl'
-    assert intel['use_atomics'] is False
+    assert intel['use_atomic_doubles'] is False
     assert intel['width'] == [2, 4, 8, None]
     assert intel['depth'] is None
 
@@ -421,7 +423,7 @@ def test_get_test_matrix():
         'sparse': [enum_to_string(JacobianFormat.sparse),
                    enum_to_string(JacobianFormat.full)],
         'jac_type': [enum_to_string(JacobianType.exact)],
-        'use_atomics': [True, False]})  # true for OpenMP by default
+        'use_atomic_doubles': [True, False]})  # true for OpenMP by default
     run(jacbase, loop, final_checks=check_final_vecsizes)
 
     # next, do species performance
@@ -440,7 +442,7 @@ def test_get_test_matrix():
                                  raise_on_missing=True)
     want = jacbase.copy()
     # no more openmp
-    want.update({'use_atomics': [False]})
+    want.update({'use_atomic_doubles': [False]})
 
     def update_jactype(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.finite_difference):

@@ -648,15 +648,25 @@ def get_parser():
                         help='If supplied, use the constant volume assumption in '
                         'generation of the rate subs / Jacobian code. Otherwise, '
                         'use the constant pressure assumption [default].')
-    parser.add_argument('-n', '--no_atomics',
-                        dest='use_atomics',
+    parser.add_argument('-nad', '--no_atomic_doubles',
+                        dest='use_atomic_doubles',
                         action='store_false',
                         required=False,
                         help='If supplied, the targeted language / platform is not'
-                        'capable of using atomic instructions.  This affects how'
-                        'deep vectorization code is generated, and will force any'
-                        'potential data-races to be run in serial/sequential form, '
-                        'resulting in suboptimal deep vectorizations.'
+                        'capable of using atomic instructions for double-precision '
+                        'floating point types. This affects how deep vectorization '
+                        'code is generated, and will force any potential data-races '
+                        'to be run in serial/sequential form, resulting in '
+                        'suboptimal deep vectorizations.'
+                        )
+    parser.add_argument('-nai', '--no_atomic_ints',
+                        dest='use_atomic_ints',
+                        action='store_false',
+                        required=False,
+                        help='If supplied, the targeted language / platform is not'
+                        'capable of using atomic instructions for single-precision '
+                        'integer types. This affects the generated driver kernel, '
+                        'see "Driver Kernel Types" in the documentation.'
                         )
     parser.add_argument('-jt', '--jac_type',
                         choices=['exact', 'approximate', 'finite_difference'],
@@ -728,7 +738,8 @@ def create():
                     split_rate_kernels=args.split_rate_kernels,
                     split_rop_net_kernels=args.split_rop_net_kernels,
                     conp=args.conp,
-                    use_atomics=args.use_atomics,
+                    use_atomic_doubles=args.use_atomic_doubles,
+                    use_atomic_ints=args.use_atomic_ints,
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,

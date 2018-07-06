@@ -32,8 +32,13 @@ platform:
                 vectype:
                     - wide
                     - deep
-        #If True, the platform / language support atomics for deep-vectorization
-        atomics:
+        # If True, the platform / language support atomics for deep-vectorization
+        atomic_doubles:
+            type: boolean
+            default: True
+        # If True, the platform / language supports integer atomics.  These may be
+        # used in the driver kernel queue to reduce global memory usage
+        atomic_ints:
             type: boolean
             default: True
 

@@ -1203,7 +1203,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
         # check to see if device is CPU
         # if (opts.lang == 'opencl' and opts.device_type == cl.device_type.CPU) \
-        #        and (not bool(opts.depth) or not opts.use_atomics):
+        #        and (not bool(opts.depth) or not opts.use_atomic_doubles):
         #    opts.use_private_memory = True
 
         conp = state['conp']
@@ -1896,7 +1896,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                         rtype == build_type.species_rates
                                         and for_validation),
                                     conp=conp,
-                                    use_atomics=state['use_atomics'],
+                                    use_atomic_doubles=state['use_atomic_doubles'],
+                                    use_atomic_ints=state['use_atomic_ints'],
                                     jac_format=sparse,
                                     jac_type=jac_type,
                                     for_validation=for_validation,

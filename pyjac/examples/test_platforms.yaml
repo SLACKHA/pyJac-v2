@@ -13,7 +13,8 @@ platform-list:
     vectype: [wide, deep, par]
     # use a vector width of 2 & 4
     vecsize: [2, 4]
-    atomics: True
+    atomic_doubles: True
+    atomic_ints: True
   # a CPU platform using C and no vectorizations
   - name: openmp
     lang: c
@@ -21,9 +22,10 @@ platform-list:
     # order: ['C']
     vectype: [par]
     # a GPU platform using OpenCL, wide vectorizations and a vector width of 64
-    # without atomics
+    # without atomic (doubles)
   - name: nvidia
     lang: opencl
     vectype: [wide]
     vecsize: [64, 128, 256]
-    atomics: False
+    atomic_doubles: False
+    atomic_ints: True

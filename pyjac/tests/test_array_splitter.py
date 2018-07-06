@@ -303,7 +303,7 @@ def test_atomic_deep_vec_with_small_split():
             target=lp.OpenCLTarget(),
             silenced_warnings=['no_device_in_pre_codegen_checks'])
         loopy_opts = type('', (object,), {'depth': vec_width, 'order': 'C',
-                                          'use_atomics': True})
+                                          'use_atomic_doubles': True})
         knl = lp.split_iname(knl, 'i', vec_width, inner_tag='l.0')
 
         # feed through deep specializer

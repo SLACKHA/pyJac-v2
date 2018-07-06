@@ -625,10 +625,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
             n_str=n_str
     )
 
-    barrier = (
-        '... lbarrier {id=break, dep=cns_init}'
-        if loopy_opts.use_atomics and loopy_opts.depth else
-        '... nop {id=break, dep=cns_init}')
+    barrier = ic.get_barrier(loopy_opts, id='break', dep='cns_init')
     post_instructions = Template(
         """
         ${barrier}
@@ -992,7 +989,7 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
         """
     ).safe_substitute(**locals())]
 
-    if loopy_opts.use_atomics and loopy_opts.depth:
+    if ic.use_atomics(loopy_opts):
         # need to fix the post instructions to work atomically
         post_instructions = [Template(
             """
