@@ -407,8 +407,19 @@ class array_splitter(object):
 
 problem_size = lp.ValueArg('problem_size', dtype=np.int32)
 """
-    The problem size variable for non-testing
+    The problem size variable for generated kernels, describes the size of
+    input/output arrays used in drivers
 """
+
+global_work_size = lp.ValueArg('global_work_size', dtype=np.int32)
+"""
+    The global work size of the generated kernel.
+    Roughly speaking, this corresponds to:
+        - The number of cores to utilize on the CPU
+        - The number of blocks to launch on the GPU
+    This may be specified at run-time or during kernel-generation.
+"""
+
 
 global_ind = 'j'
 """str: The global initial condition index
@@ -662,6 +673,15 @@ class MapStore(object):
         self.have_input_map = False
         self.raise_on_final = raise_on_final
         self.is_finalized = False
+
+        # determine the parallel index
+        if self.use_working_buffers:
+            from pyjac.kernel_utils.kernel_gen import kernel_generator
+            specialization = kernel_generator.apply_specialization(
+                self.loopy_opts, var_name, None, get_specialization=True)
+            global_index = next((k for k, v in six.iteritems(specialization)
+                                 if v == 'g.0'), global_ind)
+            self.use_working_buffers = global_index
 
     def _is_map(self):
         """
@@ -1182,7 +1202,7 @@ class MapStore(object):
 
         # return affine mapping
         return variable(*tuple(__get_affine(i) for i in indicies),
-                        use_working_buffers=self.use_working_buffers, **kwargs)
+                        working_buffer_index=self.use_working_buffers, **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
@@ -1377,20 +1397,23 @@ class creator(object):
 
     def __call__(self, *indicies, **kwargs):
         # figure out whether to use private memory or not
-        use_working_buffers = kwargs.pop('use_working_buffers', False)
+        wbi = kwargs.pop('working_buffer_index', None)
         inds = self.__get_indicies(*indicies)
 
         # handle private memory request
         glob_ind = None
-        if use_working_buffers and not self.is_input_or_output:
+        if wbi and not self.is_input_or_output:
             # find the global ind if there
-            glob_ind = next((i for i, ind in enumerate(inds) if ind == global_ind),
-                            None)
+            glob_ind = next((i for i, ind in enumerate(inds)
+                             if ind == global_ind), None)
 
         if glob_ind is not None:
-            # need to remove any index corresponding to the global_ind
-            inds = tuple(ind for i, ind in enumerate(inds) if i != glob_ind)
-            shape = tuple(s for i, s in enumerate(self.shape) if i != glob_ind)
+            # convert index string to parallel iname only
+            inds = tuple(s if i != glob_ind else wbi
+                         for i, s in enumerate(inds))
+            # and reshape the array
+            shape = tuple(s if i != glob_ind else global_work_size.name
+                          for i, s in enumerate(self.shape))
             lp_arr = self.__glob_arg_creator(shape=shape, **kwargs)
         else:
             lp_arr = self.creator(**kwargs)
@@ -1559,8 +1582,7 @@ class NameStore(object):
 
     """
 
-    def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size',
-                 ):
+    def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size'):
         self.loopy_opts = loopy_opts
         self.rate_info = rate_info
         self.order = loopy_opts.order
@@ -1569,6 +1591,7 @@ class NameStore(object):
         self.jac_format = loopy_opts.jac_format
         self.jac_type = loopy_opts.jac_type
         self._add_arrays(rate_info, test_size)
+
 
     def __getattr__(self, name):
         """

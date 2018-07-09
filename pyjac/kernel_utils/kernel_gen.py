@@ -1697,8 +1697,9 @@ ${defn}
 
         return self.remove_unused_temporaries(knl)
 
-    def apply_specialization(self, loopy_opts, inner_ind, knl, vecspec=None,
-                             can_vectorize=True):
+    @classmethod
+    def apply_specialization(cls, loopy_opts, inner_ind, knl, vecspec=None,
+                             can_vectorize=True, get_specialization=False):
         """
         Applies wide / deep vectorization and/or ILP loop unrolling
         to a loopy kernel
@@ -1717,11 +1718,20 @@ ${defn}
         can_vectorize : bool
             If False, cannot be vectorized in the normal manner, hence
             vecspec must be used to vectorize.
+        get_specialization : bool [False]
+            If True, the specialization will not be _applied_ to the kernel, instead
+            a dictionary mapping inames -> tags will be returned
 
         Returns
         -------
         knl : :class:`loopy.LoopKernel`
             The transformed kernel
+
+        OR
+
+        iname_map: dict
+            A dictionary mapping inames -> tags, only returned if
+            :param:`get_specialization` is True
         """
 
         # before doing anything, find vec width
@@ -1745,34 +1755,47 @@ ${defn}
                                          'kernel {} without a specialized '
                                          'vectorization function'.format(
                                              knl.name))
+        specialization = {}
 
         # if we're splitting
         # apply specified optimizations
         if to_split and can_vectorize:
             # and assign the l0 axis to the correct variable
             tag = 'vec' if loopy_opts.is_simd else 'l.0'
-            knl = lp.split_iname(knl, to_split, vec_width, inner_tag=tag)
+            if get_specialization:
+                specialization[to_split + '_inner'] = tag
+            else:
+                knl = lp.split_iname(knl, to_split, vec_width, inner_tag=tag)
 
         if utils.can_vectorize_lang[loopy_opts.lang]:
             # tag 'global_ind' as g0, use simple parallelism
-            knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
+            if get_specialization:
+                specialization[j_tag] = 'g.0'
+            else:
+                knl = lp.tag_inames(knl, [(j_tag, 'g.0')])
 
         # if we have a specialization
-        if vecspec:
+        if vecspec and not get_specialization:
             knl = vecspec(knl)
 
-        if bool(vec_width) and not loopy_opts.is_simd:
+        if bool(vec_width) and not loopy_opts.is_simd and not get_specialization:
             # finally apply the vector width fix above
             ggs = vecwith_fixer(knl.copy(), vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
         # now do unr / ilp
         if loopy_opts.unr is not None:
-            knl = lp.split_iname(knl, i_tag, loopy_opts.unr, inner_tag='unr')
+            if get_specialization:
+                specialization[i_tag + '_inner'] = 'unr'
+            else:
+                knl = lp.split_iname(knl, i_tag, loopy_opts.unr, inner_tag='unr')
         elif loopy_opts.ilp:
-            knl = lp.tag_inames(knl, [(i_tag, 'ilp')])
+            if get_specialization:
+                specialization[i_tag] = 'ilp'
+            else:
+                knl = lp.tag_inames(knl, [(i_tag, 'ilp')])
 
-        return knl
+        return knl if not get_specialization else specialization
 
 
 class c_kernel_generator(kernel_generator):

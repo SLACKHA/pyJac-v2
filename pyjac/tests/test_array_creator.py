@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 # compatibility
 from six.moves import range
 
@@ -6,6 +8,8 @@ from pyjac.core import array_creator as arc
 from pyjac.tests import TestClass
 from pyjac.core.rate_subs import assign_rates
 from pyjac.core.enum_types import RateSpecialization
+from pyjac.tests import get_test_langs
+from pyjac import utils
 
 # nose tools
 from nose.tools import assert_raises
@@ -14,16 +18,50 @@ from nose.plugins.attrib import attr
 # modules
 import loopy as lp
 import numpy as np
+from optionloop import OptionLoop
 
 
-def _dummy_opts(order='C', use_working_buffer=False):
+def _dummy_opts(order='C', use_working_buffers=False):
     class dummy(object):
-        def __init__(self, order='C', use_working_buffer=False):
+        def __init__(self, order='C', use_working_buffers=False):
             self.order = order
             self.jac_format = ''
             self.jac_type = ''
-            self.use_working_buffer = use_working_buffer
-    return dummy(order=order, use_working_buffer=use_working_buffer)
+            self.lang = 'c'
+            self.depth = None
+            self.unr = None
+            self.ilp = None
+            self.width = None
+            self.use_working_buffers = use_working_buffers
+    return dummy(order=order, use_working_buffers=use_working_buffers)
+
+
+def opts_loop(width=[4, None],
+              depth=[4, None],
+              order=['C', 'F'],
+              lang=get_test_langs(),
+              use_working_buffers=True,
+              is_simd=[True, False]):
+
+    oploop = OptionLoop(OrderedDict(
+        [('width', width),
+         ('depth', depth),
+         ('order', order),
+         ('use_working_buffers', [use_working_buffers]),
+         ('lang', lang),
+         ('order', order),
+         ('is_simd', is_simd),
+         ('unr', [None]),
+         ('ilp', [None])]))
+    for state in oploop:
+        if state['depth'] and state['width']:
+            continue
+        if (state['depth'] or state['width']) and not utils.can_vectorize_lang[
+                state['lang']]:
+            continue
+        if not (state['width'] or state['depth']) and state['is_simd']:
+            continue
+        yield type('dummy', (object,), state)
 
 
 def test_creator_asserts():
@@ -574,33 +612,41 @@ def test_force_inline():
 
 
 def test_working_buffer_creations():
-    lp_opt = _dummy_opts(use_working_buffer=True)
+    for lp_opt in opts_loop():
 
-    # make a creator to form the base of the mapstore
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
+        def __shape_compare(shape1, shape2):
+            for s1, s2 in zip(*(shape1, shape2)):
+                assert str(s1) == str(s2)
+            return True
 
-    # and the array to test
-    arr = arc.creator('a', np.int32, (10, 10), 'C')
+        # make a creator to form the base of the mapstore
+        c = arc.creator('', np.int32, (10,), lp_opt.order,
+                        initializer=np.arange(10, dtype=np.int32))
 
-    # and a final "input" array
-    inp = arc.creator('b', np.int32, (10, 10), 'C',
-                      is_input_or_output=True)
+        # and the array to test
+        arr = arc.creator('a', np.int32, (10, 10), lp_opt.order)
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+        # and a final "input" array
+        inp = arc.creator('b', np.int32, (10, 10), lp_opt.order,
+                          is_input_or_output=True)
 
-    arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
-    assert isinstance(arr_lp, lp.TemporaryVariable) and arr_lp.shape == (10,)
-    assert arr_str == 'a[i]'
+        mstore = arc.MapStore(lp_opt, c, c, 'i')
+        arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
 
-    inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i')
-    assert isinstance(inp_lp, lp.GlobalArg) and inp_lp.shape == (10, 10)
-    assert inp_str == 'b[j, i]'
+        assert isinstance(arr_lp, lp.GlobalArg) and \
+            __shape_compare(arr_lp.shape, (arc.global_work_size.name, 10))
+        assert arr_str == 'a[j_outer, i]' if lp_opt.width else 'a[j, i]'
 
-    # now test input without the global index
-    arr_lp, arr_str = mstore.apply_maps(arr, 'k', 'i')
-    assert isinstance(arr_lp, lp.GlobalArg) and arr_lp.shape == (10, 10)
-    assert arr_str == 'a[k, i]'
+        inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i')
+        assert isinstance(inp_lp, lp.GlobalArg) and __shape_compare(
+            inp_lp.shape, (10, 10))
+        assert inp_str == 'b[j, i]'
+
+        # now test input without the global index
+        arr_lp, arr_str = mstore.apply_maps(arr, 'k', 'i')
+        assert isinstance(arr_lp, lp.GlobalArg) and __shape_compare(
+            arr_lp.shape, (10, 10))
+        assert arr_str == 'a[k, i]'
 
 
 def test_affine_dict_with_input_map():
@@ -686,7 +732,7 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_input_private_memory_creations(self):
-        lp_opt = _dummy_opts(use_working_buffer=True)
+        lp_opt = _dummy_opts(use_working_buffers=True)
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         # create name and mapstores
