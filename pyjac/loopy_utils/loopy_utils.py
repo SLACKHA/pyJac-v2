@@ -22,7 +22,8 @@ except ImportError:
 
 # local imports
 from pyjac import utils
-from pyjac.core.enum_types import (RateSpecialization, JacobianType, JacobianFormat)
+from pyjac.core.enum_types import (RateSpecialization, JacobianType, JacobianFormat,
+                                   kernel_type)
 from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
@@ -144,7 +145,7 @@ class loopy_options(object):
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False, rop_net_kernels=False,
-                 platform='', knl_type='map', auto_diff=False,
+                 platform='', kernel_type=kernel_type.jacobian, auto_diff=False,
                  use_atomic_doubles=True, use_atomic_ints=True,
                  use_working_buffers=True, jac_type=JacobianType.exact,
                  jac_format=JacobianFormat.full, seperate_kernels=True,
@@ -177,6 +178,7 @@ class loopy_options(object):
         self.jac_type = jac_type
         self.seperate_kernels = seperate_kernels
         self._is_simd = is_simd
+        self.kernel_type = kernel_type
 
         if self._is_simd:
             assert width or depth, (

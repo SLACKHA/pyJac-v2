@@ -26,7 +26,7 @@ from pyjac.core import mech_interpret as mech
 from pyjac.core import rate_subs as rate
 from pyjac.core import mech_auxiliary as aux
 from pyjac.core.enum_types import (JacobianType, JacobianFormat,
-    FiniteDifferenceMode, RateSpecialization)
+                                   FiniteDifferenceMode, RateSpecialization)
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.loopy_utils import load_platform

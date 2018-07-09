@@ -21,8 +21,7 @@ def test_get_update_instruction():
                           initializer=mask_np)
 
     # and a dummy loopy options and mapstore
-    loopy_opts = type('', (object,), {'knl_type': 'map',
-                                      'use_private_memory': False})
+    loopy_opts = type('', (object,), {'use_private_memory': False})
     mapstore = MapStore(loopy_opts, map_domain, mask_domain)
 
     # add a new domain

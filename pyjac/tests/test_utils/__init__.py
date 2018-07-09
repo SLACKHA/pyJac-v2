@@ -990,7 +990,6 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
         oploop += [('jac_type', [JacobianType.finite_difference])]
     else:
         oploop += [('jac_type', [JacobianType.exact])]
-    oploop += [('knl_type', ['map'])]
 
     return reduce_oploop(platforms, oploop)
 
