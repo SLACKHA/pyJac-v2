@@ -638,11 +638,16 @@ class MapStore(object):
     raise_on_final : bool
         If true, raise an exception if a variable / domain is added to the
         domain tree after this :class:`MapStore` has been finalized
+    use_working_buffers : bool
+        If True, use internal buffers for OpenCL/CUDA/etc. array creation
+        where possible. If False, use full sized arrays.
     """
 
     def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
                  raise_on_final=True):
         self.loopy_opts = loopy_opts
+        # TODO: working on this
+        self.use_working_buffers = loopy_opts.use_working_buffers
         self.map_domain = map_domain
         self.mask_domain = mask_domain
         self._check_is_valid_domain(self.map_domain)
@@ -1177,7 +1182,7 @@ class MapStore(object):
 
         # return affine mapping
         return variable(*tuple(__get_affine(i) for i in indicies),
-                        use_private_memory=self.use_private_memory, **kwargs)
+                        use_working_buffers=self.use_working_buffers, **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
@@ -1289,7 +1294,7 @@ class creator(object):
         is_input_or_output : bool [False]
             If true, this creator is an input or output variable for pyJac.
             Hence, it should not use private memory, regardless of the value of
-            :param:`use_private_memory` in :func:`creator.__call__`
+            :param:`use_working_buffers` in :func:`creator.__call__`
         """
 
         self.name = name
@@ -1372,12 +1377,12 @@ class creator(object):
 
     def __call__(self, *indicies, **kwargs):
         # figure out whether to use private memory or not
-        use_private_memory = kwargs.pop('use_private_memory', False)
+        use_working_buffers = kwargs.pop('use_working_buffers', False)
         inds = self.__get_indicies(*indicies)
 
         # handle private memory request
         glob_ind = None
-        if use_private_memory and not self.is_input_or_output:
+        if use_working_buffers and not self.is_input_or_output:
             # find the global ind if there
             glob_ind = next((i for i, ind in enumerate(inds) if ind == global_ind),
                             None)
@@ -1386,8 +1391,7 @@ class creator(object):
             # need to remove any index corresponding to the global_ind
             inds = tuple(ind for i, ind in enumerate(inds) if i != glob_ind)
             shape = tuple(s for i, s in enumerate(self.shape) if i != glob_ind)
-            lp_arr = self.__temp_var_creator(shape=shape,
-                                             scope=scopes.PRIVATE, **kwargs)
+            lp_arr = self.__glob_arg_creator(shape=shape, **kwargs)
         else:
             lp_arr = self.creator(**kwargs)
 
@@ -1420,7 +1424,7 @@ class jac_creator(creator):
             def __lt(x):
                 try:
                     x = int(x)
-                except:
+                except ValueError:
                     return False
                 return x < 2
 
@@ -1551,9 +1555,6 @@ class NameStore(object):
         If true, use the constant pressure formulation
     test_size : str or int
         Optional size used in testing.  If not supplied, this is a kernel arg
-    use_working_buffers : bool
-        If True, use internal buffers for OpenCL/CUDA/etc. array creation
-        where possible. If False, use full sized arrays.
     kernel_type: :class:`pyjac.enum_types.kernel_type`
 
     """
@@ -1561,7 +1562,6 @@ class NameStore(object):
     def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size',
                  ):
         self.loopy_opts = loopy_opts
-        self.use_working_buffers = loopy_opts.use_working_buffers
         self.rate_info = rate_info
         self.order = loopy_opts.order
         self.test_size = test_size

@@ -10,22 +10,20 @@ from pyjac.core.enum_types import RateSpecialization
 # nose tools
 from nose.tools import assert_raises
 from nose.plugins.attrib import attr
-from parameterized import parameterized
 
 # modules
 import loopy as lp
 import numpy as np
 
 
-def _dummy_opts(knl_type, order='C', use_private_memory=False):
+def _dummy_opts(order='C', use_working_buffer=False):
     class dummy(object):
-        def __init__(self, knl_type, order='C', use_private_memory=False):
-            self.knl_type = knl_type
+        def __init__(self, order='C', use_working_buffer=False):
             self.order = order
-            self.use_private_memory = use_private_memory
             self.jac_format = ''
             self.jac_type = ''
-    return dummy(knl_type, order=order, use_private_memory=use_private_memory)
+            self.use_working_buffer = use_working_buffer
+    return dummy(order=order, use_working_buffer=use_working_buffer)
 
 
 def test_creator_asserts():
@@ -39,9 +37,8 @@ def test_creator_asserts():
                     initializer=np.arange(10, dtype=np.float32))
 
 
-@parameterized(['map'])
-def test_non_contiguous_input(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_non_contiguous_input():
+    lp_opt = _dummy_opts()
 
     # test that creation of mapstore with non-contiguous map forces
     # generation of input map
@@ -56,11 +53,10 @@ def test_non_contiguous_input(maptype):
     assert np.allclose(mstore.tree.parent.domain.initializer, np.arange(10))
 
 
-@parameterized(['map', 'mask'])
-def test_contiguous_input(maptype):
+def test_contiguous_input():
 
     # test that creation of mapstore with contiguous map has no effect
-    lp_opt = _dummy_opts(maptype)
+    lp_opt = _dummy_opts()
     c = arc.creator('', np.int32, (10,), 'C',
                     initializer=np.arange(10, dtype=np.int32))
 
@@ -68,29 +64,12 @@ def test_contiguous_input(maptype):
     assert len(mstore.transformed_domains) == 0
 
 
-@parameterized(['mask'])
-def test_invalid_mask_input(maptype):
-    lp_opt = _dummy_opts(maptype)
-    mask = np.full((10,), -1, np.int32)
-    mask[1] = 3
-    mask[3] = 6
-    mask[4] = 11
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                         dtype=np.int32))
-
-    with assert_raises(AssertionError):
-        mstore = arc.MapStore(lp_opt, c, c, 'i')
-        mstore.finalize()
-        assert len(mstore.transformed_domains) == 0
-
-
 def __create_var(name, size=(10,)):
     return arc.creator(name, np.int32, size, 'C')
 
 
 def test_contiguous_offset_input():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     c = arc.creator('c', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
 
@@ -114,7 +93,7 @@ def test_contiguous_offset_input_map():
     # same as the above, but check that a non-affine mappable transform
     # results in an input map
 
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     c = arc.creator('c', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
 
@@ -148,7 +127,7 @@ def test_input_map_domain_transfer():
     # check that a domain on the tree that matches the input map gets
     # transfered to the input map
 
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     c = arc.creator('c', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
 
@@ -181,7 +160,7 @@ def test_input_map_domain_transfer():
 
 def test_duplicate_iname_detection():
     # ensures the same transform isn't picked up multiple times
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # create dummy map
     c = arc.creator('c', np.int32, (10,), 'C',
@@ -207,7 +186,7 @@ def test_duplicate_iname_detection():
 
     # now repeat with the variables having initializers
     # to test that leaves aren't mapped
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # create dummy map
     c = arc.creator('c', np.int32, (10,), 'C',
@@ -237,7 +216,7 @@ def test_duplicate_iname_detection():
 
 
 def test_map_range_update():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     # test a complicated chaining / input map case
 
     # create dummy map
@@ -290,35 +269,8 @@ def test_map_range_update():
             and mstore.domain_to_nodes[c5].iname == 'i_2 + -1')
 
 
-@parameterized(['mask'])
-def test_mask_input(maptype):
-    lp_opt = _dummy_opts(maptype)
-    # create dummy mask
-    mask = np.full((10,), -1, np.int32)
-    mask[1] = 3
-    mask[3] = 6
-    mask[4] = 7
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=mask)
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
-
-    mask2 = np.array(mask, copy=True)
-    mask2[4] = 8
-    # add a creator
-    c2 = arc.creator('c2', np.int32, (10,), 'C',
-                     initializer=mask2)
-    mstore.check_and_add_transform(__create_var('x'), c2, 'i')
-    mstore.finalize()
-
-    assert len(mstore.transformed_domains) == 1
-    assert mstore.domain_to_nodes[c2] in mstore.transformed_domains
-
-
-@parameterized(['map'])
-def test_multiple_inputs(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_multiple_inputs():
+    lp_opt = _dummy_opts()
     c = arc.creator('', np.int32, (10,), 'C',
                     initializer=np.arange(10, dtype=np.int32))
 
@@ -359,9 +311,8 @@ def test_multiple_inputs(maptype):
                           np.arange(10, dtype=np.int32))
 
 
-@parameterized(['map', 'mask'])
-def test_bad_multiple_variable_map(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_bad_multiple_variable_map():
+    lp_opt = _dummy_opts()
     c = arc.creator('', np.int32, (10,), 'C',
                     initializer=np.arange(10, dtype=np.int32))
 
@@ -380,58 +331,8 @@ def test_bad_multiple_variable_map(maptype):
         mstore.check_and_add_transform(x2, c3, 'i')
 
 
-@parameterized(['mask'])
-def test_multiple_mask_inputs(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
-
-    # add a variable
-    c2 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
-    x2 = __create_var('x2')
-    mstore.check_and_add_transform(x2, c2, 'i')
-
-    assert len(mstore.transformed_domains) == 0
-
-    # add a masked variable
-    mask = np.full((10,), -1, np.int32)
-    mask[0] = 2
-    c3 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=mask)
-    x3 = __create_var('x3')
-    mstore.check_and_add_transform(x3, c3, 'i')
-
-    # add another mapped variable
-    mask2 = mask[:]
-    mask2[2] = 2
-    c4 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=mask2)
-    x4 = __create_var('x4')
-    mstore.check_and_add_transform(x4, c4, 'i')
-    mstore.finalize()
-
-    assert len(mstore.transformed_domains) == 2
-    # check c2 in transforms
-    assert mstore.domain_to_nodes[c2] not in mstore.transformed_domains
-    # check x2 parent
-    assert mstore.domain_to_nodes[x2].parent == mstore.domain_to_nodes[c2]
-    # check c3 in transforms
-    assert mstore.domain_to_nodes[c3] in mstore.transformed_domains
-    # and x3 parent
-    assert mstore.domain_to_nodes[x3].parent == mstore.domain_to_nodes[c3]
-    # check c4 in transforms
-    assert mstore.domain_to_nodes[c4] in mstore.transformed_domains
-    # check x4 parent
-    assert mstore.domain_to_nodes[x4].parent == mstore.domain_to_nodes[c4]
-
-
-@parameterized(['map'])
-def test_offset_base(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_offset_base():
+    lp_opt = _dummy_opts()
     c = arc.creator('', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
 
@@ -453,9 +354,8 @@ def test_offset_base(maptype):
     assert mstore.domain_to_nodes[x].parent == mstore.domain_to_nodes[c2]
 
 
-@parameterized(['map'])
-def test_map_variable_creator(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_map_variable_creator():
+    lp_opt = _dummy_opts()
     c = arc.creator('base', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
 
@@ -476,9 +376,8 @@ def test_map_variable_creator(maptype):
     assert '<> i_1 = domain[i + 3] {id=index_i_1}' in mstore.transform_insns
 
 
-@parameterized(['map'])
-def test_map_to_larger(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_map_to_larger():
+    lp_opt = _dummy_opts()
     c = arc.creator('base', np.int32, (5,), 'C',
                     initializer=np.arange(5, dtype=np.int32))
 
@@ -498,9 +397,8 @@ def test_map_to_larger(maptype):
     assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
 
 
-@parameterized(['map'])
-def test_chained_maps(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_chained_maps():
+    lp_opt = _dummy_opts()
     c = arc.creator('base', np.int32, (5,), 'C',
                     initializer=np.arange(5, dtype=np.int32))
 
@@ -561,52 +459,8 @@ def test_chained_maps(maptype):
         in mstore.transform_insns)
 
 
-@parameterized(['mask'])
-def test_mask_variable_creator(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
-
-    # add a variable
-    mask = np.full((10,), -1, np.int32)
-    mask[0] = 2
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
-                         initializer=mask)
-    mstore.check_and_add_transform(var, domain, 'i')
-    var, var_str = mstore.apply_maps(var, 'i')
-
-    assert isinstance(var, lp.GlobalArg)
-    assert var_str == 'var[i_0]'
-    assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
-
-
-@parameterized(['mask'])
-def test_mask_iname_domains(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-
-    # add a variable
-    mask = np.full((10,), -1, np.int32)
-    mask[0] = 2
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
-                         initializer=mask)
-    mstore.check_and_add_transform(var, domain, 'i')
-
-    mstore.finalize()
-    assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
-
-
-@parameterized(['map'])
-def test_map_iname_domains(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_map_iname_domains():
+    lp_opt = _dummy_opts()
     c = arc.creator('base', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
 
@@ -645,7 +499,7 @@ def test_map_iname_domains(maptype):
 
 
 def test_leaf_inames():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     c = arc.creator('base', np.int32, (10,), 'C',
                     initializer=np.arange(10, dtype=np.int32))
@@ -677,7 +531,7 @@ def test_leaf_inames():
 
 
 def test_input_map_pickup():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # test that creation of mapstore with non-contiguous map forces
     # non-transformed variables to pick up the right iname
@@ -700,25 +554,16 @@ def test_fixed_creator_indices():
     assert c('j')[1] == 'base[1, j]'
 
 
-@parameterized(['map'])
-def test_force_inline(maptype):
-    lp_opt = _dummy_opts(maptype)
-    if maptype == 'map':
-        mapv = np.arange(0, 5, dtype=np.int32)
-    else:
-        mapv = np.full(11, -1, dtype=np.int32)
-        mapv[:10] = np.arange(10, dtype=np.int32)
+def test_force_inline():
+    lp_opt = _dummy_opts()
+    mapv = np.arange(0, 5, dtype=np.int32)
     c = arc.creator('base', np.int32, mapv.shape, 'C',
                     initializer=mapv)
 
     mstore = arc.MapStore(lp_opt, c, c, 'i')
 
     # add an affine map
-    if maptype == 'map':
-        mapv = np.array(mapv, copy=True) + 1
-    else:
-        mapv[0] = -1
-        mapv[1:] = np.arange(10, dtype=np.int32)
+    mapv = np.array(mapv, copy=True) + 1
     var = arc.creator('var', np.int32, mapv.shape, 'C')
     domain = arc.creator('domain', np.int32, mapv.shape, 'C',
                          initializer=mapv)
@@ -728,8 +573,8 @@ def test_force_inline(maptype):
     assert len(mstore.transform_insns) == 0
 
 
-def test_private_memory_creations():
-    lp_opt = _dummy_opts('map', use_private_memory=True)
+def test_working_buffer_creations():
+    lp_opt = _dummy_opts(use_working_buffer=True)
 
     # make a creator to form the base of the mapstore
     c = arc.creator('', np.int32, (10,), 'C',
@@ -759,7 +604,7 @@ def test_private_memory_creations():
 
 
 def test_affine_dict_with_input_map():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # make a creator to form the base of the mapstore
     c1 = arc.creator('c1', np.int32, (10,), 'C',
@@ -775,7 +620,7 @@ def test_affine_dict_with_input_map():
 
 
 def test_tree_node_children():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     # create mapstore
     c = arc.creator('c', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
@@ -805,7 +650,7 @@ def test_tree_node_children():
 
 
 def test_absolute_root():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     # create mapstore
     c = arc.creator('c', np.int32, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=np.int32))
@@ -834,14 +679,14 @@ def test_absolute_root():
 class SubTest(TestClass):
     @attr('long')
     def test_namestore_init(self):
-        lp_opt = _dummy_opts('map')
+        lp_opt = _dummy_opts()
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
 
     @attr('long')
     def test_input_private_memory_creations(self):
-        lp_opt = _dummy_opts('map', use_private_memory=True)
+        lp_opt = _dummy_opts(use_working_buffer=True)
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         # create name and mapstores
