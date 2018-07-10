@@ -25,7 +25,7 @@ from pyjac.core.mech_auxiliary import write_aux
 from pyjac.pywrap import generate_wrapper
 from pyjac import utils
 from pyjac.core.enum_types import kernel_type
-from pyjac.tests import platform_is_gpu, _get_test_input
+from pyjac.tests import platform_is_gpu, _get_test_input, get_test_langs
 from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix
@@ -974,7 +974,7 @@ def reduce_oploop(base, add=None):
 
 
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
-                langs=['c', 'opencl'], do_vector=True, do_sparse=False,
+                langs=get_test_langs(), do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False):
 
@@ -1007,6 +1007,161 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
         oploop += [('jac_type', [JacobianType.exact])]
 
     return reduce_oploop(platforms, oploop)
+
+
+def _should_skip_oploop(state, skip_test=None):
+    """
+    A unified method to determine whether the :param:`state` is a viable
+    configuration for initializing a :class:`loopy_options`
+
+    Parameters
+    ----------
+    state: dict
+        The state of the :class:`optionloop`
+    skip_test: six.callable
+        Callable functions that take as the arguement the :param:`state` and
+        return True IFF the state should be skipped
+
+    Returns
+    -------
+    should_skip: bool
+        True IFF the state should be skipped
+    """
+
+    if utils.can_vectorize_lang[state['lang']] and (
+            state.get('width', False) and state.get('depth', False)):
+        # can't vectorize deep and wide concurrently
+        return True
+
+    if (state.get('width', False) or state.get('depth', False)) \
+            and not utils.can_vectorize_lang[state['lang']]:
+        return True
+
+    if not (state.get('width', False) or state.get('depth', False)) \
+            and state.get('is_simd', False):
+        return True
+
+    if skip_test and skip_test(state):
+        return True
+
+    return False
+
+
+# inspired by https://stackoverflow.com/a/42983747
+class OptionLoopWrapper(object):
+    """
+    A simple generator for option loop iteration with built-in skip test detection
+
+    Parameters
+    ----------
+    oploop_base: class:`OptionLoop`
+        The base option loop to iterate over.
+    skip_test: six.callable [None]
+        If not none, a callable function that takes as the arguement the
+        current :param:`state` of the option loop and returns True IFF the state
+        should be skipped
+    yield_index: bool [False]
+        If true, yield a tuple of the (index, state) of the oploop enumeration
+
+    Notes
+    -----
+    A copy will be made of the :param:`oploop_base` such that the original
+    option loop remains intact
+
+    Yields
+    ------
+    loopy_options: :class:`loopy_options`
+        The current state of the oploop, converted to loopy options
+    """
+
+    def __init__(self, oploop_base, skip_test=None, yield_index=False,
+                 ignored_state_vals=['conp']):
+        self.oploop = oploop_base.copy()
+        self.yield_index = yield_index
+        self.skip_test = skip_test
+        self.bad_platforms = set()
+        self.ignored_state_vals = ignored_state_vals[:]
+
+    @classmethod
+    def from_get_oploop(cls, owner, skip_test=None, yield_index=False,
+                        ignored_state_vals=['conp'], **oploop_kwds):
+        """
+        A convenience method that returns a :class:`OptionLoopWrapper` from the
+        corresponding call to :func:`_get_oploop`
+
+        Parameters
+        ----------
+        owner: :class:`TestClass`
+            The test class that owns the :class:`storage` object
+        oploop_kwds: dict
+            The keywords for the :func:`_get_oploop` call
+
+        Returns
+        -------
+        wrapper: :class:`OptionLoopWrapper`
+            The constructed wrapper
+        """
+
+        oploop = _get_oploop(owner, **oploop_kwds)
+        return OptionLoopWrapper(oploop, skip_test=skip_test,
+                                 yield_index=yield_index,
+                                 ignored_state_vals=ignored_state_vals)
+
+    def send(self, ignored_arg):
+        for i, state in enumerate(self.oploop):
+            if _should_skip_oploop(state, skip_test=self.skip_test):
+                continue
+            # build loopy options
+            try:
+                # and set any ignored state values for reference
+                self.state = state.copy()
+                # and build options
+                opts = loopy_options(**{x: state[x] for x in state
+                                     if x not in self.ignored_state_vals})
+            except MissingPlatformError:
+                # warn and skip future tests
+                logger = logging.getLogger(__name__)
+                logger.warn('Platform {} not found'.format(state['platform']))
+                self.bad_platforms.update([state['platform']])
+                continue
+            except BrokenPlatformError as e:
+                # expected
+                logger = logging.getLogger(__name__)
+                logger.info('Skipping bad platform: {}'.format(e.message))
+                continue
+            if self.yield_index:
+                return (i, opts)
+            else:
+                return opts
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return utils.stringfy_args(self.state, kwd=True)
+
+    def throw(self, type=None, value=None, traceback=None):
+        raise StopIteration
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        return self.send(None)
+
+    def __next__(self):
+        return self.next()
+
+    def close(self):
+        """
+        Raise GeneratorExit inside generator.
+        """
+        try:
+            self.throw(GeneratorExit)
+        except (GeneratorExit, StopIteration):
+            pass
+        else:
+            raise RuntimeError("generator ignored GeneratorExit")
 
 
 def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
@@ -1049,15 +1204,10 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     """
 
     if langs is None:
-        from pyjac.tests import get_test_langs
         langs = get_test_langs()
 
     if 'conp' in kwargs:
         do_conp = False
-
-    oploop = _get_oploop(owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
-                         langs=langs, do_conp=do_conp, do_sparse=do_sparse,
-                         sparse_only=sparse_only)
 
     reacs = owner.store.reacs
     specs = owner.store.specs
@@ -1065,52 +1215,33 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
     exceptions = ['device', 'conp']
     bad_platforms = set()
 
-    for i, state in enumerate(oploop):
-        if utils.can_vectorize_lang[state['lang']] and (
-                state['width'] is not None and state['depth'] is not None):
-            # can't vectorize deep and wide concurrently
-            continue
+    # listify
+    kernel_calls = utils.listify(kernel_calls)
 
-        # skip bad platforms
-        if 'platform' in state and state['platform'] in bad_platforms:
-            continue
+    def __skip_test(state):
+        return 'platform' in state and state['platform'] in bad_platforms
 
-        try:
-            opt = loopy_options(**{x: state[x] for x in state
-                                if x not in exceptions})
-        except MissingPlatformError:
-            # warn and skip future tests
-            logger = logging.getLogger(__name__)
-            logger.warn('Platform {} not found'.format(state['platform']))
-            bad_platforms.update([state['platform']])
-            continue
-        except BrokenPlatformError as e:
-            # expected
-            logger = logging.getLogger(__name__)
-            logger.info('Skipping bad platform: {}'.format(e.message))
-            continue
-
+    oploops = OptionLoopWrapper.from_get_oploop(
+            owner, do_ratespec=do_ratespec, do_ropsplit=do_ropsplit,
+            langs=langs, do_conp=do_conp, do_sparse=do_sparse,
+            sparse_only=sparse_only, skip_test=__skip_test, yield_index=True,
+            ignored_state_vals=exceptions)
+    for i, opt in oploops:
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
         try:
             conp = kwargs['conp']
-        except:
+        except KeyError:
             try:
-                conp = state['conp']
-            except:
+                conp = oploops.state['conp']
+            except KeyError:
                 conp = True
         # create namestore
         namestore = arc.NameStore(opt, rate_info, conp,
                                   owner.store.test_size)
         # create the kernel info
-        infos = func(opt, namestore,
-                     test_size=owner.store.test_size, **kwargs)
-
-        if not isinstance(infos, list):
-            try:
-                infos = list(infos)
-            except:
-                infos = [infos]
+        infos = utils.listify(func(opt, namestore, test_size=owner.store.test_size,
+                                   **kwargs))
 
         if not infos:
             logger = logging.getLogger(__name__)
@@ -1135,15 +1266,8 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
         knl._make_kernels()
 
         # create a list of answers to check
-        try:
-            for kc in kernel_calls:
-                kc.set_state(knl.array_split, state['order'], namestore,
-                             state['jac_format'])
-        except TypeError as e:
-            if str(e) != "'kernel_call' object is not iterable":
-                raise e
-            kernel_calls.set_state(knl.array_split, state['order'], namestore,
-                                   state['jac_format'])
+        for kc in kernel_calls:
+            kc.set_state(knl.array_split, opt.order, namestore, opt.jac_format)
 
         assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
             'Evaluate {} rates failed'.format(func.__name__)
@@ -1153,8 +1277,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                       btype, call_name, call_kwds={}, looser_tol_finder=None,
                       atol=1e-8, rtol=1e-5, loose_rtol=1e-4, loose_atol=1,
                       **oploop_kwds):
-    oploop = _get_oploop(self, do_conp=True, do_vector=lang != 'c', langs=[lang],
-                         **oploop_kwds)
 
     build_dir = self.store.build_dir
     obj_dir = self.store.obj_dir
@@ -1182,37 +1304,18 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
     bad_platforms = set()
 
-    # now start test
-    for i, state in enumerate(oploop):
-        if utils.can_vectorize_lang[state['lang']] and (
-                state['width'] is not None and state['depth'] is not None):
-            # can't vectorize both directions at the same time
-            continue
+    def __skip_test(state):
+        return 'platform' in state and state['platform'] in bad_platforms
+    oploops = OptionLoopWrapper.from_get_oploop(
+            self, do_conp=True, do_vector=utils.can_vectorize_lang[lang],
+            langs=[lang], **oploop_kwds, skip_test=__skip_test,
+            yield_index=True, ignored_state_vals=exceptions)
 
+    for i, opts in oploops:
         # clean old files
         __cleanup()
 
-        # skip bad platforms
-        if 'platform' in state and state['platform'] in bad_platforms:
-            continue
-
-        try:
-            # create loopy options
-            opts = loopy_options(**{x: state[x] for x in state
-                                 if x not in exceptions})
-        except MissingPlatformError:
-            # warn and skip future tests
-            logger = logging.getLogger(__name__)
-            logger.warn('Platform {} not found'.format(state['platform']))
-            bad_platforms.update([state['platform']])
-            continue
-        except BrokenPlatformError as e:
-            # expected
-            logger = logging.getLogger(__name__)
-            logger.info('Skipping bad platform: {}'.format(e.message))
-            continue
-
-        conp = state['conp']
+        conp = oploops.state['conp']
 
         # generate kernel
         kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp,
@@ -1311,7 +1414,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             # pull user specified first
             looser_tols = __get_looser_tols(*looser_tol_finder(
                 test, opts.order, kgen.array_split._have_split(),
-                state['conp']))
+                conp))
 
         # add more loose tolerances where Pr is zero
         last_zeros = np.where(self.store.ref_Pr == 0)[0]
@@ -1386,7 +1489,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             os.remove(os.path.join(lib_dir, 'test.py'))
         except subprocess.CalledProcessError:
             logger = logging.getLogger(__name__)
-            logger.debug(state)
+            logger.debug(oploops)
             assert False, '{} error'.format(kgen.name)
 
 
