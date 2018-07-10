@@ -7,6 +7,8 @@ and device, and further affects things such as memory usage, and data ordering.
 
 This section will discuss the various driver function types and their rammifications.
 
+.. _driver-function:
+
 =======================
 Why implement a driver?
 =======================
@@ -52,6 +54,7 @@ mole-fractions, concentrations, etc.!  The driver function provides a natural pl
 enable conversion to/from the calling code's state variables to pyJac's state-vector
 (see :ref:`state-vector`).
 
+.. _working-buffer:
 
 ===================
 Memory Requirements

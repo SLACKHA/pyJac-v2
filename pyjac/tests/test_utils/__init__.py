@@ -1,6 +1,7 @@
 from __future__ import division
 
 import os
+from contextlib import contextmanager
 from string import Template
 from collections import OrderedDict
 import shutil
@@ -10,6 +11,7 @@ import subprocess
 import sys
 from functools import wraps
 import collections
+import tempfile
 
 from nose import SkipTest
 
@@ -73,6 +75,19 @@ def clean_dir(dirname, remove_dir=True):
             os.remove(os.path.join(dirname, file))
     if remove_dir:
         shutil.rmtree(dirname, ignore_errors=True)
+
+
+@contextmanager
+def temporary_directory(cleanup=True):
+    dirpath = tempfile.mkdtemp()
+    owd = os.getcwd()
+    try:
+        os.chdir(dirpath)
+        yield dirpath
+    finally:
+        os.chdir(owd)
+        if cleanup:
+            clean_dir(dirpath)
 
 
 class kernel_runner(object):

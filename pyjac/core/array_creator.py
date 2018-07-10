@@ -1291,8 +1291,7 @@ class creator(object):
 
     def __init__(self, name, dtype, shape, order,
                  initializer=None, scope=scopes.GLOBAL,
-                 fixed_indicies=None, is_temporary=False, affine=None,
-                 is_input_or_output=False):
+                 fixed_indicies=None, is_temporary=False, affine=None):
         """
         Initializes the creator object
 
@@ -1318,10 +1317,6 @@ class creator(object):
         affine : int
             If supplied, this represents an offset that should be applied to
             the creator upon indexing
-        is_input_or_output : bool [False]
-            If true, this creator is an input or output variable for pyJac.
-            Hence, it should not use private memory, regardless of the value of
-            :param:`use_working_buffers` in :func:`creator.__call__`
         """
 
         self.name = name
@@ -1335,7 +1330,6 @@ class creator(object):
         self.num_indicies = len(shape)
         self.order = order
         self.affine = affine
-        self.is_input_or_output = is_input_or_output
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
         if is_temporary or initializer is not None:
@@ -1403,13 +1397,33 @@ class creator(object):
         return lp.GlobalArg(self.name, **arg_dict)
 
     def __call__(self, *indicies, **kwargs):
+        """
+        Create a loopy array and corresponding string based on the supplied
+        :param:`indicies` and :param:`kwargs`
+
+        Parameters
+        ----------
+        indicies: tuple of str
+            The indicies to apply for creation of the stringified array.
+            For instance an array index of the form:
+            ```
+                a[i, j] = ...
+            ```
+            should be passed the indicies ['i', 'j']
+        working_buffer_index: str
+            If supplied, the :class:`creator` will generate an array / array string
+            for working buffer access.  :see:`working-buffer`.
+        is_input_or_output: bool [False]
+            If true, :param:`working_buffer_index` will be ignored
+        """
         # figure out whether to use private memory or not
         wbi = kwargs.pop('working_buffer_index', None)
+        is_input_or_output = kwargs.pop('is_input_or_output', False)
         inds = self.__get_indicies(*indicies)
 
         # handle private memory request
         glob_ind = None
-        if wbi and not self.is_input_or_output:
+        if wbi and not is_input_or_output:
             # find the global ind if there
             glob_ind = next((i for i, ind in enumerate(inds)
                              if ind == global_ind), None)
@@ -1598,7 +1612,6 @@ class NameStore(object):
         self.jac_format = loopy_opts.jac_format
         self.jac_type = loopy_opts.jac_type
         self._add_arrays(rate_info, test_size)
-
 
     def __getattr__(self, name):
         """

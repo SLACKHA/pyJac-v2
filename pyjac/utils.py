@@ -21,12 +21,14 @@ langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
 
 
-def stringify_args(arglist, kwd=False, joiner=', '):
+def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False):
+    template = '{}' if not use_quotes else '"{}"'
     if kwd:
-        return joiner.join('{}={}'.format(str(k), str(v))
+        template = template + '=' + template
+        return joiner.join(template.format(str(k), str(v))
                            for k, v in six.iteritems(arglist))
     else:
-        return joiner.join(str(a) for a in arglist)
+        return joiner.join(template.format(str(a)) for a in arglist)
 
 
 def func_logger(*args, **kwargs):
