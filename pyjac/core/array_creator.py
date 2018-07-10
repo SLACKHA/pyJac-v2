@@ -1749,51 +1749,42 @@ class NameStore(object):
         # state arrays
         self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 0)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 0)])
 
         # handle extra variable and P / V arrays
         self.E_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 1)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 1)])
         if self.conp:
             self.P_arr = creator('P_arr', shape=(test_size,),
-                                 dtype=np.float64, order=self.order,
-                                 is_input_or_output=True)
+                                 dtype=np.float64, order=self.order)
             self.V_arr = self.E_arr
         else:
             self.P_arr = self.E_arr
             self.V_arr = creator('V_arr', shape=(test_size,),
-                                 dtype=np.float64, order=self.order,
-                                 is_input_or_output=True)
+                                 dtype=np.float64, order=self.order)
 
         self.n_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order,
-                             is_input_or_output=True)
+                             dtype=np.float64, order=self.order)
         self.conc_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                 dtype=np.float64, order=self.order)
         self.conc_ns_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                    dtype=np.float64, order=self.order,
                                    fixed_indicies=[(1, rate_info['Ns'] - 1)])
         self.n_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order,
-                             is_input_or_output=True)
+                             dtype=np.float64, order=self.order)
         self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 0)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 0)])
         self.E_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 1)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 1)])
 
         if self.jac_format == JacobianFormat.sparse and 'jac_inds' in rate_info:
             self.jac = jac_creator('jac',
                                    shape=(test_size, self.num_nonzero_jac_inds.size),
                                    order=self.order,
                                    dtype=np.float64,
-                                   is_input_or_output=True,
                                    row_inds=self.jac_row_inds,
                                    col_inds=self.jac_col_inds)
         elif self.jac_type == JacobianType.finite_difference and \
@@ -1803,7 +1794,6 @@ class NameStore(object):
                                           rate_info['Ns'] + 1),
                                    order=self.order,
                                    dtype=np.float64,
-                                   is_input_or_output=True,
                                    row_inds=self.jac_row_inds,
                                    col_inds=self.jac_col_inds,
                                    is_sparse=False)
@@ -1812,8 +1802,7 @@ class NameStore(object):
                                shape=(test_size, rate_info['Ns'] + 1,
                                       rate_info['Ns'] + 1),
                                order=self.order,
-                               dtype=np.float64,
-                               is_input_or_output=True)
+                               dtype=np.float64)
 
         self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
                                   dtype=np.float64, order=self.order)
