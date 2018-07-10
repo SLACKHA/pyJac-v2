@@ -186,7 +186,7 @@ def power_function_preambles(loopy_opts, power_function):
 
 class pown(MangleGen):
     # turn off raise_on_fail, as multiple versions of this might be added
-    def __init__(self, name='pown', arg_dtypes=(np.float64, arc.kint_type),
+    def __init__(self, name='pown', arg_dtypes=(np.float64, np.int32),
                  result_dtypes=np.float64, raise_on_fail=False):
         super(pown, self).__init__(name, arg_dtypes, result_dtypes,
                                    raise_on_fail=raise_on_fail)

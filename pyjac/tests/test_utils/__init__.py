@@ -1156,8 +1156,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
     oploop = _get_oploop(self, do_conp=True, do_vector=lang != 'c', langs=[lang],
                          **oploop_kwds)
 
-    package_lang = {'opencl': 'ocl',
-                    'c': 'c'}
     build_dir = self.store.build_dir
     obj_dir = self.store.obj_dir
     lib_dir = self.store.lib_dir
@@ -1364,7 +1362,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
             file.write(mod_test.safe_substitute(
                 package='pyjac_{lang}'.format(
-                    lang=package_lang[opts.lang]),
+                    lang=utils.package_lang[opts.lang]),
                 input_args=', '.join('"{}"'.format(x) for x in args),
                 test_arrays=', '.join('"{}"'.format(x) for x in tests),
                 looser_tols='[{}]'.format(looser_tols_str),

@@ -20,6 +20,12 @@ __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
 langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
 
+package_lang = {'opencl': 'ocl',
+                'c': 'c'}
+"""dict: str->str
+   short-names for the python wrappers for each language
+"""
+
 
 def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False):
     template = '{}' if not use_quotes else '"{}"'

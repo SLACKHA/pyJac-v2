@@ -19,7 +19,7 @@ import numpy as np
 from pyjac.utils import listify, stringify_args
 from pyjac.core.exceptions import InvalidInputSpecificationException
 from pyjac.core import array_creator as arc
-from pyjac.kernel_utils import kernel_generator as k_gen
+from pyjac.kernel_utils import kernel_gen as k_gen
 
 
 def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
