@@ -1,69 +1,25 @@
 # system
-from collections import OrderedDict
 from os.path import join as pjoin
 import subprocess
 import sys
 import logging
 
 # external
-from optionloop import OptionLoop
 from nose.plugins.attrib import attr
 import numpy as np
 
 # internal
 from pyjac.core import array_creator as arc
 from pyjac.core.rate_subs import assign_rates
-from pyjac.core.enum_types import RateSpecialization, kernel_type, JacobianType, \
-    JacobianFormat
+from pyjac.core.enum_types import RateSpecialization, kernel_type
 from pyjac.core.driver_kernels import lockstep_driver
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.tests import TestClass, get_test_langs
-from pyjac.tests.test_utils import temporary_directory, get_run_source
+from pyjac.tests.test_utils import temporary_directory, get_run_source, \
+    OptionLoopWrapper
 from pyjac import utils
 from pyjac.pywrap import generate_wrapper
-from pyjac.core.exceptions import MissingDeviceError
-
-
-def opts_loop(self,
-              width=[4, None],
-              depth=[4, None],
-              order=['C', 'F'],
-              lang=get_test_langs(),
-              is_simd=[True, False]):
-
-    oploop = OptionLoop(OrderedDict(
-        [('width', width),
-         ('depth', depth),
-         ('order', order),
-         ('use_working_buffers', [True]),
-         ('lang', lang),
-         ('order', order),
-         ('is_simd', is_simd),
-         ('unr', [None]),
-         ('ilp', [None]),
-         ('jac_type', [JacobianType.exact]),
-         ('jac_format', [JacobianFormat.full]),
-         ('platform', [self.store.test_platforms[:]])]))
-    for state in oploop:
-        if state['depth'] and state['width']:
-            continue
-        if (state['depth'] or state['width']) and not utils.can_vectorize_lang[
-                state['lang']]:
-            continue
-        if not (state['width'] or state['depth']) and state['is_simd']:
-            continue
-        if state['lang'] == 'opencl':
-            for i, platform in enumerate(platforms):
-                state['platform'] = platform
-                devices = platform.get_devices()
-                if not devices and i == len(platforms) - 1:
-                    raise MissingDeviceError('"any"', platform)
-                state['device'] = devices[0]
-                state['device_type'] = devices[0].type
-                break
-
-        yield type('dummy', (object,), state)
 
 
 class SubTest(TestClass):
@@ -73,13 +29,16 @@ class SubTest(TestClass):
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         mod_test = get_run_source()
-        for loopy_opts in opts_loop(self):
+
+        for i, loopy_opts in OptionLoopWrapper.from_get_oploop(
+                self, do_ratespec=False, langs=get_test_langs(),
+                do_vector=True, yield_index=True):
             # make namestore
             namestore = arc.NameStore(loopy_opts, rate_info,
                                       test_size=self.store.test_size)
             # create a dummy kernel that simply adds 1 to phi for easy testing
-            inputs = ['phi', 'P_arr']
-            outputs = ['phi']
+            inputs = ['n_arr', 'P_arr']
+            outputs = ['n_arr']
 
             # make mapstore, arrays and kernel info
             mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,

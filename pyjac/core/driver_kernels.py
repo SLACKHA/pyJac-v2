@@ -90,6 +90,9 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
                      .format(stringify_args(missing)))
         raise InvalidInputSpecificationException(missing)
 
+    def arr_non_ic(array_input):
+        return len(array_input.shape) > 1
+
     # ensure the inputs and output are all identically sized (among those that have)
     # a non-initial condition dimension
 
@@ -98,7 +101,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         nameref = None
         desc = 'Input' if check_input else 'Output'
         for inp in [arrays[x] for x in (inputs if check_input else outputs)]:
-            if len(inp.shape) == 1:
+            if not arr_non_ic(inp):
                 # only the initial condition dimension, fine
                 continue
             if shape:
@@ -127,11 +130,12 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         # get arrays
         arrs = [arrays[x] for x in (inputs if for_input else outputs)]
         # get shape and interior size
-        shape = next(arr for arr in arrs if len(arr.shape) > 1)
+        shape = next(arr.shape for arr in arrs if arr_non_ic(arr))
 
         # create a dummy map and store
         map_shape = np.arange(shape[1], dtype=arc.kint_type)
-        mapper = arc.creator(name, arc.kint_type, map_shape, 'C')
+        mapper = arc.creator(name, arc.kint_type, map_shape.shape, 'C',
+                             initializer=map_shape)
         mapstore = arc.MapStore(loopy_opts, mapper, mapper)
 
         from pytools import UniqueNameGenerator
@@ -143,12 +147,20 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
             extra_inames.append((iname, '0 <= {} < {}'.format(
                 iname, shape[i])))
 
-        indicies = [mapstore.iname] + [ex[0] for ex in extra_inames]
+        indicies = [arc.global_ind, mapstore.iname] + [
+            ex[0] for ex in extra_inames]
+
+        def __build(arr, **kwargs):
+            if arr_non_ic(arr):
+                return mapstore.apply_maps(arr, *indicies, **kwargs)
+            else:
+                return mapstore.apply_maps(arr, arc.global_ind, **kwargs)
+
         # create working buffer version of arrays
         working_buffers = []
         working_strs = []
         for arr in arrs:
-            arr_lp, arr_str = mapstore.apply_maps(arr, *indicies)
+            arr_lp, arr_str = __build(arr)
             working_buffers.append(arr_lp)
             working_strs.append(arr_str)
 
@@ -156,8 +168,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         buffers = []
         strs = []
         for arr in arrs:
-            arr_lp, arr_str = mapstore.apply_maps(arr, *indicies,
-                                                  is_input_or_output=True)
+            arr_lp, arr_str = __build(arr, is_input_or_output=True)
             buffers.append(arr_lp)
             strs.append(arr_str)
 
