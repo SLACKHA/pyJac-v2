@@ -144,13 +144,13 @@ class DuplicateTestException(Exception):
         super(DuplicateTestException, self).__init__(self.message)
 
 
-class InvalidTestEnivironmentException(Exception):
+class InvalidTestEnvironmentException(Exception):
     def __init__(self, ttype, key, file, envvar):
         self.message = ('Test type "{}"" has overrides for key "{}"" specified in'
                         'test matrix file "{}", however this override cannot be '
                         'applied, as it would invalidate the test environment '
                         'key "{}"'.format(ttype, key, file, envvar))
-        super(InvalidTestEnivironmentException, self).__init__(self.message)
+        super(InvalidTestEnvironmentException, self).__init__(self.message)
 
 
 class InvalidInputSpecificationException(Exception):

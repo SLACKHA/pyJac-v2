@@ -13,7 +13,7 @@ from pyjac.utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
     stringify_args
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
-    DuplicateTestException, InvalidTestEnivironmentException, \
+    DuplicateTestException, InvalidTestEnvironmentException, \
     UnknownOverrideException, InvalidOverrideException
 
 model_key = r'model-list'
@@ -567,7 +567,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
 
                 # check that we can apply
                 if 'num_cores' in overrides and not can_override_cores:
-                    raise InvalidTestEnivironmentException(
+                    raise InvalidTestEnvironmentException(
                         ttype, 'num_cores', matrix_name, 'num_threads')
                 elif 'num_cores' in overrides and is_gpu:
                     logger = logging.getLogger(__name__)
