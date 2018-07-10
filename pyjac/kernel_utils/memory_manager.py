@@ -18,6 +18,7 @@ from loopy.types import to_loopy_type
 #  align_size = resource.getpagesize()
 
 from pyjac.core.array_creator import problem_size as p_size
+from pyjac.core import array_creator as arc
 from pyjac import utils
 from pyjac.utils import func_logger
 from pyjac.schemas import build_and_validate, parse_bytestr
@@ -1221,7 +1222,7 @@ class memory_manager(object):
         # find all numerical sizes
         nsize = [size[i] for i in range(len(size)) if i not in skip]
         if nsize:
-            nsize = str(np.cumprod(nsize, dtype=np.int32)[-1])
+            nsize = str(np.cumprod(nsize, dtype=arc.kint_type)[-1])
             str_size.append(nsize)
         # multiply by the item size
         item_size = ''

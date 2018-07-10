@@ -1815,10 +1815,10 @@ class c_kernel_generator(kernel_generator):
             # add the 'this_run' arguement to the list of kernel args for the
             # wrapping kernel
             self.extra_global_kernel_data.append(lp.ValueArg(
-                'this_run', dtype=np.int32))
+                'this_run', dtype=arc.kint_type))
             # add 'global_ind' to the list of extra kernel data to be added to
             # subkernels
-            self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=np.int32))
+            self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=arc.kint_type))
             # add the number of conditions to solve (which may be )
             # clear list of inames added to sub kernels, as the OpenMP loop over
             # the states is implemented in the wrapping kernel
@@ -2033,7 +2033,7 @@ class opencl_kernel_generator(kernel_generator):
             p_var in str(x) for x in a.shape)]
         # next convert to size
         arrays = [np.prod(np.fromstring(
-            self.mem._get_size(a, subs_n='1'), dtype=np.int32, sep=' * '))
+            self.mem._get_size(a, subs_n='1'), dtype=arc.kint_type, sep=' * '))
             for a in arrays]
         # and get max size
         max_size = str(max(arrays)) + ' * {}'.format(

@@ -108,7 +108,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     def __offset(arr):
         return np.array(np.concatenate(
             (np.cumsum(arr) - arr, np.array([np.sum(arr)]))),
-            dtype=np.int32)
+            dtype=arc.kint_type)
 
     # get list of species that have a non-zero nu in some reaction
     non_zero_specs = val['net_per_spec']['map']
@@ -210,8 +210,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     # get the compressed storage
     rows, cols = zip(*inds)
 
-    rows = np.array(rows, dtype=np.int32)
-    cols = np.array(cols, dtype=np.int32)
+    rows = np.array(rows, dtype=arc.kint_type)
+    cols = np.array(cols, dtype=arc.kint_type)
 
     # get a column-major version for flat inds
     inds_F = np.array(inds, copy=True)
@@ -221,7 +221,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
         row_F = rows[np.where(cols == col)[0]]
         # place in inds
         inds_F[offset:offset + row_F.size] = np.asarray(
-            (row_F, [col] * row_F.size), dtype=np.int32).T
+            (row_F, [col] * row_F.size), dtype=arc.kint_type).T
         offset += row_F.size
 
     # turn into row and column counts
@@ -247,11 +247,11 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
 
     # update indicies in return value
     val['jac_inds'] = {
-        'flat_C': np.asarray(inds, dtype=np.int32),
-        'flat_F': np.asarray(inds_F, dtype=np.int32),
-        'crs': {'col_ind': np.array(col_ind, dtype=np.int32),
+        'flat_C': np.asarray(inds, dtype=arc.kint_type),
+        'flat_F': np.asarray(inds_F, dtype=arc.kint_type),
+        'crs': {'col_ind': np.array(col_ind, dtype=arc.kint_type),
                 'row_ptr': __offset(row_ptr)},
-        'ccs': {'row_ind': np.array(row_ind, dtype=np.int32),
+        'ccs': {'row_ind': np.array(row_ind, dtype=arc.kint_type),
                 'col_ptr': __offset(col_ptr)}
     }
     return val
@@ -4610,8 +4610,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     sumv = lp.TemporaryVariable('sum', dtype=np.float64, scope=scopes.PRIVATE)
 
     # and finally the coeffs
-    xcoeffs = np.array(xcoeffs, dtype=np.int32)
-    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=np.int32, initializer=xcoeffs,
+    xcoeffs = np.array(xcoeffs, dtype=arc.kint_type)
+    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=arc.kint_type, initializer=xcoeffs,
                                    shape=xcoeffs.shape, scope=scopes.PRIVATE,
                                    read_only=True)
 
@@ -5168,7 +5168,7 @@ def find_last_species(specs, last_spec=None, return_map=False):
         last_spec = len(specs) - 1
 
     if return_map:
-        gas_map = np.arange(len(specs), dtype=np.int32)
+        gas_map = np.arange(len(specs), dtype=arc.kint_type)
         gas_map[last_spec:-1] = gas_map[last_spec + 1:]
         gas_map[-1] = last_spec
         return gas_map

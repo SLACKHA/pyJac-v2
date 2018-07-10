@@ -14,7 +14,8 @@ from loopy.kernel.data import temp_var_scope as scopes
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from pytools.py_codegen import remove_common_indentation
 
-from pyjac.core.array_creator import array_splitter, problem_size, MapStore, creator
+from pyjac.core.array_creator import array_splitter, problem_size, MapStore, \
+  creator, kint_type
 from pyjac.kernel_utils.memory_manager import memory_limits, memory_type, \
   memory_manager
 from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
@@ -135,40 +136,40 @@ def test_unsimdable():
     test_size = 16
     for opt in opts_loop(is_simd=True):
         # make a kernel via the mapstore / usual methods
-        base = creator('base', dtype=np.int32, shape=(10,), order=opt.order,
-                       initializer=np.arange(10, dtype=np.int32))
+        base = creator('base', dtype=kint_type, shape=(10,), order=opt.order,
+                       initializer=np.arange(10, dtype=kint_type))
         mstore = MapStore(opt, base, base)
 
         def __create_var(name, size=(test_size, 10)):
-            return creator(name, np.int32, size, opt.order)
+            return creator(name, kint_type, size, opt.order)
 
         # now create different arrays:
 
         # one that will cause a map transform
-        mapt = creator('map', dtype=np.int32, shape=(10,), order=opt.order,
+        mapt = creator('map', dtype=kint_type, shape=(10,), order=opt.order,
                        initializer=np.array(list(range(0, 3)) + list(range(4, 11)),
-                       np.int32))
+                       kint_type))
         mapv = __create_var('mapv')
         mstore.check_and_add_transform(mapv, mapt)
 
         # one that is only an affine transform
-        affinet = creator('affine', dtype=np.int32, shape=(10,), order=opt.order,
-                          initializer=np.arange(2, 12, dtype=np.int32))
+        affinet = creator('affine', dtype=kint_type, shape=(10,), order=opt.order,
+                          initializer=np.arange(2, 12, dtype=kint_type))
         affinev = __create_var('affinev', (test_size, 12))
         mstore.check_and_add_transform(affinev, affinet)
 
         # and one that is a child of the affine transform
-        affinet2 = creator('affine2', dtype=np.int32, shape=(10,), order=opt.order,
-                           initializer=np.arange(4, 14, dtype=np.int32))
+        affinet2 = creator('affine2', dtype=kint_type, shape=(10,), order=opt.order,
+                           initializer=np.arange(4, 14, dtype=kint_type))
         mstore.check_and_add_transform(affinet2, affinet)
         # and add a child to it
         affinev2 = __create_var('affinev2', (test_size, 14))
         mstore.check_and_add_transform(affinev2, affinet2)
 
         # and finally, a child of the map transform
-        mapt2 = creator('map2', dtype=np.int32, shape=(10,), order=opt.order,
+        mapt2 = creator('map2', dtype=kint_type, shape=(10,), order=opt.order,
                         initializer=np.array(list(range(0, 2)) + list(range(3, 11)),
-                        np.int32))
+                        kint_type))
         mstore.check_and_add_transform(mapt2, mapt)
         # and a child
         mapv2 = __create_var('mapv2')

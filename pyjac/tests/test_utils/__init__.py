@@ -201,7 +201,7 @@ class indexer(object):
             if isinstance(inds[axi], indexer.array_types):
                 # it's a numpy array, so we can divmod
                 rv[self.offset(self.split_axis)], rv[self.vec_axis] = np_divmod(
-                        inds[axi], self.vec_width, dtype=np.int32)
+                        inds[axi], self.vec_width, dtype=arc.kint_type)
 
         for i, ax in enumerate(axes):
             if i != axi:
@@ -210,7 +210,7 @@ class indexer(object):
                 # check that this is ind is not a slice
                 # if it is we don't need to to anything
                 if isinstance(inds[i], indexer.array_types):
-                    rv[self.offset(ax)] = np.array(inds[i][:]).astype(np.int32)
+                    rv[self.offset(ax)] = np.array(inds[i][:]).astype(arc.kint_type)
 
         return rv
 
@@ -313,9 +313,9 @@ class multi_index_iter(object):
             self._iterorder = list(reversed(self._iterorder))
 
         # and initialize counts / strides
-        self._counts = np.zeros(len(self.shape), dtype=np.int32)
-        self._cumstrides = np.zeros(len(self.shape), dtype=np.int32)
-        self._strides = np.zeros(len(self.shape), dtype=np.int32)
+        self._counts = np.zeros(len(self.shape), dtype=arc.kint_type)
+        self._cumstrides = np.zeros(len(self.shape), dtype=arc.kint_type)
+        self._strides = np.zeros(len(self.shape), dtype=arc.kint_type)
 
         # first pass, figure out minimum necessary memory
         accum = 1
@@ -355,7 +355,7 @@ class multi_index_iter(object):
 
         # create index array holder
         self._indicies = np.empty((len(self.shape), self.per_iter),
-                                  dtype=np.int32)
+                                  dtype=arc.kint_type)
         self.finished = False
 
         assert self.per_iter <= self.size_limit
@@ -1258,7 +1258,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                            if i not in copy_inds])
             for i in [x for x in range(test.ndim) if x not in copy_inds]:
                 repeats = int(np.ceil(size / (test.shape[i] * stride)))
-                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=np.int32),
+                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=arc.kint_type),
                                        (repeats, stride)).flatten(
                                             order='F')[:size]
                 stride *= test.shape[i]
@@ -1276,7 +1276,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 for index in np.ndindex(ravel_ind[copy_inds[0]].shape):
                     # create copy w/ replaced index
                     copy[copy_inds] = [np.array(
-                        ravel_ind[copy_inds][i][index], dtype=np.int32)
+                        ravel_ind[copy_inds][i][index], dtype=arc.kint_type)
                         for i in range(copy_inds.size)]
                     # and store the raveled indicies
                     new_tols.append(np.ravel_multi_index(
@@ -1290,7 +1290,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
                 # and force to int for indexing
                 looser_tols = np.asarray(
-                    np.union1d(looser_tols, new_tols), dtype=np.int32)
+                    np.union1d(looser_tols, new_tols), dtype=arc.kint_type)
             return looser_tols
 
         looser_tols = np.empty((0,))
@@ -1312,13 +1312,13 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 # just choose the initial condition indicies
                 if opts.order == 'C':
                     # wide split, take first and last index
-                    copy_inds = np.array([0, test.ndim - 1], dtype=np.int32)
+                    copy_inds = np.array([0, test.ndim - 1], dtype=arc.kint_type)
                 elif opts.order == 'F':
                     # deep split, take just the IC index at 1
-                    copy_inds = np.array([1], dtype=np.int32)
+                    copy_inds = np.array([1], dtype=arc.kint_type)
             else:
                 ravel_ind = np.array(
-                    [last_zeros] + [np.arange(test.shape[i], dtype=np.int32)
+                    [last_zeros] + [np.arange(test.shape[i], dtype=arc.kint_type)
                                     for i in range(1, test.ndim)])
                 copy_inds = np.array([0])
             looser_tols = __get_looser_tols(ravel_ind, copy_inds,

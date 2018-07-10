@@ -2544,7 +2544,7 @@ class SubTest(TestClass):
             kernel_data.append(numspec)
 
             # create a custom has_ns mask over all reaction types
-            has_ns_mask = np.full(namestore.num_reacs.size, 0, dtype=np.int32)
+            has_ns_mask = np.full(namestore.num_reacs.size, 0, dtype=arc.kint_type)
             if namestore.rxn_has_ns is not None:
                 has_ns_mask[namestore.rxn_has_ns.initializer] = 1
             if namestore.thd_only_ns_inds is not None:
@@ -2560,7 +2560,7 @@ class SubTest(TestClass):
                 has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
                     namestore.lind_has_ns.initializer]]] = 1
             has_ns_mask = arc.creator('has_ns', initializer=has_ns_mask,
-                                      dtype=np.int32, shape=has_ns_mask.shape,
+                                      dtype=arc.kint_type, shape=has_ns_mask.shape,
                                       order=loopy_opts.order)
             has_ns, has_ns_str = mapstore.apply_maps(
                 has_ns_mask, rxn_str)
@@ -2650,7 +2650,7 @@ class SubTest(TestClass):
         jac_size = len(self.store.specs) + 1
         num_nonzero_jac = jac_inds['flat_C'].shape[0]
         # get reference answer and comparable
-        ref_ans = np.tile(np.arange(num_nonzero_jac, dtype=np.int32),
+        ref_ans = np.tile(np.arange(num_nonzero_jac, dtype=arc.kint_type),
                           (self.store.test_size, 1))
         compare_mask = (slice(None), np.arange(num_nonzero_jac))
 

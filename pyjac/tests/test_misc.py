@@ -19,7 +19,7 @@ except ImportError:
 
 # local includes
 from pyjac.loopy_utils.loopy_utils import kernel_call
-from pyjac.core.array_creator import array_splitter
+from pyjac.core.array_creator import array_splitter, kint_type
 from pyjac.utils import enum_to_string, listify
 from pyjac.core.enum_types import (kernel_type, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
@@ -54,7 +54,7 @@ def test_listify(value, expected):
                 param(
     (1024, 6, 6), lambda x, y: (x + y) % 3 != 0, [np.arange(3), np.arange(6)],
                     (1, 2)), param(
-    (1024, 10, 10), lambda x, y: x == 0, [np.array([0], np.int32), np.arange(6)],
+    (1024, 10, 10), lambda x, y: x == 0, [np.array([0], kint_type), np.arange(6)],
                     (1, 2)), param(
     (1024, 10, 10), lambda x, y: (x & y) != 0, [np.arange(4, 10), np.arange(6)],
                     (1, 2), tiling=False)
@@ -74,7 +74,7 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
             arr[__slicer(*np.where(~sparse(x, y)))] = 0
 
         # sparsify
-        np.fromfunction(apply_sparse, arr.shape[1:], dtype=np.int32)
+        np.fromfunction(apply_sparse, arr.shape[1:], dtype=kint_type)
         matrix = csr_matrix if order == 'C' else csc_matrix
         matrix = matrix(arr[0])
 
@@ -128,7 +128,7 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
     (1024, 4, 4), [np.arange(4), np.arange(4)], (1, 2)),
                 param(
     (1024, 6, 6), [np.arange(3), np.arange(6)], (1, 2)), param(
-    (1024, 10, 10), [np.array([0], np.int32), np.arange(6)], (1, 2)), param(
+    (1024, 10, 10), [np.array([0], kint_type), np.arange(6)], (1, 2)), param(
     (1024, 10, 10), [np.arange(4, 10), np.arange(6)], (1, 2), tiling=False)
     ])
 def test_select_elements(shape, mask, axes, tiling=True):

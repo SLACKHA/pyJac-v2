@@ -358,7 +358,7 @@ class array_splitter(object):
             # get the last split as the ceiling
             end = np.ceil(arr.shape[axis] / width) * width
             # create split indicies
-            indicies = np.arange(width, end + 1, width, dtype=np.int32)
+            indicies = np.arange(width, end + 1, width, dtype=kint_type)
             # split array
             arr = np.split(arr, indicies, axis=axis)
             # filter out empties
@@ -405,13 +405,20 @@ class array_splitter(object):
         return [self._split_numpy_array(a) for a in arrays]
 
 
-problem_size = lp.ValueArg('problem_size', dtype=np.int32)
+kint_type = np.int32
+"""
+    The integer type to use for kernel indicies, eventually I'd like to make this
+    user-specifiable
+"""
+
+
+problem_size = lp.ValueArg('problem_size', dtype=kint_type)
 """
     The problem size variable for generated kernels, describes the size of
     input/output arrays used in drivers
 """
 
-global_work_size = lp.ValueArg('global_work_size', dtype=np.int32)
+global_work_size = lp.ValueArg('global_work_size', dtype=kint_type)
 """
     The global work size of the generated kernel.
     Roughly speaking, this corresponds to:
@@ -707,7 +714,7 @@ class MapStore(object):
         # update new domain
         new_map_domain.name = new_creator_name
         new_map_domain.initializer = \
-            np.arange(self.map_domain.initializer.size, dtype=np.int32)
+            np.arange(self.map_domain.initializer.size, dtype=kint_type)
 
         # change the base of the tree
         new_base = tree_node(self, new_map_domain, iname=self.iname,
@@ -1553,8 +1560,8 @@ def _make_mask(map_arr, mask_size):
 
     assert len(map_arr.shape) == 1, "Can't make mask from 2-D array"
 
-    mask = np.full(mask_size, -1, dtype=np.int32)
-    mask[map_arr] = np.arange(map_arr.size, dtype=np.int32)
+    mask = np.full(mask_size, -1, dtype=kint_type)
+    mask[map_arr] = np.arange(map_arr.size, dtype=kint_type)
     return mask
 
 
@@ -1608,11 +1615,11 @@ class NameStore(object):
         """
 
         assert len(arr.shape) == 1, "Can't make offset from 2-D array"
-        assert arr.dtype == np.int32, "Offset arrays should be integers!"
+        assert arr.dtype == kint_type, "Offset arrays should be integers!"
 
         return np.array(np.concatenate(
             (np.cumsum(arr) - arr, np.array([np.sum(arr)]))),
-            dtype=np.int32)
+            dtype=kint_type)
 
     def _add_arrays(self, rate_info, test_size):
         """
@@ -1625,37 +1632,37 @@ class NameStore(object):
 
         # generic ranges
         self.num_specs = creator('num_specs', shape=(rate_info['Ns'],),
-                                 dtype=np.int32, order=self.order,
+                                 dtype=kint_type, order=self.order,
                                  initializer=np.arange(rate_info['Ns'],
-                                                       dtype=np.int32))
+                                                       dtype=kint_type))
         self.num_specs_no_ns = creator('num_specs_no_ns',
                                        shape=(rate_info['Ns'] - 1,),
-                                       dtype=np.int32, order=self.order,
+                                       dtype=kint_type, order=self.order,
                                        initializer=np.arange(
                                            rate_info['Ns'] - 1,
-                                           dtype=np.int32))
+                                           dtype=kint_type))
         self.num_reacs = creator('num_reacs', shape=(rate_info['Nr'],),
-                                 dtype=np.int32, order=self.order,
+                                 dtype=kint_type, order=self.order,
                                  initializer=np.arange(rate_info['Nr'],
-                                                       dtype=np.int32))
+                                                       dtype=kint_type))
         self.num_rev_reacs = creator('num_rev_reacs',
                                      shape=(rate_info['rev']['num'],),
-                                     dtype=np.int32, order=self.order,
+                                     dtype=kint_type, order=self.order,
                                      initializer=np.arange(
                                          rate_info['rev']['num'],
-                                         dtype=np.int32))
+                                         dtype=kint_type))
 
         self.phi_inds = creator('phi_inds',
                                 shape=(rate_info['Ns'] + 1),
-                                dtype=np.int32, order=self.order,
+                                dtype=kint_type, order=self.order,
                                 initializer=np.arange(rate_info['Ns'] + 1,
-                                                      dtype=np.int32))
+                                                      dtype=kint_type))
         self.phi_spec_inds = creator('phi_spec_inds',
                                      shape=(rate_info['Ns'] - 1,),
-                                     dtype=np.int32, order=self.order,
+                                     dtype=kint_type, order=self.order,
                                      initializer=np.arange(2,
                                                            rate_info['Ns'] + 1,
-                                                           dtype=np.int32))
+                                                           dtype=kint_type))
 
         # flat / dense jacobian
         if 'jac_inds' in rate_info:
@@ -1665,25 +1672,25 @@ class NameStore(object):
             flat_col_inds = rate_info['jac_inds'][name][:, 1]
             self.num_nonzero_jac_inds = creator('num_jac_entries',
                                                 shape=flat_row_inds.shape,
-                                                dtype=np.int32,
+                                                dtype=kint_type,
                                                 order=self.order,
                                                 initializer=np.arange(
                                                     flat_row_inds.size,
-                                                    dtype=np.int32))
+                                                    dtype=kint_type))
             self.jac_size = creator('jac_size',
                                     shape=((rate_info['Ns'] + 1)**2),
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     order=self.order,
                                     initializer=np.arange((rate_info['Ns'] + 1)**2,
-                                                          dtype=np.int32))
+                                                          dtype=kint_type))
             self.flat_jac_row_inds = creator('jac_row_inds',
                                              shape=flat_row_inds.shape,
-                                             dtype=np.int32,
+                                             dtype=kint_type,
                                              order=self.order,
                                              initializer=flat_row_inds)
             self.flat_jac_col_inds = creator('jac_col_inds',
                                              shape=flat_col_inds.shape,
-                                             dtype=np.int32,
+                                             dtype=kint_type,
                                              order=self.order,
                                              initializer=flat_col_inds)
 
@@ -1691,13 +1698,13 @@ class NameStore(object):
             crs_col_ind = rate_info['jac_inds']['crs']['col_ind']
             self.crs_jac_col_ind = creator('jac_col_inds',
                                            shape=crs_col_ind.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=crs_col_ind)
             crs_row_ptr = rate_info['jac_inds']['crs']['row_ptr']
             self.crs_jac_row_ptr = creator('jac_row_ptr',
                                            shape=crs_row_ptr.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=crs_row_ptr)
 
@@ -1705,13 +1712,13 @@ class NameStore(object):
             ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
             self.ccs_jac_row_ind = creator('jac_row_inds',
                                            shape=ccs_row_ind.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=ccs_row_ind)
             ccs_col_ptr = rate_info['jac_inds']['ccs']['col_ptr']
             self.ccs_jac_col_ptr = creator('jac_col_ptr',
                                            shape=ccs_col_ptr.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=ccs_col_ptr)
 
@@ -1822,7 +1829,7 @@ class NameStore(object):
 
         # per reaction
         self.rxn_to_spec = creator('rxn_to_spec',
-                                   dtype=np.int32,
+                                   dtype=kint_type,
                                    shape=rate_info['net'][
                                        'reac_to_spec'].shape,
                                    initializer=rate_info[
@@ -1830,51 +1837,51 @@ class NameStore(object):
                                    order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
         self.rxn_to_spec_offsets = creator('net_reac_to_spec_offsets',
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            shape=off.shape,
                                            initializer=off,
                                            order=self.order)
         self.rxn_to_spec_reac_nu = creator('reac_to_spec_nu',
-                                           dtype=np.int32, shape=rate_info[
+                                           dtype=kint_type, shape=rate_info[
                                                'net']['nu'].shape,
                                            initializer=rate_info['net']['nu'],
                                            order=self.order,
                                            affine=1)
         self.rxn_to_spec_prod_nu = creator('reac_to_spec_nu',
-                                           dtype=np.int32, shape=rate_info[
+                                           dtype=kint_type, shape=rate_info[
                                                'net']['nu'].shape,
                                            initializer=rate_info['net']['nu'],
                                            order=self.order)
 
         self.rxn_has_ns = creator('rxn_has_ns',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=rate_info['reac_has_ns'].shape,
                                   initializer=rate_info['reac_has_ns'],
                                   order=self.order)
         self.num_rxn_has_ns = creator('num_rxn_has_ns',
-                                      dtype=np.int32,
+                                      dtype=kint_type,
                                       shape=rate_info['reac_has_ns'].shape,
                                       initializer=np.arange(
                                           rate_info['reac_has_ns'].size,
-                                          dtype=np.int32),
+                                          dtype=kint_type),
                                       order=self.order)
 
         # per species
         net_nonzero_spec = rate_info['net_per_spec']['map'][np.where(
             rate_info['net_per_spec']['map'] != rate_info['Ns'] - 1)]
         self.net_nonzero_spec = creator(
-            'net_nonzero_spec_no_ns', dtype=np.int32,
+            'net_nonzero_spec_no_ns', dtype=kint_type,
             shape=net_nonzero_spec.shape,
             initializer=net_nonzero_spec,
             order=self.order)
         self.net_nonzero_phi = creator(
-            'net_nonzero_phi', dtype=np.int32,
+            'net_nonzero_phi', dtype=kint_type,
             shape=(net_nonzero_spec.shape[0] + 2,),
             initializer=np.asarray(np.hstack(([0, 1], net_nonzero_spec + 2)),
-                                   dtype=np.int32),
+                                   dtype=kint_type),
             order=self.order)
 
-        self.spec_to_rxn = creator('spec_to_rxn', dtype=np.int32,
+        self.spec_to_rxn = creator('spec_to_rxn', dtype=kint_type,
                                    shape=rate_info['net_per_spec'][
                                        'reacs'].shape,
                                    initializer=rate_info[
@@ -1882,12 +1889,12 @@ class NameStore(object):
                                    order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
         self.spec_to_rxn_offsets = creator('spec_to_rxn_offsets',
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            shape=off.shape,
                                            initializer=off,
                                            order=self.order)
         self.spec_to_rxn_nu = creator('spec_to_rxn_nu',
-                                      dtype=np.int32, shape=rate_info[
+                                      dtype=kint_type, shape=rate_info[
                                           'net_per_spec']['nu'].shape,
                                       initializer=rate_info[
                                           'net_per_spec']['nu'],
@@ -1911,7 +1918,7 @@ class NameStore(object):
                                        test_size, rate_info['rev']['num']),
                                    order=self.order)
             self.rev_map = creator('rev_map',
-                                   dtype=np.int32,
+                                   dtype=kint_type,
                                    shape=rate_info['rev']['map'].shape,
                                    initializer=rate_info[
                                        'rev']['map'],
@@ -1920,7 +1927,7 @@ class NameStore(object):
             mask = _make_mask(rate_info['rev']['map'],
                               rate_info['Nr'])
             self.rev_mask = creator('rev_mask',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     shape=mask.shape,
                                     initializer=mask,
                                     order=self.order)
@@ -1932,7 +1939,7 @@ class NameStore(object):
                                         test_size, rate_info['thd']['num']),
                                     order=self.order)
             self.thd_map = creator('thd_map',
-                                   dtype=np.int32,
+                                   dtype=kint_type,
                                    shape=rate_info['thd']['map'].shape,
                                    initializer=rate_info[
                                        'thd']['map'],
@@ -1941,14 +1948,14 @@ class NameStore(object):
             mask = _make_mask(rate_info['thd']['map'],
                               rate_info['Nr'])
             self.thd_mask = creator('thd_mask',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     shape=mask.shape,
                                     initializer=mask,
                                     order=self.order)
 
-            thd_inds = np.arange(rate_info['thd']['num'], dtype=np.int32)
+            thd_inds = np.arange(rate_info['thd']['num'], dtype=kint_type)
             self.thd_inds = creator('thd_inds',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     shape=thd_inds.shape,
                                     initializer=thd_inds,
                                     order=self.order)
@@ -1989,16 +1996,16 @@ class NameStore(object):
                                     order=self.order)
 
         # num simple
-        num_simple = np.arange(rate_info['simple']['num'], dtype=np.int32)
+        num_simple = np.arange(rate_info['simple']['num'], dtype=kint_type)
         self.num_simple = creator('num_simple',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=num_simple.shape,
                                   initializer=num_simple,
                                   order=self.order)
 
         # simple map
         self.simple_map = creator('simple_map',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=rate_info['simple']['map'].shape,
                                   initializer=rate_info['simple']['map'],
                                   order=self.order)
@@ -2012,7 +2019,7 @@ class NameStore(object):
                                    order=self.order)
 
         self.num_simple = creator('num_simple',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=num_simple.shape,
                                   initializer=num_simple,
                                   order=self.order)
@@ -2039,7 +2046,7 @@ class NameStore(object):
             # and indicies inside of the simple parameters
             inds = np.where(
                 np.in1d(rate_info['simple']['map'], mapv))[0].astype(
-                dtype=np.int32)
+                dtype=kint_type)
             setattr(self, 'simple_rtype_{}_inds'.format(rtype),
                     creator('simple_rtype_{}_inds'.format(rtype),
                             dtype=inds.dtype,
@@ -2047,7 +2054,7 @@ class NameStore(object):
                             initializer=inds,
                             order=self.order))
             # and num
-            num = np.arange(inds.size, dtype=np.int32)
+            num = np.arange(inds.size, dtype=kint_type)
             setattr(self, 'simple_rtype_{}_num'.format(rtype),
                     creator('simple_rtype_{}_num'.format(rtype),
                             dtype=num.dtype,
@@ -2087,29 +2094,29 @@ class NameStore(object):
             # thd only indicies
             mapv = np.where(np.logical_not(np.in1d(rate_info['thd']['map'],
                                                    rate_info['fall']['map'])))[0]
-            mapv = np.array(mapv, dtype=np.int32)
+            mapv = np.array(mapv, dtype=kint_type)
             self.thd_only_map = creator('thd_only_map',
-                                        dtype=np.int32,
+                                        dtype=kint_type,
                                         shape=mapv.shape,
                                         initializer=mapv,
                                         order=self.order)
             self.num_thd_only = creator('num_thd_only',
-                                        dtype=np.int32,
+                                        dtype=kint_type,
                                         shape=mapv.shape,
                                         initializer=np.arange(mapv.size,
-                                                              dtype=np.int32),
+                                                              dtype=kint_type),
                                         order=self.order)
 
             mask = _make_mask(mapv, rate_info['Nr'])
             self.thd_only_mask = creator('thd_only_mask',
-                                         dtype=np.int32,
+                                         dtype=kint_type,
                                          shape=mask.shape,
                                          initializer=mask,
                                          order=self.order)
 
-            num_specs = rate_info['thd']['spec_num'].astype(dtype=np.int32)
+            num_specs = rate_info['thd']['spec_num'].astype(dtype=kint_type)
             spec_list = rate_info['thd']['spec'].astype(
-                dtype=np.int32)
+                dtype=kint_type)
             thd_effs = rate_info['thd']['eff']
 
             # finally create arrays
@@ -2118,7 +2125,7 @@ class NameStore(object):
                                    shape=thd_effs.shape,
                                    initializer=thd_effs,
                                    order=self.order)
-            num_thd = np.arange(rate_info['thd']['num'], dtype=np.int32)
+            num_thd = np.arange(rate_info['thd']['num'], dtype=kint_type)
             self.num_thd = creator('num_thd',
                                    dtype=num_thd.dtype,
                                    shape=num_thd.shape,
@@ -2127,7 +2134,7 @@ class NameStore(object):
             thd_only_ns_inds = np.where(
                 np.in1d(
                     self.thd_only_map.initializer,
-                    rate_info['thd']['has_ns']))[0].astype(np.int32)
+                    rate_info['thd']['has_ns']))[0].astype(kint_type)
             thd_only_ns_map = self.thd_only_map.initializer[
                 thd_only_ns_inds]
             self.thd_only_ns_map = creator('thd_only_ns_map',
@@ -2223,7 +2230,7 @@ class NameStore(object):
                                 order=self.order))
                 # and indicies inside of the falloff parameters
                 inds = np.where(rate_info['fall']['map'] == mapv)[0].astype(
-                    dtype=np.int32)
+                    dtype=kint_type)
                 setattr(self, 'fall_rtype_{}_inds'.format(rtype),
                         creator('fall_rtype_{}_inds'.format(rtype),
                                 dtype=inds.dtype,
@@ -2231,7 +2238,7 @@ class NameStore(object):
                                 initializer=inds,
                                 order=self.order))
                 # and num
-                num = np.arange(inds.size, dtype=np.int32)
+                num = np.arange(inds.size, dtype=kint_type)
                 setattr(self, 'fall_rtype_{}_num'.format(rtype),
                         creator('fall_rtype_{}_num'.format(rtype),
                                 dtype=num.dtype,
@@ -2241,14 +2248,14 @@ class NameStore(object):
 
             # maps
             self.fall_map = creator('fall_map',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     initializer=rate_info['fall']['map'],
                                     shape=rate_info['fall']['map'].shape,
                                     order=self.order)
 
-            num_fall = np.arange(rate_info['fall']['num'], dtype=np.int32)
+            num_fall = np.arange(rate_info['fall']['num'], dtype=kint_type)
             self.num_fall = creator('num_fall',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     initializer=num_fall,
                                     shape=num_fall.shape,
                                     order=self.order)
@@ -2280,9 +2287,9 @@ class NameStore(object):
                 np.where(
                     np.in1d(
                         rate_info['thd']['map'], rate_info['fall']['map'])
-                )[0], dtype=np.int32)
+                )[0], dtype=kint_type)
             self.fall_to_thd_map = creator('fall_to_thd_map',
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            initializer=fall_to_thd_map,
                                            shape=fall_to_thd_map.shape,
                                            order=self.order)
@@ -2290,7 +2297,7 @@ class NameStore(object):
             fall_to_thd_mask = _make_mask(fall_to_thd_map,
                                           rate_info['Nr'])
             self.fall_to_thd_mask = creator('fall_to_thd_mask',
-                                            dtype=np.int32,
+                                            dtype=kint_type,
                                             initializer=fall_to_thd_mask,
                                             shape=fall_to_thd_mask.shape,
                                             order=self.order)
@@ -2351,7 +2358,7 @@ class NameStore(object):
 
                 # map and mask
                 num_troe = np.arange(rate_info['fall']['troe']['num'],
-                                     dtype=np.int32)
+                                     dtype=kint_type)
                 self.num_troe = creator('num_troe',
                                         shape=num_troe.shape,
                                         dtype=num_troe.dtype,
@@ -2377,7 +2384,7 @@ class NameStore(object):
                     self.troe_map.initializer]
                 troe_ns_inds = np.where(
                     np.in1d(troe_inds, rate_info['thd']['has_ns']))[0].astype(
-                        np.int32)
+                        kint_type)
                 troe_has_ns = self.troe_map.initializer[
                     troe_ns_inds]
                 self.troe_has_ns = creator('troe_has_ns',
@@ -2443,7 +2450,7 @@ class NameStore(object):
 
                 # map and mask
                 num_sri = np.arange(rate_info['fall']['sri']['num'],
-                                    dtype=np.int32)
+                                    dtype=kint_type)
                 self.num_sri = creator('num_sri',
                                        shape=num_sri.shape,
                                        dtype=num_sri.dtype,
@@ -2469,7 +2476,7 @@ class NameStore(object):
                     self.sri_map.initializer]
                 sri_ns_inds = np.where(
                     np.in1d(sri_inds, rate_info['thd']['has_ns']))[0].astype(
-                        np.int32)
+                        kint_type)
                 sri_has_ns = self.sri_map.initializer[
                     sri_ns_inds]
                 self.sri_has_ns = creator('sri_has_ns_map',
@@ -2501,7 +2508,7 @@ class NameStore(object):
                                          initializer=lind_mask,
                                          order=self.order)
                 num_lind = np.arange(rate_info['fall']['lind']['num'],
-                                     dtype=np.int32)
+                                     dtype=kint_type)
                 self.num_lind = creator('num_lind',
                                         shape=num_lind.shape,
                                         dtype=num_lind.dtype,
@@ -2511,7 +2518,7 @@ class NameStore(object):
                     self.lind_map.initializer]
                 lind_ns_inds = np.where(
                     np.in1d(lind_inds, rate_info['thd']['has_ns']))[0].astype(
-                        np.int32)
+                        kint_type)
                 lind_has_ns = self.lind_map.initializer[
                     lind_ns_inds]
                 self.lind_has_ns = creator('lind_has_ns',
@@ -2590,7 +2597,7 @@ class NameStore(object):
                                           scope=scopes.PRIVATE)
 
             # mask and map
-            cheb_map = rate_info['cheb']['map'].astype(dtype=np.int32)
+            cheb_map = rate_info['cheb']['map'].astype(dtype=kint_type)
             self.cheb_map = creator('cheb_map',
                                     dtype=cheb_map.dtype,
                                     initializer=cheb_map,
@@ -2602,7 +2609,7 @@ class NameStore(object):
                                      initializer=cheb_mask,
                                      shape=cheb_mask.shape,
                                      order=self.order)
-            num_cheb = np.arange(rate_info['cheb']['num'], dtype=np.int32)
+            num_cheb = np.arange(rate_info['cheb']['num'], dtype=kint_type)
             self.num_cheb = creator('num_cheb',
                                     dtype=num_cheb.dtype,
                                     initializer=num_cheb,
@@ -2630,7 +2637,7 @@ class NameStore(object):
                                           order=self.order)
 
             # mask and map
-            plog_map = rate_info['plog']['map'].astype(dtype=np.int32)
+            plog_map = rate_info['plog']['map'].astype(dtype=kint_type)
             self.plog_map = creator('plog_map',
                                     dtype=plog_map.dtype,
                                     initializer=plog_map,
@@ -2642,7 +2649,7 @@ class NameStore(object):
                                      initializer=plog_mask,
                                      shape=plog_mask.shape,
                                      order=self.order)
-            num_plog = np.arange(rate_info['plog']['num'], dtype=np.int32)
+            num_plog = np.arange(rate_info['plog']['num'], dtype=kint_type)
             self.num_plog = creator('num_plog',
                                     dtype=num_plog.dtype,
                                     initializer=num_plog,

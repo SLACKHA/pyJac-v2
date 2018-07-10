@@ -564,7 +564,7 @@ class spec_rate_eval(eval):
                 self.thd_map.append(x)
             except:
                 pass
-        self.thd_map = np.array(self.thd_map, dtype=np.int32)
+        self.thd_map = np.array(self.thd_map, dtype=arc.kint_type)
         self.rop_fwd_test = np.zeros((num_conditions, self.fwd_map.size))
         self.rop_rev_test = np.zeros((num_conditions, self.rev_map.size))
         self.rop_net_test = np.zeros((num_conditions, self.fwd_map.size))
@@ -706,7 +706,7 @@ class spec_rate_eval(eval):
         # fwd
         fwd_masked = parse_split_index(output[fwd_ind], self.thd_map, order)
         output[fwd_ind][fwd_masked] *= output[pmod_ind][parse_split_index(
-            output[pmod_ind], np.arange(self.thd_map.size, dtype=np.int32),
+            output[pmod_ind], np.arange(self.thd_map.size, dtype=arc.kint_type),
             order)]
         # rev
         rev_masked = parse_split_index(output[rev_ind], self.rev_to_thd_map,
@@ -732,16 +732,16 @@ class spec_rate_eval(eval):
             def __get_locs_and_mask(arr, locs=None, inds=None):
                 size = int(np.prod(arr.shape) / this_run)
                 if inds is None:
-                    inds = np.arange(size, dtype=np.int32)
+                    inds = np.arange(size, dtype=arc.kint_type)
                 mask = parse_split_index(arr, inds, order, axis=(1,))
                 # get maximum relative error locations
                 if locs is None:
                     locs = np.argmax(err_compare[mask], axis=IC_axis)
                 if locs.ndim >= 2:
                     # C-split, need to convert to two 1-d arrays
-                    lrange = np.arange(locs[0].size, dtype=np.int32)
-                    fixed = [np.zeros(size, dtype=np.int32),
-                             np.zeros(size, dtype=np.int32)]
+                    lrange = np.arange(locs[0].size, dtype=arc.kint_type)
+                    fixed = [np.zeros(size, dtype=arc.kint_type),
+                             np.zeros(size, dtype=arc.kint_type)]
                     for i, x in enumerate(locs):
                         # find max in err_locs
                         ind = np.argmax(err_compare[x, [i], lrange])

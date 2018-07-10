@@ -85,7 +85,7 @@ def assign_rates(reacs, specs, rate_spec):
     # find fwd / reverse rate parameters
     # first, the number of each
     rev_map = np.array([i for i, x in enumerate(reacs) if x.rev],
-                       dtype=np.int32)
+                       dtype=arc.kint_type)
     num_rev = len(rev_map)
     # next, find the species / nu values
     nu_sum = []
@@ -128,18 +128,18 @@ def assign_rates(reacs, specs, rate_spec):
             ns_nu.extend([ns_prod_nu, ns_reac_nu])
 
     # create numpy versions
-    reac_has_ns = np.array(reac_has_ns, dtype=np.int32)
+    reac_has_ns = np.array(reac_has_ns, dtype=arc.kint_type)
     net_nu_integer = all(utils.is_integer(nu) for nu in net_nu)
     if net_nu_integer:
-        nu_sum = np.array(nu_sum, dtype=np.int32)
-        net_nu = np.array(net_nu, dtype=np.int32)
-        ns_nu = np.array(ns_nu, dtype=np.int32)
+        nu_sum = np.array(nu_sum, dtype=arc.kint_type)
+        net_nu = np.array(net_nu, dtype=arc.kint_type)
+        ns_nu = np.array(ns_nu, dtype=arc.kint_type)
     else:
         nu_sum = np.array(nu_sum)
         net_nu = np.array(net_nu)
         ns_nu = np.array(ns_nu)
-    net_num_spec = np.array(net_num_spec, dtype=np.int32)
-    net_spec = np.array(net_spec, dtype=np.int32)
+    net_num_spec = np.array(net_num_spec, dtype=arc.kint_type)
+    net_spec = np.array(net_spec, dtype=arc.kint_type)
 
     # sometimes we need the net properties forumlated per species rather than
     # per reaction as above
@@ -158,23 +158,23 @@ def assign_rates(reacs, specs, rate_spec):
             spec_reac_count.append(len(reac_list))
             spec_list.append(ispec)
 
-    spec_to_reac = np.array(spec_to_reac, dtype=np.int32)
+    spec_to_reac = np.array(spec_to_reac, dtype=arc.kint_type)
     if net_nu_integer:
-        spec_nu = np.array(spec_nu, dtype=np.int32)
+        spec_nu = np.array(spec_nu, dtype=arc.kint_type)
     else:
         spec_nu = np.array(spec_nu)
-    spec_reac_count = np.array(spec_reac_count, dtype=np.int32)
-    spec_list = np.array(spec_list, dtype=np.int32)
+    spec_reac_count = np.array(spec_reac_count, dtype=arc.kint_type)
+    spec_list = np.array(spec_list, dtype=arc.kint_type)
 
     def __seperate(reacs, matchers):
         # find all reactions / indicies that match this offset
         rate = [(i, x) for i, x in enumerate(reacs) if any(x.match(y) for y in
                                                            matchers)]
-        mapping = np.empty(0, dtype=np.int32)
+        mapping = np.empty(0, dtype=arc.kint_type)
         num = 0
         if rate:
             mapping, rate = zip(*rate)
-            mapping = np.array(mapping, dtype=np.int32)
+            mapping = np.array(mapping, dtype=arc.kint_type)
             rate = list(rate)
             num = len(rate)
 
@@ -188,9 +188,9 @@ def assign_rates(reacs, specs, rate_spec):
     def __specialize(rates, fall=False):
         fall_types = None
         num = len(rates)
-        rate_type = np.zeros((num,), dtype=np.int32)
+        rate_type = np.zeros((num,), dtype=arc.kint_type)
         if fall:
-            fall_types = np.zeros((num,), dtype=np.int32)
+            fall_types = np.zeros((num,), dtype=arc.kint_type)
         # reaction parameters
         A = np.zeros((num,), dtype=np.float64)
         b = np.zeros((num,), dtype=np.float64)
@@ -250,7 +250,7 @@ def assign_rates(reacs, specs, rate_spec):
     for p in plog_reacs:
         num_pressures.append(len(p.plog_par))
         plog_params.append(p.plog_par)
-    num_pressures = np.array(num_pressures, dtype=np.int32)
+    num_pressures = np.array(num_pressures, dtype=arc.kint_type)
 
     cheb_reacs, cheb_map, num_cheb = __seperate(
         reacs, [reaction_type.cheb])
@@ -267,8 +267,8 @@ def assign_rates(reacs, specs, rate_spec):
         cheb_coeff.append(cheb.cheb_par)
         cheb_plim.append(cheb.cheb_plim)
         cheb_tlim.append(cheb.cheb_tlim)
-    cheb_n_pres = np.array(cheb_n_pres, dtype=np.int32)
-    cheb_n_temp = np.array(cheb_n_temp, dtype=np.int32)
+    cheb_n_pres = np.array(cheb_n_pres, dtype=arc.kint_type)
+    cheb_n_temp = np.array(cheb_n_temp, dtype=arc.kint_type)
     cheb_plim = np.array(cheb_plim)
     cheb_tlim = np.array(cheb_tlim)
     cheb_coeff = np.array(cheb_coeff)
@@ -280,14 +280,14 @@ def assign_rates(reacs, specs, rate_spec):
         fall_reacs, True)
     # find blending type
     blend_type = np.array([next(int(y) for y in x.type if isinstance(
-        y, falloff_form)) for x in fall_reacs], dtype=np.int32)
+        y, falloff_form)) for x in fall_reacs], dtype=arc.kint_type)
     # seperate parameters based on blending type
     # lindeman
     lind_map = np.where(blend_type == int(falloff_form.lind))[
-        0].astype(dtype=np.int32)
+        0].astype(dtype=arc.kint_type)
     # sri
     sri_map = np.where(blend_type == int(falloff_form.sri))[
-        0].astype(dtype=np.int32)
+        0].astype(dtype=arc.kint_type)
     sri_reacs = [reacs[fall_map[i]] for i in sri_map]
     sri_par = [reac.sri_par for reac in sri_reacs]
     # now fill in defaults as needed
@@ -302,7 +302,7 @@ def assign_rates(reacs, specs, rate_spec):
             np.empty(shape=(0,)) for i in range(5)]
     # and troe
     troe_map = np.where(blend_type == int(falloff_form.troe))[
-        0].astype(dtype=np.int32)
+        0].astype(dtype=arc.kint_type)
     troe_reacs = [reacs[fall_map[i]] for i in troe_map]
     troe_par = [reac.troe_par for reac in troe_reacs]
     # now fill in defaults as needed
@@ -326,7 +326,7 @@ def assign_rates(reacs, specs, rate_spec):
         reacs, [reaction_type.fall, reaction_type.chem, reaction_type.thd])
     # find third body type
     thd_type = np.array([next(int(y) for y in x.type if isinstance(
-        y, thd_body_type)) for x in thd_reacs], dtype=np.int32)
+        y, thd_body_type)) for x in thd_reacs], dtype=arc.kint_type)
 
     # first, we must do some surgery to get _our_ form of the thd-body
     # efficiencies
@@ -358,10 +358,10 @@ def assign_rates(reacs, specs, rate_spec):
                 thd_has_ns.append(i)
                 thd_ns_eff.append(eff[ind])
 
-    thd_spec_num = np.array(thd_spec_num, dtype=np.int32)
-    thd_spec = np.array(thd_spec, dtype=np.int32)
+    thd_spec_num = np.array(thd_spec_num, dtype=arc.kint_type)
+    thd_spec = np.array(thd_spec, dtype=arc.kint_type)
     thd_eff = np.array(thd_eff, dtype=np.float64)
-    thd_has_ns = np.array(thd_has_ns, dtype=np.int32)
+    thd_has_ns = np.array(thd_has_ns, dtype=arc.kint_type)
     thd_ns_eff = np.array(thd_ns_eff, dtype=np.float64)
 
     # thermo properties

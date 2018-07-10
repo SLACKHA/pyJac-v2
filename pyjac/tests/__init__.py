@@ -12,6 +12,7 @@ import six
 
 # local imports
 from pyjac.core.mech_interpret import read_mech_ct
+from pyjac.core import array_creator as arc
 from pyjac import utils
 from pyjac.schemas import build_and_validate
 
@@ -198,7 +199,7 @@ class storage(object):
         # various indicies and mappings
         self.rev_inds = np.array(
             [i for i in range(gas.n_reactions) if gas.is_reversible(i)],
-            dtype=np.int32)
+            dtype=arc.kint_type)
         self.rev_rate_constants = np.zeros((test_size, self.rev_inds.size))
         self.rev_rxn_rate = np.zeros((test_size, self.rev_inds.size))
         self.equilibrium_constants = np.zeros((test_size, self.rev_inds.size))

@@ -1,6 +1,7 @@
 import numpy as np
 from textwrap import dedent
 
+from pyjac.core import array_creator as arc
 from pyjac.core.instruction_creator import get_update_instruction
 from pyjac.core.array_creator import MapStore, creator
 from pyjac.tests.test_utils import TestingLogger
@@ -13,10 +14,10 @@ def test_get_update_instruction():
     # test the update instruction creator
 
     # first, create some domains
-    map_np = np.arange(12, dtype=np.int32)
+    map_np = np.arange(12, dtype=arc.kint_type)
     map_domain = creator('map', map_np.dtype, map_np.shape, 'C', initializer=map_np)
 
-    mask_np = np.arange(12, dtype=np.int32)
+    mask_np = np.arange(12, dtype=arc.kint_type)
     mask_domain = creator('mask', mask_np.dtype, mask_np.shape, 'C',
                           initializer=mask_np)
 
@@ -25,7 +26,7 @@ def test_get_update_instruction():
     mapstore = MapStore(loopy_opts, map_domain, mask_domain)
 
     # add a new domain
-    domain_np = np.arange(12, dtype=np.int32) + 2
+    domain_np = np.arange(12, dtype=arc.kint_type) + 2
     domain = creator('domain', domain_np.dtype, domain_np.shape, 'C',
                      initializer=domain_np)
 

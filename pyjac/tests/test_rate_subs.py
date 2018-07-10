@@ -19,6 +19,7 @@ from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
     kernel_type, RateSpecialization
 from pyjac.tests.test_utils import (get_comparable, indexer, _generic_tester,
                                     _full_kernel_test)
+from pyjac.core.array_creator import kint_type
 
 # modules
 import cantera as ct
@@ -357,7 +358,7 @@ class SubTest(TestClass):
                                 if (isinstance(x, ct.FalloffReaction) and not
                                     isinstance(x, ct.ChemicallyActivatedReaction))
                                 else int(reaction_type.chem) for x in fall_reacs],
-                                       dtype=np.int32) - int(reaction_type.fall))
+                                       dtype=kint_type) - int(reaction_type.fall))
         # test blending func
         blend_types = []
         for x in fall_reacs:
@@ -369,7 +370,7 @@ class SubTest(TestClass):
                 blend_types.append(falloff_form.lind)
         assert np.array_equal(
             result['fall']['blend'], np.array(
-                [int(x) for x in blend_types], dtype=np.int32))
+                [int(x) for x in blend_types], dtype=kint_type))
         # test parameters
         # troe
         if result['fall']['troe']['num']:
@@ -436,7 +437,7 @@ class SubTest(TestClass):
                 thd_eff.append(eff_dict[spec])
         # and test
         assert np.array_equal(
-            result['thd']['type'], np.array(thd_type, dtype=np.int32))
+            result['thd']['type'], np.array(thd_type, dtype=kint_type))
         assert np.array_equal(result['thd']['eff'], thd_eff)
         assert np.array_equal(result['thd']['spec_num'], thd_sp_num)
         assert np.array_equal(result['thd']['spec'], thd_sp)
@@ -645,7 +646,7 @@ class SubTest(TestClass):
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
                          compare_mask=[get_comparable((sri_mask,), ref_ans)],
                          ref_ans_compare_mask=[get_comparable(
-                            (np.arange(self.store.sri_inds.size, dtype=np.int32),),
+                            (np.arange(self.store.sri_inds.size, dtype=kint_type),),
                             ref_ans)],
                          **args)
         self.__generic_rate_tester(get_sri_kernel, kc)
@@ -672,7 +673,7 @@ class SubTest(TestClass):
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
                          compare_mask=[get_comparable((troe_mask,), ref_ans)],
                          ref_ans_compare_mask=[get_comparable(
-                            (np.arange(self.store.troe_inds.size, dtype=np.int32),),
+                            (np.arange(self.store.troe_inds.size, dtype=kint_type),),
                             ref_ans)], **args)
         self.__generic_rate_tester(get_troe_kernel, kc)
 
@@ -688,7 +689,7 @@ class SubTest(TestClass):
         args = {'Fi': lambda x: np.zeros_like(self.store.ref_Pr, order=x)}
         # need a seperate answer mask to deal with the shape difference
         # in split arrays
-        ans_mask = np.arange(self.store.lind_inds.size, dtype=np.int32)
+        ans_mask = np.arange(self.store.lind_inds.size, dtype=kint_type)
         # create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
                          compare_mask=[get_comparable((lind_mask,), ref_ans)],
@@ -845,7 +846,7 @@ class SubTest(TestClass):
         kc = kernel_call('spec_rates', [wdot],
                          compare_mask=[
                             get_comparable((np.arange(self.store.gas.n_species,
-                                                      dtype=np.int32),), wdot)],
+                                                      dtype=kint_type),), wdot)],
                          **args)
 
         # test regularly
@@ -865,7 +866,7 @@ class SubTest(TestClass):
         kc = [kernel_call('temperature_rate', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
                           compare_mask=[get_comparable(
-                            (np.array([0], dtype=np.int32),), self.store.dphi_cp)],
+                            (np.array([0], dtype=kint_type),), self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -876,7 +877,7 @@ class SubTest(TestClass):
         kc = [kernel_call('temperature_rate', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
                           compare_mask=[get_comparable(
-                            (np.array([0], dtype=np.int32),), self.store.dphi_cv)],
+                            (np.array([0], dtype=kint_type),), self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc,
@@ -939,7 +940,7 @@ class SubTest(TestClass):
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
                           compare_mask=[get_comparable(
-                            (np.array([1], dtype=np.int32),), self.store.dphi_cp)],
+                            (np.array([1], dtype=kint_type),), self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -960,7 +961,7 @@ class SubTest(TestClass):
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
                           compare_mask=[get_comparable(
-                            (np.array([1], dtype=np.int32),), self.store.dphi_cv)],
+                            (np.array([1], dtype=kint_type),), self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_extra_var_rates, kc,

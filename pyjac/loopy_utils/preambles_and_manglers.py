@@ -2,6 +2,7 @@ from string import Template
 import numpy as np
 
 from pyjac import utils as utils
+from pyjac.core import array_creator as arc
 from loopy import to_loopy_type
 
 
@@ -179,13 +180,13 @@ def power_function_preambles(loopy_opts, power_function):
     """
 
     if 'fast_powi' in [x.name for x in utils.listify(power_function)]:
-        return [fastpowi_PreambleGen()]
+        return [fastpowi_PreambleGen(arc.kint_type)]
     return []
 
 
 class pown(MangleGen):
     # turn off raise_on_fail, as multiple versions of this might be added
-    def __init__(self, name='pown', arg_dtypes=(np.float64, np.int32),
+    def __init__(self, name='pown', arg_dtypes=(np.float64, arc.kint_type),
                  result_dtypes=np.float64, raise_on_fail=False):
         super(pown, self).__init__(name, arg_dtypes, result_dtypes,
                                    raise_on_fail=raise_on_fail)
