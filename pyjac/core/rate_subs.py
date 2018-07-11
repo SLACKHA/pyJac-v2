@@ -515,8 +515,8 @@ def reset_arrays(loopy_opts, namestore, test_size=None):
         kernel_data = []
 
         # add problem size
-        if namestore.problem_size is not None:
-            kernel_data.append(namestore.problem_size)
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
 
         # need arrays
         arr_lp, arr_str = mapstore.apply_maps(arr, *default_inds)
@@ -579,8 +579,8 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # need P, V, T and n arrays
 
@@ -683,8 +683,8 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     fixed_inds = (global_ind,)
 
@@ -775,8 +775,8 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     fixed_inds = (global_ind,)
 
@@ -937,8 +937,8 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add / apply maps
     mapstore.check_and_add_transform(namestore.spec_rates,
@@ -1046,9 +1046,10 @@ def get_spec_rates(loopy_opts, namestore, conp=True,
     """
 
     kernel_data = []
+
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # various indicies
     spec_ind = 'spec_ind'
@@ -1161,7 +1162,11 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
 
     def __add_to_all(data):
         for kernel in kernel_data:
-            __add_data(kernel, data)
+            try:
+                for d in data:
+                    __add_data(kernel, d)
+            except TypeError:
+                __add_data(kernel, data)
 
     def __get_map(knl):
         if separated_kernels:
@@ -1187,8 +1192,8 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
             check_and_add_transform(namestore.rop_net,
                                     transforms[name])
 
-    if test_size == 'problem_size':
-        __add_to_all(namestore.problem_size)
+    __add_to_all(
+        arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # create the fwd rop array / str
     # this never has a map / mask
@@ -1344,8 +1349,9 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
 
         # indicies
         kernel_data = []
-        if test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+        # add problem size
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
         if direction == 'fwd':
             inds = namestore.num_reacs
             mapinds = namestore.num_reacs
@@ -1482,8 +1488,9 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
         # rate info and reac ind
 
         kernel_data = []
-        if test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+        # add problem size
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
 
         # create the third body conc pres-mod kernel
 
@@ -1521,8 +1528,9 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
     else:
         # and now the falloff kernel
         kernel_data = []
-        if test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+        # add problem size
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
 
         fall_map = arc.MapStore(loopy_opts, namestore.num_fall,
                                 namestore.num_fall)
@@ -1605,8 +1613,9 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     spec_ind = 'spec_ind'
     spec_loop = 'ispec'
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add the reverse map
     rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
@@ -1794,8 +1803,9 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
 
     # kernel data
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add arrays
     kernel_data.extend([P_arr, T_arr, concs_lp, thd_lp, thd_type_lp,
@@ -1922,8 +1932,9 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
 
     # update kernel data
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp, tlim_lp,
                         pres_poly_lp, temp_poly_lp, T_arr, P_arr, kf_arr])
@@ -2088,8 +2099,9 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
 
     # data
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # update kernel data
     kernel_data.extend([plog_params_lp, plog_num_param_lp, T_arr,
@@ -2214,9 +2226,9 @@ def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
     # create the various necessary arrays
 
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
-
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
     # add maps / masks
 
     # kf is over all reactions
@@ -2315,8 +2327,9 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     mapstore = arc.MapStore(loopy_opts,
                             namestore.num_troe, namestore.num_troe)
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add maps / masks
     mapstore.check_and_add_transform(namestore.Fi, namestore.troe_map)
@@ -2423,8 +2436,9 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     # create mapper
     mapstore = arc.MapStore(loopy_opts, namestore.num_sri, namestore.sri_mask)
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # maps and transforms
     mapstore.check_and_add_transform(namestore.Fi, namestore.sri_map)
@@ -2525,8 +2539,9 @@ def get_lind_kernel(loopy_opts, namestore, test_size=None):
 
     kernel_data = []
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # create Fi array / str
 
@@ -2627,8 +2642,9 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                     'RateSpecialization, disabling...')
 
     base_kernel_data = []
-    if test_size == 'problem_size':
-        base_kernel_data.append(namestore.problem_size)
+    # add problem size
+    base_kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # if we need the rtype array, add it
     if not separated_kernels and not fixed:
@@ -2956,10 +2972,6 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # figure out rates and info
     rate_info = assign_rates(reacs, specs, loopy_opts.rate_spec)
 
-    # set test size
-    if test_size is None:
-        test_size = 'problem_size'
-
     # create the namestore
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
 
@@ -2970,7 +2982,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
             klist = kernels
         try:
             klist.extend([x for x in knls if x is not None])
-        except:
+        except TypeError:
             if knls is not None:
                 klist.append(knls)
 
@@ -3205,8 +3217,8 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
                             loop_index)
 
     knl_data = []
-    if test_size == 'problem_size':
-        knl_data.append(namestore.problem_size)
+    # add problem size
+    knl_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # get correctly ordered arrays / strings
     a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)
@@ -3316,10 +3328,6 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
     # figure out rates and info
     rate_info = assign_rates(reacs, specs, loopy_opts.rate_spec)
-
-    # set test size
-    if test_size is None:
-        test_size = 'problem_size'
 
     # create the namestore
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)

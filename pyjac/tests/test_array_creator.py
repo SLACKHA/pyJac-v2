@@ -21,9 +21,9 @@ import numpy as np
 from optionloop import OptionLoop
 
 
-def _dummy_opts(order='C', use_working_buffers=False):
+def _dummy_opts(order='C'):
     class dummy(object):
-        def __init__(self, order='C', use_working_buffers=False):
+        def __init__(self, order='C'):
             self.order = order
             self.jac_format = ''
             self.jac_type = ''
@@ -32,22 +32,19 @@ def _dummy_opts(order='C', use_working_buffers=False):
             self.unr = None
             self.ilp = None
             self.width = None
-            self.use_working_buffers = use_working_buffers
-    return dummy(order=order, use_working_buffers=use_working_buffers)
+    return dummy(order=order)
 
 
 def opts_loop(width=[4, None],
               depth=[4, None],
               order=['C', 'F'],
               lang=get_test_langs(),
-              use_working_buffers=True,
               is_simd=[True, False]):
 
     oploop = OptionLoop(OrderedDict(
         [('width', width),
          ('depth', depth),
          ('order', order),
-         ('use_working_buffers', [use_working_buffers]),
          ('lang', lang),
          ('order', order),
          ('is_simd', is_simd),
@@ -634,7 +631,7 @@ def test_working_buffer_creations():
         arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
 
         assert isinstance(arr_lp, lp.GlobalArg) and \
-            __shape_compare(arr_lp.shape, (arc.global_work_size.name, 10))
+            __shape_compare(arr_lp.shape, (arc.work_size.name, 10))
         assert arr_str == 'a[j_outer, i]' if lp_opt.width else 'a[j, i]'
 
         inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i')
@@ -732,7 +729,7 @@ class SubTest(TestClass):
 
     @attr('long')
     def test_input_private_memory_creations(self):
-        lp_opt = _dummy_opts(use_working_buffers=True)
+        lp_opt = _dummy_opts()
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         # create name and mapstores

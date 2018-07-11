@@ -193,7 +193,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
                               var_name=arc.var_name,
                               extra_inames=extra_inames,
                               kernel_data=buffers + working_buffers + [
-                                arc.global_work_size])
+                                arc.work_size])
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function

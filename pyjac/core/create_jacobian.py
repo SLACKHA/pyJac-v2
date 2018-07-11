@@ -285,8 +285,7 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     if loopy_opts.jac_format == JacobianFormat.sparse:
         # simply loop over the whole jacobian array
@@ -373,8 +372,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     """
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     num_range_dict = {reaction_type.thd: namestore.num_thd_only,
                       falloff_form.lind: namestore.num_lind,
@@ -896,8 +894,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # check rxn type
     if rxn_type in [reaction_type.plog, reaction_type.cheb] and do_ns:
@@ -1554,7 +1551,7 @@ def dRopi_cheb_dE(loopy_opts, namestore, test_size=None, conp=True,
                      test_size=test_size, do_ns=False,
                      rxn_type=reaction_type.cheb, conp=conp,
                      maxP=maxP, maxT=maxT)]
-    if test_size == 'problem_size':
+    if not isinstance(test_size, int):
         # include the ns version for convenience in testing
         ret.append(__dRopidE(loopy_opts, namestore,
                              test_size=test_size, do_ns=True,
@@ -1595,8 +1592,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     mapstore = arc.MapStore(
         loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
@@ -1739,8 +1735,7 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     mapstore = arc.MapStore(
         loopy_opts, namestore.net_nonzero_spec, namestore.net_nonzero_spec)
@@ -1848,8 +1843,7 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     ns = namestore.num_specs[-1]
 
@@ -2003,8 +1997,7 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
     """
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     ns = namestore.num_specs[-1]
 
@@ -2120,8 +2113,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     """
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     num_range_dict = {reaction_type.thd: namestore.num_thd_only,
                       falloff_form.lind: namestore.num_lind,
@@ -2594,8 +2586,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # check rxn type
     if rxn_type in [reaction_type.plog, reaction_type.cheb] and do_ns:
@@ -3312,8 +3303,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         namestore.T_arr, global_ind)
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp, nonzero_lp])
 
@@ -3423,8 +3413,7 @@ def dTdot_dnj(loopy_opts, namestore, test_size=None,
         }, entry_exists=True, insn=tdot_jac_insn, deps='sum')
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     kernel_data.extend([spec_heat_lp, energy_lp, spec_heat_tot_lp, mw_lp,
                         V_lp, T_dot_lp, jac_lp, nonzero_lp])
@@ -3489,8 +3478,7 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
         namestore.spec_heat_total, global_ind)
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     kernel_data.extend([spec_heat_lp, conc_lp, spec_heat_tot_lp])
 
@@ -3526,7 +3514,7 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
 
 @ic.with_conditional_jacobian
 def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
-              jac_create=None):
+              test_size=None, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the third body concentrations / falloff blending factors
     with respect to the molar quantity of a species
@@ -3631,8 +3619,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     if fall_type != falloff_form.none:
         # the fall to third map depending on the reaction range
@@ -4003,8 +3990,8 @@ def dci_thd_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True)
+    infos = [__dci_dnj(loopy_opts, namestore, False, test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -4042,8 +4029,10 @@ def dci_lind_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.lind)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.lind)
+    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.lind,
+                       test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.lind,
+                        test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -4081,8 +4070,10 @@ def dci_sri_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.sri)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.sri)
+    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.sri,
+                       test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.sri,
+                        test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -4120,8 +4111,10 @@ def dci_troe_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.troe)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.troe)
+    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.troe,
+                       test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.troe,
+                        test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -4189,8 +4182,7 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     rxn_range = namestore.num_reacs if not do_ns else namestore.rxn_has_ns
     if do_ns and rxn_range.initializer is None or not rxn_range.initializer.size:
@@ -4535,9 +4527,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         The generated infos for feeding into the kernel generator
     """
 
-    if test_size is None:
-        test_size = 'problem_size'
-
     # first we create a species rates kernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
                                      test_size=test_size, mem_limits=mem_limits)
@@ -4552,8 +4541,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # need to loop over all non-zero phi entries
     mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,
@@ -4611,8 +4599,9 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # and finally the coeffs
     xcoeffs = np.array(xcoeffs, dtype=arc.kint_type)
-    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=arc.kint_type, initializer=xcoeffs,
-                                   shape=xcoeffs.shape, scope=scopes.PRIVATE,
+    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=arc.kint_type,
+                                   initializer=xcoeffs, shape=xcoeffs.shape,
+                                   scope=scopes.PRIVATE,
                                    read_only=True)
 
     ycoeffs = np.array(ycoeffs, dtype=np.float64)
@@ -4898,10 +4887,6 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # figure out rates and info
     rate_info = determine_jac_inds(reacs, specs, loopy_opts.rate_spec,
                                    loopy_opts.jac_type)
-
-    # set test size
-    if test_size is None:
-        test_size = 'problem_size'
 
     # create the namestore
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)

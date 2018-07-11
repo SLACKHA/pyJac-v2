@@ -59,8 +59,7 @@ def mass_to_mole_factions(loopy_opts, namestore, conp=True, test_size=None):
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # need "Yi" and molecular weight / factor arrays
 
@@ -125,8 +124,7 @@ def mass_to_mole_factions(loopy_opts, namestore, conp=True, test_size=None):
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # need input "Yi", molecular weight, and moles array
 

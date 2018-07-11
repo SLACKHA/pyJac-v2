@@ -418,7 +418,7 @@ problem_size = lp.ValueArg('problem_size', dtype=kint_type)
     input/output arrays used in drivers
 """
 
-global_work_size = lp.ValueArg('global_work_size', dtype=kint_type)
+work_size = lp.ValueArg('work_size', dtype=kint_type)
 """
     The global work size of the generated kernel.
     Roughly speaking, this corresponds to:
@@ -452,8 +452,36 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
-class tree_node(object):
+def initial_condition_dimension_vars(loopy_opts, test_size, is_driver_kernel=False):
+    """
+    Return the size to use for the initial condition dimension, considering whether
+    we're in unit-testing, a driver kernel or simple kernel generation
 
+    Parameters
+    ----------
+    loopy_opts: :class:`loopy_options`
+        The loopy options to be used during kernel creation
+    test_size: int or None
+        The test size option, indicates whether we're in unit-testing
+    is_driver_kernel: bool [False]
+        If True, and not-unit testing, use the _full_ `problem_size` for the
+        IC dim. size
+
+    Returns
+    -------
+    size: list of :class:`loopy.ValueArg`
+        The initial condition dimension size variables
+    """
+
+    if isinstance(test_size, int):
+        return []
+    if is_driver_kernel:
+        return [work_size, problem_size]
+    else:
+        return [work_size]
+
+
+class tree_node(object):
     """
         A node in the :class:`MapStore`'s domain tree.
         Contains a base domain, a list of child domains, and a list of
@@ -656,7 +684,7 @@ class MapStore(object):
     raise_on_final : bool
         If true, raise an exception if a variable / domain is added to the
         domain tree after this :class:`MapStore` has been finalized
-    use_working_buffers : bool
+    working_buffer_index : bool
         If True, use internal buffers for OpenCL/CUDA/etc. array creation
         where possible. If False, use full sized arrays.
     """
@@ -664,8 +692,6 @@ class MapStore(object):
     def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
                  raise_on_final=True):
         self.loopy_opts = loopy_opts
-        # TODO: working on this
-        self.use_working_buffers = loopy_opts.use_working_buffers
         self.map_domain = map_domain
         self.mask_domain = mask_domain
         self._check_is_valid_domain(self.map_domain)
@@ -681,14 +707,14 @@ class MapStore(object):
         self.raise_on_final = raise_on_final
         self.is_finalized = False
 
-        # determine the parallel index
-        if self.use_working_buffers:
+        # determine the parallel index, IFF we're not unit-testing
+        if test_size is not None:
             from pyjac.kernel_utils.kernel_gen import kernel_generator
             specialization = kernel_generator.apply_specialization(
                 self.loopy_opts, var_name, None, get_specialization=True)
             global_index = next((k for k, v in six.iteritems(specialization)
                                  if v == 'g.0'), global_ind)
-            self.use_working_buffers = global_index
+            self.working_buffer_index = global_index
 
     def _is_map(self):
         """
@@ -1209,7 +1235,7 @@ class MapStore(object):
 
         # return affine mapping
         return variable(*tuple(__get_affine(i) for i in indicies),
-                        working_buffer_index=self.use_working_buffers, **kwargs)
+                        working_buffer_index=self.working_buffer_index, **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
@@ -1437,7 +1463,7 @@ class creator(object):
             inds = tuple(s if i != glob_ind else wbi
                          for i, s in enumerate(inds))
             # and reshape the array
-            shape = tuple(s if i != glob_ind else global_work_size.name
+            shape = tuple(s if i != glob_ind else work_size.name
                           for i, s in enumerate(self.shape))
             lp_arr = self.__glob_arg_creator(shape=shape, **kwargs)
         else:
@@ -1650,8 +1676,8 @@ class NameStore(object):
         """
 
         # problem size
-        if isinstance(test_size, str):
-            self.problem_size = problem_size
+        if not isinstance(test_size, int):
+            test_size = problem_size.name
 
         # generic ranges
         self.num_specs = creator('num_specs', shape=(rate_info['Ns'],),

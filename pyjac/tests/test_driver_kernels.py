@@ -55,7 +55,7 @@ class SubTest(TestClass):
                 instructions=instructions,
                 mapstore=mapstore,
                 var_name=arc.var_name,
-                kernel_data=[phi_lp, P_lp, arc.global_work_size])
+                kernel_data=[phi_lp, P_lp, arc.work_size])
             # put it in a generator
             generator = k_gen.make_kernel_generator(
                 loopy_opts, 'inner', [inner_kernel], namestore,

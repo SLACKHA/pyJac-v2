@@ -114,18 +114,6 @@ class loopy_options(object):
             used
         *   If a vendor specific string, it will be passed to pyopencl to get
             the platform
-    use_working_buffers : bool [True]
-        If True, use internal working buffers where appropriate.  The main effect
-        of this option is that the typical array size (e.g.,):
-            ```
-                arr.shape = (problem_size, X, Y)
-            ```
-        may be dropped down to:
-            ```
-                arr.shape = (num_threads, X, Y)
-            ```
-        potentially saving huge amounts of memory.  However, this won't be usable
-        for unit-testing until loopy's new kernel-calling interface is complete.
     use_atomic_doubles : bool [True]
         Use atomic updates where necessary for proper deep-vectorization
         If not, a sequential deep-vectorization (with only one thread/lane
@@ -147,9 +135,8 @@ class loopy_options(object):
                  rate_spec_kernels=False, rop_net_kernels=False,
                  platform='', kernel_type=kernel_type.jacobian, auto_diff=False,
                  use_atomic_doubles=True, use_atomic_ints=True,
-                 use_working_buffers=True, jac_type=JacobianType.exact,
-                 jac_format=JacobianFormat.full, seperate_kernels=True,
-                 device=None, device_type=None, is_simd=None):
+                 jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
+                 seperate_kernels=True, device=None, device_type=None, is_simd=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -173,7 +160,6 @@ class loopy_options(object):
         self.auto_diff = auto_diff
         self.use_atomic_doubles = use_atomic_doubles
         self.use_atomic_ints = use_atomic_ints
-        self.use_working_buffers = use_working_buffers
         self.jac_format = jac_format
         self.jac_type = jac_type
         self.seperate_kernels = seperate_kernels
