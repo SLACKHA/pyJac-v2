@@ -16,13 +16,6 @@ from pyjac.core import array_creator as arc
 from pyjac import utils
 from pyjac.schemas import build_and_validate
 
-# various testing globals
-test_size = 8192  # required to be a power of 2 for the moment
-script_dir = os.path.abspath(os.path.dirname(__file__))
-build_dir = os.path.join(script_dir, 'out')
-obj_dir = os.path.join(script_dir, 'obj')
-lib_dir = os.path.join(script_dir, 'lib')
-
 
 @nottest
 def _get_test_input(key, default=''):
@@ -46,6 +39,15 @@ def _get_test_input(key, default=''):
             'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
         value = os.environ[key.upper()]
     return value
+
+
+# various testing globals
+# required to be a power of 2 for the moment
+test_size = int(_get_test_input('test_size', 8192))
+script_dir = os.path.abspath(os.path.dirname(__file__))
+build_dir = os.path.join(script_dir, 'out')
+obj_dir = os.path.join(script_dir, 'obj')
+lib_dir = os.path.join(script_dir, 'lib')
 
 
 def get_platform_file():
