@@ -347,7 +347,7 @@ class multi_index_iter(object):
                             'fit in given size_limit for (non initial-condition)'
                             ' axis {}, with size {}. The size-limit must be '
                             'increased to {}.'.format(
-                                utils.stringfy_args(self.shape), ax,
+                                utils.stringify_args(self.shape), ax,
                                 self.shape[ax], size_limit))
             accum *= self.shape[ax]
 
@@ -1077,13 +1077,14 @@ class OptionLoopWrapper(object):
     def __init__(self, oploop_base, skip_test=None, yield_index=False,
                  ignored_state_vals=['conp']):
         self.oploop = oploop_base.copy()
+        self.state = next(oploop_base.copy()).copy()
         self.yield_index = yield_index
         self.skip_test = skip_test
         self.bad_platforms = set()
         self.ignored_state_vals = ignored_state_vals[:]
 
-    @classmethod
-    def from_get_oploop(cls, owner, skip_test=None, yield_index=False,
+    @staticmethod
+    def from_get_oploop(owner, skip_test=None, yield_index=False,
                         ignored_state_vals=['conp'], **oploop_kwds):
         """
         A convenience method that returns a :class:`OptionLoopWrapper` from the
@@ -1133,12 +1134,13 @@ class OptionLoopWrapper(object):
                 return (i, opts)
             else:
                 return opts
+        raise StopIteration
 
     def __repr__(self):
         return self.__str__()
 
     def __str__(self):
-        return utils.stringfy_args(self.state, kwd=True)
+        return utils.stringify_args(self.state, kwd=True)
 
     def throw(self, type=None, value=None, traceback=None):
         raise StopIteration
