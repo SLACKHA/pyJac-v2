@@ -2466,7 +2466,7 @@ class SubTest(TestClass):
                 indptr = namestore.jac_col_inds
             # create maps
             mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_phi,
-                                    namestore.net_nonzero_phi)
+                                    self.store.test_size)
             mapstore.finalize()
             var_name = mapstore.tree.iname
             global_ind = arc.global_ind

@@ -136,7 +136,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         map_shape = np.arange(shape[1], dtype=arc.kint_type)
         mapper = arc.creator(name, arc.kint_type, map_shape.shape, 'C',
                              initializer=map_shape)
-        mapstore = arc.MapStore(loopy_opts, mapper, mapper)
+        mapstore = arc.MapStore(loopy_opts, mapper, test_size)
 
         from pytools import UniqueNameGenerator
         # determine what other inames we need, if any

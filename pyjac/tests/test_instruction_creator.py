@@ -18,12 +18,10 @@ def test_get_update_instruction():
     map_domain = creator('map', map_np.dtype, map_np.shape, 'C', initializer=map_np)
 
     mask_np = np.arange(12, dtype=arc.kint_type)
-    mask_domain = creator('mask', mask_np.dtype, mask_np.shape, 'C',
-                          initializer=mask_np)
 
     # and a dummy loopy options and mapstore
     loopy_opts = type('', (object,), {'use_working_buffer': False})
-    mapstore = MapStore(loopy_opts, map_domain, mask_domain)
+    mapstore = MapStore(loopy_opts, map_domain, True)
 
     # add a new domain
     domain_np = np.arange(12, dtype=arc.kint_type) + 2
@@ -52,7 +50,7 @@ def test_get_update_instruction():
     assert insn == test_instrution
 
     # test #4, transformed domain results in guarded update insn
-    mapstore = MapStore(loopy_opts, map_domain, mask_domain)
+    mapstore = MapStore(loopy_opts, map_domain, True)
     domain_np = np.full_like(domain_np, -1)
     choice = np.sort(np.random.choice(domain_np.size, domain_np.size - 3,
                                       replace=False))

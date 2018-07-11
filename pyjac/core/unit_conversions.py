@@ -51,9 +51,7 @@ def mass_to_mole_factions(loopy_opts, namestore, conp=True, test_size=None):
     """
 
     # first kernel, determine molecular weight
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # first, create all arrays
     kernel_data = []
@@ -116,9 +114,7 @@ def mass_to_mole_factions(loopy_opts, namestore, conp=True, test_size=None):
                                                 namestore.mw_arr[-1])})
 
     # now convert to moles
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # first, create all arrays
     kernel_data = []

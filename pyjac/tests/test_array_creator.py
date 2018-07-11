@@ -81,7 +81,7 @@ def test_non_contiguous_input():
                     initializer=np.array(list(range(4)) + list(range(6, 12)),
                                          dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mstore.finalize()
     assert len(mstore.transformed_domains) == 1
     assert mstore.tree.parent is not None
@@ -95,7 +95,7 @@ def test_contiguous_input():
     c = arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.arange(10, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
 
@@ -108,7 +108,7 @@ def test_contiguous_offset_input():
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a creator that can be mapped affinely
     c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
@@ -132,7 +132,7 @@ def test_contiguous_offset_input_map():
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a creator that can be mapped affinely
     c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
@@ -166,7 +166,7 @@ def test_input_map_domain_transfer():
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a creator that matches the coming input map
     c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
@@ -201,7 +201,7 @@ def test_duplicate_iname_detection():
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create a mapped domain
     c2 = arc.creator('c', arc.kint_type, (10,), 'C',
@@ -227,7 +227,7 @@ def test_duplicate_iname_detection():
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create a mapped domain
     c2 = arc.creator('c', arc.kint_type, (10,), 'C',
@@ -258,7 +258,7 @@ def test_map_range_update():
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # next add a creator that doesn't need a map
     c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
@@ -309,7 +309,7 @@ def test_multiple_inputs():
     c = arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.arange(10, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a variable
     c2 = arc.creator('', arc.kint_type, (10,), 'C',
@@ -351,7 +351,7 @@ def test_bad_multiple_variable_map():
     c = arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.arange(10, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a variable
     c2 = arc.creator('', arc.kint_type, (10,), 'C',
@@ -371,7 +371,7 @@ def test_offset_base():
     c = arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     # add a variable
@@ -394,7 +394,7 @@ def test_map_variable_creator():
     c = arc.creator('base', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     # add a variable
@@ -416,7 +416,7 @@ def test_map_to_larger():
     c = arc.creator('base', arc.kint_type, (5,), 'C',
                     initializer=np.arange(5, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     # add a variable
@@ -437,7 +437,7 @@ def test_chained_maps():
     c = arc.creator('base', arc.kint_type, (5,), 'C',
                     initializer=np.arange(5, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     def __get_iname(domain):
@@ -499,12 +499,12 @@ def test_map_iname_domains():
     c = arc.creator('base', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add an affine map
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mapv = np.arange(10, dtype=arc.kint_type)
     var = arc.creator('var', arc.kint_type, (10,), 'C')
     domain = arc.creator('domain', arc.kint_type, (10,), 'C',
@@ -514,7 +514,7 @@ def test_map_iname_domains():
     assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add a non-affine map, domain should bounce to 0-based
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=arc.kint_type)
     var = arc.creator('var2', arc.kint_type, (10,), 'C')
     domain = arc.creator('domain', arc.kint_type, (10,), 'C',
@@ -528,7 +528,7 @@ def test_map_iname_domains():
                     initializer=np.array(list(range(3)) + list(range(4, 11)),
                                          dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
@@ -538,7 +538,7 @@ def test_leaf_inames():
 
     c = arc.creator('base', arc.kint_type, (10,), 'C',
                     initializer=np.arange(10, dtype=arc.kint_type))
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create one map
     mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=arc.kint_type)
@@ -574,7 +574,7 @@ def test_input_map_pickup():
                     initializer=np.array(list(range(4)) + list(range(6, 12)),
                                          dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create a variable
     x = __create_var('x')
@@ -595,7 +595,7 @@ def test_force_inline():
     c = arc.creator('base', arc.kint_type, mapv.shape, 'C',
                     initializer=mapv)
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add an affine map
     mapv = np.array(mapv, copy=True) + 1
@@ -627,7 +627,7 @@ def test_working_buffer_creations():
         inp = arc.creator('b', arc.kint_type, (10, 10), lp_opt.order,
                           is_input_or_output=True)
 
-        mstore = arc.MapStore(lp_opt, c, c, 'i')
+        mstore = arc.MapStore(lp_opt, c, True, 'i')
         arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
 
         assert isinstance(arr_lp, lp.GlobalArg) and \
@@ -654,7 +654,7 @@ def test_affine_dict_with_input_map():
                      initializer=np.array(list(range(4)) + list(range(6, 12)),
                                           dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c1, c1, 'i')
+    mstore = arc.MapStore(lp_opt, c1, True, 'i')
 
     # create a variable
     x = __create_var('x')
@@ -667,7 +667,7 @@ def test_tree_node_children():
     # create mapstore
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add children
     c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
@@ -697,7 +697,7 @@ def test_absolute_root():
     # create mapstore
     c = arc.creator('c', arc.kint_type, (10,), 'C',
                     initializer=np.arange(3, 13, dtype=arc.kint_type))
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add children
     c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
@@ -734,7 +734,7 @@ class SubTest(TestClass):
                                  RateSpecialization.fixed)
         # create name and mapstores
         nstore = arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
-        mstore = arc.MapStore(lp_opt, nstore.phi_inds, nstore.phi_inds, 'i')
+        mstore = arc.MapStore(lp_opt, nstore.phi_inds, self.store.test_size, 'i')
 
         # create known input
         jac_lp, jac_str = mstore.apply_maps(nstore.jac, 'j', 'k', 'i')

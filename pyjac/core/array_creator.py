@@ -671,8 +671,9 @@ class MapStore(object):
         The loopy options for kernel creation
     map_domain : :class:`creator`
         The domain of the iname to use for a mapped kernel
-    mask_domain : :class:`creator`
-        The domain of the iname to use for a masked kernel
+    is_unit_test : bool
+        If true, we are generating arrays for a unit-test, and hence we should not
+        convert anything to working-buffer form
     iname : str
         The loop index to work with
     have_input_map : bool
@@ -689,14 +690,13 @@ class MapStore(object):
         where possible. If False, use full sized arrays.
     """
 
-    def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
+    def __init__(self, loopy_opts, map_domain, test_size, iname='i',
                  raise_on_final=True):
         self.loopy_opts = loopy_opts
         self.map_domain = map_domain
-        self.mask_domain = mask_domain
         self._check_is_valid_domain(self.map_domain)
-        self._check_is_valid_domain(self.mask_domain)
         self.domain_to_nodes = {}
+        self.is_unit_test = isinstance(test_size, int)
         self.transformed_domains = set()
         self.tree = tree_node(self, self._get_base_domain(), iname=iname)
         self.domain_to_nodes[self._get_base_domain()] = self.tree
@@ -708,7 +708,8 @@ class MapStore(object):
         self.is_finalized = False
 
         # determine the parallel index, IFF we're not unit-testing
-        if test_size is not None:
+        self.working_buffer_index = None
+        if not self.is_unit_test:
             from pyjac.kernel_utils.kernel_gen import kernel_generator
             specialization = kernel_generator.apply_specialization(
                 self.loopy_opts, var_name, None, get_specialization=True)
@@ -955,15 +956,6 @@ class MapStore(object):
         assert domain.initializer is not None, (
             'Cannot use non-initialized creator {} as domain!'.format(
                 domain.name))
-
-        if not self._is_map():
-            # need to check that the maximum value is smaller than the base
-            # mask domain size
-            assert np.max(domain.initializer) < \
-                self.mask_domain.initializer.size, (
-                    "Mask entries for domain {} cannot be outside of "
-                    "domain size {}".format(domain.name,
-                                            self.mask_domain.initializer.size))
 
     def _is_contiguous(self, domain):
         """Returns true if domain can be expressed with a simple for loop"""
@@ -1643,7 +1635,6 @@ class NameStore(object):
         self.loopy_opts = loopy_opts
         self.rate_info = rate_info
         self.order = loopy_opts.order
-        self.test_size = test_size
         self.conp = conp
         self.jac_format = loopy_opts.jac_format
         self.jac_type = loopy_opts.jac_type

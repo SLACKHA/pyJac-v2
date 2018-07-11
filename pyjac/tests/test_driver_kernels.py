@@ -42,7 +42,7 @@ class SubTest(TestClass):
 
             # make mapstore, arrays and kernel info
             mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,
-                                    namestore.phi_inds)
+                                    self.store.test_size)
             base_phi_shape = namestore.n_arr.shape
             phi_lp, phi_str = mapstore.apply_maps(namestore.n_arr,
                                                   arc.global_ind,

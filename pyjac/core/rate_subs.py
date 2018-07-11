@@ -507,9 +507,7 @@ def reset_arrays(loopy_opts, namestore, test_size=None):
 
     def __create(arr, nrange, name):
         # create reset kernel
-        mapstore = arc.MapStore(loopy_opts,
-                                nrange,
-                                nrange)
+        mapstore = arc.MapStore(loopy_opts, nrange, test_size)
 
         # first, create all arrays
         kernel_data = []
@@ -569,9 +567,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     fixed_inds = (global_ind,)
 
@@ -675,9 +671,7 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # first, create all arrays
     kernel_data = []
@@ -767,9 +761,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # first, create all arrays
     kernel_data = []
@@ -928,9 +920,7 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs, test_size)
     fixed_inds = (global_ind,)
 
     # first, create all arrays
@@ -1056,9 +1046,7 @@ def get_spec_rates(loopy_opts, namestore, conp=True,
     ispec = 'ispec'
 
     # create map store
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_reacs,
-                            namestore.num_reacs)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_reacs, test_size)
 
     # create arrays
     spec_lp, spec_str = mapstore.apply_maps(namestore.rxn_to_spec,
@@ -1136,19 +1124,16 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
 
     kernel_data = OrderedDict([('fwd', [])])
     maps = OrderedDict([('fwd',
-                         arc.MapStore(loopy_opts, namestore.num_reacs,
-                                      namestore.num_reacs))])
+                         arc.MapStore(loopy_opts, namestore.num_reacs, test_size))])
     transforms = {'fwd': namestore.num_reacs}
 
     separated_kernels = loopy_opts.rop_net_kernels
     if separated_kernels:
         kernel_data['rev'] = []
-        maps['rev'] = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
-                                   namestore.rev_mask)
+        maps['rev'] = arc.MapStore(loopy_opts, namestore.num_rev_reacs, test_size)
         transforms['rev'] = namestore.rev_map
         kernel_data['pres_mod'] = []
-        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.num_thd,
-                                        namestore.thd_mask)
+        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.num_thd, test_size)
         transforms['pres_mod'] = namestore.thd_map
     else:
         transforms['rev'] = namestore.rev_mask
@@ -1359,7 +1344,7 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
             inds = namestore.num_rev_reacs
             mapinds = namestore.rev_map
 
-        maps[direction] = arc.MapStore(loopy_opts, inds, inds)
+        maps[direction] = arc.MapStore(loopy_opts, inds, test_size)
         themap = maps[direction]
 
         # add transforms for the offsets
@@ -1494,8 +1479,7 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
 
         # create the third body conc pres-mod kernel
 
-        thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map,
-                               namestore.thd_only_mask)
+        thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map, test_size)
 
         # get the third body concs
         thd_lp, thd_str = thd_map.apply_maps(namestore.thd_conc,
@@ -1532,8 +1516,7 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
         kernel_data.extend(arc.initial_condition_dimension_vars(
             loopy_opts, test_size))
 
-        fall_map = arc.MapStore(loopy_opts, namestore.num_fall,
-                                namestore.num_fall)
+        fall_map = arc.MapStore(loopy_opts, namestore.num_fall, test_size)
 
         # the pressure mod term uses fall_to_thd_map/mask
         fall_map.check_and_add_transform(namestore.pres_mod,
@@ -1618,8 +1601,7 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
         loopy_opts, test_size))
 
     # add the reverse map
-    rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
-                           namestore.rev_mask)
+    rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs, test_size)
 
     # map from reverse reaction index to forward reaction index
     rev_map.check_and_add_transform(
@@ -1767,7 +1749,7 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
     spec_offset = 'offset'
 
     # create mapstore over number of third reactions
-    mapstore = arc.MapStore(loopy_opts, namestore.thd_inds, namestore.thd_inds)
+    mapstore = arc.MapStore(loopy_opts, namestore.thd_inds, test_size)
 
     # create args
 
@@ -1886,8 +1868,7 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
         return None
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.num_cheb,
-                            namestore.cheb_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_cheb, test_size)
 
     # max degrees in mechanism
     poly_max = int(np.maximum(maxP, maxT))
@@ -2066,8 +2047,7 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
     hi_ind = 'hi_ind'
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.plog_map,
-                            namestore.plog_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.plog_map, test_size)
 
     # number of parameter sets per reaction
     mapstore.check_and_add_transform(namestore.plog_num_param,
@@ -2220,8 +2200,7 @@ def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
         return None
 
     # create the mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
-                            namestore.fall_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.fall_map, test_size)
 
     # create the various necessary arrays
 
@@ -2324,8 +2303,7 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     kernel_data = []
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_troe, namestore.num_troe)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_troe, test_size)
 
     # add problem size
     kernel_data.extend(arc.initial_condition_dimension_vars(
@@ -2434,7 +2412,7 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     kernel_data = []
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.num_sri, namestore.sri_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_sri, test_size)
 
     # add problem size
     kernel_data.extend(arc.initial_condition_dimension_vars(
@@ -2545,8 +2523,7 @@ def get_lind_kernel(loopy_opts, namestore, test_size=None):
 
     # create Fi array / str
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.lind_map, namestore.lind_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.lind_map, test_size)
 
     Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
     kernel_data.append(Fi_lp)
@@ -2598,8 +2575,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         if namestore.fall_map is None:
             return None
 
-        mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
-                                namestore.fall_mask)
+        mapstore = arc.MapStore(loopy_opts, namestore.fall_map, test_size)
         # define the rtype iteration domain
 
         def get_rdomain(rtype):
@@ -2613,8 +2589,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         rdomain = get_rdomain
     else:
         tag = 'simple'
-        mapstore = arc.MapStore(loopy_opts, namestore.simple_map,
-                                namestore.simple_mask)
+        mapstore = arc.MapStore(loopy_opts, namestore.simple_map, test_size)
         # define the rtype iteration domain
 
         def get_rdomain(rtype):
@@ -2866,8 +2841,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                     'if {1} == {0}'.format(i, rtype_str))
                 insns, preambles, manglers = __get_instructions(
                     -1,
-                    arc.MapStore(loopy_opts, mapstore.map_domain,
-                                 mapstore.mask_domain),
+                    arc.MapStore(loopy_opts, mapstore.map_domain, test_size),
                     specializations[i].kernel_data,
                     beta_iter,
                     single_kernel_rtype=i)
@@ -2914,7 +2888,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
             continue
 
         # next create a mapper for this rtype
-        mapper = arc.MapStore(loopy_opts, domain, domain)
+        mapper = arc.MapStore(loopy_opts, domain, test_size)
 
         # set as mapper
         info.mapstore = mapper
@@ -3211,10 +3185,7 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     param_ind = 'dummy'
     loop_index = 'k'
     # create mapper
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs,
-                            loop_index)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs, test_size, loop_index)
 
     knl_data = []
     # add problem size

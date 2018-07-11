@@ -289,9 +289,8 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
 
     if loopy_opts.jac_format == JacobianFormat.sparse:
         # simply loop over the whole jacobian array
-        mapstore = arc.MapStore(loopy_opts,
-                                namestore.num_nonzero_jac_inds,
-                                namestore.num_nonzero_jac_inds)
+        mapstore = arc.MapStore(loopy_opts, namestore.num_nonzero_jac_inds,
+                                test_size)
         jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, var_name,
                                               ignore_lookups=True)
         instructions = Template(
@@ -302,8 +301,7 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
         kernel_data.extend([jac_lp])
     else:
         # simply loop over the whole jacobian array
-        mapstore = arc.MapStore(loopy_opts, namestore.jac_size,
-                                namestore.jac_size)
+        mapstore = arc.MapStore(loopy_opts, namestore.jac_size, test_size)
         # need jac_array
         row = 'row'
         col = 'col'
@@ -398,7 +396,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     ns = namestore.num_specs[-1]
 
     # create mapstore
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     # setup static mappings
 
@@ -922,7 +920,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
     # number of species
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     rxn_range_dict = {reaction_type.elementary: namestore.simple_map,
                       reaction_type.plog: namestore.plog_map,
@@ -1594,8 +1592,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     kernel_data = []
     kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
@@ -1737,8 +1734,7 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     kernel_data = []
     kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.net_nonzero_spec, namestore.net_nonzero_spec)
+    mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_spec, test_size)
 
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
@@ -1847,8 +1843,7 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
 
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # Temperature
     T_lp, T_str = mapstore.apply_maps(
@@ -2001,8 +1996,7 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
 
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # create arrays
     mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr, var_name)
@@ -2139,7 +2133,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     ns = namestore.num_specs[-1]
 
     # create mapstore
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     # setup static mappings
 
@@ -2614,7 +2608,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     # number of species
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     rxn_range_dict = {reaction_type.elementary: namestore.simple_map,
                       reaction_type.plog: namestore.plog_map,
@@ -3253,9 +3247,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
     """
 
     # create arrays
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     ns = namestore.num_specs[-1]
     # k loop is _only_ over non-zero dnk/dnj deriviatives
@@ -3362,9 +3354,7 @@ def dTdot_dnj(loopy_opts, namestore, test_size=None,
     """
 
     # create arrays
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     ns = namestore.num_specs[-1]
     # k loop is _only_ over non-zero dnk/dnj deriviatives
@@ -3466,9 +3456,7 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
     """
 
     # create arrays
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs, test_size)
 
     spec_heat_lp, spec_heat_str = mapstore.apply_maps(
         namestore.spec_heat, *default_inds)
@@ -3615,7 +3603,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
     # main loop is over third body rxns (including falloff / chemically
     # activated)
-    mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+    mapstore = arc.MapStore(loopy_opts, rxn_range, test_size)
 
     # indicies
     kernel_data = []
@@ -4188,7 +4176,7 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
     if do_ns and rxn_range.initializer is None or not rxn_range.initializer.size:
         return None
 
-    mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+    mapstore = arc.MapStore(loopy_opts, rxn_range, test_size)
     # get net offsets
 
     # may need offset on all arrays on the main loop if do_ns,
@@ -4544,8 +4532,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # need to loop over all non-zero phi entries
-    mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,
-                            namestore.phi_inds)
+    mapstore = arc.MapStore(loopy_opts, namestore.phi_inds, test_size)
 
     # next, define our FD coefficients
     # take from https://en.wikipedia.org/wiki/Finite_difference_coefficient

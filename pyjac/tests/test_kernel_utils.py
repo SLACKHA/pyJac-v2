@@ -138,7 +138,7 @@ def test_unsimdable():
         # make a kernel via the mapstore / usual methods
         base = creator('base', dtype=kint_type, shape=(10,), order=opt.order,
                        initializer=np.arange(10, dtype=kint_type))
-        mstore = MapStore(opt, base, base)
+        mstore = MapStore(opt, base, self.store.test_size)
 
         def __create_var(name, size=(test_size, 10)):
             return creator(name, kint_type, size, opt.order)
