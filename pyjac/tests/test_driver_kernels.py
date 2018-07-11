@@ -43,6 +43,7 @@ class SubTest(TestClass):
             # make mapstore, arrays and kernel info
             mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,
                                     namestore.phi_inds)
+            base_phi_shape = namestore.n_arr.shape
             phi_lp, phi_str = mapstore.apply_maps(namestore.n_arr,
                                                   arc.global_ind,
                                                   arc.var_name)
@@ -54,7 +55,7 @@ class SubTest(TestClass):
                 instructions=instructions,
                 mapstore=mapstore,
                 var_name=arc.var_name,
-                kernel_data=[phi_lp])
+                kernel_data=[phi_lp, P_lp, arc.global_work_size])
             # put it in a generator
             generator = k_gen.make_kernel_generator(
                 loopy_opts, 'inner', [inner_kernel], namestore,
@@ -69,11 +70,12 @@ class SubTest(TestClass):
 
             # and put in generator
             driver = k_gen.make_kernel_generator(
-                loopy_opts, 'driver', [driver], namestore,
+                loopy_opts, 'driver', driver, namestore,
                 input_arrays=inputs[:],
                 output_arrays=outputs[:],
-                depends_on=[generator.kernels[:]],
-                is_validation=True)
+                depends_on=[generator],
+                is_validation=True,
+                fake_calls={'dummy', generator})
 
             # and make
             with temporary_directory() as path:
@@ -86,9 +88,9 @@ class SubTest(TestClass):
                 utils.create_dir(lib)
 
                 # write 'data'
-                data = np.zeros(phi_lp.shape)
+                data = np.zeros(base_phi_shape)
                 # make it a simple range
-                data.flat[:] = np.arange(np.prod(phi_lp.shape))
+                data.flat[:] = np.arange(np.prod(base_phi_shape))
                 # save
                 myname = pjoin(path, 'phi.npy')
                 # need to split inputs / answer

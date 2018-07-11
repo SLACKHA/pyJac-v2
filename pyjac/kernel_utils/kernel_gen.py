@@ -1818,7 +1818,8 @@ class c_kernel_generator(kernel_generator):
                 'this_run', dtype=arc.kint_type))
             # add 'global_ind' to the list of extra kernel data to be added to
             # subkernels
-            self.extra_kernel_data.append(lp.ValueArg(global_ind, dtype=arc.kint_type))
+            self.extra_kernel_data.append(lp.ValueArg(
+                global_ind, dtype=arc.kint_type))
             # add the number of conditions to solve (which may be )
             # clear list of inames added to sub kernels, as the OpenMP loop over
             # the states is implemented in the wrapping kernel
@@ -2122,9 +2123,9 @@ class opencl_kernel_generator(kernel_generator):
                     float(d)
                     return d
                     break
-                except:
+                except ValueError:
                     pass
-        except:
+        except AttributeError:
             # default to the site level
             return site.CL_VERSION
 

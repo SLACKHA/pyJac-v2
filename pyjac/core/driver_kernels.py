@@ -160,7 +160,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         working_buffers = []
         working_strs = []
         for arr in arrs:
-            arr_lp, arr_str = __build(arr)
+            arr_lp, arr_str = __build(arr, use_local_name=True)
             working_buffers.append(arr_lp)
             working_strs.append(arr_str)
 
@@ -183,7 +183,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         for i, arr in enumerate(arrs):
             instructions.append(instruction_template.substitute(
                 local_buffer=working_strs[i],
-                global_buffer=buffers[i]))
+                global_buffer=strs[i]))
         instructions = '\n'.join(instructions)
 
         # and return the kernel info
@@ -192,7 +192,8 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
                               mapstore=mapstore,
                               var_name=arc.var_name,
                               extra_inames=extra_inames,
-                              kernel_data=buffers + working_buffers)
+                              kernel_data=buffers + working_buffers + [
+                                arc.global_work_size])
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function
@@ -202,8 +203,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
                                mapstore=copy_in.mapstore.copy(),
                                kernel_data=[x.copy() for x in copy_in.kernel_data],
                                var_name=arc.var_name,
-                               extra_inames=copy_in.extra_inames[:],
-                               fake_calls={'dummy', driven})
+                               extra_inames=copy_in.extra_inames[:])
     copy_out = create_interior_kernel(False)
 
     # and return

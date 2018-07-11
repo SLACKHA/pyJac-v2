@@ -1415,13 +1415,17 @@ class creator(object):
             for working buffer access.  :see:`working-buffer`.
         is_input_or_output: bool [False]
             If true, :param:`working_buffer_index` will be ignored
+        use_local_name: bool [False]
+            If True, rename the created variable to avoid duplicate argument names.
+            Should be used to mark the _creation_ of working buffers
         """
         # figure out whether to use private memory or not
         wbi = kwargs.pop('working_buffer_index', None)
         is_input_or_output = kwargs.pop('is_input_or_output', False)
+        use_local_name = kwargs.pop('use_local_name', False)
         inds = self.__get_indicies(*indicies)
 
-        # handle private memory request
+        # handle working buffer request
         glob_ind = None
         if wbi and not is_input_or_output:
             # find the global ind if there
@@ -1439,7 +1443,13 @@ class creator(object):
         else:
             lp_arr = self.creator(**kwargs)
 
-        return (lp_arr, lp_arr.name + '[{}]'.format(', '.join(
+        # check name
+        name = lp_arr.name
+        if use_local_name:
+            name += '_local'
+            lp_arr = lp_arr.copy(name=name)
+
+        return (lp_arr, name + '[{}]'.format(', '.join(
             str(x) for x in inds)))
 
     def copy(self):
