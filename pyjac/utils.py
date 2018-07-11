@@ -10,6 +10,7 @@ import logging.config
 import yaml
 import functools
 import six
+from six.moves import reduce
 
 from pyjac.core import exceptions
 
@@ -35,6 +36,31 @@ def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False):
                            for k, v in six.iteritems(arglist))
     else:
         return joiner.join(template.format(str(a)) for a in arglist)
+
+
+def partition(tosplit, predicate):
+    """
+    Splits the list :param:`tosplit` based on the :param:`predicate` applied to each
+    list element and returns the two resulting lists
+
+    Parameters
+    ----------
+    tosplit: list
+        The list to split
+    predicate: :class:`six.Callable`
+        A callable predicate that takes as an argument a list element to test.
+
+    Returns
+    -------
+    true_list: list
+        The list of elements in :param:`tosplit` for which :param:`predicate` were
+        True
+    false_list: list
+        The list of elements in :param:`tosplit` for which :param:`predicate` were
+        False
+    """
+    return reduce(lambda x, y: x[not predicate(y)].append(y) or x, tosplit,
+                  ([], []))
 
 
 def func_logger(*args, **kwargs):
