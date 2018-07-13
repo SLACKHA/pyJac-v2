@@ -730,7 +730,7 @@ def get_parser():
                         'of "C" and "F" respectively). Choices: {type}'.format(
                             type=str(EnumType(JacobianFormat)))
                         )
-    parser.add_argument('-f', '--work_size',
+    parser.add_argument('-s', '--work_size',
                         required=False,
                         default=None,
                         type=int,

@@ -930,6 +930,9 @@ ${name} : ${type}
         if self.kernel is None and knl is None:
             raise Exception('Must call _generate_wrapping_kernel first')
 
+        remove_working = (knl is None or knl == self.kernel) \
+            and not self.loopy_opts.work_size
+
         if knl is None:
             knl = self.kernel
             if self.extra_global_kernel_data:
@@ -937,6 +940,8 @@ ${name} : ${type}
         if passed_locals:
             knl = self.__migrate_locals(knl, passed_locals)
         defn_str = lp_utils.get_header(knl)
+        if remove_working:
+            defn_str = self._remove_work_size(defn_str)
         return defn_str[:defn_str.index(';')]
 
     def _get_kernel_call(self, knl=None, passed_locals=[]):
@@ -1840,6 +1845,33 @@ class c_kernel_generator(kernel_generator):
         ${post}
         """
 
+    @property
+    def target_preambles(self):
+        """
+        Preambles for OpenMP
+
+        Notes
+        -----
+        This defines the work-size variable for OpenCL as the number of groups
+        launched by the OpenCL kernel (if the user has not specified a value)
+
+        Returns
+        -------
+        premables: list of str
+            The string preambles for this :class:`kernel_generator`
+        """
+
+        if self.loopy_opts.work_size:
+            return []
+
+        work_size = """
+        #ifndef work_size
+            #define work_size (omp_get_num_threads())
+        #endif
+        """
+
+        return [work_size]
+
     def get_inames(self, test_size):
         """
         Returns the inames and iname_ranges for subkernels created using
@@ -1995,6 +2027,56 @@ class opencl_kernel_generator(kernel_generator):
         self.type_map[to_loopy_type(np.float64, for_atomic=True)] = 'double'
         self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
         self.type_map[to_loopy_type(np.int64, for_atomic=True)] = 'long int'
+
+    @property
+    def target_preambles(self):
+        """
+        Preambles for OpenCL
+
+        Notes
+        -----
+        This defines the work-size variable for OpenCL as the number of groups
+        launched by the OpenCL kernel (if the user has not specified a value)
+
+        Returns
+        -------
+        premables: list of str
+            The string preambles for this :class:`kernel_generator`
+        """
+
+        if self.loopy_opts.work_size:
+            return []
+
+        work_size = """
+        #ifndef work_size
+            #define work_size (get_num_groups())
+        #endif
+        """
+
+        return [work_size]
+
+    def _get_pointer_unpack(self, array, offset):
+        """
+        Implement the pattern
+        ```
+            double* array = &rwk[offset]
+        ```
+        for OpenCL
+
+        Parameters
+        ----------
+        array: str
+            The array name
+        offset: str
+            The stringified offset
+
+        Returns
+        -------
+        unpack: str
+            The stringified pointer unpacking statement
+        """
+
+        return '__global double* {} = rwk + {};'.format(array, offset)
 
     def _special_kernel_subs(self, file_src):
         """

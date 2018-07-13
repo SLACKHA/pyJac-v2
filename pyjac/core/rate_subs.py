@@ -2905,7 +2905,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
 def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                          auto_diff=False, output_full_rop=False,
-                         mem_limits=''):
+                         mem_limits='', **kwargs):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
@@ -2935,6 +2935,8 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -3153,7 +3155,8 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers,
-        mem_limits=mem_limits)
+        mem_limits=mem_limits,
+        **kwargs)
 
 
 def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
@@ -3264,7 +3267,7 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
 
 def write_chem_utils(reacs, specs, loopy_opts, conp=True,
                      test_size=None, auto_diff=False,
-                     mem_limits=''):
+                     mem_limits='', **kwargs):
     """Helper function that generates kernels for
        evaluation of species thermodynamic quantities
 
@@ -3289,6 +3292,8 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -3319,7 +3324,8 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
         output_arrays=output,
         auto_diff=auto_diff,
         test_size=test_size,
-        mem_limits=mem_limits
+        mem_limits=mem_limits,
+        **kwargs
     )
 
 

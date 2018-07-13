@@ -4469,7 +4469,7 @@ def dRopi_dnj(loopy_opts, namestore, allint, test_size=None):
 def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=None,
                                order=1, rtol=1e-8, atol=1e-15,
                                mode=FiniteDifferenceMode.forward,
-                               jac_create=None, mem_limits=''):
+                               jac_create=None, mem_limits='', **kwargs):
     """
     Creates a wrapper around the species rates kernels that evaluates a central,
     forward or backwards finite difference Jacobian of the given :param:`order`,
@@ -4509,6 +4509,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -4837,11 +4839,12 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         test_size=test_size,
         fake_calls={sgen: spec_rate_call},
         barriers=barriers,
-        mem_limits=mem_limits)
+        mem_limits=mem_limits,
+        **kwargs)
 
 
 def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
-                        mem_limits=''):
+                        mem_limits='', **kwargs):
     """Helper function that generates kernels for
        evaluation of analytical jacobian
 
@@ -4864,6 +4867,8 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -5067,7 +5072,8 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         output_arrays=output_arrays,
         test_size=test_size,
         barriers=barriers,
-        mem_limits=mem_limits)
+        mem_limits=mem_limits,
+        **kwargs)
 
 
 def find_last_species(specs, last_spec=None, return_map=False):
