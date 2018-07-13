@@ -129,6 +129,10 @@ class loopy_options(object):
     is_simd: bool [None]
         If supplied, specifies whether this loopy object should use explict-SIMD
         vectors.  Default is True only for CPU-based OpenCL targets
+    work_size: int [None]
+        The number of initial states to evaluate in parallel inside of the driver
+        function; may be specified by user to optimize code or for coupling to
+        external code
     """
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
@@ -136,7 +140,8 @@ class loopy_options(object):
                  platform='', kernel_type=kernel_type.jacobian, auto_diff=False,
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
-                 seperate_kernels=True, device=None, device_type=None, is_simd=None):
+                 seperate_kernels=True, device=None, device_type=None, is_simd=None,
+                 work_size=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -165,6 +170,9 @@ class loopy_options(object):
         self.seperate_kernels = seperate_kernels
         self._is_simd = is_simd
         self.kernel_type = kernel_type
+        if work_size:
+            assert work_size > 0, 'Work-size must be non-negative'
+        self.work_size = work_size
 
         if self._is_simd:
             assert width or depth, (

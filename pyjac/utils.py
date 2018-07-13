@@ -730,18 +730,15 @@ def get_parser():
                         'of "C" and "F" respectively). Choices: {type}'.format(
                             type=str(EnumType(JacobianFormat)))
                         )
-    parser.add_argument('-f', '--fixed_size',
+    parser.add_argument('-f', '--work_size',
                         required=False,
                         default=None,
                         type=int,
                         help='If specified, this is the number of thermo-chemical '
-                             'states that pyJac should evaluate in the generated '
-                             'source code.  This is most useful for limiting the '
-                             'number of states to one (in order to couple with an '
-                             'external library that that has already been '
-                             'parallelized, e.g., via OpenMP).  This setting will '
-                             'also fix array strides as discussed in the '
-                             'documentation.'
+                             'states that pyJac should evaluate concurrently in the '
+                             'generated source code. This option is most useful '
+                             'for coupling to an external library that that has '
+                             'already been parallelized, e.g., via OpenMP.'
                         )
     parser.add_argument('-m', '--memory_limits',
                         required=False,
@@ -784,5 +781,5 @@ def create(**kwargs):
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,
-                    fixed_size=args.fixed_size
+                    work_size=args.work_size
                     )

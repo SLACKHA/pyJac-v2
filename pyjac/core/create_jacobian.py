@@ -5161,7 +5161,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     use_atomic_doubles=True, use_atomic_ints=True, jac_type='exact',
                     jac_format='full', for_validation=False, seperate_kernels=True,
                     fd_order=1, fd_mode='forward', mem_limits='',
-                    fixed_size=None,
+                    work_size=None, generate_all=False
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5280,13 +5280,18 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
-    fixed_size: int [None]
+    work_size: int [None]
         If specified, this is the number of thermo-chemical states that pyJac
-        should evaluate in the generated source code.  This is most useful for
-        limiting the number of states to one (in order to couple with an external
-        library that that has already been parallelized, e.g., via OpenMP).
-        This setting will also fix array strides as discussed in the documentation,
-        :see:`todo`.
+        should evaluate concurrently in the generated source code. This option is
+        most useful for coupling to an external library that that has already been
+        parallelized, e.g., via OpenMP.
+    generate_all: bool [False]
+        If true, generate kernels, wrappers and driver functions for all kernels
+        that the supplied :param:`kerneltype` depends on.  For instance, if
+        :param:`generate_all` is True and :param:`kerneltype` is
+        :class:`kernel_type.Jacobian`, wrapper/driver code will be generated for
+        the Jacobian, species rates, and chemical utilities.  Note: this option will
+        result in a longer code-generation process
 
     Returns
     -------
@@ -5304,17 +5309,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         logging.error('Language needs to be one of: {}'.format(', '.join(
             utils.langs)))
         sys.exit(2)
-
-    if fixed_size is not None and vector_size is not None:
-        if fixed_size % vector_size:
-            logger.error('Cannot used fixed array size of ({}) which is non-evenly'
-                         'divisible by the vector size: ({})'.format(
-                            fixed_size, vector_size))
-            raise InvalidInputSpecificationException(['fixed_size', 'vector_size'])
-    if fixed_size is not None:
-        logger.critical('Wrapping (and for OpenMP kernel execution) code is not yet '
-                        'configured to handle fixed array sizes.  Use at your own '
-                        'risk.')
 
     # configure options
     width = None
@@ -5386,7 +5380,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         jac_type=jac_type,
                                         seperate_kernels=seperate_kernels,
                                         device=device,
-                                        device_type=device_type)
+                                        device_type=device_type,
+                                        work_size=work_size)
 
     # create output directory if none exists
     build_path = os.path.abspath(build_path)
@@ -5437,23 +5432,28 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
             and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
-                                  mem_limits=mem_limits, test_size=fixed_size)
+                                  mem_limits=mem_limits, generate_all=generate_all)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
     elif kerneltype == kernel_type.jacobian and \
             jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
-                                         mem_limits=mem_limits, test_size=fixed_size)
+                                         mem_limits=mem_limits,
+                                         generate_all=generate_all)
     elif kerneltype == kerneltype.species_rates:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop,
-                                        mem_limits=mem_limits, test_size=fixed_size)
+                                        mem_limits=mem_limits,
+                                        generate_all=generate_all)
     elif kerneltype == kerneltype.chem_utils:
         # just chem utils
         gen = rate.write_chem_utils(reacs, specs, loopy_opts,
                                     conp=conp, mem_limits=mem_limits,
-                                    test_size=fixed_size)
+                                    generate_all=generate_all)
+
+    # add the driver kernel
+
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,
@@ -5463,4 +5463,4 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 if __name__ == "__main__":
     utils.setup_logging()
-    utils.create()
+    utils.create(kerneltype=kernel_type.jacobian)

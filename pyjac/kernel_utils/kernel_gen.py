@@ -27,6 +27,7 @@ from pyjac import utils
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.core.array_creator import problem_size as p_size
+from pyjac.core.array_creator import work_size as w_size
 from pyjac.core.array_creator import global_ind
 from pyjac.core import array_creator as arc
 
@@ -1679,6 +1680,9 @@ ${defn}
         # fix parameters
         if info.parameters:
             knl = lp.fix_parameters(knl, **info.parameters)
+        if self.loopy_opts.work_size:
+            # fix work size
+            knl = lp.fix_parameters(knl, **{w_size.name: self.loopy_opts.work_size})
         # prioritize and return
         knl = lp.prioritize_loops(knl, [y for x in inames
                                         for y in x.split(',')])

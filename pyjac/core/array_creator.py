@@ -473,7 +473,7 @@ def initial_condition_dimension_vars(loopy_opts, test_size, is_driver_kernel=Fal
         The initial condition dimension size variables
     """
 
-    if isinstance(test_size, int):
+    if isinstance(test_size, int) or loopy_opts.work_size:
         return []
     if is_driver_kernel:
         return [work_size, problem_size]
