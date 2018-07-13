@@ -565,6 +565,10 @@ def get_parser():
 
     """
 
+    # import enums
+    from pyjac.core.enum_types import kernel_type, RateSpecialization, \
+        JacobianFormat, JacobianType
+
     # command line arguments
     parser = argparse.ArgumentParser(description='pyJac: Generates source code '
                                      'for analytical chemical Jacobians.')
@@ -632,12 +636,12 @@ def get_parser():
                              'the mechanism. If not specifed, defaults to '
                              'the first of N2, AR, and HE in the mechanism.'
                         )
-    parser.add_argument('-sj', '--skip_jac',
+    parser.add_argument('-k', '--kerneltype',
                         required=False,
-                        default=False,
-                        action='store_true',
-                        help='If specified, this option turns off Jacobian '
-                             'generation i.e. only the rate subs are generated')
+                        type=EnumType(kernel_type),
+                        default='jacobian',
+                        help='The type of kernel to generate: {type}'.format(
+                            type=str(EnumType(kernel_type))))
     parser.add_argument('-p', '--platform',
                         required=False,
                         default='',
@@ -646,7 +650,7 @@ def get_parser():
                              'to run on, e.g. "Intel", "nvidia", "pocl". '
                              'Must be supplied to properly generate the compilation '
                              'wrapper for OpenCL code, but may be ignored if not '
-                             'using the OpenCL target.')
+                             'using the OpenCL target.'),
     parser.add_argument('-o', '--data_order',
                         default='C',
                         type=str,
@@ -654,14 +658,14 @@ def get_parser():
                         help="The data ordering, 'C' (row-major, recommended for "
                         "CPUs) or 'F' (column-major, recommended for GPUs)")
     parser.add_argument('-rs', '--rate_specialization',
-                        type=str,
                         default='hybrid',
-                        choices=['fixed', 'hybrid', 'full'],
+                        type=EnumType(RateSpecialization),
                         help="The level of specialization in evaluating reaction "
                         "rates. 'Full' is the full form suggested by Lu et al. "
                         "(citation) 'Hybrid' turns off specializations in the "
                         "exponential term (Ta = 0, b = 0) 'Fixed' is a fixed"
-                        " expression exp(logA + b logT + Ta / T)")
+                        " expression exp(logA + b logT + Ta / T).  Choices:"
+                        ' {type}'.format(type=str(EnumType(RateSpecialization))))
     parser.add_argument('-rk', '--split_rate_kernels',
                         type=bool,
                         default=True,
@@ -703,7 +707,7 @@ def get_parser():
                         'see "Driver Kernel Types" in the documentation.'
                         )
     parser.add_argument('-jt', '--jac_type',
-                        choices=['exact', 'approximate', 'finite_difference'],
+                        type=EnumType(JacobianType),
                         required=False,
                         default='exact',
                         help='The type of Jacobian kernel to generate.  An '
@@ -714,15 +718,17 @@ def get_parser():
                         'directly, or as a third-body species with a non-unity '
                         'efficiency, but gives results in an approxmiate Jacobian, '
                         'and thus is more suitable to use with implicit integration '
-                        'techniques.'
+                        'techniques. Choices: {type}'.format(
+                            type=str(EnumType(JacobianType)))
                         )
     parser.add_argument('-jf', '--jac_format',
-                        choices=['sparse', 'full'],
+                        type=EnumType(JacobianFormat),
                         required=False,
                         default='sparse',
                         help='If "sparse", the Jacobian will be encoded using a '
                         'compressed row or column storage format (for a data order '
-                        'of "C" and "F" respectively).'
+                        'of "C" and "F" respectively). Choices: {type}'.format(
+                            type=str(EnumType(JacobianFormat)))
                         )
     parser.add_argument('-f', '--fixed_size',
                         required=False,
@@ -753,9 +759,10 @@ def get_parser():
     return args
 
 
-def create():
+def create(**kwargs):
     args = get_parser()
-    from .core.create_jacobian import create_jacobian
+    vars(args).update(kwargs)
+    from pyjac.core.create_jacobian import create_jacobian
     create_jacobian(lang=args.lang,
                     mech_name=args.input,
                     therm_name=args.thermo,
@@ -765,7 +772,7 @@ def create():
                     unr=args.unroll,
                     build_path=args.build_path,
                     last_spec=args.last_species,
-                    skip_jac=args.skip_jac,
+                    kerneltype=args.kerneltype,
                     platform=args.platform,
                     data_order=args.data_order,
                     rate_specialization=args.rate_specialization,

@@ -32,7 +32,8 @@ from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.loopy_utils import load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
-from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
+    kernel_type
 from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
@@ -5152,7 +5153,8 @@ def find_last_species(specs, last_spec=None, return_map=False):
 
 def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     vector_size=None, wide=False, deep=False, ilp=None, unr=None,
-                    build_path='./out/', last_spec=None, skip_jac=False, platform='',
+                    build_path='./out/', last_spec=None,
+                    kerneltype=kernel_type.jacobian, platform='',
                     data_order='C', rate_specialization='full',
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
@@ -5193,8 +5195,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     last_spec : str, optional
         If specified, the species to assign to the last index.
         Typically should be N2, Ar, He or another inert bath gas
-    skip_jac : bool, optional
-        If ``True``, only the reaction rate subroutines will be generated
+    kerneltype : :class:`kernel_type`
+        The type of kernel to generate, defaults to Jacobian
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be used
@@ -5331,14 +5333,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                         'wide' if wide else 'deep'))
         raise InvalidInputSpecificationException(['wide', 'deep', 'vector_size'])
 
-    # convert enums
-    rate_spec_val = utils.EnumType(RateSpecialization)(
-        rate_specialization.lower())
-    jac_format = utils.EnumType(JacobianFormat)(
-        jac_format.lower())
-    jac_type = utils.EnumType(JacobianType)(
-        jac_type.lower())
-
     if jac_type == JacobianType.finite_difference:
         # convert mode
         fd_mode = utils.EnumType(FiniteDifferenceMode)(
@@ -5382,7 +5376,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         unr=unr,
                                         lang=lang,
                                         order=data_order,
-                                        rate_spec=rate_spec_val,
+                                        rate_spec=rate_specialization,
                                         rate_spec_kernels=split_rate_kernels,
                                         rop_net_kernels=split_rop_net_kernels,
                                         platform=platform,
@@ -5439,20 +5433,27 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     # now begin writing subroutines
-    if not skip_jac and jac_type != JacobianType.finite_difference:
+    if kerneltype == kernel_type.jacobian \
+            and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
                                   mem_limits=mem_limits, test_size=fixed_size)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
-    elif not skip_jac and jac_type == JacobianType.finite_difference:
+    elif kerneltype == kernel_type.jacobian and \
+            jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
                                          mem_limits=mem_limits, test_size=fixed_size)
-    else:
+    elif kerneltype == kerneltype.species_rates:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop,
                                         mem_limits=mem_limits, test_size=fixed_size)
+    elif kerneltype == kerneltype.chem_utils:
+        # just chem utils
+        gen = rate.write_chem_utils(reacs, specs, loopy_opts,
+                                    conp=conp, mem_limits=mem_limits,
+                                    test_size=fixed_size)
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,
