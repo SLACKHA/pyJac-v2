@@ -8,13 +8,13 @@ import logging
 import multiprocessing
 
 from pyjac.libgen import generate_library
-from pyjac.core.enum_types import kernel_type
+from pyjac.core.enum_types import KernelType
 from pyjac import siteconf as site
 
 
 def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
-                   btype=kernel_type.jacobian):
+                   btype=KernelType.jacobian):
     """Helper method to fill in the template .in files
 
     Parameters
@@ -106,7 +106,7 @@ home_dir = os.path.abspath(os.path.dirname(__file__))
 
 def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
                      obj_dir=None, platform='', output_full_rop=False,
-                     btype=kernel_type.jacobian):
+                     btype=KernelType.jacobian):
     """Generates a Python wrapper for the given language and source files
 
     Parameters

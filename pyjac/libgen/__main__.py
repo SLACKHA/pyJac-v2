@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 
 from pyjac.libgen import generate_library
-from pyjac.core.enum_types import kernel_type
+from pyjac.core.enum_types import KernelType
 from pyjac import utils
 
 if __name__ == '__main__':
@@ -41,10 +41,10 @@ if __name__ == '__main__':
                         )
     parser.add_argument('-kt', '--kernel_type',
                         required=False,
-                        type=utils.EnumType(kernel_type),
+                        type=utils.EnumType(KernelType),
                         default='jacobian',
                         help='The type of library to build: {type}'.format(
-                            type=str(utils.EnumType(kernel_type))))
+                            type=str(utils.EnumType(KernelType))))
     parser.add_argument('-e', '--executable',
                         required=False,
                         default=False,

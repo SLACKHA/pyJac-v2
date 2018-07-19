@@ -18,19 +18,19 @@ import logging
 
 # Local imports
 from pyjac.libgen import generate_library
-from pyjac.core.enum_types import kernel_type
+from pyjac.core.enum_types import KernelType
 from pyjac.tests.test_utils import _run_mechanism_tests, runner
 from pyjac.tests import get_matrix_file, platform_is_gpu
 
 
 class performance_runner(runner):
-    def __init__(self, rtype=kernel_type.jacobian, repeats=10, steplist=[]):
+    def __init__(self, rtype=KernelType.jacobian, repeats=10, steplist=[]):
         """
         Initialize the performance runner class
 
         Parameters
         ----------
-        rtype: :class:`kernel_type`
+        rtype: :class:`KernelType`
             The type of run to test (jacobian or species_rates)
         repeats: int [10]
             The number of runs per state
@@ -258,7 +258,7 @@ def species_performance_tester(work_dir='performance', test_matrix=None,
         raise_on_missing = False
 
     _run_mechanism_tests(work_dir, test_matrix, prefix,
-                         performance_runner(kernel_type.species_rates),
+                         performance_runner(KernelType.species_rates),
                          raise_on_missing=raise_on_missing)
 
 
@@ -290,5 +290,5 @@ def jacobian_performance_tester(work_dir='performance',  test_matrix=None,
         raise_on_missing = False
 
     _run_mechanism_tests(work_dir, test_matrix, prefix,
-                         performance_runner(kernel_type.jacobian),
+                         performance_runner(KernelType.jacobian),
                          raise_on_missing=raise_on_missing)

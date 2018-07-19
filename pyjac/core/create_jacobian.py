@@ -33,7 +33,7 @@ from pyjac.loopy_utils import load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
-    kernel_type
+    KernelType
 from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
@@ -5160,7 +5160,7 @@ def find_last_species(specs, last_spec=None, return_map=False):
 def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     vector_size=None, wide=False, deep=False, ilp=None, unr=None,
                     build_path='./out/', last_spec=None,
-                    kerneltype=kernel_type.jacobian, platform='',
+                    kernel_type=KernelType.jacobian, platform='',
                     data_order='C', rate_specialization='full',
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
@@ -5201,7 +5201,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     last_spec : str, optional
         If specified, the species to assign to the last index.
         Typically should be N2, Ar, He or another inert bath gas
-    kerneltype : :class:`kernel_type`
+    kernel_type : :class:`KernelType`
         The type of kernel to generate, defaults to Jacobian
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
@@ -5287,9 +5287,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         parallelized, e.g., via OpenMP.
     generate_all: bool [False]
         If true, generate kernels, wrappers and driver functions for all kernels
-        that the supplied :param:`kerneltype` depends on.  For instance, if
-        :param:`generate_all` is True and :param:`kerneltype` is
-        :class:`kernel_type.Jacobian`, wrapper/driver code will be generated for
+        that the supplied :param:`kernel_type` depends on.  For instance, if
+        :param:`generate_all` is True and :param:`kernel_type` is
+        :class:`KernelType.Jacobian`, wrapper/driver code will be generated for
         the Jacobian, species rates, and chemical utilities.  Note: this option will
         result in a longer code-generation process
 
@@ -5434,25 +5434,25 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     # now begin writing subroutines
-    if kerneltype == kernel_type.jacobian \
+    if kernel_type == KernelType.jacobian \
             and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
                                   mem_limits=mem_limits, generate_all=generate_all)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
-    elif kerneltype == kernel_type.jacobian and \
+    elif kernel_type == KernelType.jacobian and \
             jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
                                          mem_limits=mem_limits,
                                          generate_all=generate_all)
-    elif kerneltype == kerneltype.species_rates:
+    elif kernel_type == KernelType.species_rates:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop,
                                         mem_limits=mem_limits,
                                         generate_all=generate_all)
-    elif kerneltype == kerneltype.chem_utils:
+    elif kernel_type == KernelType.chem_utils:
         # just chem utils
         gen = rate.write_chem_utils(reacs, specs, loopy_opts,
                                     conp=conp, mem_limits=mem_limits,
@@ -5469,4 +5469,4 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 if __name__ == "__main__":
     utils.setup_logging()
-    utils.create(kerneltype=kernel_type.jacobian)
+    utils.create(kernel_type=KernelType.jacobian)

@@ -566,7 +566,7 @@ def get_parser():
     """
 
     # import enums
-    from pyjac.core.enum_types import kernel_type, RateSpecialization, \
+    from pyjac.core.enum_types import KernelType, RateSpecialization, \
         JacobianFormat, JacobianType
 
     # command line arguments
@@ -636,12 +636,12 @@ def get_parser():
                              'the mechanism. If not specifed, defaults to '
                              'the first of N2, AR, and HE in the mechanism.'
                         )
-    parser.add_argument('-k', '--kerneltype',
+    parser.add_argument('-k', '--kernel_type',
                         required=False,
-                        type=EnumType(kernel_type),
+                        type=EnumType(KernelType),
                         default='jacobian',
                         help='The type of kernel to generate: {type}'.format(
-                            type=str(EnumType(kernel_type))))
+                            type=str(EnumType(KernelType))))
     parser.add_argument('-p', '--platform',
                         required=False,
                         default='',
@@ -769,7 +769,7 @@ def create(**kwargs):
                     unr=args.unroll,
                     build_path=args.build_path,
                     last_spec=args.last_species,
-                    kerneltype=args.kerneltype,
+                    kernel_type=args.kernel_type,
                     platform=args.platform,
                     data_order=args.data_order,
                     rate_specialization=args.rate_specialization,

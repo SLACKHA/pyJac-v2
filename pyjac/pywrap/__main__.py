@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 
 from pyjac import utils
 from pywrap_gen import generate_wrapper
-from pyjac.core.enum_types import kernel_type
+from pyjac.core.enum_types import KernelType
 
 if __name__ == '__main__':
     parser = ArgumentParser(
@@ -29,10 +29,10 @@ if __name__ == '__main__':
                         help='The folder to place the generated library in')
     parser.add_argument('-kt', '--kernel_type',
                         required=False,
-                        type=utils.EnumType(kernel_type),
+                        type=utils.EnumType(KernelType),
                         default='jacobian',
                         help='The type of library to build: {type}'.format(
-                            type=str(utils.EnumType(kernel_type))))
+                            type=str(utils.EnumType(KernelType))))
 
     args = parser.parse_args()
     generate_wrapper(args.lang, args.source_dir, args.out_dir,

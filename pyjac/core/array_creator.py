@@ -1641,8 +1641,6 @@ class NameStore(object):
         If true, use the constant pressure formulation
     test_size : str or int
         Optional size used in testing.  If not supplied, this is a kernel arg
-    kernel_type: :class:`pyjac.enum_types.kernel_type`
-
     """
 
     def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size'):

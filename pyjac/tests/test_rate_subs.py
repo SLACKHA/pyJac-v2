@@ -16,7 +16,7 @@ from pyjac.core.exceptions import BrokenPlatformError
 from pyjac.loopy_utils.loopy_utils import (loopy_options, kernel_call)
 from pyjac.tests import TestClass, test_utils, get_test_langs
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
-    kernel_type, RateSpecialization
+    KernelType, RateSpecialization
 from pyjac.tests.test_utils import (get_comparable, indexer, _generic_tester,
                                     _full_kernel_test)
 from pyjac.core.array_creator import kint_type
@@ -989,5 +989,5 @@ class SubTest(TestClass):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp
                           else self.store.dphi_cv,
-                          btype=kernel_type.species_rates, call_name='species_rates',
+                          btype=KernelType.species_rates, call_name='species_rates',
                           loose_rtol=5e-3)

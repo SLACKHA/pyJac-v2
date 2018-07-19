@@ -17,7 +17,7 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from loopy.kernel.data import temp_var_scope as scopes
 try:
     import pyopencl as cl
-except:
+except ImportError:
     cl = None
 import numpy as np
 import cgen
@@ -220,7 +220,7 @@ class kernel_generator(object):
     The base class for the kernel generators
     """
 
-    def __init__(self, loopy_opts, name, kernels,
+    def __init__(self, loopy_opts, kernel_type, kernels,
                  namestore,
                  external_kernels=[],
                  input_arrays=[],
@@ -245,8 +245,8 @@ class kernel_generator(object):
         ----------
         loopy_opts : :class:`LoopyOptions`
             The specified user options
-        name : str
-            The kernel name to use
+        kernel_type : :class:`pyjac.enums.KernelType`
+            The kernel type; used as a name and for inclusion of other headers
         kernels : list of :class:`loopy.LoopKernel`
             The kernels / calls to wrap
         namestore: :class:`NameStore`
@@ -315,7 +315,7 @@ class kernel_generator(object):
         self.mem = memory_manager(self.lang, self.loopy_opts.order,
                                   self.array_split,
                                   dev_type=self.loopy_opts.device_type)
-        self.name = name
+        self.kernel_type = kernel_type
         self.kernels = kernels
         self.namestore = namestore
         self.test_size = test_size

@@ -116,7 +116,7 @@ class FiniteDifferenceMode(IntEnum):
     backward = 2
 
 
-class kernel_type(Enum):
+class KernelType(Enum):
     """
     The kernel type being generated.
     """

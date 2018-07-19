@@ -11,7 +11,7 @@ import logging
 
 from pyjac import utils
 from pyjac import siteconf as site
-from pyjac.core.enum_types import kernel_type
+from pyjac.core.enum_types import KernelType
 from pyjac.core.exceptions import CompilationError, LinkingError
 
 
@@ -299,7 +299,7 @@ def get_file_list(source_dir, lang, btype):
         Path with source files
     lang : {'c', 'cuda'}
         Programming language
-    btype: :class:`kernel_type`
+    btype: :class:`KernelType`
         The type of library being built
 
     Returns
@@ -315,9 +315,9 @@ def get_file_list(source_dir, lang, btype):
 
     # look for right code in the directory
     file_base = 'jacobian_kernel'
-    if btype == kernel_type.species_rates:
+    if btype == KernelType.species_rates:
         file_base = 'species_rates_kernel'
-    elif btype == kernel_type.chem_utils:
+    elif btype == KernelType.chem_utils:
         file_base = 'chem_utils_kernel'
 
     if lang == 'opencl':
@@ -347,7 +347,7 @@ def get_file_list(source_dir, lang, btype):
 
 
 def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
-                     btype=kernel_type.jacobian, as_executable=False):
+                     btype=KernelType.jacobian, as_executable=False):
     """Generate shared/static library for pyJac files.
 
     Parameters
@@ -364,7 +364,7 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
         If ``True``, include finite differences
     auto_diff : bool
         If ``True``, include autodifferentiation
-    btype: :class:`kernel_type` [kernel_type.jacobian]
+    btype: :class:`KernelType` [KernelType.jacobian]
         The type of library being built
     as_executable: bool [False]
         If true, the generated library should use the '-fPIE' flag (or equivalent)

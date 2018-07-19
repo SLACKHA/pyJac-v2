@@ -11,7 +11,7 @@ import numpy as np
 # internal
 from pyjac.core import array_creator as arc
 from pyjac.core.rate_subs import assign_rates
-from pyjac.core.enum_types import RateSpecialization, kernel_type
+from pyjac.core.enum_types import RateSpecialization, KernelType
 from pyjac.core.driver_kernels import lockstep_driver
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.kernel_utils import kernel_gen as k_gen
@@ -109,7 +109,7 @@ class SubTest(TestClass):
                 generate_wrapper(loopy_opts.lang, out,
                                  obj_dir=obj, out_dir=lib,
                                  platform=str(loopy_opts.platform),
-                                 btype=kernel_type.species_rates)
+                                 btype=KernelType.species_rates)
                 # and python wrapper
                 with open(pjoin(path, 'test.py'), 'w') as file:
                     file.write(mod_test.safe_substitute(

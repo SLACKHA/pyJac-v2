@@ -23,7 +23,7 @@ except ImportError:
 # local imports
 from pyjac import utils
 from pyjac.core.enum_types import (RateSpecialization, JacobianType, JacobianFormat,
-                                   kernel_type)
+                                   KernelType)
 from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
@@ -135,7 +135,7 @@ class loopy_options(object):
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False, rop_net_kernels=False,
-                 platform='', kernel_type=kernel_type.jacobian, auto_diff=False,
+                 platform='', kernel_type=KernelType.jacobian, auto_diff=False,
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
@@ -166,7 +166,7 @@ class loopy_options(object):
         self.jac_format = jac_format
         self.jac_type = jac_type
         self._is_simd = is_simd
-        self.kernel_type = kernel_type
+        self.kernel_type = KernelType
         if work_size:
             assert work_size > 0, 'Work-size must be non-negative'
         self.work_size = work_size

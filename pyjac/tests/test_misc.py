@@ -21,7 +21,7 @@ except ImportError:
 from pyjac.loopy_utils.loopy_utils import kernel_call
 from pyjac.core.array_creator import array_splitter, kint_type
 from pyjac.utils import enum_to_string, listify
-from pyjac.core.enum_types import (kernel_type, JacobianFormat, JacobianType)
+from pyjac.core.enum_types import (KernelType, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
     select_elements, get_split_elements, sparsify
 from pyjac.tests import set_seed
@@ -34,9 +34,9 @@ set_seed()
                 (JacobianType.finite_difference, 'finite_difference'),
                 (JacobianFormat.sparse, 'sparse'),
                 (JacobianFormat.full, 'full'),
-                (kernel_type.chem_utils, 'chem_utils'),
-                (kernel_type.species_rates, 'species_rates'),
-                (kernel_type.jacobian, 'jacobian')])
+                (KernelType.chem_utils, 'chem_utils'),
+                (KernelType.species_rates, 'species_rates'),
+                (KernelType.jacobian, 'jacobian')])
 def test_enum_to_string(enum, string):
     assert enum_to_string(enum) == string
 

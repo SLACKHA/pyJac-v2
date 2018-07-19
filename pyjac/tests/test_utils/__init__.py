@@ -24,7 +24,7 @@ from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.pywrap import generate_wrapper
 from pyjac import utils
-from pyjac.core.enum_types import kernel_type
+from pyjac.core.enum_types import KernelType
 from pyjac.tests import platform_is_gpu, _get_test_input, get_test_langs
 from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
@@ -1649,9 +1649,9 @@ class runner(object):
     A base class for running the :func:`_run_mechanism_tests`
     """
 
-    def __init__(self, filetype, rtype=kernel_type.jacobian):
+    def __init__(self, filetype, rtype=KernelType.jacobian):
         self.rtype = rtype
-        self.descriptor = 'jac' if rtype == kernel_type.jacobian else 'spec'
+        self.descriptor = 'jac' if rtype == KernelType.jacobian else 'spec'
         self.filetype = filetype
 
     def pre(self, gas, data, num_conditions, max_vec_width):
@@ -1697,7 +1697,7 @@ class runner(object):
         rtype_str = str(self.rtype)
         rtype_str = rtype_str[rtype_str.index('.') + 1:]
         if limits and rtype_str in limits:
-            if self.rtype == kernel_type.jacobian:
+            if self.rtype == KernelType.jacobian:
                 # check sparsity
                 if state['sparse'] in limits[rtype_str]:
                     return limits[rtype_str][state['sparse']]
@@ -1710,7 +1710,7 @@ class runner(object):
         # store vector size
         self.current_vecsize = state['vecsize']
         desc = self.descriptor
-        if self.rtype == kernel_type.jacobian:
+        if self.rtype == KernelType.jacobian:
             desc += '_sparse' if utils.EnumType(JacobianFormat)(state['sparse'])\
                  == JacobianFormat.sparse else '_full'
         if utils.EnumType(JacobianType)(state['jac_type']) == \
@@ -1902,8 +1902,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     new=lim))
 
             for btype in mech_info['limits']:
-                btype = __try_convert(kernel_type, btype)
-                if btype == kernel_type.jacobian:
+                btype = __try_convert(KernelType, btype)
+                if btype == KernelType.jacobian:
                     __change_limit([btype, JacobianFormat.sparse])
                     __change_limit([btype, JacobianFormat.full])
                 else:
@@ -1995,14 +1995,14 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     deep=deep,
                                     data_order=order,
                                     build_path=my_build,
-                                    skip_jac=rtype == kernel_type.species_rates,
+                                    kernel_type=rtype,
                                     platform=platform,
                                     data_filename=phi_path,
                                     split_rate_kernels=split_kernels,
                                     rate_specialization=rate_spec,
                                     split_rop_net_kernels=split_kernels,
                                     output_full_rop=(
-                                        rtype == kernel_type.species_rates
+                                        rtype == KernelType.species_rates
                                         and for_validation),
                                     conp=conp,
                                     use_atomic_doubles=state['use_atomic_doubles'],
