@@ -1581,7 +1581,11 @@ ${name} : ${type}
             # add the working buffer to the driver function
             for i, kernel in enumerate(kernels):
                 if kernel.name.endswith('_driver'):
-                    kernels[i] = kernel.copy(args=kernel.args + kernel_data[:])
+                    kargs = kernel.args[:]
+                    for arg in kernel_data:
+                        if arg not in kargs:
+                            kargs.append(arg)
+                    kernels[i] = kernel.copy(args=kargs)
                     break
 
         # and finally, generate the kernel code
