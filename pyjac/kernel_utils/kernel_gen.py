@@ -10,12 +10,15 @@ from string import Template
 import logging
 from collections import defaultdict
 import six
-from six.moves import reduce
 
 import loopy as lp
+from loopy.types import AtomicNumpyType, to_loopy_type
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from loopy.kernel.data import temp_var_scope as scopes
-import pyopencl as cl
+try:
+    import pyopencl as cl
+except:
+    cl = None
 import numpy as np
 import cgen
 
@@ -30,8 +33,58 @@ from pyjac.core.array_creator import problem_size as p_size
 from pyjac.core.array_creator import work_size as w_size
 from pyjac.core.array_creator import global_ind
 from pyjac.core import array_creator as arc
+from pyjac.core.enum_types import DriverType
+from pyjac.core import driver_kernels as drivers
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
+
+
+class FakeCall(object):
+    """
+    In some cases, e.g. finite differnce jacobians, we need to place a dummy
+    call in the kernel that loopy will accept as valid.  Then it needs to
+    be substituted with an appropriate call to the kernel generator's kernel
+
+    Attributes
+    ----------
+    dummy_call: str
+        The dummy call passed to loopy to replaced during code-generation
+    replace_in: :class:`loopy.LoopKernel` or :class:`kernel_generator`
+        The kernel to replace the dummy call in.
+        If :param:`replace_in` is :class:`kernel_generator`, then the
+        :attr:`kernel_generator.kernel` will be used for replacement (i.e., the
+        wrapping kernel)
+    replace_with: :class:`loopy.LoopKernel` or :class:`kernel_generator`
+        The kernel to replace the dummy call with.
+        If :param:`replace_with` is :class:`kernel_generator`, then the
+        :attr:`kernel_generator.kernel` will be used for replacement (i.e., the
+        wrapping kernel)
+    """
+
+    def __init__(self, dummy_call, replace_in, replace_with):
+        self.dummy_call = dummy_call
+        self.replace_in = replace_in
+        self._replace_with = replace_with
+
+    def match(self, kernel, insns, for_driver):
+        """
+        Return true IFF :param:`kernel` matches :attr:`replace_in`
+        """
+
+        repl = self.replace_in
+        if isinstance(self.replace_in, kernel_generator):
+            repl = self.replace_in.kernel
+
+        if for_driver:
+            return kernel.name in insns and repl.name in insns
+        else:
+            return kernel.name in repl.name
+
+    @property
+    def replace_with(self):
+        if isinstance(self._replace_with, kernel_generator):
+            return self._replace_with.kernel
+        return self._replace_with
 
 
 class vecwith_fixer(object):
@@ -181,10 +234,12 @@ class kernel_generator(object):
                  extra_global_kernel_data=[],
                  extra_preambles=[],
                  is_validation=False,
-                 fake_calls={},
+                 fake_calls=[],
                  mem_limits='',
                  for_testing=False,
-                 compiler=None):
+                 compiler=None,
+                 driver_type=DriverType.lockstep,
+                 generate_all=False):
         """
         Parameters
         ----------
@@ -225,10 +280,8 @@ class kernel_generator(object):
         is_validation: bool [False]
             If true, this kernel generator is being used to validate pyJac
             Hence we need to save our output data to a file
-        fake_calls: dict of str -> kernel_generator
-            In some cases, e.g. finite differnce jacobians, we need to place a dummy
-            call in the kernel that loopy will accept as valid.  Then it needs to
-            be substituted with an appropriate call to the kernel generator's kernel
+        fake_calls: list of :class:`FakeCall`
+            Calls to smuggle past loopy
         mem_limits: str ['']
             Path to a .yaml file indicating desired memory limits that control the
             desired maximum amount of global / local / or constant memory that
@@ -240,6 +293,11 @@ class kernel_generator(object):
         compiler: :class:`loopy.CCompiler` [None]
             An instance of a loopy compiler (or subclass there-of, e.g.
             :class:`pyjac.loopy_utils.AdeptCompiler`), or None
+        driver_type: :class:`DriverType`
+            The type of kernel driver to generate
+        generate_all: bool [False]
+            If true, generate driver / wrapper code for this kernel and _all_ it's
+            dependencies, else simply generate driver / wrapper code for this kernel!
         """
 
         self.compiler = compiler
@@ -260,7 +318,6 @@ class kernel_generator(object):
         self.name = name
         self.kernels = kernels
         self.namestore = namestore
-        self.seperate_kernels = loopy_opts.seperate_kernels
         self.test_size = test_size
         self.auto_diff = auto_diff
 
@@ -319,20 +376,67 @@ class kernel_generator(object):
 
         # calls smuggled past loopy
         self.fake_calls = fake_calls.copy()
-        if self.fake_calls:
-            # compress into one kernel which we will call separately
-            def __set(kgen):
-                kgen.seperate_kernels = False
-                for x in kgen.depends_on:
-                    __set(x)
-            __set(self)
-
-        # set kernel attribute
-        self.kernel = None
         # set testing
-        self.for_testing = for_testing
+        self.for_testing = isinstance(test_size, int)
+        # setup driver type
+        self.driver_type = driver_type
+        # whether to generate driver/wrappers for all dependencies
+        self.generate_all = generate_all
 
-    def apply_barriers(self, instructions, use_sub_barriers=True):
+    @property
+    def user_specified_work_size(self):
+        """
+        Return True IFF the user specified the :attr:`loopy_opts.work_size`
+        """
+        return self.loopy_opts.work_size is not None
+
+    @property
+    def work_size(self):
+        """
+        Returns either the integer :attr:`loopy_opts.work_size` (if specified by
+        user) or the name of the `work_size` variable
+        """
+
+        if self.user_specified_work_size:
+            return self.loopy_opts.work_size
+        return w_size.name
+
+    @property
+    def target_preambles(self):
+        """
+        Preambles based on the target language
+
+        Returns
+        -------
+        premables: list of str
+            The string preambles for this :class:`kernel_generator`
+        """
+
+        return []
+
+    @property
+    def vec_width(self):
+        """
+        Returns the vector width of this :class:`kernel_generator`
+        """
+        if self.loopy_opts.depth:
+            return self.loopy_opts.depth
+        if self.loopy_opts.width:
+            return self.loopy_opts.width
+        return 0
+
+    @property
+    def hoist_locals(self):
+        """
+        If true (e.g., in a subclass), this type of generator requires that local
+        memory be hoisted up to / defined in the type-level kernel.
+
+        This is typically the case for languages such as OpenCL and CUDA, but not
+        C / OpenMP
+        """
+        return False
+
+    def apply_barriers(self, instructions):
         """
         A method stud that can be overriden to apply synchonization barriers
         to vectorized code
@@ -342,10 +446,6 @@ class kernel_generator(object):
 
         instructions: list of str
             The instructions for this kernel
-
-        use_sub_barriers: bool [True]
-            If true, apply barriers from dependency kernel generators in
-            :attr:`depends_on`
 
         Returns
         -------
@@ -374,13 +474,14 @@ class kernel_generator(object):
             List of assumptions to apply to the generated sub kernel
         """
 
-        assumpt_list = ['{0} > 0'.format(test_size)]
-        # get vector width
-        vec_width = self.loopy_opts.depth if self.loopy_opts.depth \
-            else self.loopy_opts.width
-        if bool(vec_width):
+        if not self.for_testing:
+            return []
+
+        # set test size
+        assumpt_list = ['{0} > 0'.format(p_size.name)]
+        if bool(self.vec_width):
             assumpt_list.append('{0} mod {1} = 0'.format(
-                test_size, vec_width))
+                p_size.name, self.vec_width))
         return assumpt_list
 
     def get_inames(self, test_size):
@@ -403,6 +504,9 @@ class kernel_generator(object):
             The iname domains to add to created subkernels by default
         """
 
+        if not self.for_testing:
+            test_size = w_size.name
+
         return self.inames, [self.iname_domains[0].format(test_size)]
 
     def add_depencencies(self, k_gens):
@@ -420,7 +524,7 @@ class kernel_generator(object):
 
         self.depends_on.extend(k_gens)
 
-    def _make_kernels(self):
+    def _make_kernels(self, kernels=[]):
         """
         Turns the supplied kernel infos into loopy kernels,
         and vectorizes them!
@@ -431,24 +535,26 @@ class kernel_generator(object):
 
         Returns
         -------
-        None
+        kernels: list of :class:`loopy.LoopKernel`
         """
 
-        # TODO: need to update loopy to allow pointer args
-        # to functions, in the meantime use a Template
+        use_ours = False
+        if not kernels:
+            use_ours = True
+            kernels = self.kernels
 
         # now create the kernels!
-        for i, info in enumerate(self.kernels):
+        for i, info in enumerate(kernels):
             # if external, or already built
             if isinstance(info, lp.LoopKernel):
                 continue
             # create kernel from k_gen.knl_info
-            self.kernels[i] = self.make_kernel(info, self.target, self.test_size)
+            kernels[i] = self.make_kernel(info, self.target, self.test_size)
             # apply vectorization
-            self.kernels[i] = self.apply_specialization(
+            kernels[i] = self.apply_specialization(
                 self.loopy_opts,
                 info.var_name,
-                self.kernels[i],
+                kernels[i],
                 vecspec=info.vectorization_specializer,
                 can_vectorize=info.can_vectorize)
 
@@ -457,26 +563,24 @@ class kernel_generator(object):
                 # if SIMD we need to determine whether we can actually vectorize
                 # the arrays in this kernel (sometimes we must leave them as)
                 # unrolled vectors accesses
-                cant_simd = _unSIMDable_arrays(self.kernels[i], self.loopy_opts,
+                cant_simd = _unSIMDable_arrays(kernels[i], self.loopy_opts,
                                                info.mapstore)
 
             # update the kernel args
-            self.kernels[i] = self.array_split.split_loopy_arrays(
-                self.kernels[i], cant_simd)
+            kernels[i] = self.array_split.split_loopy_arrays(kernels[i], cant_simd)
 
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
 
             # set the editor
-            self.kernels[i] = lp_utils.set_editor(self.kernels[i])
-
-        # and finally register functions
-        # for func in func_manglers:
-        #    knl = lp.register_function_manglers(knl, [func])
+            kernels[i] = lp_utils.set_editor(kernels[i])
 
         # need to call make_kernels on dependencies
         for x in self.depends_on:
-            x._make_kernels()
+            if use_ours:
+                x._make_kernels()
+
+        return kernels
 
     def __copy_deps(self, scan_path, out_path, change_extension=True):
         """
@@ -533,10 +637,14 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        max_per_run = self._generate_wrapping_kernel(path)
-        self._generate_compiling_program(path)
-        self._generate_calling_program(path, data_filename, max_per_run,
-                                       for_validation=for_validation)
+        max_ic_per_run, max_ws_per_run, filename, kernel = \
+            self._generate_wrapping_kernel(path)
+        # set kernel object
+        self.kernel = kernel
+        self._generate_compiling_program(path, filename)
+        self._generate_driver_kernel(path, kernel)
+        self._generate_calling_program(path, data_filename, max_ic_per_run,
+                                       max_ws_per_run, for_validation=for_validation)
         self._generate_calling_header(path)
         self._generate_common(path)
 
@@ -667,8 +775,8 @@ class kernel_generator(object):
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
 
-    def _generate_calling_program(self, path, data_filename, max_per_run,
-                                  for_validation=False):
+    def _generate_calling_program(self, path, data_filename, max_ic_per_run,
+                                  max_ws_per_run, for_validation=False):
         """
         Needed for all languages, this generates a simple C file that
         reads in data, sets up the kernel call, executes, etc.
@@ -679,9 +787,11 @@ class kernel_generator(object):
             The output path to write files to
         data_filename : str
             The path to the data file for command line input
-        max_per_run: int
+        max_ic_per_run: int
             The maximum # of initial conditions that can be evaluated per kernel
             call based on memory limits
+        max_ws_per_run: int
+            The maximum kernel work size
         for_validation: bool [False]
             If True, this kernel is being generated to validate pyJac, hence we need
             to save output data to a file
@@ -820,7 +930,7 @@ ${name} : ${type}
                 output_sizes=output_sizes
             ))
 
-    def _generate_compiling_program(self, path):
+    def _generate_compiling_program(self, path, filename):
         """
         Needed for some languages (e.g., OpenCL) this may be overriden in
         subclasses to generate a program that compilers the kernel
@@ -829,6 +939,8 @@ ${name} : ${type}
         ----------
         path : str
             The output path for the compiling program
+        filename : str
+            The filename of the wrapping kernel
 
         Returns
         -------
@@ -846,7 +958,7 @@ ${name} : ${type}
         ----------
         kernel: :class:`loopy.LoopKernel`
             The kernel to modify
-        ldecls: list of :class:`loopy.TemporaryVariable` or :class:`cgen.CLLocal`
+        ldecls: list of :class:`loopy.TemporaryVariable`
             The local variables to migrate
 
         Returns
@@ -857,29 +969,9 @@ ${name} : ${type}
             :attr:`loopy.LoopKernel.args`
 
         """
-        class TemporaryArg(lp.TemporaryVariable, lp.KernelArgument):
-            # TODO: implement this in loopy
-            # fix to avoid the is_written check in decl_info
-            def decl_info(self, target, is_written, index_dtype,
-                          shape_override=None):
-                return super(TemporaryArg, self).decl_info(
-                    target, index_dtype)
 
-            # and sneak __local's past loopy
-            def get_arg_decl(self, ast_builder, name_suffix, shape, dtype,
-                             is_written):
-                from cgen.opencl import CLLocal
-                from loopy.target.opencl import OpenCLCASTBuilder
-                if self.scope == scopes.GLOBAL:
-                    return CLLocal(
-                        super(OpenCLCASTBuilder, ast_builder).
-                        get_global_arg_decl(
-                            self.name + name_suffix, shape, dtype, is_written))
-                else:
-                    from loopy import LoopyError
-                    raise LoopyError(
-                        "unexpected request for argument declaration of "
-                        "non-global temporary")
+        assert all(x.scope == scopes.LOCAL for x in ldecls)
+        names = set([x.name for x in ldecls])
 
         def __argify(temp):
             # FIXME: temporarily use our own LocalArg branch while waiting for
@@ -899,11 +991,10 @@ ${name} : ${type}
         return kernel.copy(
             args=kernel.args[:] + [__argify(x) for x in ldecls],
             temporary_variables={
-                key: val for key, val in six.iteritems(
-                    kernel.temporary_variables) if not any(
-                    key in str(l) for l in ldecls)})
+                key: val for key, val in six.iteritems(kernel.temporary_variables)
+                if not set([key]) & names})
 
-    def __get_kernel_defn(self, knl=None, passed_locals=[]):
+    def __get_kernel_defn(self, knl, passed_locals=[]):
         """
         Returns the kernel definition string for this :class:`kernel_generator`,
         taking into account any migrated local variables
@@ -927,16 +1018,11 @@ ${name} : ${type}
             The kernel definition
         """
 
-        if self.kernel is None and knl is None:
+        if knl is None:
             raise Exception('Must call _generate_wrapping_kernel first')
 
-        remove_working = (knl is None or knl == self.kernel) \
-            and not self.loopy_opts.work_size
+        remove_working = knl is None and not self.user_specified_work_size
 
-        if knl is None:
-            knl = self.kernel
-            if self.extra_global_kernel_data:
-                knl = knl.copy(args=self.extra_global_kernel_data + self.kernel.args)
         if passed_locals:
             knl = self.__migrate_locals(knl, passed_locals)
         defn_str = lp_utils.get_header(knl)
@@ -992,81 +1078,62 @@ ${name} : ${type}
             args=', '.join(args)
             )
 
-    def _generate_wrapping_kernel(self, path, instruction_store=None,
-                                  as_dummy_call=False):
+    def _process_args(self, kernels=[]):
         """
-        Generates a wrapper around the various subkernels in this
-        :class:`kernel_generator` (rather than working through loopy's fusion)
+        Processes the arguements for all kernels in this generator (and subkernels
+        from dependencies) to:
+
+            1. Check for duplicates
+            2. Separate arguments by type (Local / Global / Readonly / Value), etc.
+
+        Notes
+        -----
+        First, note that the :class:`loopy.GlobalArg` is our own temporary
+        work-around, and should be replaced after the upcoming kernel-call PR is
+        merged into master.
+
+        Second, the returned list of local arguments will be non-empty IFF the
+        kernel generator's :attr:`hoist_locals`
 
         Parameters
         ----------
-        path : str
-            The output path to write files to
-        instruction_store: dict [None]
-            If supplied, store the generated instructions for this kernel
-            in this store to avoid duplicate work
-        as_dummy_call: bool [False]
-            If True, this is being generated as a dummy call smuggled past loopy
-            e.g., for a Finite Difference jacobian call to the species rates kernel
-            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
+        kernels: list of :class:`loopy.LoopKernel`
+            The kernels to process
+
 
         Returns
         -------
-        max_per_run: int
-            The maximum number of initial conditions that can be executed per
-            kernel call
+        global: list of :class:`loopy.GlobalArg`
+            The list of global arguments for the top-level wrapping kernel
+        local: list of :class:`loopy.TemporaryVariable` with :attr:`scope` LOCAL
+            The list of local temporary variables to be defined at the top-level
+            wrapping kernel.  These will be passed as :class:`loopy.LocalArg`s to
+            subkernels
+        readonly: set of str
+            The names of arguements in the top-level kernel that are never written to
+        constants: list of :class:`loopy.TemporaryVariable` with :attr:`scope` GLOBAL
+                and :attr:`readonly` True
+            The constant data to define in the top-level kernel
+        valueargs: list of :class:`loopy.ValueArg`
+            The value arguments passed into the top-level wrapping kernel
         """
 
-        from loopy.types import AtomicNumpyType, to_loopy_type
+        if not kernels:
+            kernels = self.kernels
 
-        assert all(
-            isinstance(x, lp.LoopKernel) for x in self.kernels), (
-            'Cannot generate wrapper before calling _make_kernels')
+        # find complete list of kernel data
+        args = [arg for dummy in kernels for arg in dummy.args]
 
-        sub_instructions = {} if instruction_store is None else instruction_store
-        if self.depends_on:
-            # generate wrappers for dependencies
-            for x in self.depends_on:
-                x._generate_wrapping_kernel(
-                    path, instruction_store=sub_instructions,
-                    as_dummy_call=x in self.fake_calls)
+        # add our additional kernel data, if any
+        args.extend([x for x in self.extra_kernel_data if isinstance(
+            x, lp.KernelArgument)])
 
-        self.file_prefix = ''
-        if self.auto_diff:
-            self.file_prefix = 'ad_'
-
-        # first, load the wrapper as a template
-        with open(os.path.join(
-                script_dir,
-                self.lang,
-                'wrapping_kernel{}.in'.format(utils.file_ext[self.lang])),
-                'r') as file:
-            file_str = file.read()
-            file_src = Template(file_str)
-
-        # Find the list of all arguements needed for this kernel:
-        # Scan through all our kernels and compile the args
         kernel_data = []
-        defines = [arg for dummy in self.kernels for arg in dummy.args]
-
-        # get read_only variables
-        read_only = list(
-            set(arg.name for dummy in self.kernels for arg in dummy.args
-                if not any(
-                    arg.name in d.get_written_variables() for d in self.kernels)
-                and not isinstance(arg, lp.ValueArg)))
-
-        # find problem_size
-        problem_size = next((x for x in defines if x == p_size), None)
-
-        # remove other value args
-        defines = [x for x in defines if not isinstance(x, lp.ValueArg)]
-
-        # check for dupicates
-        nameset = sorted(set(d.name for d in defines))
+        # now, scan the arguments for duplicates
+        nameset = sorted(set(d.name for d in args))
         for name in nameset:
             same_name = []
-            for x in defines:
+            for x in args:
                 if x.name == name and not any(x == y for y in same_name):
                     same_name.append(x)
             if len(same_name) != 1:
@@ -1094,11 +1161,12 @@ ${name} : ${type}
 
                 # otherwise, they're the same and the only difference is the
                 # the atomic.
-                # Next, we try to copy all the other kernels with this arg in it
+
+                # Hence, we try to copy all the other kernels with this arg in it
                 # with the atomic arg
                 for i, knl in enumerate(self.kernels):
                     if other in knl.args:
-                        self.kernels[i] = knl.copy(args=[
+                        kernels[i] = knl.copy(args=[
                             x if x != other else atomic for x in knl.args])
 
                 same_name.remove(other)
@@ -1106,12 +1174,28 @@ ${name} : ${type}
             same_name = same_name.pop()
             kernel_data.append(same_name)
 
+        # split checked data into arguements and valueargs
+        valueargs, args = utils.partition(
+            kernel_data, lambda x: isinstance(x, lp.ValueArg))
+
+        # get list of arguments on readonly
+        readonly = set(
+                arg.name for dummy in kernels for arg in dummy.args
+                if not any(arg.name in d.get_written_variables()
+                           for d in kernels)
+                and not isinstance(arg, lp.ValueArg))
+
         # check (non-private) temporary variable duplicates
-        temps = [arg for dummy in self.kernels
+        temps = [arg for dummy in kernels
                  for arg in dummy.temporary_variables.values()
                  if isinstance(arg, lp.TemporaryVariable) and
-                 arg.scope != lp.temp_var_scope.PRIVATE and
+                 arg.scope != scopes.PRIVATE and
                  arg.scope != lp.auto]
+        # and add extra kernel data, if any
+        temps.extend([x for x in self.extra_kernel_data if isinstance(
+            x, lp.TemporaryVariable) and
+            x.scope != scopes.PRIVATE and
+            x.scope != lp.auto])
         copy = temps[:]
         temps = []
         for name in sorted(set(x.name for x in copy)):
@@ -1123,99 +1207,143 @@ ${name} : ${type}
                                         str(x) for x in same_names)))
             temps.append(same_names[0])
 
-        # add problem size arg to front
-        if problem_size is not None:
-            kernel_data.insert(0, problem_size)
-        # and save
-        self.kernel_data = kernel_data[:]
+        # work on temporary variables
+        local = []
+        if self.hoist_locals:
+            # go through kernels finding local temporaries, and convert to local args
+            for i, knl in enumerate(kernels):
+                local_temps = [x for x in knl.temporary_variables.values()
+                               if x.scope == scopes.LOCAL]
+                if local_temps:
+                    # convert kernel's local temporarys to local args
+                    kernels[i] = self.__migrate_locals(knl, local_temps)
+                    # and add to list
+                    local.extend(local_temps)
+                    # and remove from temps
+                    temps = [x for x in temps if x not in local_temps]
 
-        # update memory args
-        self.mem.add_arrays(kernel_data)
+        # finally, separate the constants from the temporaries
+        # for opencl < 2.0, a constant global can only be a
+        # __constant
+        constants, temps = utils.partition(temps, lambda x: x.read_only)
 
-        # generate the kernel definition
-        self.vec_width = self.loopy_opts.depth
-        if not bool(self.vec_width):
-            self.vec_width = self.loopy_opts.width
-        if not bool(self.vec_width):
-            self.vec_width = 0
+        return args, local, readonly, constants, valueargs
 
-        # keep track of local / global / constant memory allocations
+    def _process_memory(self, args, readonly, local, constants):
+        """
+        Determine memory usage / limits, host constant migrations, etc.
+
+        Parameters
+        ----------
+        args: list of :class:`loopy.KernelArgument`
+            The kernel data (composed of :class:`loopy.GlobalArg`s and
+            :class:`loopy.ValueArg`) to process
+        readonly: set of str
+            The kernel data that is never written to, may overlap with :param:`args`
+        local: list of :class:`loopy.TemporaryVariable`
+            The local temporaries to declare
+        constants: list of :class:`loopy.TemporaryVariable`
+            The constant data to declare in the kernel
+
+        Returns
+        -------
+        updated_args: list of :class:`loopy.KernelArgument`
+            The updated kernel arguments, possibly including any migrated host
+            constants
+        updated_constants: list of :class:`loopy.TemporaryVariable`
+            The updated constant variables
+        updated_readonly: list of str
+            The updated readonly variables
+        host_constants: list of :class:`loopy.GlobalArg`
+            The __constant data that was necessary to move to __global data for
+            space reasons
+        mem_limits: :class:`memory_limits`
+            The generated memory limit object
+        """
+
+        # now, do our memory calculations to determine if we can fit
+        # all our data in memory
         mem_types = defaultdict(lambda: list())
-        # find if we need to pass constants in via global args
-        for i, k in enumerate(self.kernels):
-            # before generating, get memory types
-            for a in (x for x in k.args if not isinstance(x, lp.ValueArg)):
-                if a not in mem_types[memory_type.m_global]:
-                    mem_types[memory_type.m_global].append(a)
-            for a, v in six.iteritems(k.temporary_variables):
-                # check scope to find type
-                if v.scope == lp.temp_var_scope.LOCAL:
-                    if v not in mem_types[memory_type.m_local]:
-                        mem_types[memory_type.m_local].append(v)
-                elif v.scope == lp.temp_var_scope.GLOBAL:
-                    if v not in mem_types[memory_type.m_constant]:
-                        # for opencl < 2.0, a constant global can only be a
-                        # __constant
-                        mem_types[memory_type.m_constant].append(v)
 
-            # look for jacobian indirect lookup in preambles
-            lookup = next((pre for pre in k.preamble_generators if isinstance(
-                pre, lp_pregen.jac_indirect_lookup)), None)
-            if lookup and lookup.array not in mem_types[memory_type.m_constant]:
-                # also need to include the lookup array in consideration
-                mem_types[memory_type.m_constant].append(lookup.array)
+        # store globals
+        for arg in [x for x in args if not isinstance(x, lp.ValueArg)]:
+            mem_types[memory_type.m_global].append(arg)
+
+        # store locals
+        mem_types[memory_type.m_local].extend(local)
+
+        # and constants
+        mem_types[memory_type.m_constant].extend(constants)
 
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(
-            self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
+            self.loopy_opts, mem_types,
+            string_strides=self.mem.string_strides,
             input_file=self.mem_limits,
             limit_int_overflow=self.loopy_opts.limit_int_overflow)
-        data_size = len(kernel_data)
-        read_size = len(read_only)
-        if not mem_limits.can_fit():
+
+        host_constants = []
+        if not all(mem_limits.can_fit()):
             # we need to convert our __constant temporary variables to
             # __global kernel args until we can fit
             type_changes = defaultdict(lambda: list())
             # we can't remove the sparse indicies as we can't pass pointers
             # to loopy preambles
-            gtemps = [x for x in temps if 'sparse_jac' not in x.name]
+            gtemps = [x for x in constants if 'sparse_jac' not in x.name]
             # sort by largest size
             gtemps = sorted(gtemps, key=lambda x: np.prod(x.shape), reverse=True)
             type_changes[memory_type.m_global].append(gtemps[0])
             gtemps = gtemps[1:]
-            while not mem_limits.can_fit(with_type_changes=type_changes):
+            while not all(mem_limits.can_fit(with_type_changes=type_changes)):
                 if not gtemps:
                     logger = logging.getLogger(__name__)
                     logger.exception('Cannot fit kernel {} in memory'.format(
                         self.name))
-                    break
+                    # should never get here, but still...
+                    raise Exception()
 
                 type_changes[memory_type.m_global].append(gtemps[0])
                 gtemps = gtemps[1:]
 
-            # once we've converted enough, we need to physically change these
+            # once we've converted enough, we need to physically change the types
             for x in [v for arrs in type_changes.values() for v in arrs]:
-                kernel_data.append(
+                args.append(
                     lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape))
-                read_only.append(kernel_data[-1].name)
-                self.mem.host_constants.append(x)
-                self.kernel_data.append(kernel_data[-1])
+                readonly.add(readonly[-1].name)
+                host_constants.append(x)
 
-            # and update the types
-            for v in self.mem.host_constants:
-                mem_types[memory_type.m_constant].remove(v)
-                mem_types[memory_type.m_global].append(v)
+                # and update the types
+                mem_types[memory_type.m_constant].remove(x)
+                mem_types[memory_type.m_global].append(x)
 
             mem_limits = memory_limits.get_limits(
                 self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
                 input_file=self.mem_limits,
                 limit_int_overflow=self.loopy_opts.limit_int_overflow)
 
-        # update the memory manager with new args / input arrays
-        if len(kernel_data) != data_size:
-            self.mem.add_arrays(kernel_data[data_size:],
-                                in_arrays=read_only[read_size:])
+        return args, constants, readonly, host_constants, mem_limits
 
+    def _dummy_wrapper_kernel(self, kernel_data, readonly, vec_width,
+                              as_dummy_call=False, for_driver=False):
+        """
+        Generates a dummy loopy kernel to function as the global wrapper
+
+        Parameters
+        ----------
+        kernel_data: list of :class:`loopy.
+        vec_width: int [0]
+            If non-zero, the vector width to use in kernel width fixing
+        as_dummy_call: bool [False]
+            If True, this is being generated as a dummy call smuggled past loopy
+            e.g., for a Finite Difference jacobian call to the species rates kernel
+            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
+
+        Returns
+        -------
+        knl: :class:`loopy.LoopKernel`
+            The generated dummy kernel
+
+        """
         # create a dummy kernel to get the defn string
         inames, _ = self.get_inames(0)
 
@@ -1228,8 +1356,7 @@ ${name} : ${type}
 
         # assign to non-readonly to prevent removal
         def _name_assign(arr, use_atomics=True):
-            if arr.name not in read_only and not \
-                    isinstance(arr, lp.ValueArg):
+            if arr.name not in readonly and not isinstance(arr, lp.ValueArg):
                 return arr.name + '[{ind}] = 0 {atomic}'.format(
                     ind=', '.join(['0'] * len(arr.shape)),
                     atomic='{atomic}'
@@ -1245,14 +1372,203 @@ ${name} : ${type}
                              '\n'.join(_name_assign(arr)
                                        for arr in kernel_data),
                              kernel_data[:],
-                             name=self.name,
+                             name=self.name + ('_driver' if for_driver else ''),
                              target=self.target)
         # force vector width
         if self.vec_width != 0 and not self.loopy_opts.is_simd:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
-        self.kernel = knl.copy()
+        return knl
+
+    def _migrate_host_constants(self, kernel, host_constants):
+        """
+        Moves temporary variables to global arguments based on the
+        host constants for this :class:`kernel_generator`
+
+        Parameters
+        ----------
+        kernel: :class:`loopy.LoopKernel`
+            The kernel to transform
+        host_constants: list of :class:`loopy.GlobalArg`
+            The list of __constant temporary variables that were converted to
+            __global args
+
+        Returns
+        -------
+        migrated: :class:`loopy.LoopKernel`
+            The kernel with any host constants transformed to input arguments
+        """
+        transferred = set([const.name for const in host_constants
+                           if const.name in kernel.temporary_variables])
+        # need to transfer these to arguments
+        if transferred:
+            # filter temporaries
+            new_temps = {t: v for t, v in six.iteritems(
+                         kernel.temporary_variables) if t not in transferred}
+            # create new args
+            new_args = [lp.GlobalArg(
+                t, shape=v.shape, dtype=v.dtype, order=v.order,
+                dim_tags=v.dim_tags)
+                for t, v in six.iteritems(kernel.temporary_variables)
+                if t in transferred]
+            return kernel.copy(
+                args=kernel.args + new_args, temporary_variables=new_temps)
+
+        return kernel
+
+    def _get_working_buffer(self, args):
+        """
+        Determine the size of the working buffer required to store the :param:`args`
+        in a global working array, and return offsets for determing array indexing
+
+        Parameters
+        ----------
+        args: list of :class:`loopy.KernelArguments`
+            The kernel arguments to collapse into a working buffer
+
+        Returns
+        -------
+        size_per_work_item: int
+            The size (in number of doubles) of the working buffer per work-group
+            item
+        offsets: dict of str -> str
+            A mapping of kernel argument names to string indicies to unpack working
+            buffer into local pointers
+        """
+
+        size_per_work_item = 0
+        offsets = {}
+        work_size = self.work_size
+        for arg in args:
+            # ensure we're only operating on FP arrays
+            assert not arg.dtype.is_integral()
+            # split the shape into the work-item and other dimensions
+            isizes, ssizes = utils.partition(arg.shape, lambda x: isinstance(x, int))
+            # store offset and increment size
+            offsets[arg.name] = '{} * {}'.format(size_per_work_item, work_size)
+            size_per_work_item += int(np.prod(isizes))
+            # check we have a work size in ssizes
+            if not self.user_specified_work_size:
+                assert len(ssizes) <= 1 and str(ssizes[0]) == w_size.name
+
+        return size_per_work_item, offsets
+
+    def _get_pointer_unpack(self, array, offset):
+        """
+        A method stub to implement the pattern:
+        ```
+            double* array = &rwk[offset]
+        ```
+        per target.  By default this returns the pointer unpack for C, but it may
+        be overridden in subclasses
+
+        Parameters
+        ----------
+        array: str
+            The array name
+        offset: str
+            The stringified offset
+
+        Returns
+        -------
+        unpack: str
+            The stringified pointer unpacking statement
+        """
+        return 'double* {} = rwk + {};'.format(array, offset)
+
+    def _remove_work_size(self, text):
+        """
+        Hack -- TODO: whip up define-based array sizing for loopy
+        """
+
+        replacers = [(re.compile(r'(int const work_size(?:, )?)'), ''),
+                     (re.compile(r'(\(work_size, )'), '('),
+                     (re.compile(r'(, work_size, )'), ', '),
+                     (re.compile(r'(, work_size\))'), ')')]
+        for r, s in replacers:
+            text = r.sub(s, text)
+        return text
+
+    def _merge_kernels(self, for_driver, kernels=[], as_dummy_call=False,
+                       fake_calls={}):
+        """
+        Generate and merge the supplied kernels, and return the resulting code in
+        string form
+
+        Parameters
+        ----------
+        for_driver: bool
+            If True, these kernels are being merged for a kernel driver, and hence
+            don't need to use a working-buffer
+        kernels: list of :class:`loopy.LoopKernel`
+            The kernels to merge, if not supplied, use :attr:`kernels`
+        as_dummy_call: bool [False]
+            If True, this is being generated as a dummy call smuggled past loopy
+            e.g., for a Finite Difference jacobian call to the species rates kernel
+            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
+        fake_calls: dict of str -> kernel_generator
+            In some cases, e.g. finite differnce jacobians, we need to place a dummy
+            call in the kernel that loopy will accept as valid.  Then it needs to
+            be substituted with an appropriate call to the kernel generator's kernel
+
+        Returns
+        -------
+        instructions: str
+            The generated kernel instructions
+        preambles: str
+            The generated kernel preambles
+        extra_kernels: list of str
+            The generated kernels
+        dummy_kernel: :class:`loopy.LoopKernel`
+            The generated wrapper kernel
+        mem_limits: :class:`memory_limits`
+            The memory limit object for this kernel
+        """
+
+        if not kernels:
+            kernels = self.kernels
+
+        if not fake_calls:
+            fake_calls = self.fake_calls
+
+        # process arguments
+        args, local, readonly, constants, valueargs = self._process_args(kernels)
+
+        # process memory
+        args, constants, readonly, host_constants, mem_limits = self._process_memory(
+            args, readonly, local, constants)
+
+        # update subkernels for host constants
+        for i in range(len(kernels)):
+            kernels[i] = self._migrate_host_constants(kernels[i], host_constants)
+
+        # and add to memory manager
+        self.mem.add_arrays(host_constants=host_constants)
+
+        # create the interior kernel
+        # first, compress our kernel args into a working buffer
+        offset_args = args[:]
+        if for_driver:
+            offset_args = [x for x in args if x.name.endswith('_local') and
+                           x.shape[0] == self.work_size]
+        size_per_wi, offsets = self._get_working_buffer(offset_args)
+        # next, get the pointer unpackings
+        # create working buffer
+        working_buffer = lp.GlobalArg('rwk', shape=(w_size.name, size_per_wi),
+                                      order=self.loopy_opts.order,
+                                      dtype=np.float64)
+        kernel_data = [w_size] + [working_buffer]
+
+        # and add to the memory store
+        if not for_driver:
+            self.mem.add_arrays([working_buffer])
+        else:
+            # add the working buffer to the driver function
+            for i, kernel in enumerate(kernels):
+                if kernel.name.endswith('_driver'):
+                    kernels[i] = kernel.copy(args=kernel.args + kernel_data[:])
+                    break
 
         # and finally, generate the kernel code
         preambles = []
@@ -1260,31 +1576,6 @@ ${name} : ${type}
         inits = []
         instructions = []
         local_decls = []
-
-        def _update_for_host_constants(kernel, return_new_args=False):
-            """
-            Moves temporary variables to global arguments based on the
-            host constants for this kernel
-            """
-            transferred = set([const.name for const in self.mem.host_constants
-                               if const.name in kernel.temporary_variables])
-            # need to transfer these to arguments
-            if transferred:
-                # filter temporaries
-                new_temps = {t: v for t, v in six.iteritems(
-                             kernel.temporary_variables) if t not in transferred}
-                # create new args
-                new_args = [lp.GlobalArg(
-                    t, shape=v.shape, dtype=v.dtype, order=v.order,
-                    dim_tags=v.dim_tags)
-                    for t, v in six.iteritems(kernel.temporary_variables)
-                    if t in transferred]
-                if return_new_args:
-                    return new_args
-                return kernel.copy(
-                    args=kernel.args + new_args, temporary_variables=new_temps)
-            elif not return_new_args:
-                return kernel
 
         def _get_func_body(cgr, subs={}):
             """
@@ -1304,84 +1595,17 @@ ${name} : ${type}
             # feed through get_code to get any corrections
             return lp_utils.get_code(body, self.loopy_opts)
 
-        def _hoist_local_decls(k):
-            # create kernel definition substitutions
-            knl_defn = self.__get_kernel_defn(k)
-            local_knl_defn = self.__get_kernel_defn(
-                k, passed_locals=ldecls)
-            subs = {knl_defn: local_knl_defn}
-            subs.update(**{str(x): '' for x in ldecls})
-            return subs
+        # stubs for kernel calls snuck past loopy
+        extra_fake_kernels = []
 
-        if self.fake_calls:
-            extra_fake_kernels = {x: [] for x in self.fake_calls}
-
-        from cgen.opencl import CLLocal
         # split into bodies, preambles, etc.
-        for i, k, in enumerate(self.kernels):
-            if k.name in sub_instructions:
-                # avoid regeneration if possible
-                pre, init, extra, ldecls, insns = sub_instructions[k.name]
-                if self.seperate_kernels:
-                    # need to regenerate the call here, in the case that there was
-                    # a difference in the host_constants in the sub kernel
-                    k = _update_for_host_constants(k)
-                    # get call w/ migrated locals
-                    insns = self._get_kernel_call(k, passed_locals=ldecls)
-                    # and generate code / func body
-                    cgr = lp.generate_code_v2(k)
-                    assert len(cgr.device_programs) == 1
-                    subs = {}
-                    if ldecls:
-                        subs = _hoist_local_decls(k)
-                    extra = _get_func_body(cgr.device_programs[0],
-                                           subs)
-
-                if self.fake_calls:
-                    # update host constants in subkernel
-                    new_args = _update_for_host_constants(k, True)
-                    # find out which kernel this belongs to
-                    sub = next(x for x in self.depends_on
-                               if k.name in [y.name for y in x.kernels])
-                    # update sub for host constants
-                    if new_args:
-                        sub.kernel = sub.kernel.copy(args=sub.kernel.args + [
-                            x for x in new_args if x.name not in
-                            set([y.name for y in sub.kernel.args])])
-                    # and add the instructions to this fake kernel
-                    extra_fake_kernels[sub].append(insns)
-                    # and clear insns
-                    insns = ''
-
-                if insns:
-                    instructions.append(insns)
-                if pre and pre not in preambles:
-                    preambles.extend(pre)
-                if init:
-                    # filter out any host constants in sub inits
-                    init = [x for x in init if not any(n in x for n in read_only)]
-                    inits.extend(init)
-                if extra and extra not in extra_kernels:
-                    # filter out any known extras
-                    extra_kernels.append(extra)
-                if ldecls:
-                    ldecls = [x for x in ldecls if not any(
-                                str(x) == str(l) for l in local_decls)]
-                    local_decls.extend(ldecls)
-                continue
-
-            # check to see if any of our temporary variables are host constants
-            if self.seperate_kernels:
-                k = _update_for_host_constants(k)
-
+        for i, k, in enumerate(kernels):
+            # make kernel
             cgr = lp.generate_code_v2(k)
             # grab preambles
-            preamble_list = []
             for _, preamble in cgr.device_preambles:
                 if preamble not in preambles:
-                    preamble_list.append(preamble)
-            # and add to global list
-            preambles.extend(preamble_list)
+                    preambles.append(preamble)
 
             # now scan device program
             assert len(cgr.device_programs) == 1
@@ -1394,7 +1618,7 @@ ${name} : ${type}
                     if isinstance(item, cgen.Initializer):
                         def _rec_check_name(decl):
                             if 'name' in vars(decl):
-                                return decl.name in read_only
+                                return decl.name in readonly
                             elif 'subdecl' in vars(decl):
                                 return _rec_check_name(decl.subdecl)
                             return False
@@ -1409,101 +1633,182 @@ ${name} : ${type}
                     elif not (isinstance(item, cgen.Line)
                               or isinstance(item, cgen.FunctionBody)):
                         raise NotImplementedError(type(item))
+            else:
+                # no preambles / initializers
+                assert isinstance(cgr.ast, cgen.FunctionBody)
+
             # and add to inits
             inits.extend(init_list)
 
-            # need to strip out any declaration of a __local variable as these
-            # must be in the kernel scope
+            # we need to place the call in the instructions and the extra kernels
+            # in their own array
+            extra_kernels.append(self._remove_work_size(_get_func_body(cgr, {})))
+            insns = self._remove_work_size(self._get_kernel_call(k))
 
-            # NOTE: this entails hoisting local declarations up to the wrapping
-            # kernel for non-separated OpenCL kernels as __local variables in
-            # sub-functions are not well defined in the standard:
-            # https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/functionQualifiers.html # noqa
-            def partition(l, p):
-                return reduce(lambda x, y: x[
-                    not p(y)].append(y) or x, l, ([], []))
-            ldecls, body = partition(cgr.body_ast.contents,
-                                     lambda x: isinstance(x, CLLocal))
+            if fake_calls:
+                # check to see if this kernel has a fake call to replace
+                fk = next((x for x in fake_calls if x.match(k, insns, for_driver)),
+                          None)
+                if fk:
+                    # mark for replacement
+                    extra_fake_kernels.append((fk, len(extra_kernels) - 1))
 
-            subs = {}
-            if ldecls and self.seperate_kernels and not instruction_store:
-                # need to check for any locals in top level kernels
-                subs = _hoist_local_decls(k)
+            instructions.append(insns)
 
-            # have to do a string compare for proper equality testing
-            local_decls.extend([x for x in ldecls if not any(
-                str(x) == str(y) for y in local_decls)])
-
-            if not self.seperate_kernels:
-                cgr.body_ast = cgr.body_ast.__class__(contents=body)
-                # leave a comment to distinguish the name
-                # and put the body in
-                instructions.append('// {name}\n{body}\n'.format(
-                    name=k.name, body=str(cgr.body_ast)))
-            else:
-                # we need to place the call in the instructions and the extra kernels
-                # in their own array
-                extra_kernels.append(_get_func_body(cgr, subs))
-                # additionally, we need to hoist the local declarations to the call
-                instructions.append(self._get_kernel_call(
-                    k, passed_locals=ldecls))
-
-            if instruction_store is not None:
-                assert k.name not in instruction_store
-                instruction_store[k.name] = (preamble_list, init_list,
-                                             extra_kernels[-1][:] if extra_kernels
-                                             else [], ldecls,
-                                             instructions[-1][:])
-
-        # fix extra fake kernels
-        for gen in self.fake_calls:
-            dep = self.fake_calls[gen]
-            # update host constants in subkernel
-            knl = _update_for_host_constants(gen.kernel)
+        # fix extra fake kernel calls
+        for (fake_call, index) in extra_fake_kernels:
             # replace call in instructions to call to kernel
-            knl_call = gen._get_kernel_call(knl=knl, passed_locals=local_decls)
-            instructions = [x.replace(dep, knl_call[:-2]) for x in instructions]
-            # and put the kernel in the extra's
-            sub_instructions = extra_fake_kernels[gen]
-            # apply barriers
-            sub_instructions = gen.apply_barriers(sub_instructions)
-            code = subs_at_indent("""
-${defn}
-{
-    ${insns}
-}""", defn=gen.__get_kernel_defn(knl=knl,
-                                 passed_locals=local_decls),
-                                 insns='\n'.join(sub_instructions))
-            # and place within a single extra kernel
-            extra_kernels.append(lp_utils.get_code(code, self.loopy_opts))
+            knl_call = self._remove_work_size(self._get_kernel_call(
+                knl=fake_call.replace_with, passed_locals=local_decls))
+            extra_kernels[index] = extra_kernels[index].replace(
+                fake_call.dummy_call, knl_call[:-2])
+
+        # determine vector width
+        vec_width = self.loopy_opts.depth
+        if not bool(vec_width):
+            vec_width = self.loopy_opts.width
+        if not bool(self.vec_width):
+            vec_width = 0
+
+        # and save kernel data
+        kernel = self._dummy_wrapper_kernel(
+            kernel_data, readonly, vec_width, as_dummy_call=as_dummy_call,
+            for_driver=for_driver)
+        # and split
+        kernel = self.array_split.split_loopy_arrays(kernel)
+
+        # get working buffer indexing, if necessary
+        pointer_unpacks = []
+        for k, v in six.iteritems(offsets):
+            pointer_unpacks.append(self._get_pointer_unpack(k, v))
 
         # insert barriers if any
-        instructions = self.apply_barriers(instructions,
-                                           use_sub_barriers=not self.fake_calls)
+        if not for_driver:
+            instructions = self.apply_barriers(instructions)
+
+        # add pointer unpacking
+        instructions[0:0] = pointer_unpacks[:]
 
         # add local declaration to beginning of instructions
         instructions[0:0] = [str(x) for x in local_decls]
 
         # join to str
         instructions = '\n'.join(instructions)
-        preamble = '\n'.join(textwrap.dedent(x) for x in preambles + inits)
+        # add any target preambles
+        preambles = preambles + [x for x in self.target_preambles
+                                 if x not in preambles]
+        preambles = '\n'.join(textwrap.dedent(x) for x in preambles + inits)
+        # join to string
+        extra_kernels = '\n'.join(extra_kernels)
+
+        return instructions, preambles, extra_kernels, kernel, mem_limits
+
+    def _generate_wrapping_kernel(self, path, instruction_store=None,
+                                  as_dummy_call=False):
+        """
+        Generates a wrapper around the various subkernels in this
+        :class:`kernel_generator` (rather than working through loopy's fusion)
+
+        Parameters
+        ----------
+        path : str
+            The output path to write files to
+        instruction_store: dict [None]
+            If supplied, store the generated instructions for this kernel
+            in this store to avoid duplicate work
+        as_dummy_call: bool [False]
+            If True, this is being generated as a dummy call smuggled past loopy
+            e.g., for a Finite Difference jacobian call to the species rates kernel
+            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
+
+        Returns
+        -------
+        max_per_run: int
+            The maximum number of initial conditions that can be executed per
+            kernel call
+        """
+
+        assert all(
+            isinstance(x, lp.LoopKernel) for x in self.kernels), (
+            'Cannot generate wrapper before calling _make_kernels')
+
+        if self.depends_on and self.generate_all:
+            # generate wrappers for dependencies
+            raise NotImplementedError
+
+        # get the instructions, preambles and kernel
+        instructions, preambles, extra_kernels, kernel, mem_limits \
+            = self._merge_kernels(False, self.kernels)
+
+        filename = self._to_file(
+            path, instructions, preambles, kernel, extra_kernels)
+
+        max_ic_per_run, max_ws_per_run = mem_limits.can_fit(memory_type.m_global)
+        # normalize to divide evenly into vec_width
+        if self.vec_width != 0:
+            max_ic_per_run = np.floor(
+                max_ic_per_run / self.vec_width) * self.vec_width
+
+        return int(max_ic_per_run), int(max_ws_per_run), filename, kernel
+
+    def _to_file(self, path, instructions, preambles, kernel, extra_kernels,
+                 for_driver=False):
+        """
+        Write the generated kernel data to file
+
+        Parameters
+        ----------
+        path: str
+            The directory to write to
+        instructions: str
+            The interior kernel instructions for :param:`kernel
+        preambles: str
+            The preambles
+        kernel: :class:`loopy.LoopKernel`
+            The kernel definition to write to file
+        extra_kernels: str
+            Kernels called by this
+        for_driver: bool [False]
+            Whether we're writing a driver kernel or not
+
+        Returns
+        -------
+        filename: str
+            The name of the generated file
+        """
+
+        file_prefix = ''
+        if self.auto_diff:
+            file_prefix = 'ad_'
+
+        # get filename
+        name = self.name
+        if for_driver:
+            name += '_driver'
+
+        # first, load the wrapper as a template
+        with open(os.path.join(
+                script_dir,
+                self.lang,
+                'wrapping_kernel{}.in'.format(utils.file_ext[self.lang])),
+                'r') as file:
+            file_str = file.read()
+            file_src = Template(file_str)
 
         file_src = self._special_wrapper_subs(file_src)
 
-        self.filename = os.path.join(
-            path,
-            self.file_prefix + self.name + utils.file_ext[self.lang])
         # create the file
-        with filew.get_file(
-                self.filename, self.lang, include_own_header=True) as file:
+        filename = os.path.join(path, file_prefix + name + utils.file_ext[
+            self.lang])
+        with filew.get_file(filename, self.lang, include_own_header=True) as file:
             instructions = _find_indent(file_str, 'body', instructions)
-            preamble = _find_indent(file_str, 'preamble', preamble)
+            preambles = _find_indent(file_str, 'preamble', preambles)
             lines = file_src.safe_substitute(
                 defines='',
-                preamble=preamble,
-                func_define=self.__get_kernel_defn(),
+                preamble=preambles,
+                func_define=self.__get_kernel_defn(kernel),
                 body=instructions,
-                extra_kernels='\n'.join(extra_kernels)).split('\n')
+                extra_kernels=extra_kernels)
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
@@ -1511,10 +1816,10 @@ ${defn}
 
         # and the header file (only include self now, as we're using embedded
         # kernels)
-        headers = [self.__get_kernel_defn() + utils.line_end[self.lang]]
+        headers = [self.__get_kernel_defn(kernel) + utils.line_end[self.lang]]
         with filew.get_header_file(
-            os.path.join(path, self.file_prefix + self.name +
-                         utils.header_ext[self.lang]), self.lang) as file:
+            os.path.join(path, file_prefix + name + utils.header_ext[
+                self.lang]), self.lang) as file:
 
             lines = '\n'.join(headers).split('\n')
             if self.auto_diff:
@@ -1523,12 +1828,45 @@ ${defn}
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
 
-        max_per_run = mem_limits.can_fit(memory_type.m_global)
-        # normalize to divide evenly into vec_width
-        if self.vec_width != 0:
-            max_per_run = np.floor(max_per_run / self.vec_width) * self.vec_width
+        return filename
 
-        return int(max_per_run)
+    def _generate_driver_kernel(self, path, driven):
+        """
+        Generates a driver kernel that is responsible for looping through the entire
+        set of initial conditions for testing / execution.  This is useful so that
+        an external program can easily link to the wrapper kernel generated by this
+        :class:`kernel_generator` and handle their own iteration over conditions
+        (e.g., as in an ODE solver). :see:`driver-function` for more
+
+        Parameters
+        ----------
+        path: str
+            The path to place the driver kernel in
+        driven: :class:`loopy.LoopKernel
+            The kernel to drive!
+        Returns
+        -------
+        None
+        """
+
+        knl_info = drivers.get_driver(
+                self.loopy_opts, self.namestore, self.mem.in_arrays,
+                self.mem.out_arrays, self, test_size=self.test_size)
+
+        if self.driver_type == DriverType.lockstep:
+            template = drivers.lockstep_driver_template(self.loopy_opts, self)
+        else:
+            raise NotImplementedError
+
+        # make driver kernel
+        kernels = self._make_kernels(knl_info)
+        instructions, preambles, extra_kernels, kernel, mem_limits = \
+            self._merge_kernels(True, kernels, fake_calls=[FakeCall(
+                self.name + '()', kernels[1], self)])
+        instructions = subs_at_indent(template, insns=instructions)
+        # and write to file
+        self._to_file(path, instructions, preambles, kernel, extra_kernels,
+                      for_driver=True)
 
     def remove_unused_temporaries(self, knl):
         """
@@ -1628,8 +1966,7 @@ ${defn}
         iname_range.extend(our_iname_domains)
 
         assumptions = []
-        if isinstance(test_size, str):
-            assumptions.extend(self.get_assumptions(test_size))
+        assumptions.extend(self.get_assumptions(test_size))
 
         for iname, irange in info.extra_inames:
             inames.append(iname)
@@ -1690,9 +2027,9 @@ ${defn}
         # fix parameters
         if info.parameters:
             knl = lp.fix_parameters(knl, **info.parameters)
-        if self.loopy_opts.work_size:
+        if self.user_specified_work_size:
             # fix work size
-            knl = lp.fix_parameters(knl, **{w_size.name: self.loopy_opts.work_size})
+            knl = lp.fix_parameters(knl, **{w_size.name: self.work_size})
         # prioritize and return
         knl = lp.prioritize_loops(knl, [y for x in inames
                                         for y in x.split(',')])
@@ -1825,31 +2162,6 @@ class c_kernel_generator(kernel_generator):
         self.extern_defn_template = Template(
             'extern ${type}* ${name}' + utils.line_end[self.lang])
 
-        if not self.for_testing:
-            # add the 'this_run' arguement to the list of kernel args for the
-            # wrapping kernel
-            self.extra_global_kernel_data.append(lp.ValueArg(
-                'this_run', dtype=arc.kint_type))
-            # add 'global_ind' to the list of extra kernel data to be added to
-            # subkernels
-            self.extra_kernel_data.append(lp.ValueArg(
-                global_ind, dtype=arc.kint_type))
-            # add the number of conditions to solve (which may be )
-            # clear list of inames added to sub kernels, as the OpenMP loop over
-            # the states is implemented in the wrapping kernel
-            self.inames = []
-            # clear list of inames domains added to sub kernels, as the OpenMP loop
-            # over the states is implemented in the wrapping kernel
-            self.iname_domains = []
-            # and modify the skeleton to remove the outer loop
-            self.skeleton = """
-        ${pre}
-        for ${var_name}
-            ${main}
-        end
-        ${post}
-        """
-
     @property
     def target_preambles(self):
         """
@@ -1866,7 +2178,7 @@ class c_kernel_generator(kernel_generator):
             The string preambles for this :class:`kernel_generator`
         """
 
-        if self.loopy_opts.work_size:
+        if self.user_specified_work_size:
             return []
 
         work_size = """
@@ -1876,36 +2188,6 @@ class c_kernel_generator(kernel_generator):
         """
 
         return [work_size]
-
-    def get_inames(self, test_size):
-        """
-        Returns the inames and iname_ranges for subkernels created using
-        this generator.
-
-        This is an override of the base :func:`get_inames` that decides which form
-        of the inames to return based on :attr:`for_testing`.  If False, the
-        complete iname set will be returned.  If True, the outer loop iname
-        will be removed from the inames / domain
-
-        Parameters
-        ----------
-        test_size : int or str
-            In testing, this should be the integer size of the test data
-            For production, this should the 'test_size' (or the corresponding)
-            for the variable test size passed to the kernel
-
-        Returns
-        -------
-        inames : list of str
-            The string inames to add to created subkernels by default
-        iname_domains : list of str
-            The iname domains to add to created subkernels by default
-        """
-
-        if self.for_testing:
-            return super(c_kernel_generator, self).get_inames(test_size)
-
-        return self.inames, self.iname_domains
 
     def get_assumptions(self, test_size):
         """
@@ -1971,10 +2253,7 @@ class autodiff_kernel_generator(c_kernel_generator):
 
     def __init__(self, *args, **kwargs):
 
-        # no matter the 'testing' status, the autodiff always needs the outer loop
-        # migrated out
         from pyjac.loopy_utils.loopy_utils import AdeptCompiler
-        kwargs['for_testing'] = False
         kwargs.setdefault('compiler', AdeptCompiler())
         super(autodiff_kernel_generator, self).__init__(*args, **kwargs)
 
@@ -2049,7 +2328,7 @@ class opencl_kernel_generator(kernel_generator):
             The string preambles for this :class:`kernel_generator`
         """
 
-        if self.loopy_opts.work_size:
+        if self.user_specified_work_size:
             return []
 
         work_size = """
@@ -2220,7 +2499,7 @@ class opencl_kernel_generator(kernel_generator):
             # default to the site level
             return site.CL_VERSION
 
-    def _generate_compiling_program(self, path):
+    def _generate_compiling_program(self, path, filename):
         """
         Needed for OpenCL, this generates a simple C file that
         compiles and stores the binary OpenCL kernel generated w/ the wrapper
@@ -2229,13 +2508,15 @@ class opencl_kernel_generator(kernel_generator):
         ----------
         path : str
             The output path to write files to
+        filename : str
+            The filename of the wrapping kernel
 
         Returns
         -------
         None
         """
 
-        assert self.filename, (
+        assert filename, (
             'Cannot generate compiler before wrapping kernel is generated...')
         if self.depends_on:
             assert [x.filename for x in self.depends_on], (
@@ -2262,10 +2543,10 @@ class opencl_kernel_generator(kernel_generator):
             self.build_options.append('-cl-std=CL{}'.format(cl_std))
             self.build_options = ' '.join(self.build_options)
 
-            file_list = [self.filename]
+            file_list = [filename]
             file_list = ', '.join('"{}"'.format(x) for x in file_list)
 
-            self.bin_name = self.filename[:self.filename.index(
+            self.bin_name = filename[:filename.index(
                 utils.file_ext[self.lang])] + '.bin'
 
             with filew.get_file(os.path.join(path, self.name + '_compiler'
@@ -2280,7 +2561,7 @@ class opencl_kernel_generator(kernel_generator):
                     num_source=1
                 ))
 
-    def apply_barriers(self, instructions, use_sub_barriers=True):
+    def apply_barriers(self, instructions):
         """
         An override of :method:`kernel_generator.apply_barriers` that
         applies synchronization barriers to OpenCL kernels
@@ -2290,11 +2571,6 @@ class opencl_kernel_generator(kernel_generator):
 
         instructions: list of str
             The instructions for this kernel
-
-        use_sub_barriers: bool [True]
-            If true, apply barriers from dependency kernel generators in
-            :attr:`depends_on`
-
         Returns
         -------
 
@@ -2303,10 +2579,6 @@ class opencl_kernel_generator(kernel_generator):
         """
 
         barriers = self.barriers[:]
-        # include barriers from the sub-kernels
-        if use_sub_barriers:
-            for dep in self.depends_on:
-                barriers = dep.barriers + barriers
         instructions = list(enumerate(instructions))
         for barrier in barriers:
             # find insert index (the second barrier ind)
@@ -2320,6 +2592,20 @@ class opencl_kernel_generator(kernel_generator):
         # and get rid of indicies
         instructions = [inst[1] for inst in instructions]
         return instructions
+
+    @property
+    def hoist_locals(self):
+        """
+        In OpenCL we need to strip out any declaration of a __local variable in
+        subkernels, as these must be defined in the called in the kernel scope
+
+        This entails hoisting local declarations up to the wrapping
+        kernel for non-separated OpenCL kernels as __local variables in
+        sub-functions are not well defined in the standard:
+        https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/functionQualifiers.html # noqa
+        """
+
+        return True
 
 
 class knl_info(object):
@@ -2372,6 +2658,7 @@ class knl_info(object):
                  can_vectorize=True,
                  manglers=[],
                  preambles=[],
+                 iname_domain_override=[],
                  **kwargs):
 
         def __listify(arr):
@@ -2395,6 +2682,7 @@ class knl_info(object):
         self.vectorization_specializer = vectorization_specializer
         self.manglers = manglers[:]
         self.preambles = preambles[:]
+        self.iname_domain_override = iname_domain_override[:]
         self.kwargs = kwargs.copy()
 
 

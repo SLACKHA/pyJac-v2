@@ -216,6 +216,9 @@ class array_splitter(object):
             # bake in the assumption that the problem size is divisible by the
             # vector width
             outer_len = div_ceil(axis_len, count)  # todo: fix map_quotient in loopy
+        elif str(axis_len) == work_size.name:
+            # no need to split, we're simply adding a new dimension
+            pass
         else:
             outer_len = div_ceil(axis_len, count)
         new_shape[split_axis] = outer_len
@@ -1471,7 +1474,18 @@ class creator(object):
             str(x) for x in inds)))
 
     def copy(self):
-        return copy.deepcopy(self)
+        init = self.initializer.copy() if isinstance(self.initializer, np.ndarray) \
+            else self.initializer
+        fixed = copy.deepcopy(self.fixed_indicies)
+        return self.__class__(
+            name=self.name,
+            dtype=self.dtype,
+            shape=self.shape,
+            scope=self.scope,
+            initializer=init,
+            fixed_indicies=fixed,
+            order=self.order,
+            affine=self.affine)
 
 
 class jac_creator(creator):
@@ -2707,7 +2721,7 @@ class NameStore(object):
                                         shape=(test_size, rate_info['Ns']),
                                         order=self.order))
         # thermo arrays
-        self.spec_energy = self.h if self.conp else self.u
+        self.spec_energy = self.h.copy() if self.conp else self.u.copy()
         self.spec_energy_ns = self.spec_energy.copy()
         self.spec_energy_ns.fixed_indicies = [(1, rate_info['Ns'] - 1)]
         self.spec_heat = self.cp if self.conp else self.cv

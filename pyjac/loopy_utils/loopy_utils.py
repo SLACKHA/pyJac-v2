@@ -124,8 +124,6 @@ class loopy_options(object):
         The type of Jacobian kernel (full or approximate) to generate
     jac_format: :class:`JacobianFormat` [JacobianFormat.full]
         The format of Jacobian kernel (full or sparse) to generate
-    seperate_kernels: bool [True]
-        If true, break the kernel evaluation into calls to individual kernels.
     is_simd: bool [None]
         If supplied, specifies whether this loopy object should use explict-SIMD
         vectors.  Default is True only for CPU-based OpenCL targets
@@ -140,7 +138,7 @@ class loopy_options(object):
                  platform='', kernel_type=kernel_type.jacobian, auto_diff=False,
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
-                 seperate_kernels=True, device=None, device_type=None, is_simd=None,
+                 device=None, device_type=None, is_simd=None,
                  work_size=None):
         self.width = width
         self.depth = depth
@@ -167,7 +165,6 @@ class loopy_options(object):
         self.use_atomic_ints = use_atomic_ints
         self.jac_format = jac_format
         self.jac_type = jac_type
-        self.seperate_kernels = seperate_kernels
         self._is_simd = is_simd
         self.kernel_type = kernel_type
         if work_size:

@@ -3062,17 +3062,15 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     if conp:
         # get h / cp evals
         __add_knl(polyfit_kernel_gen('h', loopy_opts, nstore,
-                                     test_size))
+                                     test_size), depends_on)
         __add_knl(polyfit_kernel_gen('cp', loopy_opts, nstore,
-                                     test_size))
+                                     test_size), depends_on)
     else:
         # and u / cv
         __add_knl(polyfit_kernel_gen('u', loopy_opts, nstore,
-                                     test_size))
+                                     test_size), depends_on)
         __add_knl(polyfit_kernel_gen('cv', loopy_opts, nstore,
-                                     test_size))
-    # add the thermo kernels to our dependencies
-    depends_on.extend(kernels[-2:])
+                                     test_size), depends_on)
     # and temperature rates
     __add_knl(get_temperature_rate(loopy_opts,
                                    nstore, test_size=test_size, conp=conp))

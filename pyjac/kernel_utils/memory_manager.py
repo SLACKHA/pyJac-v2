@@ -18,6 +18,7 @@ from loopy.types import to_loopy_type
 #  align_size = resource.getpagesize()
 
 from pyjac.core.array_creator import problem_size as p_size
+from pyjac.core.array_creator import work_size as w_size
 from pyjac.core import array_creator as arc
 from pyjac import utils
 from pyjac.utils import func_logger
@@ -28,7 +29,7 @@ from pyjac.core.exceptions import ValidationError, \
 try:
     from pyopencl import device_type
     DTYPE_CPU = device_type.CPU
-except:
+except ImportError:
     DTYPE_CPU = -1
 
 
@@ -151,6 +152,7 @@ class memory_limits(object):
                 # hence, we substitute '1' for the problem size, and divide the
                 # array stisize by the # of
                 val = parse(str(val).replace(p_size.name, '1'))
+                val = parse(str(val).replace(w_size.name, '1'))
                 assert isinstance(val, (float, int)), (arry.name, val)
             return val
         return int(np.iinfo(dtype).max // np.prod([floatify(x) for x in arry.shape]))
@@ -169,12 +171,17 @@ class memory_limits(object):
 
         Returns
         -------
-        can_fit: int
+        can_fit_ic: int
             The maximum number of times these arrays can be fit in memory.
             - For global memory, this determines the number of initial conditions
             that can be evaluated.
             - For shared and constant memory, this determines whether this data
             can be fit
+        can_fit_wc: int
+            The maximum number of times the arrays can be fit in working buffers.
+            - For global memory, this determines the maximum work-size
+            - For shared and constant memory, this determines whether this data
+            can be fit (and should be identical to can_fit_ic)
         """
 
         # filter arrays by type
@@ -183,18 +190,51 @@ class memory_limits(object):
             a in v for k, v in six.iteritems(with_type_changes) if k != mtype)]
 
         per_alloc_ic_limit = np.iinfo(np.int).max
+        per_alloc_ws_limit = np.iinfo(np.int).max
+
+        def __calculate_integer_limit(limit):
+            old = limit
+            limit = np.minimum(limit, self.integer_limited_problem_size(
+                    array, self.dtype))
+            if old != limit and not self.integer_warned:
+                stype = str(mtype)
+                stype = stype[stype.index('.') + 3:]
+                logger.warn(
+                    'Allocation of {} memory array {} '
+                    'may result in integer overflow in indexing, and '
+                    'cause failure on execution, limiting per-run size. '
+                    'Note: only the first such array will be displayed '
+                    'there may be more arrays that would result in '
+                    'overflow.'
+                    .format(stype, array.name)
+                    )
+                self.integer_warned = True
+            return limit
+
+        def __calculate_alloc_limit(limit):
+            return np.minimum(limit, np.floor(
+                self.limits[memory_type.m_alloc] / size))
+
         per_ic = 0
+        per_ws = 0
         static = 0
         logger = logging.getLogger(__name__)
         for array in arrays:
             size = 1
             is_ic_dep = False
+            is_ws_dep = False
             for s in array.shape:
-                if any(x.search(str(s)) for x in self.string_strides):
-                    # mark as dependent on # of initial conditions
-                    is_ic_dep = True
+                ss = next((x.search(str(s)) for x in self.string_strides
+                           if x.search(str(s))), None)
+                if ss:
+                    if w_size.name in str(s):
+                        # mark as dependent on the work size
+                        is_ws_dep = True
+                    else:
+                        # mark as dependent on # of initial conditions
+                        is_ic_dep = True
                     # get the floor div (if any)
-                    floor_div = re.search('// (\d+)', str(s))
+                    floor_div = re.search(r'// (\d+)', str(s))
                     if floor_div:
                         floor_div = int(floor_div.group(1))
                         size /= floor_div
@@ -207,36 +247,29 @@ class memory_limits(object):
             # update counter
             if is_ic_dep:
                 per_ic += size
+            elif is_ws_dep:
+                per_ws += size
             else:
                 static += size
 
+            assert not (is_ic_dep and is_ws_dep)
+
             # check for integer overflow -- this does not depend on any particular
             # memory limit
-            if is_ic_dep and self.limit_int_overflow:
-                old = per_alloc_ic_limit
-                per_alloc_ic_limit = np.minimum(
-                    per_alloc_ic_limit, self.integer_limited_problem_size(
-                        array, self.dtype))
-                if old != per_alloc_ic_limit and not self.integer_warned:
-                    stype = str(mtype)
-                    stype = stype[stype.index('.') + 3:]
-                    logger.warn(
-                        'Allocation of {} memory array {}'
-                        ' may result in integer overflow in indexing, and '
-                        'cause failure on execution, limiting per-run size. '
-                        'Note: only the first such array will be displayed '
-                        'there may be more arrays that would result in '
-                        'overflow.'
-                        .format(stype, array.name)
-                        )
-                    self.integer_warned = True
+            if (is_ic_dep or is_ws_dep) and self.limit_int_overflow:
+                if is_ic_dep:
+                    per_alloc_ic_limit = __calculate_integer_limit(
+                        per_alloc_ic_limit)
+                elif is_ws_dep:
+                    per_alloc_ws_limit = __calculate_integer_limit(
+                        per_alloc_ws_limit)
 
             # also need to check the maximum allocation size for opencl
             if memory_type.m_alloc in self.limits:
                 if is_ic_dep:
-                    per_alloc_ic_limit = np.minimum(
-                        per_alloc_ic_limit,
-                        np.floor(self.limits[memory_type.m_alloc] / size))
+                    per_alloc_ic_limit = __calculate_alloc_limit(per_alloc_ic_limit)
+                elif is_ws_dep:
+                    per_alloc_ws_limit = __calculate_alloc_limit(per_alloc_ws_limit)
                 else:
                     if static >= self.limits[memory_type.m_alloc]:
                         logger.warn(
@@ -249,19 +282,23 @@ class memory_limits(object):
         # if no per_ic, just divide by 1
         if per_ic == 0:
             per_ic = 1
+        if per_ws == 0:
+            per_ws = 1
 
         # finally, check the number of times we can fit these array in the memory
         # limits of this type
-
         if mtype in self.limits:
             per_alloc_ic_limit = np.minimum(np.floor((
                 self.limits[mtype] - static) / per_ic), per_alloc_ic_limit)
+            per_alloc_ws_limit = np.minimum(np.floor((
+                self.limits[mtype] - static) / per_ws), per_alloc_ws_limit)
 
-        return int(np.maximum(per_alloc_ic_limit, 0))
+        return int(np.maximum(per_alloc_ic_limit, 0)), int(
+            np.maximum(per_alloc_ws_limit, 0))
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',
-                   string_strides=[p_size.name],
+                   string_strides=[p_size.name, w_size.name],
                    dtype=np.int32, limit_int_overflow=False):
         """
         Utility method to load shared / constant memory limits from a file or
@@ -1004,7 +1041,7 @@ class memory_manager(object):
 
     @staticmethod
     def get_string_strides():
-        string_strides = [p_size.name]
+        string_strides = [p_size.name, w_size.name]
         # convert string strides to regex, and include the div/mod form
         ss_size = len(string_strides)
         div_mod_strides = []

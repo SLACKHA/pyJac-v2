@@ -163,13 +163,6 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
 
             # and store platform
             inner_loop.append(('platform', p['name']))
-
-            # finally check for seperate_kernels
-            sep_knl = True
-            if 'seperate_kernels' in p and not p['seperate_kernels']:
-                sep_knl = False
-            inner_loop.append(('seperate_kernels', sep_knl))
-
             # create option loop and add
             oploop += [inner_loop]
     except (TypeError, KeyError):

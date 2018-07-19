@@ -4831,7 +4831,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='jacobian_kernel',
-        kernels=sub_kernels + [reset, info],
+        kernels=[reset, info],
         namestore=namestore,
         depends_on=[sgen],
         input_arrays=input_arrays,
@@ -5065,7 +5065,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         name='jacobian_kernel',
-        kernels=sub_kernels + kernels,
+        kernels=kernels,
         namestore=nstore,
         depends_on=[sgen],
         input_arrays=input_arrays,
@@ -5165,7 +5165,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
                     use_atomic_doubles=True, use_atomic_ints=True, jac_type='exact',
-                    jac_format='full', for_validation=False, seperate_kernels=True,
+                    jac_format='full', for_validation=False,
                     fd_order=1, fd_mode='forward', mem_limits='',
                     work_size=None, generate_all=False
                     ):
@@ -5268,12 +5268,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     for_validation: bool [False]
         If True, this kernel is being generated to validate pyJac, hence we need
         to save output data to a file
-    seperate_kernels: bool [True]
-        If True, separate evaluation into different functions in the generated kernel
-        in order to improve compiler vectorization / optimization.
-        However, on some platforms / vectorization combinations this breaks
-        (or greatly slows) kernel compilation, hence we provide a method to turn if
-        off if necessary.
     fd_order: int [1]
         The order of the finite difference jacobian -- used if :param:`jac_type` ==
         'finite_difference'
@@ -5391,7 +5385,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         use_atomic_doubles=use_atomic_doubles,
                                         jac_format=jac_format,
                                         jac_type=jac_type,
-                                        seperate_kernels=seperate_kernels,
                                         device=device,
                                         device_type=device_type,
                                         work_size=work_size)

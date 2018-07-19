@@ -134,8 +134,7 @@ class kernel_runner(object):
             loopy_opts=loopy_opts,
             kernels=infos,
             namestore=namestore,
-            test_size=self.test_size,
-            for_testing=True
+            test_size=self.test_size
         )
         gen._make_kernels()
         # setup kernel call and output names
@@ -1261,8 +1260,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             loopy_opts=opt,
             kernels=infos,
             namestore=namestore,
-            test_size=owner.store.test_size,
-            for_testing=True
+            test_size=owner.store.test_size
         )
 
         knl._make_kernels()
@@ -2012,7 +2010,6 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     jac_format=sparse,
                                     jac_type=jac_type,
                                     for_validation=for_validation,
-                                    seperate_kernels=state['seperate_kernels'],
                                     mem_limits=test_matrix)
             except MissingPlatformError:
                 # can't run on this platform

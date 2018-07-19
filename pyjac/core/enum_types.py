@@ -126,3 +126,12 @@ class kernel_type(Enum):
 
     def __int__(self):
         return self.value
+
+
+class DriverType(Enum):
+    """
+    The type of kernel driver to generate for evaluation of the kernel over many
+    initial conditions
+    """
+    queue = 0,
+    lockstep = 1

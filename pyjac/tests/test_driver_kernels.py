@@ -34,15 +34,13 @@ class SubTest(TestClass):
                 self, do_ratespec=False, langs=get_test_langs(),
                 do_vector=True, yield_index=True):
             # make namestore
-            namestore = arc.NameStore(loopy_opts, rate_info,
-                                      test_size=self.store.test_size)
+            namestore = arc.NameStore(loopy_opts, rate_info)
             # create a dummy kernel that simply adds 1 to phi for easy testing
             inputs = ['n_arr', 'P_arr']
             outputs = ['n_arr']
 
             # make mapstore, arrays and kernel info
-            mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,
-                                    self.store.test_size)
+            mapstore = arc.MapStore(loopy_opts, namestore.phi_inds, None)
             base_phi_shape = namestore.n_arr.shape
             phi_lp, phi_str = mapstore.apply_maps(namestore.n_arr,
                                                   arc.global_ind,
@@ -65,8 +63,7 @@ class SubTest(TestClass):
 
             # now get the driver
             driver = lockstep_driver(
-              loopy_opts, namestore, inputs, outputs, generator,
-              test_size=self.store.test_size)
+              loopy_opts, namestore, inputs, outputs, generator)
 
             # and put in generator
             driver = k_gen.make_kernel_generator(
