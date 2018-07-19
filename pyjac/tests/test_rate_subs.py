@@ -66,7 +66,7 @@ class kf_wrapper(object):
                             rate_spec=loopy_opts.rate_spec,
                             rate_spec_kernels=loopy_opts.rate_spec_kernels)
                 if loopy_opts.lang == 'opencl':
-                    opts['platform'] = loopy_opts.platform.name
+                    opts['platform'] = loopy_opts.platform_name
                 opts = loopy_options(**opts)
             except BrokenPlatformError:
                 # bad platform
@@ -75,7 +75,7 @@ class kf_wrapper(object):
                 opts = loopy_options(order=loopy_opts.order,
                                      rate_spec=loopy_opts.rate_spec,
                                      rate_spec_kernels=loopy_opts.rate_spec_kernels,
-                                     platform=loopy_opts.platform.name,
+                                     platform=loopy_opts.platform_name,
                                      width=4 if loopy_opts.order == 'F' else None,
                                      depth=4 if loopy_opts.order == 'C' else None)
 

@@ -180,35 +180,35 @@ class loopy_options(object):
 
         # need to find the first platform that has the device of the correct
         # type
-        if self.lang == 'opencl' and self.platform and cl is not None:
-            if not isinstance(self.platform, cl.Platform):
-                self.device_type = cl.device_type.ALL
-                check_name = None
-                if platform.lower() == 'cpu':
-                    self.device_type = cl.device_type.CPU
-                elif platform.lower() == 'gpu':
-                    self.device_type = cl.device_type.GPU
-                elif platform.lower() == 'accelerator':
-                    self.device_type = cl.device_type.ACCELERATOR
-                else:
-                    check_name = self.platform
-                self.platform = None
-                platforms = cl.get_platforms()
-                for p in platforms:
-                    try:
-                        cl.Context(
-                            dev_type=self.device_type,
-                            properties=[(cl.context_properties.PLATFORM, p)])
-                        if not check_name or check_name.lower() in p.get_info(
-                                cl.platform_info.NAME).lower():
-                            self.platform = p
-                            break
-                    except cl.cffi_cl.RuntimeError:
-                        pass
-                if not self.platform:
-                    raise MissingPlatformError(platform)
-            if not isinstance(self.device, cl.Device) and \
-                    self.device_type is not None:
+        if self.lang == 'opencl' and not self.platform_is_pyopencl \
+                and cl is not None:
+            self.device_type = cl.device_type.ALL
+            check_name = None
+            if self.platform_name.lower() == 'cpu':
+                self.device_type = cl.device_type.CPU
+            elif self.platform_name.lower() == 'gpu':
+                self.device_type = cl.device_type.GPU
+            elif self.platform_name.lower() == 'accelerator':
+                self.device_type = cl.device_type.ACCELERATOR
+            else:
+                check_name = self.platform
+            self.platform = None
+            platforms = cl.get_platforms()
+            for p in platforms:
+                try:
+                    cl.Context(
+                        dev_type=self.device_type,
+                        properties=[(cl.context_properties.PLATFORM, p)])
+                    if not check_name or check_name.lower() in p.get_info(
+                            cl.platform_info.NAME).lower():
+                        self.platform = p
+                        break
+                except cl.cffi_cl.RuntimeError:
+                    pass
+            if not self.platform:
+                raise MissingPlatformError(platform)
+            if not isinstance(self.device, cl.Device) and (
+                    self.device_type is not None):
                 # finally a matching device
                 self.device = self.platform.get_devices(
                     device_type=self.device_type)
@@ -219,13 +219,6 @@ class loopy_options(object):
 
         # check for broken vectorizations
         self.raise_on_broken()
-
-    @property
-    def platform_name(self):
-        if self.lang == 'opencl' and cl is not None:
-            if isinstance(self.platform, cl.Platform):
-                return self.platform.name
-        return self.platform
 
     @property
     def limit_int_overflow(self):
@@ -242,7 +235,7 @@ class loopy_options(object):
         if self.lang == 'opencl' and cl is not None:
             if not (self.width or self.depth) \
                     and self.device_type == cl.device_type.GPU:
-                if 'nvidia' in self.platform.name.lower():
+                if 'nvidia' in self.platform_name.lower():
                     raise BrokenPlatformError(self)
                 # otherwise, simply warn
                 logger = logging.getLogger(__name__)
@@ -306,7 +299,28 @@ class loopy_options(object):
         has_scatter: bool
             Whether the target supports scatter operations or not
         """
-        return not (self.lang == 'opencl' and 'intel' in self.platform.name.lower())
+        return not (self.lang == 'opencl' and 'intel' in self.platform_name.lower())
+
+    @property
+    def platform_is_pyopencl(self):
+        """
+        Return true, IFF :attr:`platform` is an instance of a
+        :class:`pyopencl.Platform`
+        """
+
+        return self.platform and cl is not None and isinstance(
+            self.platform, cl.Platform)
+
+    @property
+    def platform_name(self):
+        """
+        Returns the suppled OpenCL platform name, or None if not available
+        """
+
+        if self.platform_is_pyopencl:
+            return self.platform.name
+
+        return self.platform
 
 
 def get_device_list():
@@ -649,7 +663,7 @@ def get_code(knl, opts=None):
         # ignore
         pass
     elif opts.lang == 'opencl' and (
-        'intel' in opts.platform.name.lower()
+        'intel' in opts.platform_name.lower()
             and ((opts.order == 'C' and opts.width) or (
                  opts.order == 'F' and opts.depth) or (
                  opts.order == 'F' and opts.width))):
