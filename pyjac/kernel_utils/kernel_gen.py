@@ -2537,8 +2537,15 @@ class opencl_kernel_generator(kernel_generator):
                 file_src = Template(file_str)
 
             # get the platform from the options
-            platform_str = self.loopy_opts.platform.get_info(
-                cl.platform_info.VENDOR)
+            if self.loopy_opts.platform_is_pyopencl:
+                platform_str = self.loopy_opts.platform.get_info(
+                    cl.platform_info.VENDOR)
+            else:
+                logger = logging.getLogger(__name__)
+                logger.warn('OpenCL platform name "{}" could not be checked as '
+                            'PyOpenCL not found, using user supplied platform '
+                            'name.'.format(self.loopy_opts.platform_name))
+                platform_str = self.loopy_opts.platform_name
 
             cl_std = self._get_cl_level()
 
