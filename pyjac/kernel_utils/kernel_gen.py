@@ -1805,7 +1805,7 @@ ${name} : ${type}
             preambles = _find_indent(file_str, 'preamble', preambles)
             lines = file_src.safe_substitute(
                 defines='',
-                preamble=preambles,
+                preamble='',
                 func_define=self.__get_kernel_defn(kernel),
                 body=instructions,
                 extra_kernels=extra_kernels)
@@ -1816,7 +1816,12 @@ ${name} : ${type}
 
         # and the header file (only include self now, as we're using embedded
         # kernels)
-        headers = [self.__get_kernel_defn(kernel) + utils.line_end[self.lang]]
+
+        # the headers now include the preambles as well, such that they can be
+        # included into other files to avoid duplications
+        headers = preambles.split('\n')
+        headers.extend([
+            self.__get_kernel_defn(kernel) + utils.line_end[self.lang]])
         with filew.get_header_file(
             os.path.join(path, file_prefix + name + utils.header_ext[
                 self.lang]), self.lang) as file:
