@@ -2738,10 +2738,11 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 kf_temp = kf_temp * ${power_func}(T_iter, b_end) \
                     {id=a4, dep=a3:a2:a1}
                 ${kf_str} = kf_temp {dep=a4, nosync=${deps}}
-                """).safe_substitute(b_str=b_str, power_func=power_func)
-                preambles.append(lp_pregen.power_function_preambles(
+                """).safe_substitute(b_str=b_str, power_func=power_func,
+                                     deps=__deps(''))
+                preambles.extend(lp_pregen.power_function_preambles(
                     loopy_opts, power_func))
-                manglers.append(lp_pregen.power_function_manglers(
+                manglers.extend(lp_pregen.power_function_manglers(
                     loopy_opts, power_func))
             else:
                 beta_iter_str = Template(
