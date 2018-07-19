@@ -1006,8 +1006,7 @@ class memory_manager(object):
         """
 
         # no need to do 2-d copy if we're doing a wide-vectorized 'F' ordered SIMD
-        have_split = array_splitter._have_split() and not (
-            array_splitter.is_simd and order == 'F')
+        have_split = False
 
         self.arrays = []
         self.in_arrays = []

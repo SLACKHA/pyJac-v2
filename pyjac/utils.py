@@ -613,6 +613,13 @@ def get_parser():
                         'thermo-chemical state.  That is, all the work-items '
                         '(CUDA threads) operates cooperate to evaluate a single '
                         'state.')
+    parser.add_argument('-e', '--explicit_simd',
+                        required=False,
+                        default=False,
+                        action='store_true',
+                        help='Use explicit-SIMD instructions in OpenCL if possible. '
+                             'Note: currently available for wide-vectorizations '
+                             'only.')
     parser.add_argument('-u', '--unroll',
                         type=int,
                         default=None,
@@ -781,5 +788,6 @@ def create(**kwargs):
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,
-                    work_size=args.work_size
+                    work_size=args.work_size,
+                    explicit_simd=args.explicit_simd
                     )

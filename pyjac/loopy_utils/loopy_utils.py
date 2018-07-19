@@ -131,6 +131,8 @@ class loopy_options(object):
         The number of initial states to evaluate in parallel inside of the driver
         function; may be specified by user to optimize code or for coupling to
         external code
+    explicit_simd: bool [False]
+        Attempt to utilize explict-SIMD instructions in OpenCL
     """
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
@@ -139,7 +141,7 @@ class loopy_options(object):
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
-                 work_size=None):
+                 work_size=None, explicit_simd=False):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -166,6 +168,11 @@ class loopy_options(object):
         self.jac_format = jac_format
         self.jac_type = jac_type
         self._is_simd = is_simd
+        self.explicit_simd = explicit_simd
+        self.explicit_simd_warned = False
+        if self.lang != 'opencl':
+            logger = logging.getLogger(__name__)
+            logger.info('explicit-SIMD flag has no effect on non-OpenCL targets.')
         self.kernel_type = KernelType
         if work_size:
             assert work_size > 0, 'Work-size must be non-negative'
@@ -252,7 +259,7 @@ class loopy_options(object):
             True if we should attempt to explicitly vectorize the data / arrays
         """
 
-        # priority to user specification
+        # priority to test-specification
         if self._is_simd is not None:
             return self._is_simd
 
@@ -263,7 +270,21 @@ class loopy_options(object):
         # deep-vectorizations will require further loopy upgrades)
 
         if not self.width:
+            if self.explicit_simd:
+                logger = logging.getLogger(__name__)
+                logger.warn('Explicit-SIMD deep-vectorization currently not '
+                            'implemented, ignoring user-specified SIMD flag')
             return False
+
+        if not cl:
+            if not self.explicit_simd and not self.explicit_simd_warned:
+                logger = logging.getLogger(__name__)
+                logger.info('Cannot determine whether to use explicit-SIMD '
+                            'instructions as PyOpenCL was not found.  Either '
+                            'install PyOpenCL or use the "--explicit_simd" '
+                            'command line argument. Assuming not SIMD.')
+                self.explicit_simd_warned=True
+            return self.explicit_simd
 
         if self.lang == 'opencl':
             return self.device_type != cl.device_type.GPU

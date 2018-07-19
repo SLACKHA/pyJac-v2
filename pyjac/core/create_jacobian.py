@@ -5167,7 +5167,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     use_atomic_doubles=True, use_atomic_ints=True, jac_type='exact',
                     jac_format='full', for_validation=False,
                     fd_order=1, fd_mode='forward', mem_limits='',
-                    work_size=None, generate_all=False
+                    work_size=None, generate_all=False, explicit_simd=False
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5292,6 +5292,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         :class:`KernelType.Jacobian`, wrapper/driver code will be generated for
         the Jacobian, species rates, and chemical utilities.  Note: this option will
         result in a longer code-generation process
+    explicit_simd: bool [False]
+        If true, use explicit-SIMD instructions in OpenCL if possible.  Currently
+        available for wide-vectorizations only.
 
     Returns
     -------
@@ -5387,7 +5390,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         jac_type=jac_type,
                                         device=device,
                                         device_type=device_type,
-                                        work_size=work_size)
+                                        work_size=work_size,
+                                        explicit_simd=explicit_simd)
 
     # create output directory if none exists
     build_path = os.path.abspath(build_path)
