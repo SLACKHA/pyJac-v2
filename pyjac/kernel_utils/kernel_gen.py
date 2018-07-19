@@ -1559,6 +1559,8 @@ ${name} : ${type}
 
         # and add to memory manager
         self.mem.add_arrays(host_constants=host_constants)
+        if not for_driver:
+            self.mem.fix_arrays(args)
 
         # create the interior kernel
         # first, compress our kernel args into a working buffer

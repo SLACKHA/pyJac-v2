@@ -1083,6 +1083,32 @@ class memory_manager(object):
         self.host_constants.extend(host_constants)
         self.arrays.extend([x for x in host_constants if x not in self.arrays])
 
+    def fix_arrays(self, arrays):
+        """
+        Converts :attr:`in_arrays` and :attr:`out_arrays` to
+        :class:`loopy.KernelArguments` by name
+
+        Raises
+        ------
+        AssertionError:
+            If any array in :attr:`in_arrays` + :attr:`out_arrays` not in
+            :param:`arrays`
+
+        Returns
+        -------
+        None
+        """
+
+        arr_dict = {x.name: x for x in arrays}
+
+        for i, name in enumerate(self.in_arrays):
+            assert name in arr_dict
+            self.in_arrays[i] = arr_dict[name]
+
+        for i, name in enumerate(self.out_arrays):
+            assert name in arr_dict
+            self.out_arrays[i] = arr_dict[name]
+
     @property
     def host_arrays(self):
         def _set_sort(arr):

@@ -52,11 +52,11 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         The loopy options specifying how to create this kernel
     namestore: :class:`NameStore`
         The namestore class that owns our arrays
-    inputs: list of str
-        The name of arrays that should be copied into internal working buffers
+    inputs: list of :class:`lp.KernelArgument`
+        The arrays that should be copied into internal working buffers
         before calling subfunctions
-    outputs: list of str
-        The name of arrays should be copied back into global memory after calling
+    outputs: list of :class:`lp.KernelArgument`
+        The arrays should be copied back into global memory after calling
         subfunctions
     driven: :class:`kernel_generator`
         The kernel generator to wrap in the driver
@@ -84,7 +84,8 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
 
     # first, get our input / output arrays
     arrays = {}
-    to_find = set(listify(inputs)) | set(listify(outputs))
+    to_find = set([x.name for x in listify(inputs)]) | set(
+        [x.name for x in listify(outputs)])
     # create mapping of array names
     array_names = {v.name: v for k, v in six.iteritems(vars(namestore))
                    if isinstance(v, arc.creator) and not (
@@ -114,7 +115,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         shape = ()
         nameref = None
         desc = 'Input' if check_input else 'Output'
-        for inp in [arrays[x] for x in (inputs if check_input else outputs)]:
+        for inp in [arrays[x.name] for x in (inputs if check_input else outputs)]:
             if not arr_non_ic(inp):
                 # only the initial condition dimension, fine
                 continue
@@ -142,7 +143,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
     def create_interior_kernel(for_input):
         name = 'copy_{}'.format('in' if for_input else 'out')
         # get arrays
-        arrs = [arrays[x] for x in (inputs if for_input else outputs)]
+        arrs = [arrays[x.name] for x in (inputs if for_input else outputs)]
         # get shape and interior size
         shape = next(arr.shape for arr in arrs if arr_non_ic(arr))
 
