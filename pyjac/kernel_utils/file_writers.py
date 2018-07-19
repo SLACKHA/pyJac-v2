@@ -231,10 +231,8 @@ class FileWriter(object):
         self.file.write('\n'.join(lines))
 
     def add_headers(self, headers):
-        if isinstance(headers, list):
-            self.headers.extend(headers)
-        else:
-            self.headers.append(headers)
+        headers = utils.listify(headers)
+        self.headers.extend(headers)
 
     def add_define(self, name, value=None):
         self.defines.append((name, value))

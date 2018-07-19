@@ -1782,7 +1782,8 @@ ${name} : ${type}
             file_prefix = 'ad_'
 
         # get filename
-        name = self.name
+        basename = self.name
+        name = basename
         if for_driver:
             name += '_driver'
 
@@ -1814,19 +1815,24 @@ ${name} : ${type}
                 lines = [x.replace('double', 'adouble') for x in lines]
             file.add_lines(lines)
 
-        # and the header file (only include self now, as we're using embedded
-        # kernels)
+        # and the header file
+        headers = []
+        if for_driver:
+            # include header to base call
+            headers.append(basename + utils.header_ext[self.lang])
 
-        # the headers now include the preambles as well, such that they can be
+        # include the preambles as well, such that they can be
         # included into other files to avoid duplications
-        headers = preambles.split('\n')
-        headers.extend([
+        preambles = preambles.split('\n')
+        preambles.extend([
             self.__get_kernel_defn(kernel) + utils.line_end[self.lang]])
+
         with filew.get_header_file(
             os.path.join(path, file_prefix + name + utils.header_ext[
                 self.lang]), self.lang) as file:
 
-            lines = '\n'.join(headers).split('\n')
+            file.add_headers(headers)
+            lines = '\n'.join(preambles).split('\n')
             if self.auto_diff:
                 file.add_headers('adept.h')
                 file.add_lines('using adept::adouble;\n')
