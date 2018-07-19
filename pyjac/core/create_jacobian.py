@@ -4830,7 +4830,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='jacobian_kernel',
+        kernel_type=KernelType.jacobian,
         kernels=[reset, info],
         namestore=namestore,
         depends_on=[sgen],
@@ -5064,7 +5064,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='jacobian_kernel',
+        name=KernelType.jacobian,
         kernels=kernels,
         namestore=nstore,
         depends_on=[sgen],

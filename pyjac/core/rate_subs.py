@@ -24,7 +24,7 @@ from pyjac import utils
 from pyjac.core import chem_model as chem
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type,\
-    RateSpecialization
+    RateSpecialization, KernelType
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.core import instruction_creator as ic
@@ -3079,7 +3079,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                   test_size=None))
 
     # get a wrapper for the dependecies
-    thermo_wrap = k_gen.make_kernel_generator(name='chem_utils_kernel',
+    thermo_wrap = k_gen.make_kernel_generator(kernel_type=KernelType.chem_utils,
                                               loopy_opts=loopy_opts,
                                               kernels=depends_on,
                                               namestore=nstore,
@@ -3147,7 +3147,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         output_arrays += ['rop_net']
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='species_rates_kernel',
+        kernel_type=KernelType.species_rates,
         kernels=kernels,
         namestore=nstore,
         depends_on=[thermo_wrap],
@@ -3318,7 +3318,7 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='chem_utils',
+        kernel_type=KernelType.chem_utils,
         kernels=kernels,
         namestore=nstore,
         input_arrays=['phi'],

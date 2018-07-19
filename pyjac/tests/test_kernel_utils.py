@@ -22,6 +22,7 @@ from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
     _unSIMDable_arrays, knl_info, make_kernel_generator
 from pyjac.loopy_utils import loopy_options
 from pyjac.tests.test_utils import xfail
+from pyjac.core.enum_types import KernelType
 
 
 def opts_loop(langs=['opencl'],
@@ -192,9 +193,9 @@ def test_unsimdable():
             affine_lp, affine2_lp, map_lp, map2_lp])
 
         # create a dummy kgen
-        kgen = make_kernel_generator(opt, 'test', [info],
+        kgen = make_kernel_generator(opt, KernelType.dummy, [info],
                                      type('namestore', (object,), {'jac': 0}),
-                                     test_size=test_size)
+                                     test_size=test_size, name='test')
 
         # make kernels
         kgen._make_kernels()

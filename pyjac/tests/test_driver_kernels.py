@@ -56,7 +56,8 @@ class SubTest(TestClass):
                 kernel_data=[phi_lp, P_lp, arc.work_size])
             # put it in a generator
             generator = k_gen.make_kernel_generator(
-                loopy_opts, 'inner', [inner_kernel], namestore,
+                loopy_opts, kernel_type=KernelType.dummy,
+                name='inner', kernels=[inner_kernel], namestore=namestore,
                 input_arrays=inputs[:],
                 output_arrays=outputs[:],
                 is_validation=True)
@@ -67,7 +68,8 @@ class SubTest(TestClass):
 
             # and put in generator
             driver = k_gen.make_kernel_generator(
-                loopy_opts, 'driver', driver, namestore,
+                loopy_opts, kernel_type=KernelType.dummy, name='driver',
+                kernels=driver, namestore=namestore,
                 input_arrays=inputs[:],
                 output_arrays=outputs[:],
                 depends_on=[generator],

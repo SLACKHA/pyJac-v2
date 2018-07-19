@@ -130,6 +130,7 @@ class kernel_runner(object):
 
         # create a dummy generator
         gen = k_gen.make_kernel_generator(
+            kernel_type=KernelType.dummy,
             name='dummy',
             loopy_opts=loopy_opts,
             kernels=infos,
@@ -1256,6 +1257,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
         # create a dummy kernel generator
         knl = k_gen.make_kernel_generator(
+            kernel_type=KernelType.dummy,
             name='spec_rates',
             loopy_opts=opt,
             kernels=infos,

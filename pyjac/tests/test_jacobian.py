@@ -347,7 +347,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
 
     # create a dummy kernel generator
     knl = k_gen.make_kernel_generator(
-        name='jacobian',
+        kernel_type=KernelType.jacobian,
         loopy_opts=ad_opts,
         kernels=infos,
         namestore=namestore,
@@ -427,7 +427,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
             single_info.append(info)
 
     single_knl = k_gen.make_kernel_generator(
-        name='spec_rates',
+        kernel_type=KernelType.species_rates,
         loopy_opts=ad_opts,
         kernels=single_info,
         namestore=single_name,

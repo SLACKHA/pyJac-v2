@@ -123,6 +123,7 @@ class KernelType(Enum):
     chem_utils = 1,
     species_rates = 2,
     jacobian = 3
+    dummy = 4
 
     def __int__(self):
         return self.value

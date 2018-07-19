@@ -33,7 +33,7 @@ from pyjac.core.array_creator import problem_size as p_size
 from pyjac.core.array_creator import work_size as w_size
 from pyjac.core.array_creator import global_ind
 from pyjac.core import array_creator as arc
-from pyjac.core.enum_types import DriverType
+from pyjac.core.enum_types import DriverType, KernelType
 from pyjac.core import driver_kernels as drivers
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
@@ -222,6 +222,7 @@ class kernel_generator(object):
 
     def __init__(self, loopy_opts, kernel_type, kernels,
                  namestore,
+                 name=None,
                  external_kernels=[],
                  input_arrays=[],
                  output_arrays=[],
@@ -316,6 +317,9 @@ class kernel_generator(object):
                                   self.array_split,
                                   dev_type=self.loopy_opts.device_type)
         self.kernel_type = kernel_type
+        self._name = name
+        if name is not None:
+            assert self.kernel_type == KernelType.dummy
         self.kernels = kernels
         self.namestore = namestore
         self.test_size = test_size
@@ -382,6 +386,16 @@ class kernel_generator(object):
         self.driver_type = driver_type
         # whether to generate driver/wrappers for all dependencies
         self.generate_all = generate_all
+
+    @property
+    def name(self):
+        """
+        Return the name of this kernel generator, based on :attr:`kernel_type
+        """
+
+        if self.kernel_type == KernelType.dummy:
+            return self.name
+        return utils.enum_to_string(self.kernel_type)
 
     @property
     def user_specified_work_size(self):
@@ -1820,6 +1834,10 @@ ${name} : ${type}
         if for_driver:
             # include header to base call
             headers.append(basename + utils.header_ext[self.lang])
+        else:
+            # include sub kernels
+            for x in self.depends_on:
+                headers.append(x.name + utils.header_ext[self.lang])
 
         # include the preambles as well, such that they can be
         # included into other files to avoid duplications
