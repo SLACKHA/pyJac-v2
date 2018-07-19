@@ -1604,9 +1604,14 @@ ${defn}
             instructions = [x for x in instructions.split('\n') if x.strip()]
 
         # load inames
-        our_inames, our_iname_domains = self.get_inames(test_size)
-        inames = [info.var_name] + our_inames
+        if not info.iname_domain_override:
+            our_inames, our_iname_domains = self.get_inames(test_size)
+        else:
+            our_inames, our_iname_domains = zip(*info.iname_domain_override)
+            our_inames, our_iname_domains = list(our_inames), \
+                list(our_iname_domains)
 
+        inames = [info.var_name] + our_inames
         # add map instructions
         instructions = list(info.mapstore.transform_insns) + instructions
 

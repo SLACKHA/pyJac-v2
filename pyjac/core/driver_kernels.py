@@ -15,17 +15,25 @@ from string import Template
 # external modules
 import six
 import numpy as np
+import loopy as lp
 
 from pyjac.utils import listify, stringify_args
 from pyjac.core.exceptions import InvalidInputSpecificationException
 from pyjac.core import array_creator as arc
 from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 
 
-def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
-                    test_size=None):
+driver_index = lp.ValueArg('driver_index', dtype=arc.kint_type)
+"""
+The index to be used as an offset in the driver loop
+"""
+
+
+def get_driver(loopy_opts, namestore, inputs, outputs, driven,
+               test_size=None):
     """
-    Implements a lockstep-based driver function for kernel evaluation.
+    Implements a driver function for kernel evaluation.
     This allows pyJac to utilize a smaller working-buffer (sized to the
     global work size), and implements a static(like) scheduling algorithm
 
@@ -77,11 +85,17 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
     # first, get our input / output arrays
     arrays = {}
     to_find = set(listify(inputs)) | set(listify(outputs))
+    # create mapping of array names
+    array_names = {v.name: v for k, v in six.iteritems(vars(namestore))
+                   if isinstance(v, arc.creator) and not (
+                    v.fixed_indicies or v.affine)}
     for arr in to_find:
-        arr_creator = getattr(namestore, arr, None)
+        arr_creator = next((array_names[x] for x in array_names if x == arr), None)
         if arr_creator is None:
             continue
         arrays[arr] = arr_creator
+
+    del array_names
 
     if len(arrays) != len(to_find):
         missing = to_find - set(arrays.keys())
@@ -149,18 +163,21 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
 
         indicies = [arc.global_ind, mapstore.iname] + [
             ex[0] for ex in extra_inames]
+        global_indicies = indicies[:]
+        global_indicies[0] += ' + ' + driver_index.name
 
-        def __build(arr, **kwargs):
+        def __build(arr, local, **kwargs):
+            inds = global_indicies if not local else indicies
             if arr_non_ic(arr):
-                return mapstore.apply_maps(arr, *indicies, **kwargs)
+                return mapstore.apply_maps(arr, *inds, **kwargs)
             else:
-                return mapstore.apply_maps(arr, arc.global_ind, **kwargs)
+                return mapstore.apply_maps(arr, inds[0], **kwargs)
 
         # create working buffer version of arrays
         working_buffers = []
         working_strs = []
         for arr in arrs:
-            arr_lp, arr_str = __build(arr, use_local_name=True)
+            arr_lp, arr_str = __build(arr, True, use_local_name=True)
             working_buffers.append(arr_lp)
             working_strs.append(arr_str)
 
@@ -168,7 +185,7 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
         buffers = []
         strs = []
         for arr in arrs:
-            arr_lp, arr_str = __build(arr, is_input_or_output=True)
+            arr_lp, arr_str = __build(arr, False, is_input_or_output=True)
             buffers.append(arr_lp)
             strs.append(arr_str)
 
@@ -193,21 +210,82 @@ def lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
                               var_name=arc.var_name,
                               extra_inames=extra_inames,
                               kernel_data=buffers + working_buffers + [
-                                arc.work_size])
+                                arc.work_size, arc.problem_size, driver_index])
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function
-    instructions = 'dummy()'
-    func_call = k_gen.knl_info(name='driver_call',
+    instructions = driven.name + '()'
+    # create mapstore
+    call_name = driven.name
+    map_shape = np.arange(1, dtype=arc.kint_type)
+    mapper = arc.creator(call_name, arc.kint_type, map_shape.shape, 'C',
+                         initializer=map_shape)
+    mapstore = arc.MapStore(loopy_opts, mapper, test_size)
+    mangler = lp_pregen.MangleGen(call_name, tuple(), tuple())
+    kwargs = {}
+    if loopy_opts.lang == 'c':
+        # override the number of calls to the driven function in the driver, this
+        # is currently fixed to 1 (i.e., 1 per-thread)
+        kwargs['iname_domain_override'] = [(arc.global_ind, '0 <= {} < 1'.format(
+            arc.global_ind))]
+
+    func_call = k_gen.knl_info(name=call_name + '_driver',
                                instructions=instructions,
-                               mapstore=copy_in.mapstore.copy(),
-                               kernel_data=[x.copy() for x in copy_in.kernel_data],
+                               mapstore=mapstore,
+                               kernel_data=[arc.work_size],
                                var_name=arc.var_name,
-                               extra_inames=copy_in.extra_inames[:])
+                               extra_inames=copy_in.extra_inames[:],
+                               manglers=[mangler],
+                               **kwargs)
     copy_out = create_interior_kernel(False)
 
     # and return
     return [copy_in, func_call, copy_out]
+
+
+def lockstep_driver_template(loopy_opts, driven):
+    """
+    Returns the appropriate template for a lockstep-based driver function for
+    kernel evaluation.
+
+    Parameters
+    ----------
+    loopy_opts: :class:`LoopyOptions`
+        The kernel creation options
+    driven: :class:`kernel_generator`
+        The kernel to be driven
+
+    Returns
+    -------
+    template: str
+        The template to wrap the driver function in, with keyword insns
+    """
+
+    if loopy_opts.lang == 'c':
+        template = Template("""
+        #pragma omp parallel for
+        for (${dtype} ${driver_index} = 0; ${driver_index} < ${problem_size}; ${driver_index} += ${work_size})"""  # noqa
+        """
+        {
+            ${insns}
+        }
+        """)
+
+    elif loopy_opts.lang == 'opencl':
+        template = Template("""
+        for (${dtype} ${driver_index} = get_global_id(0); ${driver_index} < ${problem_size}; ${driver_index} += get_global_size(0))"""  # noqa
+        """
+        {
+            ${insns}
+        }
+        """)
+
+    from loopy.types import to_loopy_type
+    return template.safe_substitute(
+        dtype=driven.type_map[to_loopy_type(arc.kint_type)],
+        driver_index=driver_index.name,
+        problem_size=arc.problem_size.name,
+        work_size=arc.work_size.name)
 
 
 def queue_driver(loopy_opts, namestore, inputs, outputs, driven,
@@ -248,5 +326,4 @@ def queue_driver(loopy_opts, namestore, inputs, outputs, driven,
 
     """
 
-    return lockstep_driver(loopy_opts, namestore, inputs, outputs, driven,
-                           test_size=test_size)
+    raise NotImplementedError
