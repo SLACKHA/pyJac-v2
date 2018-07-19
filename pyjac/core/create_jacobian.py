@@ -5368,6 +5368,13 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         platform = loopy_opts.platform
         device = loopy_opts.device
         device_type = loopy_opts.device_type
+    elif not platform and lang == 'opencl':
+        logger = logging.getLogger(__name__)
+        logger.error('OpenCL platform not specified! '
+                     'This must be supplied to generate wrapping code. '
+                     'To determine the correct platform name, consult documentation.'
+                     )
+        raise InvalidInputSpecificationException("platform")
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,

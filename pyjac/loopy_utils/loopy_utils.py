@@ -239,7 +239,7 @@ class loopy_options(object):
     def raise_on_broken(self):
         # Currently, NVIDIA w/ neither deep nor wide-vectorizations (
         #   i.e. a "parallel" implementation) breaks sometimes on OpenCL
-        if self.lang == 'opencl':
+        if self.lang == 'opencl' and cl is not None:
             if not (self.width or self.depth) \
                     and self.device_type == cl.device_type.GPU:
                 if 'nvidia' in self.platform.name.lower():
