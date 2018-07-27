@@ -236,7 +236,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         kwargs['iname_domain_override'] = [(arc.global_ind, '0 <= {} < 1'.format(
             arc.global_ind))]
 
-    func_call = k_gen.knl_info(name=call_name + '_driver',
+    func_call = k_gen.knl_info(name='driver',
                                instructions=instructions,
                                mapstore=mapstore,
                                kernel_data=[arc.work_size],
