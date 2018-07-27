@@ -3250,12 +3250,10 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
             preinstructs.append(precompute('logT', T_str, 'LOG'))
 
     return k_gen.knl_info(instructions=Template("""
-        for k
-            if ${Tval} < ${T_mid_str}
-                ${out_str} = ${lo_eq} {id=low, nosync=hi}
-            else
-                ${out_str} = ${hi_eq} {id=hi, nosync=low}
-            end
+        if ${Tval} < ${T_mid_str}
+            ${out_str} = ${lo_eq} {id=low, nosync=hi}
+        else
+            ${out_str} = ${hi_eq} {id=hi, nosync=low}
         end
         """).safe_substitute(**locals()),
                           kernel_data=knl_data,
@@ -3332,5 +3330,4 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
 if __name__ == "__main__":
     utils.setup_logging()
-    from pyjac.core.enum_types import KernelType
     utils.create(kernel_type=KernelType.species_rates)
