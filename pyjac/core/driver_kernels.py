@@ -192,16 +192,22 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
 
         # now create the instructions
         instruction_template = Template("""
-            ${local_buffer} = ${global_buffer}
+            if ${ind} < ${problem_size}
+                ${local_buffer} = ${global_buffer}
+            end
         """) if for_input else Template("""
-            ${global_buffer} = ${local_buffer}
+            if ${ind} < ${problem_size}
+                ${global_buffer} = ${local_buffer}
+            end
         """)
 
         instructions = []
         for i, arr in enumerate(arrs):
             instructions.append(instruction_template.substitute(
                 local_buffer=working_strs[i],
-                global_buffer=strs[i]))
+                global_buffer=strs[i],
+                ind=global_indicies[0],
+                problem_size=arc.problem_size.name))
         instructions = '\n'.join(instructions)
 
         # and return the kernel info
