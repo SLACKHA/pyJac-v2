@@ -1,16 +1,58 @@
 /*
 kernel.c
-
-A skeleton for pyJac C-kernel (OpenMP) execution
-
-Nicholas Curtis - 2017
+A cog-templated skeleton for pyJac C-kernel (OpenMP) execution
+(C) Nicholas Curtis - 2018
 */
 
-#include "${knl_name}_main.h"
-#include "${knl_name}.h"
+/*
 
-/* declare memory buffers */
-${mem_declares}
+    Global declarations for Cog:
+        - kernel_names: a comma separated list of kernels to generate interfaces for
+        - mem: path to a serialized :class:`memory_manager`
+
+
+*/
+
+/*[[[cog
+import cog
+import os
+
+# first, get name
+name = cog.outFile
+name = os.path.basename(name)
+name = name[:name.index('.')]
+# and include main header
+cog.outl("#include {}.h".format(name))
+
+# next, get kernel drivers
+kernel_names = kernel_names.split(',')
+for kn in kernel_names:
+    cog.outl("#include {}_driver.h".format(kn))
+]]]*/
+
+/*[[[cog
+
+import pickle
+# next, unserialize our memory manager
+with open(mem, 'rb') as file:
+    mem = pickle.loads(file)
+
+arr_defn = []
+for arr in mem.host_arrays:
+    arr_defn.append('{} {}*;'.format(arr.name, mem.type_map[arr.dtype]))
+
+cout.outl("""
+typedef struct {{
+    {}
+}} kernel_mem;
+""".format('\n'.join(arr_defn)), dedent=True, trimblanklines=True)
+
+# and declare kernel memorys
+memnames = []
+for kn in kernel_names:
+    memnames.append('kernel_mem {}_mem;'.format(kn))
+    cog.outl(memnames[-1])
+]]]*/
 
 // maximum # of IC's per run, based on memory limits
 size_t max_per_run = ${max_per_run};

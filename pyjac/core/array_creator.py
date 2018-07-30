@@ -208,6 +208,7 @@ class array_splitter(object):
 
         # {{{ adjust shape
 
+        using_work_size = False
         new_shape = ary.shape
         assert new_shape is not None, 'Cannot split auto-sized arrays'
         new_shape = list(new_shape)
@@ -218,7 +219,8 @@ class array_splitter(object):
             outer_len = div_ceil(axis_len, count)  # todo: fix map_quotient in loopy
         elif str(axis_len) == work_size.name:
             # no need to split, we're simply adding a new dimension
-            pass
+            using_work_size = True
+            outer_len = new_shape[split_axis]
         else:
             outer_len = div_ceil(axis_len, count)
         new_shape[split_axis] = outer_len
@@ -284,8 +286,16 @@ class array_splitter(object):
             axis_idx = idx[split_axis]
 
             from loopy.symbolic import simplify_using_aff
-            inner_index = simplify_using_aff(kernel, axis_idx % count)
-            outer_index = simplify_using_aff(kernel, axis_idx // count)
+            from pymbolic.primitives import Variable
+            if using_work_size:
+                # no split, just add an axis
+                outer_index = axis_idx
+                name = str(outer_index)
+                name = name[:name.index('_')]
+                inner_index = Variable(name + '_inner')
+            else:
+                inner_index = simplify_using_aff(kernel, axis_idx % count)
+                outer_index = simplify_using_aff(kernel, axis_idx // count)
             idx[split_axis] = outer_index
             idx.insert(dest_axis, inner_index)
             return expr.aggregate.index(tuple(idx))
@@ -715,7 +725,8 @@ class MapStore(object):
         if not self.is_unit_test:
             from pyjac.kernel_utils.kernel_gen import kernel_generator
             specialization = kernel_generator.apply_specialization(
-                self.loopy_opts, var_name, None, get_specialization=True)
+                self.loopy_opts, var_name, None, self.is_unit_test,
+                get_specialization=True)
             global_index = next((k for k, v in six.iteritems(specialization)
                                  if v == 'g.0'), global_ind)
             self.working_buffer_index = global_index

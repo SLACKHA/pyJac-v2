@@ -334,32 +334,10 @@ class kernel_generator(object):
         self.type_map[to_loopy_type(np.int32)] = 'int'
         self.type_map[to_loopy_type(np.int64)] = 'long int'
 
-        self.filename = ''
-        self.bin_name = ''
-        self.header_name = ''
-        self.file_prefix = ''
-
         self.depends_on = depends_on[:]
         self.array_props = array_props.copy()
         self.all_arrays = []
         self.barriers = barriers[:]
-
-        # the base skeleton for sub kernel creation
-        self.skeleton = """
-        for j
-            ${pre}
-            for ${var_name}
-                ${main}
-            end
-            ${post}
-        end
-        """
-
-        # list of inames added to sub kernels
-        self.inames = [global_ind]
-
-        # list of iname domains added to subkernels
-        self.iname_domains = ['0<={}<{{}}'.format(global_ind)]
 
         # extra kernel parameters to be added to subkernels
         self.extra_kernel_data = extra_kernel_data[:]
@@ -386,6 +364,41 @@ class kernel_generator(object):
         self.driver_type = driver_type
         # whether to generate driver/wrappers for all dependencies
         self.generate_all = generate_all
+
+        # mark owners
+        self.owner = None
+
+        def __mark(dep):
+            for x in dep.depends_on:
+                x.owner = dep
+                __mark(x)
+        __mark(self)
+
+        # the base skeleton for sub kernel creation
+        self.skeleton = textwrap.dedent(
+            """
+            for j
+                ${pre}
+                for ${var_name}
+                    ${main}
+                end
+                ${post}
+            end
+            """)
+        if not self.for_testing and self.loopy_opts.width:
+            # fake split skeleton
+            self.skeleton = textwrap.dedent(
+                """
+                for j_outer
+                    for j_inner
+                        ${pre}
+                        for ${var_name}
+                            ${main}
+                        end
+                        ${post}
+                    end
+                end
+                """)
 
     @property
     def name(self):
@@ -449,6 +462,16 @@ class kernel_generator(object):
         C / OpenMP
         """
         return False
+
+    @property
+    def file_prefix(self):
+        """
+        Prefix for filenames based on autodifferentiaton status
+        """
+        file_prefix = ''
+        if self.auto_diff:
+            file_prefix = 'ad_'
+        return file_prefix
 
     def apply_barriers(self, instructions):
         """
@@ -518,10 +541,27 @@ class kernel_generator(object):
             The iname domains to add to created subkernels by default
         """
 
+        # need to implement a fake split, to avoid loopy mangling the inner / outer
+        # parallel inames
+        fake_split = (not self.for_testing) and self.vec_width and \
+            self.loopy_opts.width
+
+        gind = global_ind
         if not self.for_testing:
             test_size = w_size.name
 
-        return self.inames, [self.iname_domains[0].format(test_size)]
+        if fake_split:
+            gind += '_outer'
+
+        inames = [gind]
+        domains = ['0 <= {} < {}'.format(gind, test_size)]
+
+        if fake_split:
+            # add dummy j_inner domain
+            inames += [global_ind + '_inner']
+            domains += ['0 <= {} < {}'.format(inames[-1], self.vec_width)]
+
+        return inames, domains
 
     def add_depencencies(self, k_gens):
         """
@@ -569,6 +609,7 @@ class kernel_generator(object):
                 self.loopy_opts,
                 info.var_name,
                 kernels[i],
+                self.for_testing,
                 vecspec=info.vectorization_specializer,
                 can_vectorize=info.can_vectorize)
 
@@ -815,10 +856,6 @@ class kernel_generator(object):
         None
         """
 
-        assert self.filename or self.bin_name, (
-            'Cannot generate calling program before wrapping kernel '
-            'is generated...')
-
         # find definitions
         mem_declares = self.mem.get_defns()
 
@@ -1035,7 +1072,7 @@ ${name} : ${type}
         if knl is None:
             raise Exception('Must call _generate_wrapping_kernel first')
 
-        remove_working = knl is None and not self.user_specified_work_size
+        remove_working = not self.user_specified_work_size
 
         if passed_locals:
             knl = self.__migrate_locals(knl, passed_locals)
@@ -1092,7 +1129,7 @@ ${name} : ${type}
             args=', '.join(args)
             )
 
-    def _process_args(self, kernels=[]):
+    def _process_args(self, kernels=[], use_subkernels=True):
         """
         Processes the arguements for all kernels in this generator (and subkernels
         from dependencies) to:
@@ -1114,7 +1151,6 @@ ${name} : ${type}
         kernels: list of :class:`loopy.LoopKernel`
             The kernels to process
 
-
         Returns
         -------
         global: list of :class:`loopy.GlobalArg`
@@ -1133,7 +1169,11 @@ ${name} : ${type}
         """
 
         if not kernels:
-            kernels = self.kernels
+            kernels = self.kernels[:]
+
+        if use_subkernels:
+            # add kernels we depend on
+            kernels += [knl for dep in self.depends_on for knl in dep.kernels]
 
         # find complete list of kernel data
         args = [arg for dummy in kernels for arg in dummy.args]
@@ -1358,15 +1398,6 @@ ${name} : ${type}
             The generated dummy kernel
 
         """
-        # create a dummy kernel to get the defn string
-        inames, _ = self.get_inames(0)
-
-        # domains
-        domains = []
-        for iname in ['i'] + inames:
-            domains.append('{{[{iname}]: 0 <= {iname} < {size}}}'.format(
-                iname=iname,
-                size=self.vec_width))
 
         # assign to non-readonly to prevent removal
         def _name_assign(arr, use_atomics=True):
@@ -1378,18 +1409,24 @@ ${name} : ${type}
                            else '')
             return ''
 
+        kdata = kernel_data[:]
+        insns = '\n'.join(_name_assign(arr) for arr in kernel_data)
+        name = self.name + ('_driver' if for_driver else '')
+
         if as_dummy_call:
             # add extra kernel args
-            kernel_data.extend([x for x in self.extra_kernel_data
-                                if isinstance(x, lp.KernelArgument)])
-        knl = lp.make_kernel(domains,
-                             '\n'.join(_name_assign(arr)
-                                       for arr in kernel_data),
-                             kernel_data[:],
-                             name=self.name + ('_driver' if for_driver else ''),
+            kdata.extend([x for x in self.extra_kernel_data
+                          if isinstance(x, lp.KernelArgument)])
+
+        # domains
+        domains = ['{{[{iname}]: 0 <= {iname} < {size}}}'.format(
+                iname='i',
+                size=self.vec_width)]
+
+        knl = lp.make_kernel(domains, insns, kdata, name=name,
                              target=self.target)
-        # force vector width
-        if self.vec_width != 0 and not self.loopy_opts.is_simd:
+
+        if self.vec_width:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
@@ -1582,7 +1619,7 @@ ${name} : ${type}
         else:
             # add the working buffer to the driver function
             for i, kernel in enumerate(kernels):
-                if kernel.name.endswith('_driver'):
+                if kernel.name.endswith('driver'):
                     kargs = kernel.args[:]
                     for arg in kernel_data:
                         if arg not in kargs:
@@ -1797,10 +1834,6 @@ ${name} : ${type}
             The name of the generated file
         """
 
-        file_prefix = ''
-        if self.auto_diff:
-            file_prefix = 'ad_'
-
         # get filename
         basename = self.name
         name = basename
@@ -1819,7 +1852,7 @@ ${name} : ${type}
         file_src = self._special_wrapper_subs(file_src)
 
         # create the file
-        filename = os.path.join(path, file_prefix + name + utils.file_ext[
+        filename = os.path.join(path, self.file_prefix + name + utils.file_ext[
             self.lang])
         with filew.get_file(filename, self.lang, include_own_header=True) as file:
             instructions = _find_indent(file_str, 'body', instructions)
@@ -1852,7 +1885,7 @@ ${name} : ${type}
             self.__get_kernel_defn(kernel) + utils.line_end[self.lang]])
 
         with filew.get_header_file(
-            os.path.join(path, file_prefix + name + utils.header_ext[
+            os.path.join(path, self.file_prefix + name + utils.header_ext[
                 self.lang]), self.lang) as file:
 
             file.add_headers(headers)
@@ -2084,8 +2117,9 @@ ${name} : ${type}
         return self.remove_unused_temporaries(knl)
 
     @classmethod
-    def apply_specialization(cls, loopy_opts, inner_ind, knl, vecspec=None,
-                             can_vectorize=True, get_specialization=False):
+    def apply_specialization(cls, loopy_opts, inner_ind, knl, for_testing,
+                             vecspec=None, can_vectorize=True,
+                             get_specialization=False):
         """
         Applies wide / deep vectorization and/or ILP loop unrolling
         to a loopy kernel
@@ -2098,6 +2132,8 @@ ${name} : ${type}
             The inner loop index variable
         knl : :class:`loopy.LoopKernel`
             The kernel to transform
+        for_testing: bool [False]
+            If False, apply fake split for wide-vectorizations
         vecspec : :function:
             An optional specialization function that is applied after
             vectorization to fix hanging loopy issues
@@ -2150,6 +2186,9 @@ ${name} : ${type}
             tag = 'vec' if loopy_opts.is_simd else 'l.0'
             if get_specialization:
                 specialization[to_split + '_inner'] = tag
+            elif loopy_opts.width and not for_testing:
+                # apply the fake split
+                knl = lp.tag_inames(knl, [(to_split + '_inner', tag)])
             else:
                 knl = lp.split_iname(knl, to_split, vec_width, inner_tag=tag)
 
