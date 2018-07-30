@@ -1121,6 +1121,20 @@ ${name} : ${type}
             args=', '.join(args)
             )
 
+    def _compare_args(self, arg1, arg2):
+        """
+        Convenience method to test equality of :class:`loopy.KernelArgument`s
+
+        Returns true IFF :param:`arg1` == :param:`arg2`, OR they differ only in
+        their atomicity
+        """
+
+        def __atomify(arg):
+            return arg.copy(dtype=to_loopy_type(arg.dtype, for_atomic=True,
+                                                target=self.target))
+
+        return arg1 == arg2 or (__atomify(arg1) == __atomify(arg2))
+
     def _process_args(self, kernels=[], use_subkernels=True):
         """
         Processes the arguements for all kernels in this generator (and subkernels
@@ -1200,9 +1214,7 @@ ${name} : ${type}
                 other = next(x for x in same_name if x != atomic)
 
                 # check that all other properties are the same
-                if other != atomic and other.copy(
-                        dtype=to_loopy_type(other.dtype, for_atomic=True,
-                                            target=self.target)) != atomic:
+                if not self._compare_args(other, atomic):
                     __raise()
 
                 # otherwise, they're the same and the only difference is the

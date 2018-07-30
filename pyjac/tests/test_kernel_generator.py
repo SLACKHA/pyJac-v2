@@ -5,6 +5,7 @@ import shutil
 from optionloop import OptionLoop
 import loopy as lp
 from loopy.kernel.array import ArrayBase
+from nose.tools import assert_raises
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
 from pyjac.core.rate_subs import get_specrates_kernel
@@ -48,7 +49,10 @@ class SubTest(TestClass):
         return oploop
 
     def test_process_args(self):
-        oploop = OptionLoopWrapper.from_get_oploop(self)
+        # we only really need to test OpenCL here, as we just want to ensure
+        # deep vectorizations have local args
+        oploop = OptionLoopWrapper.from_get_oploop(self, do_conp=False,
+                                                   langs=['opencl'])
         for opts in oploop:
             # create a species rates kernel generator for this state
             kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
@@ -65,7 +69,8 @@ class SubTest(TestClass):
                     knl for dep in kgen.depends_on for knl in dep.kernels]:
                 arrays, values = partition(kernel.args, lambda x: isinstance(
                     x, ArrayBase))
-                assert all(arg in args for arg in arrays)
+                assert all(any(kgen._compare_args(a1, a2)
+                           for a2 in args) for a1 in arrays)
                 assert all(val in valueargs for val in values)
                 assert not any(read in kernel.get_written_variables()
                                for read in readonly)
@@ -76,3 +81,16 @@ class SubTest(TestClass):
 
             # check that all constants are temporary variables
             assert all(isinstance(x, lp.TemporaryVariable) for x in constants)
+
+            # now, insert a bad duplicate argument and make sure we get an error
+            i_arg, arg = next((i, arg) for i, arg in enumerate(kgen.kernels[0].args)
+                              if isinstance(arg, ArrayBase))
+            new = arg.__class__(shape=tuple([x + 1 for x in arg.shape]),
+                                name=arg.name,
+                                order=opts.order,
+                                address_space=arg.address_space)
+            kgen.kernels[0] = kgen.kernels[0].copy(
+                args=kgen.kernels[0].args + [new])
+
+            with assert_raises(Exception):
+                kgen._process_args()
