@@ -170,7 +170,7 @@ class loopy_options(object):
         self._is_simd = is_simd
         self.explicit_simd = explicit_simd
         self.explicit_simd_warned = False
-        if self.lang != 'opencl':
+        if self.lang != 'opencl' and self.explicit_simd:
             logger = logging.getLogger(__name__)
             logger.info('explicit-SIMD flag has no effect on non-OpenCL targets.')
         self.kernel_type = KernelType
@@ -283,7 +283,7 @@ class loopy_options(object):
                             'instructions as PyOpenCL was not found.  Either '
                             'install PyOpenCL or use the "--explicit_simd" '
                             'command line argument. Assuming not SIMD.')
-                self.explicit_simd_warned=True
+                self.explicit_simd_warned = True
             return self.explicit_simd
 
         if self.lang == 'opencl':
