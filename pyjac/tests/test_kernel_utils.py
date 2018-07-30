@@ -10,7 +10,7 @@ import loopy as lp
 import numpy as np
 from optionloop import OptionLoop
 from parameterized import parameterized
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from pytools.py_codegen import remove_common_indentation
 

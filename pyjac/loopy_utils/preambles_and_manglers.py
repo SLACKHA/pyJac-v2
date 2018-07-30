@@ -295,7 +295,7 @@ class jac_indirect_lookup(PreambleGen):
         return result;
     }
     """).safe_substitute(name=jac_indirect_lookup.name, array=array.name)
-        from loopy.kernel.data import temp_var_scope as scopes
+        from loopy.kernel.data import AddressSpace as scopes
         from loopy.kernel.data import TemporaryVariable
 
         int_dtype = to_loopy_type(array.dtype, target=target)

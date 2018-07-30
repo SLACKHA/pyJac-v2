@@ -14,7 +14,7 @@ import six
 import loopy as lp
 from loopy.types import AtomicNumpyType, to_loopy_type
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
 try:
     import pyopencl as cl
 except ImportError:
@@ -1023,22 +1023,14 @@ ${name} : ${type}
 
         assert all(x.scope == scopes.LOCAL for x in ldecls)
         names = set([x.name for x in ldecls])
+        from loopy.kernel.data import AddressSpace
 
         def __argify(temp):
-            # FIXME: temporarily use our own LocalArg branch while waiting for
-            # superceding loopy branch
-            if isinstance(temp, lp.TemporaryVariable):
-                return lp.LocalArg(
-                    **{k: v for k, v in six.iteritems(vars(temp))
-                       if k in ['name', 'shape', 'dtype', 'dim_tags']})
-            # turn CLLocal or the like back into a temporary variable
-            from loopy.target.c import POD
-            # find actual decl for dtype and name
-            while not isinstance(temp, POD):
-                temp = temp.subdecl
-            return lp.LocalArg(temp.name, dtype=temp.dtype, shape=(1,),
-                               dim_tags="C")
-        # migrate locals to kernel args
+            assert isinstance(temp, lp.TemporaryVariable)
+            return lp.ArrayArg(
+                **{k: v for k, v in six.iteritems(vars(temp))
+                   if k in ['name', 'shape', 'dtype', 'dim_tags']},
+                address_space=AddressSpace.LOCAL)
         return kernel.copy(
             args=kernel.args[:] + [__argify(x) for x in ldecls],
             temporary_variables={

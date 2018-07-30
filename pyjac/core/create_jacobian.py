@@ -17,7 +17,7 @@ import os
 # external
 import numpy as np
 import loopy as lp
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
 from pytools import UniqueNameGenerator
 
 # Local imports

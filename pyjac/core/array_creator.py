@@ -10,7 +10,7 @@ from string import Template
 
 import loopy as lp
 import numpy as np
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
 from pyjac.core.enum_types import JacobianFormat, JacobianType
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.utils import listify
@@ -1337,7 +1337,7 @@ class creator(object):
             The shape of the array to create, parseable by loopy
         initializer : :class:`numpy.ndarray`
             If specified, the initializer of this array
-        scope : :class:`loopy.temp_var_scope`
+        scope : :class:`loopy.AddressSpace`
             The scope of an initialized loopy array
         fixed_indicies : list of tuple
             If supplied, a list of index number, fixed values that

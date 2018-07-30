@@ -17,7 +17,7 @@ from collections import OrderedDict
 # Non-standard librarys
 import loopy as lp
 import numpy as np
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
 
 # Local imports
 from pyjac import utils
