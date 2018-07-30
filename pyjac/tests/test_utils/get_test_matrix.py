@@ -177,7 +177,18 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                 vecsizes = [4, None] if can_vectorize_lang[lang] else [None]
                 inner_loop = [('lang', lang)]
                 if lang == 'opencl':
-                    import pyopencl as cl
+                    try:
+                        import pyopencl as cl
+                    except ImportError:
+                        # no pyopencl, warn and return defaults
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warn('Module pyopencl not installed, can not '
+                                    'automatically detect installed OpenCL '
+                                    'platforms. Using default "ANY".')
+                        oploop += [inner_loop]
+                        continue
+
                     inner_loop += [('width', vecsizes[:]),
                                    ('depth', vecsizes[:])]
                     # add all devices
