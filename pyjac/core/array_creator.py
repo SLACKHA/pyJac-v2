@@ -338,7 +338,7 @@ class array_splitter(object):
             return kernel
 
         for array_name, arr in [(x.name, x) for x in kernel.args
-                                if isinstance(x, lp.GlobalArg)
+                                if isinstance(x, lp.ArrayArg)
                                 and self._should_split(x)]:
             split_axis, vec_axis = self.split_and_vec_axes(arr)
 

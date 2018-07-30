@@ -406,7 +406,7 @@ def test_map_variable_creator():
     mstore.check_and_add_transform(var, domain, 'i')
     var, var_str = mstore.apply_maps(var, 'i')
 
-    assert isinstance(var, lp.GlobalArg)
+    assert isinstance(var, lp.ArrayArg)
     assert var_str == 'var[i_1]'
     assert '<> i_1 = domain[i + 3] {id=index_i_1}' in mstore.transform_insns
 
@@ -427,7 +427,7 @@ def test_map_to_larger():
     mstore.check_and_add_transform(var, domain, 'i')
     var, var_str = mstore.apply_maps(var, 'i')
 
-    assert isinstance(var, lp.GlobalArg)
+    assert isinstance(var, lp.ArrayArg)
     assert var_str == 'var[i_0]'
     assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
 
@@ -630,18 +630,18 @@ def test_working_buffer_creations():
         mstore = arc.MapStore(lp_opt, c, True, 'i')
         arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
 
-        assert isinstance(arr_lp, lp.GlobalArg) and \
+        assert isinstance(arr_lp, lp.ArrayArg) and \
             __shape_compare(arr_lp.shape, (arc.work_size.name, 10))
         assert arr_str == 'a[j_outer, i]' if lp_opt.width else 'a[j, i]'
 
         inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i')
-        assert isinstance(inp_lp, lp.GlobalArg) and __shape_compare(
+        assert isinstance(inp_lp, lp.ArrayArg) and __shape_compare(
             inp_lp.shape, (10, 10))
         assert inp_str == 'b[j, i]'
 
         # now test input without the global index
         arr_lp, arr_str = mstore.apply_maps(arr, 'k', 'i')
-        assert isinstance(arr_lp, lp.GlobalArg) and __shape_compare(
+        assert isinstance(arr_lp, lp.ArrayArg) and __shape_compare(
             arr_lp.shape, (10, 10))
         assert arr_str == 'a[k, i]'
 
@@ -739,5 +739,5 @@ class SubTest(TestClass):
         # create known input
         jac_lp, jac_str = mstore.apply_maps(nstore.jac, 'j', 'k', 'i')
 
-        assert isinstance(jac_lp, lp.GlobalArg) and jac_lp.shape == nstore.jac.shape
+        assert isinstance(jac_lp, lp.ArrayArg) and jac_lp.shape == nstore.jac.shape
         assert jac_str == 'jac[j, k, i]'
