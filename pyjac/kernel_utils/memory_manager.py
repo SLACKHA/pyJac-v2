@@ -14,6 +14,7 @@ import numpy as np
 import loopy as lp
 from enum import Enum
 from loopy.types import to_loopy_type
+from pytools import ImmutableRecord
 #  import resource
 #  align_size = resource.getpagesize()
 
@@ -77,6 +78,35 @@ def load_memory_limits(input_file, schema='common_schema.yaml'):
             pass
 
     return {}
+
+
+class MemoryGenerationResult(ImmutableRecord):
+    """
+    A placeholder class that holds intermediate memory results
+
+    Attributes
+    ----------
+    args: list of :class:`loopy.ArrayArg`
+        The list of global arguments for the generated kernel
+    local: list of :class:`loopy.ArrayArg` with :attr:`address_space` LOCAL
+        The list of local argument variables to be defined at the top-level
+        wrapping kernel.
+    readonly: set of str
+        The names of arguements in the top-level kernel that are never written to
+    constants: list of :class:`loopy.TemporaryVariable` with :attr:`address_space` GLOBAL and :attr:`readonly` True  # noqa
+        The constant data to define in the top-level kernel
+    valueargs: list of :class:`loopy.ValueArg`
+        The value arguments passed into the top-level wrapping kernel
+    host_constants: list of :class:`loopy.GlobalArg`
+        The __constant data that was necessary to move to __global data for
+        space reasons
+    """
+
+    def __init__(self, args=[], local=[], readonly=[], constants=[],
+                 valueargs=[], host_constants=[]):
+        ImmutableRecord.__init__(
+            self, args=args, local=local, readonly=readonly, constants=constants,
+            valueargs=valueargs, host_constants=host_constants)
 
 
 class memory_limits(object):
@@ -157,6 +187,19 @@ class memory_limits(object):
             return val
         return int(np.iinfo(dtype).max // np.prod([floatify(x) for x in arry.shape]))
 
+    def arrays_with_type_changes(self, mtype=memory_type.m_constant,
+                                 with_type_changes={}):
+        """
+        Returns the list of :attr:`arrays` that are of :param:`mtype` with the
+        given :param:`with_type_changes`.  See :func:`can_fit`
+        """
+
+        # filter arrays by type
+        arrays = self.arrays[mtype]
+        arrays = [a for a in arrays if not any(
+            a in v for k, v in six.iteritems(with_type_changes) if k != mtype)]
+        return arrays
+
     def can_fit(self, mtype=memory_type.m_constant, with_type_changes={}):
         """
         Determines whether the supplied :param:`arrays` of type :param:`type`
@@ -185,9 +228,10 @@ class memory_limits(object):
         """
 
         # filter arrays by type
-        arrays = self.arrays[mtype]
-        arrays = [a for a in arrays if not any(
-            a in v for k, v in six.iteritems(with_type_changes) if k != mtype)]
+        arrays = self.arrays_with_type_changes(mtype, with_type_changes)
+        if not arrays:
+            # no arrays to process
+            return (np.iinfo(np.int).max, np.iinfo(np.int).max)
 
         per_alloc_ic_limit = np.iinfo(np.int).max
         per_alloc_ws_limit = np.iinfo(np.int).max

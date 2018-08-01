@@ -1,6 +1,7 @@
 import os
 from collections import OrderedDict
 import shutil
+from tempfile import NamedTemporaryFile
 
 from optionloop import OptionLoop
 import loopy as lp
@@ -9,10 +10,11 @@ from nose.tools import assert_raises
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
 from pyjac.core.rate_subs import get_specrates_kernel
+from pyjac.core.mech_auxiliary import write_aux
+from pyjac.kernel_utils.memory_manager import memory_type
 from pyjac.utils import partition
 from pyjac.tests import TestClass, test_utils, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper
-from pyjac.core.mech_auxiliary import write_aux
 
 
 class SubTest(TestClass):
@@ -61,7 +63,7 @@ class SubTest(TestClass):
             kgen._make_kernels()
 
             # and process the arguements
-            args, local, readonly, constants, valueargs = kgen._process_args()
+            record = kgen._process_args()
 
             # and check
             # 1) that all arguments in all kernels are in the args
@@ -70,17 +72,17 @@ class SubTest(TestClass):
                 arrays, values = partition(kernel.args, lambda x: isinstance(
                     x, ArrayBase))
                 assert all(any(kgen._compare_args(a1, a2)
-                           for a2 in args) for a1 in arrays)
-                assert all(val in valueargs for val in values)
+                           for a2 in record.args) for a1 in arrays)
+                assert all(val in record.valueargs for val in values)
                 assert not any(read in kernel.get_written_variables()
-                               for read in readonly)
+                               for read in record.readonly)
 
             # if deep vectorization, make sure we have a local argument
             if opts.depth:
-                assert len(local)
+                assert len(record.local)
 
             # check that all constants are temporary variables
-            assert all(isinstance(x, lp.TemporaryVariable) for x in constants)
+            assert all(isinstance(x, lp.TemporaryVariable) for x in record.constants)
 
             # now, insert a bad duplicate argument and make sure we get an error
             i_arg, arg = next((i, arg) for i, arg in enumerate(kgen.kernels[0].args)
@@ -94,3 +96,41 @@ class SubTest(TestClass):
 
             with assert_raises(Exception):
                 kgen._process_args()
+
+    def test_process_memory(self):
+        # test sparse in order to ensure the Jacobian preambles aren't removed
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=False,
+                                                   do_sparse=True)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            # make kernels
+            kgen._make_kernels()
+
+            # process the arguements
+            record = kgen._process_args()
+
+            # test that process memory works
+            _, mem_limits = kgen._process_memory(record)
+
+            # next, write a dummy input file, such that we can force the constant
+            # memory allocation to zero
+            with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:
+                temp.write("""
+                    memory-limits:
+                        constant: 0 B
+                    """)
+                temp.seek(0)
+
+                # set file
+                kgen.mem_limits = temp.name
+
+                # reprocesses
+                noconst, mem_limits = kgen._process_memory(record)
+                assert not len(mem_limits.arrays[memory_type.m_constant])
+                assert all(x in record.constants for x in noconst.host_constants)
+                assert all(x in mem_limits.arrays[memory_type.m_global] for x in
+                           record.constants)

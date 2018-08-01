@@ -24,7 +24,7 @@ import cgen
 
 from pyjac.kernel_utils import file_writers as filew
 from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
-    memory_type, guarded_call
+    memory_type, guarded_call, MemoryGenerationResult
 from pyjac import siteconf as site
 from pyjac import utils
 from pyjac.loopy_utils import loopy_utils as lp_utils
@@ -1159,19 +1159,9 @@ ${name} : ${type}
 
         Returns
         -------
-        global: list of :class:`loopy.GlobalArg`
+        record: :class:`MemoryGenerationResult`
+            A record of the processed arguments, :see:`MemoryGenerationResult`
             The list of global arguments for the top-level wrapping kernel
-        local: list of :class:`loopy.TemporaryVariable` with :attr:`scope` LOCAL
-            The list of local temporary variables to be defined at the top-level
-            wrapping kernel.  These will be passed as :class:`loopy.LocalArg`s to
-            subkernels
-        readonly: set of str
-            The names of arguements in the top-level kernel that are never written to
-        constants: list of :class:`loopy.TemporaryVariable` with :attr:`scope` GLOBAL
-                and :attr:`readonly` True
-            The constant data to define in the top-level kernel
-        valueargs: list of :class:`loopy.ValueArg`
-            The value arguments passed into the top-level wrapping kernel
         """
 
         if not kernels:
@@ -1285,36 +1275,23 @@ ${name} : ${type}
         # __constant
         constants, temps = utils.partition(temps, lambda x: x.read_only)
 
-        return args, local, readonly, constants, valueargs
+        return MemoryGenerationResult(args=args, local=local, readonly=readonly,
+                                      constants=constants, valueargs=valueargs)
 
-    def _process_memory(self, args, readonly, local, constants):
+    def _process_memory(self, record):
         """
         Determine memory usage / limits, host constant migrations, etc.
 
         Parameters
         ----------
-        args: list of :class:`loopy.KernelArgument`
-            The kernel data (composed of :class:`loopy.GlobalArg`s and
-            :class:`loopy.ValueArg`) to process
-        readonly: set of str
-            The kernel data that is never written to, may overlap with :param:`args`
-        local: list of :class:`loopy.TemporaryVariable`
-            The local temporaries to declare
-        constants: list of :class:`loopy.TemporaryVariable`
-            The constant data to declare in the kernel
+        record: :class:`MemoryGenerationResult`
+            A record of the processed arguments, :see:`MemoryGenerationResult`
+            The list of global arguments for the top-level wrapping kernel
 
         Returns
         -------
-        updated_args: list of :class:`loopy.KernelArgument`
-            The updated kernel arguments, possibly including any migrated host
-            constants
-        updated_constants: list of :class:`loopy.TemporaryVariable`
-            The updated constant variables
-        updated_readonly: list of str
-            The updated readonly variables
-        host_constants: list of :class:`loopy.GlobalArg`
-            The __constant data that was necessary to move to __global data for
-            space reasons
+        updated_record: :class:`loopy.MemoryGenerationResult`
+            The updated memory generationr esult
         mem_limits: :class:`memory_limits`
             The generated memory limit object
         """
@@ -1324,14 +1301,14 @@ ${name} : ${type}
         mem_types = defaultdict(lambda: list())
 
         # store globals
-        for arg in [x for x in args if not isinstance(x, lp.ValueArg)]:
+        for arg in [x for x in record.args if not isinstance(x, lp.ValueArg)]:
             mem_types[memory_type.m_global].append(arg)
 
         # store locals
-        mem_types[memory_type.m_local].extend(local)
+        mem_types[memory_type.m_local].extend(record.local)
 
         # and constants
-        mem_types[memory_type.m_constant].extend(constants)
+        mem_types[memory_type.m_constant].extend(record.constants)
 
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(
@@ -1340,6 +1317,9 @@ ${name} : ${type}
             input_file=self.mem_limits,
             limit_int_overflow=self.loopy_opts.limit_int_overflow)
 
+        args = record.args[:]
+        constants = record.constants[:]
+        readonly = record.readonly.copy()
         host_constants = []
         if not all(mem_limits.can_fit()):
             # we need to convert our __constant temporary variables to
@@ -1367,7 +1347,7 @@ ${name} : ${type}
             for x in [v for arrs in type_changes.values() for v in arrs]:
                 args.append(
                     lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape))
-                readonly.add(readonly[-1].name)
+                readonly.add(x.name)
                 host_constants.append(x)
 
                 # and update the types
@@ -1379,7 +1359,8 @@ ${name} : ${type}
                 input_file=self.mem_limits,
                 limit_int_overflow=self.loopy_opts.limit_int_overflow)
 
-        return args, constants, readonly, host_constants, mem_limits
+        return record.copy(args=args, constants=constants, readonly=readonly,
+                           host_constants=host_constants), mem_limits
 
     def _dummy_wrapper_kernel(self, kernel_data, readonly, vec_width,
                               as_dummy_call=False, for_driver=False):
@@ -1588,26 +1569,26 @@ ${name} : ${type}
             fake_calls = self.fake_calls
 
         # process arguments
-        args, local, readonly, constants, valueargs = self._process_args(kernels)
+        record = self._process_args(kernels)
 
         # process memory
-        args, constants, readonly, host_constants, mem_limits = self._process_memory(
-            args, readonly, local, constants)
+        record, mem_limits = self._process_memory(record)
 
         # update subkernels for host constants
         for i in range(len(kernels)):
-            kernels[i] = self._migrate_host_constants(kernels[i], host_constants)
+            kernels[i] = self._migrate_host_constants(
+                kernels[i], record.host_constants)
 
         # and add to memory manager
-        self.mem.add_arrays(host_constants=host_constants)
+        self.mem.add_arrays(host_constants=record.host_constants)
         if not for_driver:
-            self.mem.fix_arrays(args)
+            self.mem.fix_arrays(record.args)
 
         # create the interior kernel
         # first, compress our kernel args into a working buffer
-        offset_args = args[:]
+        offset_args = record.args[:]
         if for_driver:
-            offset_args = [x for x in args if x.name.endswith('_local') and
+            offset_args = [x for x in record.args if x.name.endswith('_local') and
                            x.shape[0] == self.work_size]
         size_per_wi, offsets = self._get_working_buffer(offset_args)
         # next, get the pointer unpackings
@@ -1679,7 +1660,7 @@ ${name} : ${type}
                     if isinstance(item, cgen.Initializer):
                         def _rec_check_name(decl):
                             if 'name' in vars(decl):
-                                return decl.name in readonly
+                                return decl.name in record.readonly
                             elif 'subdecl' in vars(decl):
                                 return _rec_check_name(decl.subdecl)
                             return False
@@ -1733,7 +1714,7 @@ ${name} : ${type}
 
         # and save kernel data
         kernel = self._dummy_wrapper_kernel(
-            kernel_data, readonly, vec_width, as_dummy_call=as_dummy_call,
+            kernel_data, record.readonly, vec_width, as_dummy_call=as_dummy_call,
             for_driver=for_driver)
         # and split
         kernel = self.array_split.split_loopy_arrays(kernel)
