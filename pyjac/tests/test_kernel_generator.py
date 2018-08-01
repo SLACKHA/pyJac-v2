@@ -9,8 +9,10 @@ from loopy.kernel.array import ArrayBase
 from nose.tools import assert_raises
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
+from pyjac.core.enum_types import JacobianFormat
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.mech_auxiliary import write_aux
+from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
 from pyjac.utils import partition
 from pyjac.tests import TestClass, test_utils, get_test_langs
@@ -116,13 +118,21 @@ class SubTest(TestClass):
             # test that process memory works
             _, mem_limits = kgen._process_memory(record)
 
+            limit = 0
+            if opts.jac_format == JacobianFormat.sparse:
+                # need to update the limit for the constant memory such that the
+                # sparse indicies can fit
+                preamble = next(x for x in kgen.extra_preambles
+                                if isinstance(x, jac_indirect_lookup))
+                limit = preamble.array.nbytes
+
             # next, write a dummy input file, such that we can force the constant
             # memory allocation to zero
             with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:
                 temp.write("""
                     memory-limits:
-                        constant: 0 B
-                    """)
+                        constant: {} B
+                    """.format(limit))
                 temp.seek(0)
 
                 # set file

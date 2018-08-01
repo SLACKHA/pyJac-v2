@@ -346,6 +346,7 @@ class kernel_generator(object):
 
         self.extra_preambles = extra_preambles[:]
         # check for Jacobian type
+        self.jacobian_lookup = None
         if isinstance(namestore.jac, arc.jac_creator):
             # need to add the row / column inds
             self.extra_kernel_data.extend([self.namestore.jac_row_inds([''])[0],
@@ -355,6 +356,7 @@ class kernel_generator(object):
             self.extra_preambles.append(lp_pregen.jac_indirect_lookup(
                 self.namestore.jac_col_inds if self.loopy_opts.order == 'C'
                 else self.namestore.jac_row_inds, self.target))
+            self.jacobian_lookup = self.extra_preambles[-1].array.name
 
         # calls smuggled past loopy
         self.fake_calls = fake_calls.copy()
@@ -1327,7 +1329,8 @@ ${name} : ${type}
             type_changes = defaultdict(lambda: list())
             # we can't remove the sparse indicies as we can't pass pointers
             # to loopy preambles
-            gtemps = [x for x in constants if 'sparse_jac' not in x.name]
+            if self.jacobian_lookup:
+                gtemps = [x for x in constants if self.jacobian_lookup not in x.name]
             # sort by largest size
             gtemps = sorted(gtemps, key=lambda x: np.prod(x.shape), reverse=True)
             type_changes[memory_type.m_global].append(gtemps[0])
@@ -1347,7 +1350,7 @@ ${name} : ${type}
             for x in [v for arrs in type_changes.values() for v in arrs]:
                 args.append(
                     lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape))
-                readonly.add(x.name)
+                readonly.add(args[-1].name)
                 host_constants.append(x)
 
                 # and update the types
