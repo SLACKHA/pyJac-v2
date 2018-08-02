@@ -2,16 +2,20 @@ import os
 from collections import OrderedDict
 import shutil
 from tempfile import NamedTemporaryFile
+import re
 
 from optionloop import OptionLoop
 import loopy as lp
 from loopy.kernel.array import ArrayBase
+from loopy.kernel.data import AddressSpace as scopes
+from loopy.types import to_loopy_type
 from nose.tools import assert_raises
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
 from pyjac.core.enum_types import JacobianFormat
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.mech_auxiliary import write_aux
+from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
 from pyjac.utils import partition
@@ -177,3 +181,71 @@ class SubTest(TestClass):
                     to_find = to_find - set([x.name for x in kernel.args])
 
                 assert not len(to_find)
+
+    def test_working_buffers(self):
+        # test vector to ensure the various working buffer configurations work
+        # (i.e., locals)
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            # make kernels
+            kgen._make_kernels()
+
+            # process the arguements
+            record = kgen._process_args()
+
+            # test that process memory works
+            record, mem_limits = kgen._process_memory(record)
+
+            # and generate working buffers
+            recordnew, result = kgen._compress_to_working_buffer(record)
+
+            if opts.depth:
+                # check for local
+                assert next((x for x in recordnew.kernel_data
+                             if x.address_space == scopes.LOCAL), None)
+
+            def __check_unpacks(unpacks, args):
+                for arg in args:
+                    # check that all args are in the unpacks
+                    unpack = next((x for x in unpacks if re.search(
+                        r'\b' + arg.name + r'\b', x)), None)
+                    assert unpack
+                    # next check the type
+                    assert kgen.type_map[arg.dtype] in unpack
+                    # and scope, if needed
+                    if arg.address_space == scopes.LOCAL:
+                        assert 'local' in unpack
+
+            # check that all args are in the pointer unpacks
+            __check_unpacks(result.pointer_unpacks, recordnew.args + recordnew.local)
+            # next, write a dummy input file, such that we can force the constant
+            # memory allocation to zero
+            with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:
+                temp.write("""
+                    memory-limits:
+                        constant: 0 B
+                    """)
+                temp.seek(0)
+
+                # set file
+                kgen.mem_limits = temp.name
+
+                # reprocesses
+                noconst, mem_limits = kgen._process_memory(record)
+                noconst, result = kgen._compress_to_working_buffer(noconst)
+
+                # check that we have an integer workspace
+                int_type = to_loopy_type(arc.kint_type, target=kgen.target)
+                assert next((x for x in noconst.kernel_data
+                             if x.dtype == int_type), None)
+
+                # and recheck pointer unpacks (including host constants)
+                __check_unpacks(
+                    result.pointer_unpacks,
+                    recordnew.args + recordnew.local + record.constants)

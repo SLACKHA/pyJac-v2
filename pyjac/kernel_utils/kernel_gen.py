@@ -21,6 +21,7 @@ except ImportError:
     cl = None
 import numpy as np
 import cgen
+from pytools import ImmutableRecord
 
 from pyjac.kernel_utils import file_writers as filew
 from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
@@ -214,6 +215,22 @@ def _unSIMDable_arrays(knl, loopy_opts, mstore, warn=True):
     return cant_simd
 
 
+class CodegenResult(ImmutableRecord):
+    """
+    A convenience class that provides storage for intermediate code-generation
+    results.
+
+    Attributes
+    ----------
+    pointer_unpacks: list of str
+        A list of pointer de-references that convert the working buffer(s) to
+        individual arrays
+    """
+
+    def __init__(self, pointer_unpacks=[]):
+        ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks)
+
+
 class kernel_generator(object):
 
     """
@@ -329,7 +346,6 @@ class kernel_generator(object):
         self.mem.add_arrays(in_arrays=input_arrays, out_arrays=output_arrays)
 
         self.type_map = {}
-        from loopy.types import to_loopy_type
         self.type_map[to_loopy_type(np.float64)] = 'double'
         self.type_map[to_loopy_type(np.int32)] = 'int'
         self.type_map[to_loopy_type(np.int64)] = 'long int'
@@ -1023,7 +1039,7 @@ ${name} : ${type}
 
         """
 
-        assert all(x.scope == scopes.LOCAL for x in ldecls)
+        assert all(x.address_space == scopes.LOCAL for x in ldecls)
         names = set([x.name for x in ldecls])
         from loopy.kernel.data import AddressSpace
 
@@ -1239,20 +1255,20 @@ ${name} : ${type}
         temps = [arg for dummy in kernels
                  for arg in dummy.temporary_variables.values()
                  if isinstance(arg, lp.TemporaryVariable) and
-                 arg.scope != scopes.PRIVATE and
-                 arg.scope != lp.auto]
+                 arg.address_space != scopes.PRIVATE and
+                 arg.address_space != lp.auto]
         # and add extra kernel data, if any
         temps.extend([x for x in self.extra_kernel_data if isinstance(
             x, lp.TemporaryVariable) and
-            x.scope != scopes.PRIVATE and
-            x.scope != lp.auto])
+            x.address_space != scopes.PRIVATE and
+            x.address_space != lp.auto])
         copy = temps[:]
         temps = []
         for name in sorted(set(x.name for x in copy)):
             same_names = [x for x in copy if x.name == name]
             if len(same_names) > 1:
                 if not all(x == same_names[0] for x in same_names[1:]):
-                    raise Exception('Cannot resolve different arguements of '
+                    raise Exception('Cannot resolve different arguments of '
                                     'same name: {}'.format(', '.join(
                                         str(x) for x in same_names)))
             temps.append(same_names[0])
@@ -1260,17 +1276,18 @@ ${name} : ${type}
         # work on temporary variables
         local = []
         if self.hoist_locals:
+            local_temps = [x for x in temps if x.address_space == scopes.LOCAL]
             # go through kernels finding local temporaries, and convert to local args
             for i, knl in enumerate(kernels):
-                local_temps = [x for x in knl.temporary_variables.values()
-                               if x.scope == scopes.LOCAL]
-                if local_temps:
+                lt = [x for x in local_temps
+                      if x in knl.temporary_variables.values()]
+                if lt:
                     # convert kernel's local temporarys to local args
-                    kernels[i] = self.__migrate_locals(knl, local_temps)
+                    kernels[i] = self.__migrate_locals(knl, lt)
                     # and add to list
-                    local.extend(local_temps)
+                    local.extend([x for x in lt if x not in local])
                     # and remove from temps
-                    temps = [x for x in temps if x not in local_temps]
+                    temps = [x for x in temps if x not in lt]
 
         # finally, separate the constants from the temporaries
         # for opencl < 2.0, a constant global can only be a
@@ -1366,6 +1383,80 @@ ${name} : ${type}
 
         return record.copy(args=args, constants=constants, readonly=readonly,
                            host_constants=host_constants), mem_limits
+
+    def _compress_to_working_buffer(self, record, for_driver=False):
+        """
+        Compresses the kernel arguments in the :class:`MemoryGenerationResult`
+        into working buffers (depending on memory scope & data type), and returns
+        the updated record.
+
+        Parameters
+        ----------
+        record: :class:`MemoryGenerationResult`
+            The memory record that holds the kernel arguments
+        for_driver: bool [False]
+            If True, only variables not in :attr:`input_arrays` or
+            :attr:`output_arrays` should be compressed.
+
+        Returns
+        -------
+        updated_record: :class:`MemoryGenerationResult`
+            The record, with the working buffer(s) stored in :attr:`kernel_data`
+        codegen: :class:`CodegenResult`
+            The intermediate code generation result w/ stored :attr:`pointer_unpacks`
+        """
+
+        # compress our kernel args into a working buffer
+        offset_args = record.args[:]
+        # partition by memory scope
+        largs = record.local[:]
+        # partition by data-type
+        itype = to_loopy_type(arc.kint_type, target=self.target)
+        iargs, dargs = utils.partition(offset_args, lambda x: x.dtype == itype)
+
+        if for_driver:
+            # filter out any args we shouldn't be compressing
+            dargs = [x for x in dargs if x.name not in set(self.mem.host_arrays)]
+
+        # and create buffers for all
+        assert dargs, 'No kernel data!'
+
+        def __generate(args, name, scope=scopes.GLOBAL, result=None):
+            # get the pointer unpackings
+            size_per_wi, static, offsets = self._get_working_buffer(args)
+            unpacks = []
+            for k, (dtype, v) in six.iteritems(offsets):
+                unpacks.append(self._get_pointer_unpack(k, v, dtype, scope))
+            if not result:
+                result = CodegenResult(pointer_unpacks=unpacks)
+            else:
+                result = result.copy(
+                    pointer_unpacks=result.pointer_unpacks + unpacks)
+
+            # create working buffer
+            from pymbolic.primitives import Variable
+            shape = static + Variable(w_size.name) * size_per_wi
+            wb = lp.ArrayArg(name, shape=shape,
+                             order=self.loopy_opts.order,
+                             dtype=args[0].dtype, address_space=scope)
+            return wb, result
+
+        # globals
+        wb, codegen = __generate(dargs, 'rwk')
+        record = record.copy(kernel_data=record.kernel_data + [wb])
+
+        if largs:
+            # locals
+            wb, codegen = __generate(largs, 'lwk', scope=scopes.LOCAL,
+                                     result=codegen)
+            record = record.copy(kernel_data=record.kernel_data + [wb])
+
+        if iargs:
+            # integers
+            wb, codegen = __generate(iargs, 'iwk', result=codegen)
+            record = record.copy(kernel_data=record.kernel_data + [wb])
+
+        return record, codegen
 
     def _dummy_wrapper_kernel(self, kernel_data, readonly, vec_width,
                               as_dummy_call=False, for_driver=False):
@@ -1473,31 +1564,38 @@ ${name} : ${type}
         Returns
         -------
         size_per_work_item: int
-            The size (in number of doubles) of the working buffer per work-group
-            item
+            The size (in number of values of dtype of :param:`args`)
+            of the working buffer per work-group item
+        static_size: int
+            The size (in number of values of dtype of :param:`args`) of the working
+            buffer (independent of # of work-group items)
         offsets: dict of str -> str
             A mapping of kernel argument names to string indicies to unpack working
             buffer into local pointers
         """
 
         size_per_work_item = 0
+        static_size = 0
         offsets = {}
         work_size = self.work_size
         for arg in args:
-            # ensure we're only operating on FP arrays
-            assert not arg.dtype.is_integral()
             # split the shape into the work-item and other dimensions
             isizes, ssizes = utils.partition(arg.shape, lambda x: isinstance(x, int))
             # store offset and increment size
-            offsets[arg.name] = '{} * {}'.format(size_per_work_item, work_size)
-            size_per_work_item += int(np.prod(isizes))
-            # check we have a work size in ssizes
-            if not self.user_specified_work_size:
-                assert len(ssizes) <= 1 and str(ssizes[0]) == w_size.name
+            offsets[arg.name] = (
+                arg.dtype, '{} * {}'.format(size_per_work_item, work_size))
+            if len(ssizes) >= 1 and str(ssizes[0]) == w_size.name:
+                # check we have a work size in ssizes
+                size_per_work_item += int(np.prod(isizes))
+            elif not len(ssizes):
+                # static size
+                static_size += int(np.prod(isizes))
+            else:
+                raise NotImplementedError
 
-        return size_per_work_item, offsets
+        return size_per_work_item, static_size, offsets
 
-    def _get_pointer_unpack(self, array, offset):
+    def _get_pointer_unpack(self, array, offset, dtype, scope=scopes.GLOBAL):
         """
         A method stub to implement the pattern:
         ```
@@ -1512,13 +1610,17 @@ ${name} : ${type}
             The array name
         offset: str
             The stringified offset
+        dtype: :class:`loopy.LoopyType`
+            The array type
+        scope: :class:`loopy.AddressSpace`
+            The memory scope
 
         Returns
         -------
         unpack: str
             The stringified pointer unpacking statement
         """
-        return 'double* {} = rwk + {};'.format(array, offset)
+        return '{}* {} = rwk + {};'.format(self.type_map[dtype], array, offset)
 
     def _remove_work_size(self, text):
         """
@@ -1589,18 +1691,8 @@ ${name} : ${type}
         if not for_driver:
             self.mem.fix_arrays(record.args)
 
-        # create the interior kernel
-        # first, compress our kernel args into a working buffer
-        offset_args = record.args[:]
-        if for_driver:
-            offset_args = [x for x in record.args if x.name.endswith('_local') and
-                           x.shape[0] == self.work_size]
-        size_per_wi, offsets = self._get_working_buffer(offset_args)
-        # next, get the pointer unpackings
-        # create working buffer
-        working_buffer = lp.GlobalArg('rwk', shape=(w_size.name, size_per_wi),
-                                      order=self.loopy_opts.order,
-                                      dtype=np.float64)
+        record, result = self._compress_to_working_buffer(record)
+
         kernel_data = [w_size] + [working_buffer]
 
         # and add to the memory store
@@ -1727,7 +1819,7 @@ ${name} : ${type}
         # get working buffer indexing, if necessary
         pointer_unpacks = []
         for k, v in six.iteritems(offsets):
-            pointer_unpacks.append(self._get_pointer_unpack(k, v))
+            pointer_unpacks.append()
 
         # insert barriers if any
         if not for_driver:
@@ -2403,11 +2495,11 @@ class opencl_kernel_generator(kernel_generator):
 
         return [work_size]
 
-    def _get_pointer_unpack(self, array, offset):
+    def _get_pointer_unpack(self, array, offset, dtype, scope=scopes.GLOBAL):
         """
         Implement the pattern
         ```
-            double* array = &rwk[offset]
+            __scope double* array = &rwk[offset]
         ```
         for OpenCL
 
@@ -2417,6 +2509,8 @@ class opencl_kernel_generator(kernel_generator):
             The array name
         offset: str
             The stringified offset
+        dtype: :class:`loopy.LoopyType`
+            The array type
 
         Returns
         -------
@@ -2424,7 +2518,15 @@ class opencl_kernel_generator(kernel_generator):
             The stringified pointer unpacking statement
         """
 
-        return '__global double* {} = rwk + {};'.format(array, offset)
+        if scope == scopes.GLOBAL:
+            scope_str = 'global'
+        elif scope == scopes.LOCAL:
+            scope_str = 'local'
+        else:
+            raise NotImplementedError
+
+        return '__{} {}* {} = rwk + {};'.format(scope_str, self.type_map[dtype],
+                                                array, offset)
 
     def _special_kernel_subs(self, file_src):
         """

@@ -100,13 +100,19 @@ class MemoryGenerationResult(ImmutableRecord):
     host_constants: list of :class:`loopy.GlobalArg`
         The __constant data that was necessary to move to __global data for
         space reasons
+    kernel_data: list of :class:`loopy.KernelArguement`
+        The list of kernel arguments required to call the generated kernel.
+        These typically contain compressed working buffer version(s) of :attr:`args`
+        that may be unpacked in the kernel, in addition to :class:`valueargs`
+        that should be passed in as is.
     """
 
     def __init__(self, args=[], local=[], readonly=[], constants=[],
-                 valueargs=[], host_constants=[]):
+                 valueargs=[], host_constants=[], kernel_data=[]):
         ImmutableRecord.__init__(
             self, args=args, local=local, readonly=readonly, constants=constants,
-            valueargs=valueargs, host_constants=host_constants)
+            valueargs=valueargs, host_constants=host_constants,
+            kernel_data=kernel_data)
 
 
 class memory_limits(object):
