@@ -155,3 +155,25 @@ class SubTest(TestClass):
                     assert all(x in mem_limits.arrays[memory_type.m_global] for x in
                                record.constants)
 
+                # and because we can, test the host constant migration at this point
+                # get all kernels
+                def __rec_kernel(gen, kernels=[]):
+                    if not gen.depends_on:
+                        return kernels + gen.kernels
+                    kernels = kernels + gen.kernels
+                    for dep in gen.depends_on:
+                        kernels += __rec_kernel(dep)
+                    return kernels
+
+                kernels = __rec_kernel(kgen)
+                kernels = kgen._migrate_host_constants(
+                    kernels, noconst.host_constants)
+                to_find = set([x.name for x in noconst.host_constants])
+                for kernel in kernels:
+                    # check temps
+                    assert not any(x in kernel.temporary_variables.keys()
+                                   for x in record.host_constants)
+                    # and args
+                    to_find = to_find - set([x.name for x in kernel.args])
+
+                assert not len(to_find)

@@ -1422,15 +1422,15 @@ ${name} : ${type}
 
         return knl
 
-    def _migrate_host_constants(self, kernel, host_constants):
+    def _migrate_host_constants(self, kernels, host_constants):
         """
         Moves temporary variables to global arguments based on the
         host constants for this :class:`kernel_generator`
 
         Parameters
         ----------
-        kernel: :class:`loopy.LoopKernel`
-            The kernel to transform
+        kernels: list of :class:`loopy.LoopKernel`
+            The kernels to transform
         host_constants: list of :class:`loopy.GlobalArg`
             The list of __constant temporary variables that were converted to
             __global args
@@ -1440,23 +1440,25 @@ ${name} : ${type}
         migrated: :class:`loopy.LoopKernel`
             The kernel with any host constants transformed to input arguments
         """
-        transferred = set([const.name for const in host_constants
-                           if const.name in kernel.temporary_variables])
-        # need to transfer these to arguments
-        if transferred:
-            # filter temporaries
-            new_temps = {t: v for t, v in six.iteritems(
-                         kernel.temporary_variables) if t not in transferred}
-            # create new args
-            new_args = [lp.GlobalArg(
-                t, shape=v.shape, dtype=v.dtype, order=v.order,
-                dim_tags=v.dim_tags)
-                for t, v in six.iteritems(kernel.temporary_variables)
-                if t in transferred]
-            return kernel.copy(
-                args=kernel.args + new_args, temporary_variables=new_temps)
 
-        return kernel
+        for i in range(len(kernels)):
+            transferred = set([const.name for const in host_constants
+                               if const.name in kernels[i].temporary_variables])
+            # need to transfer these to arguments
+            if transferred:
+                # filter temporaries
+                new_temps = {t: v for t, v in six.iteritems(
+                             kernels[i].temporary_variables) if t not in transferred}
+                # create new args
+                new_args = [lp.GlobalArg(
+                    t, shape=v.shape, dtype=v.dtype, order=v.order,
+                    dim_tags=v.dim_tags)
+                    for t, v in six.iteritems(kernels[i].temporary_variables)
+                    if t in transferred]
+                kernels[i] = kernels[i].copy(
+                    args=kernels[i].args + new_args, temporary_variables=new_temps)
+
+        return kernels
 
     def _get_working_buffer(self, args):
         """
@@ -1580,9 +1582,7 @@ ${name} : ${type}
         record, mem_limits = self._process_memory(record)
 
         # update subkernels for host constants
-        for i in range(len(kernels)):
-            kernels[i] = self._migrate_host_constants(
-                kernels[i], record.host_constants)
+        kernels = self._migrate_host_constants(kernels, record.host_constants)
 
         # and add to memory manager
         self.mem.add_arrays(host_constants=record.host_constants)
