@@ -1293,7 +1293,7 @@ ${name} : ${type}
         Returns
         -------
         updated_record: :class:`loopy.MemoryGenerationResult`
-            The updated memory generationr esult
+            The updated memory generation result
         mem_limits: :class:`memory_limits`
             The generated memory limit object
         """
@@ -1323,19 +1323,21 @@ ${name} : ${type}
         constants = record.constants[:]
         readonly = record.readonly.copy()
         host_constants = []
-        if not all(mem_limits.can_fit()):
+        if not all(x >= 0 for x in mem_limits.can_fit()):
             # we need to convert our __constant temporary variables to
             # __global kernel args until we can fit
             type_changes = defaultdict(lambda: list())
             # we can't remove the sparse indicies as we can't pass pointers
             # to loopy preambles
+            gtemps = constants[:]
             if self.jacobian_lookup:
                 gtemps = [x for x in constants if self.jacobian_lookup not in x.name]
             # sort by largest size
             gtemps = sorted(gtemps, key=lambda x: np.prod(x.shape), reverse=True)
             type_changes[memory_type.m_global].append(gtemps[0])
             gtemps = gtemps[1:]
-            while not all(mem_limits.can_fit(with_type_changes=type_changes)):
+            while not all(x >= 0 for x in mem_limits.can_fit(
+                    with_type_changes=type_changes)):
                 if not gtemps:
                     logger = logging.getLogger(__name__)
                     logger.exception('Cannot fit kernel {} in memory'.format(

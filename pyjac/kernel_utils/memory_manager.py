@@ -337,8 +337,8 @@ class memory_limits(object):
             per_alloc_ws_limit = np.minimum(np.floor((
                 self.limits[mtype] - static) / per_ws), per_alloc_ws_limit)
 
-        return int(np.maximum(per_alloc_ic_limit, 0)), int(
-            np.maximum(per_alloc_ws_limit, 0))
+        return int(np.maximum(per_alloc_ic_limit, -1)), int(
+            np.maximum(per_alloc_ws_limit, -1))
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',

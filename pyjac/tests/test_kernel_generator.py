@@ -140,7 +140,18 @@ class SubTest(TestClass):
 
                 # reprocesses
                 noconst, mem_limits = kgen._process_memory(record)
-                assert not len(mem_limits.arrays[memory_type.m_constant])
-                assert all(x in record.constants for x in noconst.host_constants)
-                assert all(x in mem_limits.arrays[memory_type.m_global] for x in
-                           record.constants)
+
+                # and test that all constants (except potentially the jacobian
+                # indicies) have been migrated
+                if opts.jac_format == JacobianFormat.sparse:
+                    assert len(mem_limits.arrays[memory_type.m_constant]) == 1
+                    jac_inds = mem_limits.arrays[memory_type.m_constant][0]
+                    assert all(x in record.constants for x in noconst.host_constants)
+                    assert all(x in mem_limits.arrays[memory_type.m_global] for x in
+                               record.constants if x != jac_inds)
+                else:
+                    assert not len(mem_limits.arrays[memory_type.m_constant])
+                    assert all(x in record.constants for x in noconst.host_constants)
+                    assert all(x in mem_limits.arrays[memory_type.m_global] for x in
+                               record.constants)
+
