@@ -60,14 +60,18 @@ class FakeCall(object):
         If :param:`replace_with` is :class:`kernel_generator`, then the
         :attr:`kernel_generator.kernel` will be used for replacement (i.e., the
         wrapping kernel)
+    for_driver: bool [False]
+        If true, this Fake call is being used in a driver kernel. This slightly
+        affects how call matching (see :func:`FakeCall.match`) is performed
     """
 
-    def __init__(self, dummy_call, replace_in, replace_with):
+    def __init__(self, dummy_call, replace_in, replace_with, for_driver=False):
         self.dummy_call = dummy_call
         self.replace_in = replace_in
         self._replace_with = replace_with
+        self.for_driver = for_driver
 
-    def match(self, kernel, insns, for_driver):
+    def match(self, kernel, insns):
         """
         Return true IFF :param:`kernel` matches :attr:`replace_in`
         """
@@ -76,7 +80,7 @@ class FakeCall(object):
         if isinstance(self.replace_in, kernel_generator):
             repl = self.replace_in.kernel
 
-        if for_driver:
+        if self.for_driver:
             return kernel.name in insns and repl.name in insns
         else:
             return kernel.name in repl.name
@@ -225,10 +229,23 @@ class CodegenResult(ImmutableRecord):
     pointer_unpacks: list of str
         A list of pointer de-references that convert the working buffer(s) to
         individual arrays
+    instructions: list of str
+        The instructions of the generated wrapper kernel
+    preambles: list of str
+        Macros, non-vector functions, and other miscellania to place at the top of
+        the generated file
+    extra_kernels: list of str
+        The additional kernels that the generated wrapper kernel calls
+    kernel: :class:`loopy.LoopKernel`
+        The skeleton of the wrapper kernel, used for generating the correct call
+        signature
     """
 
-    def __init__(self, pointer_unpacks=[]):
-        ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks)
+    def __init__(self, pointer_unpacks=[], instructions=[], preambles=[],
+                 extra_kernels=[], kernel=None):
+        ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks,
+                                 instructions=instructions, preambles=preambles,
+                                 extra_kernels=extra_kernels, kernel=kernel)
 
 
 class kernel_generator(object):
@@ -1185,10 +1202,6 @@ ${name} : ${type}
         if not kernels:
             kernels = self.kernels[:]
 
-        if use_subkernels:
-            # add kernels we depend on
-            kernels += [knl for dep in self.depends_on for knl in dep.kernels]
-
         # find complete list of kernel data
         args = [arg for dummy in kernels for arg in dummy.args]
 
@@ -1635,40 +1648,53 @@ ${name} : ${type}
             text = r.sub(s, text)
         return text
 
-    def _merge_kernels(self, for_driver, kernels=[], as_dummy_call=False,
-                       fake_calls={}):
+    def _get_kernel_ownership(self):
+        """
+        Determine which generator in the dependency tree owns which kernel
+
+        Returns
+        -------
+        owner: dict of str->:class:`kernel_generator`
+            A mapping of kernel name to it's owner
+        """
+
+        # figure out ownership
+        def __rec_dep_owner(gen, owner={}):
+            if gen.depends_on:
+                for dep in gen.depends_on:
+                    owner = __rec_dep_owner(dep, owner)
+            for k in gen.kernels:
+                if k.name not in owner:
+                    owner[k.name] = gen
+            return owner
+
+        return __rec_dep_owner(self)
+
+    def _merge_kernels(self, record, result, kernels=[], fake_calls={},
+                       for_driver=False, cache={}):
         """
         Generate and merge the supplied kernels, and return the resulting code in
         string form
 
         Parameters
         ----------
-        for_driver: bool
-            If True, these kernels are being merged for a kernel driver, and hence
-            don't need to use a working-buffer
-        kernels: list of :class:`loopy.LoopKernel`
+        record: :class:`MemoryGenerationResult`
+            The memory generation result containing the processed kernel data
+        result: :class:`CodegenResult`
+            The current code-gen result
+        kernels: list of :class:`loopy.LoopKernel` []
             The kernels to merge, if not supplied, use :attr:`kernels`
-        as_dummy_call: bool [False]
-            If True, this is being generated as a dummy call smuggled past loopy
-            e.g., for a Finite Difference jacobian call to the species rates kernel
-            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
         fake_calls: dict of str -> kernel_generator
             In some cases, e.g. finite differnce jacobians, we need to place a dummy
             call in the kernel that loopy will accept as valid.  Then it needs to
             be substituted with an appropriate call to the kernel generator's kernel
+        for_driver: bool [False]
+            Whether the kernels are being merged for a driver kernel
 
         Returns
         -------
-        instructions: str
-            The generated kernel instructions
-        preambles: str
-            The generated kernel preambles
-        extra_kernels: list of str
-            The generated kernels
-        dummy_kernel: :class:`loopy.LoopKernel`
-            The generated wrapper kernel
-        mem_limits: :class:`memory_limits`
-            The memory limit object for this kernel
+        result: :class:`CodegenResult`
+            The updated codegen result
         """
 
         if not kernels:
@@ -1677,44 +1703,31 @@ ${name} : ${type}
         if not fake_calls:
             fake_calls = self.fake_calls
 
-        # process arguments
-        record = self._process_args(kernels)
+        # determine
 
-        # process memory
-        record, mem_limits = self._process_memory(record)
+        # # and add to the memory store
+        # if not for_driver:
+        #     self.mem.add_arrays(record.kernel_data)
+        # else:
+        #     # add the working buffer to the driver function
+        #     for i, kernel in enumerate(kernels):
+        #         if kernel.name.endswith('driver'):
+        #             kargs = kernel.args[:]
+        #             for arg in record.kernel_data:
+        #                 if arg not in kargs:
+        #                     kargs.append(arg)
+        #             kernels[i] = kernel.copy(args=kargs)
+        #             break
 
-        # update subkernels for host constants
-        kernels = self._migrate_host_constants(kernels, record.host_constants)
-
-        # and add to memory manager
-        self.mem.add_arrays(host_constants=record.host_constants)
-        if not for_driver:
-            self.mem.fix_arrays(record.args)
-
-        record, result = self._compress_to_working_buffer(record)
-
-        kernel_data = [w_size] + [working_buffer]
-
-        # and add to the memory store
-        if not for_driver:
-            self.mem.add_arrays([working_buffer])
-        else:
-            # add the working buffer to the driver function
-            for i, kernel in enumerate(kernels):
-                if kernel.name.endswith('driver'):
-                    kargs = kernel.args[:]
-                    for arg in kernel_data:
-                        if arg not in kargs:
-                            kargs.append(arg)
-                    kernels[i] = kernel.copy(args=kargs)
-                    break
-
-        # and finally, generate the kernel code
+        # generate the kernel code
         preambles = []
         extra_kernels = []
         inits = []
         instructions = []
         local_decls = []
+
+        # figure out ownership
+        owner = self._get_kernel_ownership()
 
         def _get_func_body(cgr, subs={}):
             """
@@ -1781,12 +1794,15 @@ ${name} : ${type}
 
             # we need to place the call in the instructions and the extra kernels
             # in their own array
-            extra_kernels.append(self._remove_work_size(_get_func_body(cgr, {})))
+
+            if owner[k.name] == self:
+                # only place the kernel defn in this file, IFF we own it
+                extra_kernels.append(self._remove_work_size(_get_func_body(cgr, {})))
             insns = self._remove_work_size(self._get_kernel_call(k))
 
             if fake_calls:
                 # check to see if this kernel has a fake call to replace
-                fk = next((x for x in fake_calls if x.match(k, insns, for_driver)),
+                fk = next((x for x in fake_calls if x.match(k, insns)),
                           None)
                 if fk:
                     # mark for replacement
@@ -1811,22 +1827,17 @@ ${name} : ${type}
 
         # and save kernel data
         kernel = self._dummy_wrapper_kernel(
-            kernel_data, record.readonly, vec_width, as_dummy_call=as_dummy_call,
+            record.kernel_data, record.readonly, vec_width,
             for_driver=for_driver)
         # and split
         kernel = self.array_split.split_loopy_arrays(kernel)
-
-        # get working buffer indexing, if necessary
-        pointer_unpacks = []
-        for k, v in six.iteritems(offsets):
-            pointer_unpacks.append()
 
         # insert barriers if any
         if not for_driver:
             instructions = self.apply_barriers(instructions)
 
         # add pointer unpacking
-        instructions[0:0] = pointer_unpacks[:]
+        instructions[0:0] = result.pointer_unpacks[:]
 
         # add local declaration to beginning of instructions
         instructions[0:0] = [str(x) for x in local_decls]
@@ -1840,7 +1851,9 @@ ${name} : ${type}
         # join to string
         extra_kernels = '\n'.join(extra_kernels)
 
-        return instructions, preambles, extra_kernels, kernel, mem_limits
+        # and place in codegen
+        return result.copy(instructions=instructions, preambles=preambles,
+                           extra_kernels=extra_kernels, kernel=kernel)
 
     def _generate_wrapping_kernel(self, path, instruction_store=None,
                                   as_dummy_call=False):
@@ -1875,9 +1888,28 @@ ${name} : ${type}
             # generate wrappers for dependencies
             raise NotImplementedError
 
+        # process arguments
+        kernels = self.kernels
+        record = self._process_args(kernels)
+
+        # process memory
+        record, mem_limits = self._process_memory(record)
+
+        # update subkernels for host constants
+        kernels = self._migrate_host_constants(kernels, record.host_constants)
+
+        # and add to memory manager
+        self.mem.add_arrays(host_constants=record.host_constants)
+
+        # generate working buffer
+        record, result = self._compress_to_working_buffer(record)
+
+        # add work size
+        record = record.copy(kernel_data=record.kernel_data + [w_size])
+
         # get the instructions, preambles and kernel
         instructions, preambles, extra_kernels, kernel, mem_limits \
-            = self._merge_kernels(False, self.kernels)
+            = self._merge_kernels(record, result, kernels=self.kernels)
 
         filename = self._to_file(
             path, instructions, preambles, kernel, extra_kernels)
@@ -2012,7 +2044,7 @@ ${name} : ${type}
         kernels = self._make_kernels(knl_info)
         instructions, preambles, extra_kernels, kernel, mem_limits = \
             self._merge_kernels(True, kernels, fake_calls=[FakeCall(
-                self.name + '()', kernels[1], self)])
+                self.name + '()', kernels[1], self, True)])
         instructions = subs_at_indent(template, insns=instructions)
         # and write to file
         self._to_file(path, instructions, preambles, kernel, extra_kernels,

@@ -23,6 +23,16 @@ from pyjac.tests import TestClass, test_utils, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper
 
 
+# get all kernels
+def rec_kernel(gen, kernels=[]):
+    if not gen.depends_on:
+        return kernels + gen.kernels
+    kernels = kernels + gen.kernels
+    for dep in gen.depends_on:
+        kernels += rec_kernel(dep)
+    return kernels
+
+
 class SubTest(TestClass):
     def __cleanup(self, remove_dirs=True):
         # remove library
@@ -160,16 +170,8 @@ class SubTest(TestClass):
                                record.constants)
 
                 # and because we can, test the host constant migration at this point
-                # get all kernels
-                def __rec_kernel(gen, kernels=[]):
-                    if not gen.depends_on:
-                        return kernels + gen.kernels
-                    kernels = kernels + gen.kernels
-                    for dep in gen.depends_on:
-                        kernels += __rec_kernel(dep)
-                    return kernels
 
-                kernels = __rec_kernel(kgen)
+                kernels = rec_kernel(kgen)
                 kernels = kgen._migrate_host_constants(
                     kernels, noconst.host_constants)
                 to_find = set([x.name for x in noconst.host_constants])
@@ -249,3 +251,46 @@ class SubTest(TestClass):
                 __check_unpacks(
                     result.pointer_unpacks,
                     recordnew.args + recordnew.local + record.constants)
+
+    def test_merge_kernels(self):
+        # test vector to ensure the various working buffer configurations work
+        # (i.e., locals)
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            # make kernels
+            kgen._make_kernels()
+
+            # process the arguements
+            record = kgen._process_args()
+
+            # test that process memory works
+            record, mem_limits = kgen._process_memory(record)
+
+            # and generate working buffers
+            recordnew, result = kgen._compress_to_working_buffer(record)
+
+            result = kgen._merge_kernels(record, result)
+
+            # get ownership
+            owner = kgen._get_kernel_ownership()
+
+            # check we have generated our own kernels
+            for kernel in kgen.kernels:
+                if owner[kernel.name] == kgen:
+                    assert re.search(
+                        r'\b' + kernel.name + r'\b', result.extra_kernels)
+                else:
+                    assert not re.search(
+                        r'\b' + kernel.name + r'\b', result.extra_kernels)
+
+            # check that we have the instruction call to _all_ kernels
+            all_kernels = rec_kernel(kgen)
+            for kernel in all_kernels:
+                assert re.search(
+                    r'\b' + kernel.name + r'\b', result.instructions)

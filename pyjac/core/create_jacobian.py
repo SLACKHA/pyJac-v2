@@ -5065,7 +5065,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         kernel_type=KernelType.jacobian,
-        kernels=kernels,
+        kernels=sub_kernels + kernels,
         namestore=nstore,
         depends_on=[sgen],
         input_arrays=input_arrays,

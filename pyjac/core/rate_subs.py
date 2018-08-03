@@ -3071,6 +3071,9 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                      test_size), depends_on)
         __add_knl(polyfit_kernel_gen('cv', loopy_opts, nstore,
                                      test_size), depends_on)
+    # and add to source rates
+    __add_knl(depends_on[-2:])
+
     # and temperature rates
     __add_knl(get_temperature_rate(loopy_opts,
                                    nstore, test_size=test_size, conp=conp))
