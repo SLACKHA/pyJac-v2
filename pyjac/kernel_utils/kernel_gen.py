@@ -1996,7 +1996,30 @@ ${name} : ${type}
 
         return filename
 
-    def _generate_driver_kernel(self, path, driven):
+    def _get_local_unpacks(self, wrapper, args):
+        """
+        Converts pointer unpacks from :param:`wrapper` to '_local' versions
+        for the driver kernel
+
+        Parameters
+        ----------
+        wrapper: :class:`CodegenResult`
+            The code-generation object for the wrapped kernel
+        args: list of :class:`loopy.ArrayArgs`
+            The args to convert
+
+        Returns
+        -------
+        result: :class:`CodegenResult`
+            The code-generation result with the updated pointer unpacks
+        """
+
+        unpacks = {x.name + arc.local_name_suffix:
+                   wrapper.pointer_offsets[x.name] for x in args}
+        unpacks = [self._get_pointer_unpack(k, v, dtype, scopes.GLOBAL)
+                   for k, (dtype, v) in six.iteritems(unpacks)]
+        return CodegenResult(pointer_unpacks=unpacks)
+
         """
         Generates a driver kernel that is responsible for looping through the entire
         set of initial conditions for testing / execution.  This is useful so that

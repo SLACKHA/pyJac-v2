@@ -10,6 +10,7 @@ from loopy.kernel.array import ArrayBase
 from loopy.kernel.data import AddressSpace as scopes
 from loopy.types import to_loopy_type
 from nose.tools import assert_raises
+import numpy as np
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
 from pyjac.core.enum_types import JacobianFormat
@@ -226,9 +227,24 @@ class SubTest(TestClass):
                     # and in offset
                     assert arg.name in offsets
 
+            def __check_local_unpacks(result, args):
+                # select a few random args
+                assert 3 < len(args)
+                choice = np.random.choice(list(range(len(args))), size=3,
+                                          replace=False)
+                # get offsets
+                cargs = [args[x] for x in choice]
+                offsets = [result.pointer_offsets[x.name][1] for x in cargs]
+                new = kgen._get_local_unpacks(result, cargs)
+                # and check
+                for i in range(len(new.pointer_unpacks)):
+                    assert re.search(r'\b' + re.escape(offsets[i]) + r'\b',
+                                     new.pointer_unpacks[i])
+
             # check that all args are in the pointer unpacks
             __check_unpacks(result.pointer_unpacks, result.pointer_offsets,
                             recordnew.args + recordnew.local)
+            __check_local_unpacks(result, recordnew.args + recordnew.local)
             # next, write a dummy input file, such that we can force the constant
             # memory allocation to zero
             with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:
@@ -254,6 +270,8 @@ class SubTest(TestClass):
                 __check_unpacks(
                     result.pointer_unpacks, result.pointer_offsets,
                     recordnew.args + recordnew.local + record.constants)
+                __check_local_unpacks(result, recordnew.args + recordnew.local +
+                                      record.constants)
 
     def test_merge_kernels(self):
         # test vector to ensure the various working buffer configurations work
