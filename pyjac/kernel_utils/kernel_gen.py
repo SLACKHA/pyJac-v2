@@ -239,13 +239,16 @@ class CodegenResult(ImmutableRecord):
     kernel: :class:`loopy.LoopKernel`
         The skeleton of the wrapper kernel, used for generating the correct call
         signature
+    pointer_offsets: dict of str -> str
+        Stored offsets for pointer unpacks (used in driver kernel creation)
     """
 
     def __init__(self, pointer_unpacks=[], instructions=[], preambles=[],
-                 extra_kernels=[], kernel=None):
+                 extra_kernels=[], kernel=None, pointer_offsets={}):
         ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks,
                                  instructions=instructions, preambles=preambles,
-                                 extra_kernels=extra_kernels, kernel=kernel)
+                                 extra_kernels=extra_kernels, kernel=kernel,
+                                 pointer_offsets=pointer_offsets)
 
 
 class kernel_generator(object):
@@ -1433,10 +1436,14 @@ ${name} : ${type}
             for k, (dtype, v) in six.iteritems(offsets):
                 unpacks.append(self._get_pointer_unpack(k, v, dtype, scope))
             if not result:
-                result = CodegenResult(pointer_unpacks=unpacks)
+                result = CodegenResult(pointer_unpacks=unpacks,
+                                       pointer_offsets=offsets)
             else:
+                new_offsets = result.pointer_offsets.copy()
+                new_offsets.update(offsets)
                 result = result.copy(
-                    pointer_unpacks=result.pointer_unpacks + unpacks)
+                    pointer_unpacks=result.pointer_unpacks + unpacks,
+                    pointer_offsets=new_offsets)
 
             # create working buffer
             from pymbolic.primitives import Variable

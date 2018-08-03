@@ -212,7 +212,7 @@ class SubTest(TestClass):
                 assert next((x for x in recordnew.kernel_data
                              if x.address_space == scopes.LOCAL), None)
 
-            def __check_unpacks(unpacks, args):
+            def __check_unpacks(unpacks, offsets, args):
                 for arg in args:
                     # check that all args are in the unpacks
                     unpack = next((x for x in unpacks if re.search(
@@ -223,9 +223,12 @@ class SubTest(TestClass):
                     # and scope, if needed
                     if arg.address_space == scopes.LOCAL:
                         assert 'local' in unpack
+                    # and in offset
+                    assert arg.name in offsets
 
             # check that all args are in the pointer unpacks
-            __check_unpacks(result.pointer_unpacks, recordnew.args + recordnew.local)
+            __check_unpacks(result.pointer_unpacks, result.pointer_offsets,
+                            recordnew.args + recordnew.local)
             # next, write a dummy input file, such that we can force the constant
             # memory allocation to zero
             with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:
@@ -249,7 +252,7 @@ class SubTest(TestClass):
 
                 # and recheck pointer unpacks (including host constants)
                 __check_unpacks(
-                    result.pointer_unpacks,
+                    result.pointer_unpacks, result.pointer_offsets,
                     recordnew.args + recordnew.local + record.constants)
 
     def test_merge_kernels(self):
