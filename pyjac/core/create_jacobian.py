@@ -5167,7 +5167,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     use_atomic_doubles=True, use_atomic_ints=True, jac_type='exact',
                     jac_format='full', for_validation=False,
                     fd_order=1, fd_mode='forward', mem_limits='',
-                    work_size=None, generate_all=False, explicit_simd=False
+                    work_size=None, explicit_simd=False
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5285,13 +5285,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         should evaluate concurrently in the generated source code. This option is
         most useful for coupling to an external library that that has already been
         parallelized, e.g., via OpenMP.
-    generate_all: bool [False]
-        If true, generate kernels, wrappers and driver functions for all kernels
-        that the supplied :param:`kernel_type` depends on.  For instance, if
-        :param:`generate_all` is True and :param:`kernel_type` is
-        :class:`KernelType.Jacobian`, wrapper/driver code will be generated for
-        the Jacobian, species rates, and chemical utilities.  Note: this option will
-        result in a longer code-generation process
     explicit_simd: bool [False]
         If true, use explicit-SIMD instructions in OpenCL if possible.  Currently
         available for wide-vectorizations only.
@@ -5442,28 +5435,22 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
             and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
-                                  mem_limits=mem_limits, generate_all=generate_all)
+                                  mem_limits=mem_limits)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
     elif kernel_type == KernelType.jacobian and \
             jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
-                                         mem_limits=mem_limits,
-                                         generate_all=generate_all)
+                                         mem_limits=mem_limits)
     elif kernel_type == KernelType.species_rates:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop,
-                                        mem_limits=mem_limits,
-                                        generate_all=generate_all)
+                                        mem_limits=mem_limits)
     elif kernel_type == KernelType.chem_utils:
         # just chem utils
         gen = rate.write_chem_utils(reacs, specs, loopy_opts,
-                                    conp=conp, mem_limits=mem_limits,
-                                    generate_all=generate_all)
-
-    # add the driver kernel
-
+                                    conp=conp, mem_limits=mem_limits)
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,

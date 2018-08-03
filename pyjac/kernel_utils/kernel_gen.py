@@ -273,8 +273,7 @@ class kernel_generator(object):
                  mem_limits='',
                  for_testing=False,
                  compiler=None,
-                 driver_type=DriverType.lockstep,
-                 generate_all=False):
+                 driver_type=DriverType.lockstep):
         """
         Parameters
         ----------
@@ -330,9 +329,6 @@ class kernel_generator(object):
             :class:`pyjac.loopy_utils.AdeptCompiler`), or None
         driver_type: :class:`DriverType`
             The type of kernel driver to generate
-        generate_all: bool [False]
-            If true, generate driver / wrapper code for this kernel and _all_ it's
-            dependencies, else simply generate driver / wrapper code for this kernel!
         """
 
         self.compiler = compiler
@@ -397,8 +393,6 @@ class kernel_generator(object):
         self.for_testing = isinstance(test_size, int)
         # setup driver type
         self.driver_type = driver_type
-        # whether to generate driver/wrappers for all dependencies
-        self.generate_all = generate_all
 
         # mark owners
         self.owner = None
@@ -1883,10 +1877,6 @@ ${name} : ${type}
         assert all(
             isinstance(x, lp.LoopKernel) for x in self.kernels), (
             'Cannot generate wrapper before calling _make_kernels')
-
-        if self.depends_on and self.generate_all:
-            # generate wrappers for dependencies
-            raise NotImplementedError
 
         # process arguments
         kernels = self.kernels
