@@ -721,12 +721,10 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        max_ic_per_run, max_ws_per_run, filename, kernel = \
+        max_ic_per_run, max_ws_per_run, filename, result = \
             self._generate_wrapping_kernel(path)
-        # set kernel object
-        self.kernel = kernel
         self._generate_compiling_program(path, filename)
-        self._generate_driver_kernel(path, kernel)
+        self._generate_driver_kernel(path, result)
         self._generate_calling_program(path, data_filename, max_ic_per_run,
                                        max_ws_per_run, for_validation=for_validation)
         self._generate_calling_header(path)
@@ -1849,8 +1847,7 @@ ${name} : ${type}
         return result.copy(instructions=instructions, preambles=preambles,
                            extra_kernels=extra_kernels, kernel=kernel)
 
-    def _generate_wrapping_kernel(self, path, instruction_store=None,
-                                  as_dummy_call=False):
+    def _generate_wrapping_kernel(self, path):
         """
         Generates a wrapper around the various subkernels in this
         :class:`kernel_generator` (rather than working through loopy's fusion)
@@ -1859,19 +1856,18 @@ ${name} : ${type}
         ----------
         path : str
             The output path to write files to
-        instruction_store: dict [None]
-            If supplied, store the generated instructions for this kernel
-            in this store to avoid duplicate work
-        as_dummy_call: bool [False]
-            If True, this is being generated as a dummy call smuggled past loopy
-            e.g., for a Finite Difference jacobian call to the species rates kernel
-            Hence, we need to add any :attr:`extra_kernel_data` to our kernel defn
 
         Returns
         -------
-        max_per_run: int
+        max_ic_per_run: int
             The maximum number of initial conditions that can be executed per
             kernel call
+        max_ws_per_run: int
+            The maximum work-size permissible per run
+        filename: str
+            The name of the generated file
+        result: :class:`CodegenResult`
+            The resulting code-generation object
         """
 
         assert all(
@@ -1898,11 +1894,9 @@ ${name} : ${type}
         record = record.copy(kernel_data=record.kernel_data + [w_size])
 
         # get the instructions, preambles and kernel
-        instructions, preambles, extra_kernels, kernel, mem_limits \
-            = self._merge_kernels(record, result, kernels=self.kernels)
+        result = self._merge_kernels(record, result, kernels=self.kernels)
 
-        filename = self._to_file(
-            path, instructions, preambles, kernel, extra_kernels)
+        filename = self._to_file(path, result)
 
         max_ic_per_run, max_ws_per_run = mem_limits.can_fit(memory_type.m_global)
         # normalize to divide evenly into vec_width
@@ -1910,10 +1904,9 @@ ${name} : ${type}
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
 
-        return int(max_ic_per_run), int(max_ws_per_run), filename, kernel
+        return int(max_ic_per_run), int(max_ws_per_run), filename, result
 
-    def _to_file(self, path, instructions, preambles, kernel, extra_kernels,
-                 for_driver=False):
+    def _to_file(self, path, result, for_driver=False):
         """
         Write the generated kernel data to file
 
@@ -1921,14 +1914,8 @@ ${name} : ${type}
         ----------
         path: str
             The directory to write to
-        instructions: str
-            The interior kernel instructions for :param:`kernel
-        preambles: str
-            The preambles
-        kernel: :class:`loopy.LoopKernel`
-            The kernel definition to write to file
-        extra_kernels: str
-            Kernels called by this
+        result: :class:`CodegenResult`
+            The code-gen result to write to file
         for_driver: bool [False]
             Whether we're writing a driver kernel or not
 
@@ -1959,14 +1946,14 @@ ${name} : ${type}
         filename = os.path.join(path, self.file_prefix + name + utils.file_ext[
             self.lang])
         with filew.get_file(filename, self.lang, include_own_header=True) as file:
-            instructions = _find_indent(file_str, 'body', instructions)
-            preambles = _find_indent(file_str, 'preamble', preambles)
+            instructions = _find_indent(file_str, 'body', result.instructions)
+            preambles = _find_indent(file_str, 'preamble', result.preambles)
             lines = file_src.safe_substitute(
                 defines='',
                 preamble='',
-                func_define=self.__get_kernel_defn(kernel),
+                func_define=self.__get_kernel_defn(result.kernel),
                 body=instructions,
-                extra_kernels=extra_kernels)
+                extra_kernels=result.extra_kernels)
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
@@ -1986,7 +1973,7 @@ ${name} : ${type}
         # included into other files to avoid duplications
         preambles = preambles.split('\n')
         preambles.extend([
-            self.__get_kernel_defn(kernel) + utils.line_end[self.lang]])
+            self.__get_kernel_defn(result.kernel) + utils.line_end[self.lang]])
 
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + name + utils.header_ext[
@@ -2014,13 +2001,14 @@ ${name} : ${type}
         ----------
         path: str
             The path to place the driver kernel in
-        driven: :class:`loopy.LoopKernel
-            The kernel to drive!
+        driven: :class:`CodegenResut`
+            The owner of kernel to drive!
         Returns
         -------
         None
         """
 
+        # make driver kernels
         knl_info = drivers.get_driver(
                 self.loopy_opts, self.namestore, self.mem.in_arrays,
                 self.mem.out_arrays, self, test_size=self.test_size)
