@@ -19,6 +19,7 @@ from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
+from pyjac.kernel_utils.kernel_gen import kernel_generator
 from pyjac.utils import partition
 from pyjac.tests import TestClass, test_utils, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper
@@ -315,3 +316,18 @@ class SubTest(TestClass):
             for kernel in all_kernels:
                 assert re.search(
                     r'\b' + kernel.name + r'\b', result.instructions)
+
+
+def test_remove_worksize():
+    assert kernel_generator._remove_work_size(
+        '(int const work_size, int dummy)') == '(int dummy)'
+    assert kernel_generator._remove_work_size(
+        '(int dummy, int const work_size)') == '(int dummy)'
+    assert kernel_generator._remove_work_size(
+        '(int dummy, int const work_size, int dummy2)') == '(int dummy, int dummy2)'
+    assert kernel_generator._remove_work_size(
+        'call(dummy, work_size)') == 'call(dummy)'
+    assert kernel_generator._remove_work_size(
+        'call(work_size, dummy)') == 'call(dummy)'
+    assert kernel_generator._remove_work_size(
+        'call(dummy, work_size, dummy)') == 'call(dummy, dummy)'

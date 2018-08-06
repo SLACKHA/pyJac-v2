@@ -1634,12 +1634,18 @@ ${name} : ${type}
         """
         return '{}* {} = rwk + {};'.format(self.type_map[dtype], array, offset)
 
-    def _remove_work_size(self, text):
+    @classmethod
+    def _remove_work_size(cls, text):
         """
         Hack -- TODO: whip up define-based array sizing for loopy
         """
 
-        replacers = [(re.compile(r'(int const work_size(?:, )?)'), ''),
+        replacers = [  # full replacement
+                     (re.compile(r'(, int const work_size, )'), r', '),
+                     # rhs )
+                     (re.compile(r'(, int const work_size\))'), r')'),
+                     # lhs (
+                     (re.compile(r'(\(int const work_size, )'), r'('),
                      (re.compile(r'(\(work_size, )'), '('),
                      (re.compile(r'(, work_size, )'), ', '),
                      (re.compile(r'(, work_size\))'), ')')]
