@@ -440,6 +440,12 @@ work_size = lp.ValueArg('work_size', dtype=kint_type)
     This may be specified at run-time or during kernel-generation.
 """
 
+local_name_suffix = '_local'
+"""
+The suffix to append to 'local' versions of arrays (i.e., those in the working buffer
+in use in the driver)
+"""
+
 
 global_ind = 'j'
 """str: The global initial condition index
@@ -1478,7 +1484,7 @@ class creator(object):
         # check name
         name = lp_arr.name
         if use_local_name:
-            name += '_local'
+            name += local_name_suffix
             lp_arr = lp_arr.copy(name=name)
 
         return (lp_arr, name + '[{}]'.format(', '.join(

@@ -50,46 +50,34 @@ class FakeCall(object):
     ----------
     dummy_call: str
         The dummy call passed to loopy to replaced during code-generation
-    replace_in: :class:`loopy.LoopKernel` or :class:`kernel_generator`
+    replace_in: :class:`loopy.LoopKernel`
         The kernel to replace the dummy call in.
-        If :param:`replace_in` is :class:`kernel_generator`, then the
-        :attr:`kernel_generator.kernel` will be used for replacement (i.e., the
-        wrapping kernel)
-    replace_with: :class:`loopy.LoopKernel` or :class:`kernel_generator`
+    replace_with: :class:`loopy.LoopKernel`
         The kernel to replace the dummy call with.
-        If :param:`replace_with` is :class:`kernel_generator`, then the
-        :attr:`kernel_generator.kernel` will be used for replacement (i.e., the
-        wrapping kernel)
-    for_driver: bool [False]
-        If true, this Fake call is being used in a driver kernel. This slightly
-        affects how call matching (see :func:`FakeCall.match`) is performed
     """
 
-    def __init__(self, dummy_call, replace_in, replace_with, for_driver=False):
+    def __init__(self, dummy_call, replace_in, replace_with):
         self.dummy_call = dummy_call
         self.replace_in = replace_in
-        self._replace_with = replace_with
-        self.for_driver = for_driver
+        self.replace_with = replace_with
 
-    def match(self, kernel, insns):
+    def match(self, kernel, kernel_body):
         """
         Return true IFF :param:`kernel` matches :attr:`replace_in`
+
+        Params
+        ------
+        kernel: class:`loopy.LoopKernel`
+            The kernel to test
+        kernel_body: str
+            The generated kernel body
         """
 
-        repl = self.replace_in
-        if isinstance(self.replace_in, kernel_generator):
-            repl = self.replace_in.kernel
-
-        if self.for_driver:
-            return kernel.name in insns and repl.name in insns
-        else:
-            return kernel.name in repl.name
-
-    @property
-    def replace_with(self):
-        if isinstance(self._replace_with, kernel_generator):
-            return self._replace_with.kernel
-        return self._replace_with
+        match = kernel.name == self.replace_in.name
+        if match:
+            assert self.dummy_call in kernel_body
+            return True
+        return False
 
 
 class vecwith_fixer(object):
@@ -724,10 +712,10 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        max_ic_per_run, max_ws_per_run, filename, result = \
+        max_ic_per_run, max_ws_per_run, filename, record, result = \
             self._generate_wrapping_kernel(path)
         self._generate_compiling_program(path, filename)
-        self._generate_driver_kernel(path, result)
+        self._generate_driver_kernel(path, record, result)
         self._generate_calling_program(path, data_filename, max_ic_per_run,
                                        max_ws_per_run, for_validation=for_validation)
         self._generate_calling_header(path)
@@ -1653,7 +1641,7 @@ ${name} : ${type}
             text = r.sub(s, text)
         return text
 
-    def _get_kernel_ownership(self):
+    def _get_kernel_ownership(self, kernels):
         """
         Determine which generator in the dependency tree owns which kernel
 
@@ -1668,8 +1656,8 @@ ${name} : ${type}
             if gen.depends_on:
                 for dep in gen.depends_on:
                     owner = __rec_dep_owner(dep, owner)
-            for k in gen.kernels:
-                if k.name not in owner:
+            for k in kernels:
+                if k in gen.kernels and k.name not in owner:
                     owner[k.name] = gen
             return owner
 
@@ -1732,7 +1720,7 @@ ${name} : ${type}
         local_decls = []
 
         # figure out ownership
-        owner = self._get_kernel_ownership()
+        owner = self._get_kernel_ownership(kernels)
 
         def _get_func_body(cgr, subs={}):
             """
@@ -1751,9 +1739,6 @@ ${name} : ${type}
 
             # feed through get_code to get any corrections
             return lp_utils.get_code(body, self.loopy_opts)
-
-        # stubs for kernel calls snuck past loopy
-        extra_fake_kernels = []
 
         # split into bodies, preambles, etc.
         for i, k, in enumerate(kernels):
@@ -1800,28 +1785,27 @@ ${name} : ${type}
             # we need to place the call in the instructions and the extra kernels
             # in their own array
 
-            if owner[k.name] == self:
+            if for_driver or owner[k.name] == self:
+                # drivers own all their own kernels
+
                 # only place the kernel defn in this file, IFF we own it
-                extra_kernels.append(self._remove_work_size(_get_func_body(cgr, {})))
+                extra = self._remove_work_size(_get_func_body(cgr, {}))
+                extra_kernels.append(extra)
+                if fake_calls:
+                    # check to see if this kernel has a fake call to replace
+                    fk = next((x for x in fake_calls if x.match(k, extra)), None)
+                    if fk:
+                        import pdb; pdb.set_trace()
+                        # replace call in instructions to call to kernel
+                        knl_call = self._remove_work_size(self._get_kernel_call(
+                            knl=fk.replace_with, passed_locals=local_decls))
+                        extra_kernels[-1] = extra_kernels[-1].replace(
+                            fk.dummy_call, knl_call[:-2])
+
+            # get instructions
             insns = self._remove_work_size(self._get_kernel_call(k))
-
-            if fake_calls:
-                # check to see if this kernel has a fake call to replace
-                fk = next((x for x in fake_calls if x.match(k, insns)),
-                          None)
-                if fk:
-                    # mark for replacement
-                    extra_fake_kernels.append((fk, len(extra_kernels) - 1))
-
             instructions.append(insns)
 
-        # fix extra fake kernel calls
-        for (fake_call, index) in extra_fake_kernels:
-            # replace call in instructions to call to kernel
-            knl_call = self._remove_work_size(self._get_kernel_call(
-                knl=fake_call.replace_with, passed_locals=local_decls))
-            extra_kernels[index] = extra_kernels[index].replace(
-                fake_call.dummy_call, knl_call[:-2])
 
         # determine vector width
         vec_width = self.loopy_opts.depth
@@ -1879,6 +1863,8 @@ ${name} : ${type}
             The maximum work-size permissible per run
         filename: str
             The name of the generated file
+        record: :class:`MemoryGenerationResult`
+            The resulting memory object
         result: :class:`CodegenResult`
             The resulting code-generation object
         """
@@ -1917,7 +1903,7 @@ ${name} : ${type}
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
 
-        return int(max_ic_per_run), int(max_ws_per_run), filename, result
+        return int(max_ic_per_run), int(max_ws_per_run), filename, record, result
 
     def _to_file(self, path, result, for_driver=False):
         """
@@ -2021,11 +2007,13 @@ ${name} : ${type}
         """
 
         unpacks = {x.name + arc.local_name_suffix:
-                   wrapper.pointer_offsets[x.name] for x in args}
+                   wrapper.pointer_offsets[x.name] for x in args
+                   if isinstance(x, lp.ArrayArg)}
         unpacks = [self._get_pointer_unpack(k, v, dtype, scopes.GLOBAL)
                    for k, (dtype, v) in six.iteritems(unpacks)]
         return CodegenResult(pointer_unpacks=unpacks)
 
+    def _generate_driver_kernel(self, path, wrapper_memory, wrapper_result):
         """
         Generates a driver kernel that is responsible for looping through the entire
         set of initial conditions for testing / execution.  This is useful so that
@@ -2037,8 +2025,11 @@ ${name} : ${type}
         ----------
         path: str
             The path to place the driver kernel in
-        driven: :class:`CodegenResut`
-            The owner of kernel to drive!
+        wrapper_memory: :class:`MemoryGenerationResult`
+            The memory configuration of the wrapper kernel we are trying to drive
+        wrapper_result: :class:`CodegenResult`
+            The resulting code-generation object
+
         Returns
         -------
         None

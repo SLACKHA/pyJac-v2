@@ -168,6 +168,10 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
 
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies
+            if isinstance(arr, arc.jac_creator) and arr.is_sparse:
+                # this is a sparse Jacobian, hence we have to override the default
+                # indexing (as we're doing a straight copy)
+                kwargs['ignore_lookups'] = True
             if arr_non_ic(arr):
                 return mapstore.apply_maps(arr, *inds, **kwargs)
             else:
