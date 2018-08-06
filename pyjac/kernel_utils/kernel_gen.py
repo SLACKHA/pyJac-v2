@@ -10,6 +10,7 @@ from string import Template
 import logging
 from collections import defaultdict
 import six
+from six.moves import cPickle as pickle
 
 import loopy as lp
 from loopy.types import AtomicNumpyType, to_loopy_type
@@ -207,7 +208,18 @@ def _unSIMDable_arrays(knl, loopy_opts, mstore, warn=True):
     return cant_simd
 
 
-class CodegenResult(ImmutableRecord):
+class ImmutableWithPytoolsCopy(ImmutableRecord):
+    """
+    A wrapper around :class:`pytools.ImmutableRecord` that provides a method
+    :func:`as_immutable` to return a pytools-based copy (and avoid having to load
+    pyjac in cog during codegen)
+    """
+
+    def as_immutable(self):
+        return ImmutableRecord(**self.get_copy_kwargs())
+
+
+class CodegenResult(ImmutableWithPytoolsCopy):
     """
     A convenience class that provides storage for intermediate code-generation
     results.
@@ -239,6 +251,29 @@ class CodegenResult(ImmutableRecord):
                                  instructions=instructions, preambles=preambles,
                                  extra_kernels=extra_kernels, kernel=kernel,
                                  pointer_offsets=pointer_offsets, inits=inits)
+
+
+class CompgenResult(ImmutableWithPytoolsCopy):
+    """
+    A convenience class that provides storage for intermediate compilation file
+    generation
+
+    Attributes
+    ----------
+    source_names: list of str
+        The file sources
+    platform: str
+        The OpenCL platform name
+    outname: str
+        The output binary name for the kernel
+    build_options: str
+        The OpenCL build options
+    """
+
+    def __init__(self, source_names=[], platform=None, outname='', build_options=''):
+        ImmutableRecord.__init__(self, source_names=source_names,
+                                 platform=platform, outname=outname,
+                                 build_options=build_options)
 
 
 class kernel_generator(object):
@@ -714,9 +749,8 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        max_ic_per_run, max_ws_per_run, filename, record, result = \
-            self._generate_wrapping_kernel(path)
-        self._generate_compiling_program(path, filename)
+        source_files, record, result = self._generate_wrapping_kernel(path)
+        self._generate_compiling_program(path, source_files)
         self._generate_driver_kernel(path, record, result)
         self._generate_calling_program(path, data_filename, max_ic_per_run,
                                        max_ws_per_run, for_validation=for_validation)
@@ -1001,7 +1035,7 @@ ${name} : ${type}
                 output_sizes=output_sizes
             ))
 
-    def _generate_compiling_program(self, path, filename):
+    def _generate_compiling_program(self, path, source_files):
         """
         Needed for some languages (e.g., OpenCL) this may be overriden in
         subclasses to generate a program that compilers the kernel
@@ -1010,8 +1044,8 @@ ${name} : ${type}
         ----------
         path : str
             The output path for the compiling program
-        filename : str
-            The filename of the wrapping kernel
+        source_files : list of str
+            The filename(s) of the wrapping kernel
 
         Returns
         -------
@@ -1908,8 +1942,8 @@ ${name} : ${type}
 
         Returns
         -------
-        filename: str
-            The name of the generated file
+        source_files: list of str
+            The name of the generated files
         record: :class:`MemoryGenerationResult`
             The resulting memory object
         result: :class:`CodegenResult`
@@ -1946,14 +1980,14 @@ ${name} : ${type}
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=self.kernels)
 
-        filename = ''
+        source_files = []
         if is_owner and self.depends_on:
             codegen_results = self._constant_deduplication(record, result)
             # write kernels to file
             for dr in codegen_results:
-                filename = self._to_file(path, dr)
+                source_files.append(self._to_file(path, dr))
 
-        return filename, record, result
+        return source_files, record, result
 
     def _to_file(self, path, result, for_driver=False):
         """
@@ -2020,7 +2054,7 @@ ${name} : ${type}
 
         # include the preambles as well, such that they can be
         # included into other files to avoid duplications
-        preambles = '\n'.join(result.preambles + result.inits.keys())
+        preambles = '\n'.join(result.preambles + sorted(list(result.inits.values())))
         preambles = preambles.split('\n')
         preambles.extend([
             self.__get_kernel_defn(result.kernel) + utils.line_end[self.lang]])
@@ -2639,8 +2673,7 @@ class opencl_kernel_generator(kernel_generator):
             # set to default
             vec_width = 1
         # platform
-        platform_str = self.loopy_opts.platform.get_info(
-            cl.platform_info.VENDOR)
+        platform_str = self.loopy_opts.platform.vendor
         # build options
         build_options = self.build_options
         # kernel arg setting
@@ -2752,7 +2785,7 @@ class opencl_kernel_generator(kernel_generator):
             # default to the site level
             return site.CL_VERSION
 
-    def _generate_compiling_program(self, path, filename):
+    def _generate_compiling_program(self, path, source_files):
         """
         Needed for OpenCL, this generates a simple C file that
         compiles and stores the binary OpenCL kernel generated w/ the wrapper
@@ -2761,29 +2794,17 @@ class opencl_kernel_generator(kernel_generator):
         ----------
         path : str
             The output path to write files to
-        filename : str
-            The filename of the wrapping kernel
+        source_files : list of str
+            The filename(s) of the wrapping kernel
 
         Returns
         -------
-        None
+        filename: str
+            The output path of the compiling program
         """
 
-        assert filename, (
-            'Cannot generate compiler before wrapping kernel is generated...')
-        if self.depends_on:
-            assert [x.filename for x in self.depends_on], (
-                'Cannot generate compiler before wrapping kernel '
-                'for dependencies are generated...')
-
-        self.build_options = ''
+        build_options = ''
         if self.lang == 'opencl':
-            with open(os.path.join(script_dir, self.lang,
-                                   'opencl_kernel_compiler.c.in'),
-                      'r') as file:
-                file_str = file.read()
-                file_src = Template(file_str)
-
             # get the platform from the options
             if self.loopy_opts.platform_is_pyopencl:
                 platform_str = self.loopy_opts.platform.get_info(
@@ -2798,28 +2819,42 @@ class opencl_kernel_generator(kernel_generator):
             cl_std = self._get_cl_level()
 
             # for the build options, we turn to the siteconf
-            self.build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
-            self.build_options.extend(site.CL_FLAGS)
-            self.build_options.append('-cl-std=CL{}'.format(cl_std))
-            self.build_options = ' '.join(self.build_options)
+            build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
+            build_options.extend(site.CL_FLAGS)
+            build_options.append('-cl-std=CL{}'.format(cl_std))
+            build_options = ' '.join(build_options)
 
-            file_list = [filename]
-            file_list = ', '.join('"{}"'.format(x) for x in file_list)
+            outname = self.name + '.bin'
+            result = CompgenResult(source_names=source_files, platform=platform_str,
+                                   outname=outname, build_options=build_options)
+            # serialize
+            compout = os.path.join(path, 'comp.pickle')
+            with open(compout, 'wb') as file:
+                pickle.dump(result.as_immutable(), file)
 
-            self.bin_name = filename[:filename.index(
-                utils.file_ext[self.lang])] + '.bin'
+            # input
+            infile = os.path.join(
+                script_dir, self.lang, 'opencl_kernel_compiler.c.in')
 
-            with filew.get_file(os.path.join(path, self.name + '_compiler'
-                                             + utils.file_ext[self.lang]),
-                                self.lang, use_filter=False) as file:
-                file.add_lines(file_src.safe_substitute(
-                    filenames=file_list,
-                    outname=self.bin_name,
-                    platform=platform_str,
-                    build_options=self.build_options,
-                    # compiler expects all source strings
-                    num_source=1
-                ))
+            # output
+            filename = os.path.join(
+                path, self.name + '_compiler' + utils.file_ext[self.lang])
+
+            # call cog
+            import subprocess
+            try:
+                import sys
+                subprocess.check_call([
+                    'python{}.{}'.format(
+                        sys.version_info[0], sys.version_info[1]), '-m',
+                    'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
+                    '-o', filename, infile])
+            except subprocess.CalledProcessError:
+                logger = logging.getLogger(__name__)
+                logger.error('Error generating compiling file {}'.format(filename))
+                raise
+
+            return filename
 
     def apply_barriers(self, instructions):
         """

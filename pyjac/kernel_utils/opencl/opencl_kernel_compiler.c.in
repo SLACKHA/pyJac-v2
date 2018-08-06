@@ -1,3 +1,24 @@
+/*
+kernel.c
+A cog-templated skeleton for pyJac OpenCL-kernel compilation
+(C) Nicholas Curtis - 2018
+*/
+
+/*
+Global declarations for Cog:
+    - compgen: path to a serialized CompilationGenerationResult instance
+    that may be loaded to generate this file
+*/
+
+/*[[[cog
+    import pickle
+    with open(compgen, 'rb') as file:
+        compgen = pickle.load(file)
+    num_source = len(compgen.source_names)
+]]]
+[[[end]]]
+*/
+
 #include "ocl_errorcheck.oclh"
 #include <stdlib.h>
 #include <stdio.h>
@@ -19,18 +40,29 @@ void compiler()
 
     cl_int return_code;
 
-    char* filename[${num_source}] = {${filenames}};
-    char* platform_check = "${platform}";
-    char* outname = "${outname}";
 
-    char* build_options = "${build_options}";
+    /*[[[cog
+        # write variables
+        cog.outl('char* filename[{}] = {{ {} }};'.format(num_source,
+            ', '.join(compgen.source_names)))
+        cog.outl('char* platform = "{}";'.format(compgen.platform))
+        cog.outl('char* out_name = "{}";'.format(compgen.outname))
+        cog.outl('char* build_options = "{}";'.format(compgen.build_options))
+    ]]]
+    [[[end]]]
+    */
 
     FILE *fp;
-    char* source_str[${num_source}];
-    size_t source_size[${num_source}];
+    /*[[[cog
+        cog.outl('char* source_str[{}];'.format(num_source))
+        cog.outl('size_t source_size[{}];'.format(num_source))
+    ]]]
+    [[[end]]]
+    */
 
     /* Load kernel source code */
-    for (int i = 0; i < ${num_source}; ++i)
+    //[[[cog cog.outl('for (int i = 0; i < {}; ++i)'.format(num_source)) ]]]
+    //[[[end]]]
     {
         fp = fopen(filename[i], "r");
         if (!fp) {
@@ -79,7 +111,12 @@ void compiler()
     check_err(return_code);
 
     /* Create Kernel program from the read in source */
-    program = clCreateProgramWithSource(context, ${num_source}, (const char **)source_str, (const size_t *)source_size, &return_code);
+    /*[[[cog
+    ]]]
+    cog.outl('program = clCreateProgramWithSource(context, {}, (const char **)source_str, '
+             '(const size_t *)source_size, &return_code);'.format(num_source))
+    [[[end]]]
+    */
     check_err(return_code);
 
     /* Build Kernel Program */

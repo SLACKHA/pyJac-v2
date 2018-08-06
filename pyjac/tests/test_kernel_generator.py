@@ -23,7 +23,7 @@ from pyjac.kernel_utils.memory_manager import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator
 from pyjac.utils import partition
 from pyjac.tests import TestClass, test_utils, get_test_langs
-from pyjac.tests.test_utils import OptionLoopWrapper
+from pyjac.tests.test_utils import OptionLoopWrapper, temporary_directory
 
 
 # get all kernels
@@ -350,6 +350,33 @@ class SubTest(TestClass):
                 for k, v in six.iteritems(result.inits):
                     assert k not in inits
                     inits[k] = v
+
+    def test_compilation_generator(self):
+        # currently separate compiler code only exists for OpenCL
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   langs=['opencl'],
+                                                   do_conp=False,
+                                                   do_vector=False,
+                                                   do_sparse=False)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            with temporary_directory() as tdir:
+                comp = kgen._generate_compiling_program(
+                    tdir, ['adistinctivetestname', 'andyetanothertestname'])
+
+                with open(comp, 'r') as file:
+                    comp = file.read()
+                # test filenames
+                assert 'adistinctivetestname, andyetanothertestname' in comp
+                # test build options
+                assert kgen._get_cl_level() in comp
+                # outname
+                assert 'char* out_name = "{}";'.format(kgen.name + '.bin')
+                # and platform
+                assert 'char* platform = "{}";'.format(
+                    opts.platform.vendor)
 
 
 def test_remove_worksize():
