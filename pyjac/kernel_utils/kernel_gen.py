@@ -2116,7 +2116,12 @@ ${name} : ${type}
 
         Returns
         -------
-        None
+        driver_source: str
+            The driver source file name
+        max_ic_per_run: int
+            The maximum number of initial conditions allowed per-run
+        max_ws_per_run: int
+            The maximum number of OpenCL groups / CUDA threads allowed per-run
         """
 
         # make driver kernels
@@ -2128,16 +2133,54 @@ ${name} : ${type}
             template = drivers.lockstep_driver_template(self.loopy_opts, self)
         else:
             raise NotImplementedError
-
-        # make driver kernel
         kernels = self._make_kernels(knl_info)
-        instructions, preambles, extra_kernels, kernel, mem_limits = \
-            self._merge_kernels(True, kernels, fake_calls=[FakeCall(
-                self.name + '()', kernels[1], self, True)])
-        instructions = subs_at_indent(template, insns=instructions)
-        # and write to file
-        self._to_file(path, instructions, preambles, kernel, extra_kernels,
-                      for_driver=True)
+
+        # now we must modify the driver kernel, such that it expects the appropriate
+        # data
+        assert kernels[1].name == 'driver'
+        kernels[1] = kernels[1].copy(
+            args=kernels[1].args + wrapper_memory.kernel_data)
+
+        # process arguments
+        record = self._process_args(knl_info)
+
+        # process memory
+        record, mem_limits = self._process_memory(record)
+
+        # our working data for the driver consists of:
+        # 1. All working data for the underlying kernels
+        # 2. The global kernel args
+        # 3. the problem size variable
+
+        # first, find kernel args global kernel args (by name)
+        kernel_data = [x for x in record.args if x.name in set(self.mem.host_arrays)]
+        # and add problem size
+        kernel_data.append(p_size)
+        record = record.copy(kernel_data=kernel_data + wrapper_memory.kernel_data)
+
+        # next, we need to determine where in the working buffer the arrays
+        # we need in the driver live
+        result = self._get_local_unpacks(wrapper_result, kernel_data)
+
+        # get the instructions, preambles and kernel
+        result = self._merge_kernels(
+            record, result, kernels=kernels, fake_calls=[FakeCall(
+                self.name + '()', kernels[1], wrapper_result.kernel)],
+            for_driver=True)
+
+        # slot instructions into template
+        result = result.copy(instructions=[subs_at_indent(
+            template, insns='\n'.join(result.instructions))])
+
+        filename = self._to_file(path, result, for_driver=True)
+
+        max_ic_per_run, max_ws_per_run = mem_limits.can_fit(memory_type.m_global)
+        # normalize to divide evenly into vec_width
+        if self.vec_width != 0:
+            max_ic_per_run = np.floor(
+                max_ic_per_run / self.vec_width) * self.vec_width
+
+        return int(max_ic_per_run), int(max_ws_per_run), filename
 
     def remove_unused_temporaries(self, knl):
         """
