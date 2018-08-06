@@ -2526,9 +2526,9 @@ class opencl_kernel_generator(kernel_generator):
 
         work_size = """
         #ifndef work_size
-            #define work_size (get_num_groups())
+            #define work_size (({int_type}) get_num_groups(0))
         #endif
-        """
+        """.format(int_type=self.type_map[to_loopy_type(arc.kint_type)])
 
         return [work_size]
 
