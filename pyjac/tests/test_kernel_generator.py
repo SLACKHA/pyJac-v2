@@ -369,7 +369,7 @@ class SubTest(TestClass):
                 with open(comp, 'r') as file:
                     comp = file.read()
                 # test filenames
-                assert 'adistinctivetestname, andyetanothertestname' in comp
+                assert '"adistinctivetestname", "andyetanothertestname"' in comp
                 # test build options
                 assert kgen._get_cl_level() in comp
                 # outname

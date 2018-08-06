@@ -44,21 +44,19 @@ void compiler()
     /*[[[cog
         # write variables
         cog.outl('char* filename[{}] = {{ {} }};'.format(num_source,
-            ', '.join(compgen.source_names)))
+            ', '.join(['"{}"'.format(name) for name in compgen.source_names])))
         cog.outl('char* platform = "{}";'.format(compgen.platform))
         cog.outl('char* out_name = "{}";'.format(compgen.outname))
         cog.outl('char* build_options = "{}";'.format(compgen.build_options))
     ]]]
-    [[[end]]]
-    */
+    [[[end]]]*/
 
     FILE *fp;
     /*[[[cog
         cog.outl('char* source_str[{}];'.format(num_source))
         cog.outl('size_t source_size[{}];'.format(num_source))
     ]]]
-    [[[end]]]
-    */
+    [[[end]]]*/
 
     /* Load kernel source code */
     //[[[cog cog.outl('for (int i = 0; i < {}; ++i)'.format(num_source)) ]]]

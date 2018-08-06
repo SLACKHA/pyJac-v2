@@ -243,14 +243,18 @@ class CodegenResult(ImmutableWithPytoolsCopy):
         Stored offsets for pointer unpacks (used in driver kernel creation)
     inits: dict of str->str
         Dictionary mapping constant array name -> initialization to avoid duplication
+    name: str
+        The name of the generated kernel
     """
 
     def __init__(self, pointer_unpacks=[], instructions=[], preambles=[],
-                 extra_kernels=[], kernel=None, pointer_offsets={}, inits={}):
+                 extra_kernels=[], kernel=None, pointer_offsets={}, inits={},
+                 name=''):
         ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks,
                                  instructions=instructions, preambles=preambles,
                                  extra_kernels=extra_kernels, kernel=kernel,
-                                 pointer_offsets=pointer_offsets, inits=inits)
+                                 pointer_offsets=pointer_offsets, inits=inits,
+                                 name=name)
 
 
 class CompgenResult(ImmutableWithPytoolsCopy):
@@ -750,8 +754,11 @@ class kernel_generator(object):
         utils.create_dir(path)
         self._make_kernels()
         source_files, record, result = self._generate_wrapping_kernel(path)
+        driver, max_ic_per_run, max_ws_per_run = self._generate_driver_kernel(
+            path, record, result)
+        # add to source list
+        source_files += [driver]
         self._generate_compiling_program(path, source_files)
-        self._generate_driver_kernel(path, record, result)
         self._generate_calling_program(path, data_filename, max_ic_per_run,
                                        max_ws_per_run, for_validation=for_validation)
         self._generate_calling_header(path)
@@ -1875,7 +1882,7 @@ ${name} : ${type}
         # and place in codegen
         return result.copy(instructions=instructions, preambles=preambles,
                            extra_kernels=extra_kernels, kernel=kernel,
-                           inits=inits)
+                           inits=inits, name=self.name)
 
     def _constant_deduplication(self, record, result):
         """
@@ -2009,7 +2016,7 @@ ${name} : ${type}
         """
 
         # get filename
-        basename = self.name
+        basename = result.name
         name = basename
         if for_driver:
             name += '_driver'
@@ -2180,7 +2187,7 @@ ${name} : ${type}
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
 
-        return int(max_ic_per_run), int(max_ws_per_run), filename
+        return filename, int(max_ic_per_run), int(max_ws_per_run)
 
     def remove_unused_temporaries(self, knl):
         """
