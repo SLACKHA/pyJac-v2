@@ -696,7 +696,7 @@ class kernel_generator(object):
         ----------
         path : str
             The output path
-        data_order : {'C', 'F'}f
+        data_order : {'C', 'F'}
             If specified, the ordering of the binary input data
             which may differ from the loopy order
         data_filename : Optional[str]
@@ -1153,7 +1153,7 @@ ${name} : ${type}
 
         return arg1 == arg2 or (__atomify(arg1) == __atomify(arg2))
 
-    def _process_args(self, kernels=[], use_subkernels=True):
+    def _process_args(self, kernels=[]):
         """
         Processes the arguements for all kernels in this generator (and subkernels
         from dependencies) to:
@@ -1795,7 +1795,6 @@ ${name} : ${type}
                     # check to see if this kernel has a fake call to replace
                     fk = next((x for x in fake_calls if x.match(k, extra)), None)
                     if fk:
-                        import pdb; pdb.set_trace()
                         # replace call in instructions to call to kernel
                         knl_call = self._remove_work_size(self._get_kernel_call(
                             knl=fk.replace_with, passed_locals=local_decls))
@@ -1805,7 +1804,6 @@ ${name} : ${type}
             # get instructions
             insns = self._remove_work_size(self._get_kernel_call(k))
             instructions.append(insns)
-
 
         # determine vector width
         vec_width = self.loopy_opts.depth
@@ -1844,7 +1842,7 @@ ${name} : ${type}
         return result.copy(instructions=instructions, preambles=preambles,
                            extra_kernels=extra_kernels, kernel=kernel)
 
-    def _generate_wrapping_kernel(self, path):
+    def _generate_wrapping_kernel(self, path, record=None, result=None):
         """
         Generates a wrapper around the various subkernels in this
         :class:`kernel_generator` (rather than working through loopy's fusion)
@@ -1853,14 +1851,15 @@ ${name} : ${type}
         ----------
         path : str
             The output path to write files to
+        record: :class:`MemoryGenerationResult` [None]
+            If not None, this wrapping kernel is being generated as a sub-kernel
+            (and hence, should reuse the owning kernel's record)
+        result: :class:`CodegenResult` [None]
+            If not None, this wrapping kernel is being generated as a sub-kernel
+            (and hence, should reuse the owning kernel's results)
 
         Returns
         -------
-        max_ic_per_run: int
-            The maximum number of initial conditions that can be executed per
-            kernel call
-        max_ws_per_run: int
-            The maximum work-size permissible per run
         filename: str
             The name of the generated file
         record: :class:`MemoryGenerationResult`
@@ -1875,35 +1874,36 @@ ${name} : ${type}
 
         # process arguments
         kernels = self.kernels
-        record = self._process_args(kernels)
+        if not record:
+            record = self._process_args(kernels)
+            # process memory
+            record, mem_limits = self._process_memory(record)
 
-        # process memory
-        record, mem_limits = self._process_memory(record)
+            # update subkernels for host constants
+            kernels = self._migrate_host_constants(kernels, record.host_constants)
 
-        # update subkernels for host constants
-        kernels = self._migrate_host_constants(kernels, record.host_constants)
+            # generate working buffer
+            record, result = self._compress_to_working_buffer(record)
 
-        # and add to memory manager
-        self.mem.add_arrays(host_constants=record.host_constants)
-
-        # generate working buffer
-        record, result = self._compress_to_working_buffer(record)
-
-        # add work size
-        record = record.copy(kernel_data=record.kernel_data + [w_size])
+            # add work size
+            record = record.copy(kernel_data=record.kernel_data + [w_size])
+        else:
+            # create a new codegen result that contains only our pointer unpacks
+            result = CodegenResult(pointer_unpacks=result.pointer_unpacks.copy(),
+                                   pointer_offsets=result.pointer_offsets.copy())
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=self.kernels)
 
+        # write to file
         filename = self._to_file(path, result)
 
-        max_ic_per_run, max_ws_per_run = mem_limits.can_fit(memory_type.m_global)
-        # normalize to divide evenly into vec_width
-        if self.vec_width != 0:
-            max_ic_per_run = np.floor(
-                max_ic_per_run / self.vec_width) * self.vec_width
+        if self.depends_on:
+            # generate wrapper for deps
+            for dep in self.depends_on:
+                dep._generate_wrapping_kernel(path, record, result)
 
-        return int(max_ic_per_run), int(max_ws_per_run), filename, record, result
+        return filename, record, result
 
     def _to_file(self, path, result, for_driver=False):
         """
