@@ -2,22 +2,19 @@
 kernel.c
 A cog-templated skeleton for pyJac OpenCL-kernel compilation
 (C) Nicholas Curtis - 2018
-*/
 
-/*
 Global declarations for Cog:
     - compgen: path to a serialized CompilationGenerationResult instance
     that may be loaded to generate this file
 */
 
 /*[[[cog
-    import pickle
+    from six.moves import cPickle as pickle
     with open(compgen, 'rb') as file:
         compgen = pickle.load(file)
     num_source = len(compgen.source_names)
 ]]]
-[[[end]]]
-*/
+[[[end]]]*/
 
 #include "ocl_errorcheck.oclh"
 #include <stdlib.h>
