@@ -11,6 +11,7 @@ from loopy.kernel.data import AddressSpace as scopes
 from loopy.types import to_loopy_type
 from nose.tools import assert_raises
 import numpy as np
+import six
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
 from pyjac.core.enum_types import JacobianFormat
@@ -316,6 +317,39 @@ class SubTest(TestClass):
             for kernel in all_kernels:
                 assert re.search(
                     r'\b' + kernel.name + r'\b', result.instructions)
+
+    def test_init_deduplication(self):
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=False,
+                                                   do_sparse=False)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            # make kernels
+            kgen._make_kernels()
+
+            # process the arguements
+            record = kgen._process_args()
+
+            # test that process memory works
+            record, mem_limits = kgen._process_memory(record)
+
+            # and generate working buffers
+            recordnew, result = kgen._compress_to_working_buffer(record)
+
+            result = kgen._merge_kernels(record, result)
+
+            # and de-duplicate
+            results = kgen._constant_deduplication(record, result)
+
+            # check inits
+            inits = {}
+            for result in results:
+                for k, v in six.iteritems(result.inits):
+                    assert k not in inits
+                    inits[k] = v
 
 
 def test_remove_worksize():

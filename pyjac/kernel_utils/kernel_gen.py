@@ -229,14 +229,16 @@ class CodegenResult(ImmutableRecord):
         signature
     pointer_offsets: dict of str -> str
         Stored offsets for pointer unpacks (used in driver kernel creation)
+    inits: dict of str->str
+        Dictionary mapping constant array name -> initialization to avoid duplication
     """
 
     def __init__(self, pointer_unpacks=[], instructions=[], preambles=[],
-                 extra_kernels=[], kernel=None, pointer_offsets={}):
+                 extra_kernels=[], kernel=None, pointer_offsets={}, inits={}):
         ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks,
                                  instructions=instructions, preambles=preambles,
                                  extra_kernels=extra_kernels, kernel=kernel,
-                                 pointer_offsets=pointer_offsets)
+                                 pointer_offsets=pointer_offsets, inits=inits)
 
 
 class kernel_generator(object):
@@ -1715,7 +1717,7 @@ ${name} : ${type}
         # generate the kernel code
         preambles = []
         extra_kernels = []
-        inits = []
+        inits = {}
         instructions = []
         local_decls = []
 
@@ -1742,33 +1744,37 @@ ${name} : ${type}
 
         # split into bodies, preambles, etc.
         for i, k, in enumerate(kernels):
+            # drivers own all their own kernels
+            i_own = for_driver or owner[k.name] == self
             # make kernel
             cgr = lp.generate_code_v2(k)
             # grab preambles
             for _, preamble in cgr.device_preambles:
-                if preamble not in preambles:
+                preamble = textwrap.dedent(preamble)
+                if preamble and preamble not in preambles:
                     preambles.append(preamble)
 
             # now scan device program
             assert len(cgr.device_programs) == 1
             cgr = cgr.device_programs[0]
-            init_list = []
-            if isinstance(cgr.ast, cgen.Collection):
+            init_list = {}
+            if i_own and isinstance(cgr.ast, cgen.Collection):
                 # look for preambles
                 for item in cgr.ast.contents:
                     # initializers go in the preamble
                     if isinstance(item, cgen.Initializer):
                         def _rec_check_name(decl):
                             if 'name' in vars(decl):
-                                return decl.name in record.readonly
+                                return decl.name, decl.name in record.readonly
                             elif 'subdecl' in vars(decl):
                                 return _rec_check_name(decl.subdecl)
-                            return False
+                            return '', False
                         # check for migrated constant
-                        if _rec_check_name(item.vdecl):
+                        name, const = _rec_check_name(item.vdecl)
+                        if const:
                             continue
-                        if str(item) not in inits:
-                            init_list.append(str(item))
+                        if name not in init_list:
+                            init_list[name] = str(item)
 
                     # blanklines and bodies can be ignored (as they will be added
                     # below)
@@ -1777,17 +1783,15 @@ ${name} : ${type}
                         raise NotImplementedError(type(item))
             else:
                 # no preambles / initializers
-                assert isinstance(cgr.ast, cgen.FunctionBody)
+                assert not i_own or isinstance(cgr.ast, cgen.FunctionBody)
 
             # and add to inits
-            inits.extend(init_list)
+            inits.update(init_list)
 
             # we need to place the call in the instructions and the extra kernels
             # in their own array
 
-            if for_driver or owner[k.name] == self:
-                # drivers own all their own kernels
-
+            if i_own:
                 # only place the kernel defn in this file, IFF we own it
                 extra = self._remove_work_size(_get_func_body(cgr, {}))
                 extra_kernels.append(extra)
@@ -1829,18 +1833,62 @@ ${name} : ${type}
         # add local declaration to beginning of instructions
         instructions[0:0] = [str(x) for x in local_decls]
 
-        # join to str
-        instructions = '\n'.join(instructions)
         # add any target preambles
         preambles = preambles + [x for x in self.target_preambles
                                  if x not in preambles]
-        preambles = '\n'.join(textwrap.dedent(x) for x in preambles + inits)
-        # join to string
-        extra_kernels = '\n'.join(extra_kernels)
+        preambles = [textwrap.dedent(x) for x in preambles]
 
         # and place in codegen
         return result.copy(instructions=instructions, preambles=preambles,
-                           extra_kernels=extra_kernels, kernel=kernel)
+                           extra_kernels=extra_kernels, kernel=kernel,
+                           inits=inits)
+
+    def _constant_deduplication(self, record, result):
+        """
+        Handles de-duplication of constant array data in subkernels of the top-level
+        wrapping kernel
+
+        Parameters
+        ----------
+        record: :class:`MemoryGenerationResult` [None]
+            The base wrapping kernel's memory results
+        result: :class:`CodegenResult` [None]
+            The base wrapping kernel's code-gen results
+
+        Returns
+        -------
+        results: list of :class:`CodegenResult`
+            The code-generation results for sub-kernels, with constants deduplicated.
+            Note that the modified version of :param:`result` is stored in
+            results[0]
+        """
+
+        results = [result]
+        if self.depends_on:
+            # generate wrapper for deps
+            def __get_deps(kgen):
+                deps = kgen.depends_on[:]
+                for dep in kgen.depends_on:
+                    deps += __get_deps(dep)
+                return deps
+
+            # cleanup duplicate inits
+            init_list = {}
+            for kgen in reversed(__get_deps(self)):
+                _, _, dr = kgen._generate_wrapping_kernel('', record, result)
+                # remove shared inits
+                dr = dr.copy(inits={k: v for k, v in six.iteritems(dr.inits)
+                                    if k not in init_list})
+                # update inits
+                init_list.update(dr.inits)
+                # and store
+                results.append(dr)
+            # and finally remove shared inits in main kernel
+            results[0] = results[0].copy(inits={
+                k: v for k, v in six.iteritems(dr.inits)
+                if k not in init_list})
+
+        return results
 
     def _generate_wrapping_kernel(self, path, record=None, result=None):
         """
@@ -1872,9 +1920,12 @@ ${name} : ${type}
             isinstance(x, lp.LoopKernel) for x in self.kernels), (
             'Cannot generate wrapper before calling _make_kernels')
 
+        # whether this is the top-level kernel
+        is_owner = record is None
+
         # process arguments
         kernels = self.kernels
-        if not record:
+        if is_owner:
             record = self._process_args(kernels)
             # process memory
             record, mem_limits = self._process_memory(record)
@@ -1895,13 +1946,12 @@ ${name} : ${type}
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=self.kernels)
 
-        # write to file
-        filename = self._to_file(path, result)
-
-        if self.depends_on:
-            # generate wrapper for deps
-            for dep in self.depends_on:
-                dep._generate_wrapping_kernel(path, record, result)
+        filename = ''
+        if is_owner and self.depends_on:
+            codegen_results = self._constant_deduplication(record, result)
+            # write kernels to file
+            for dr in codegen_results:
+                filename = self._to_file(path, dr)
 
         return filename, record, result
 
@@ -1945,14 +1995,14 @@ ${name} : ${type}
         filename = os.path.join(path, self.file_prefix + name + utils.file_ext[
             self.lang])
         with filew.get_file(filename, self.lang, include_own_header=True) as file:
-            instructions = _find_indent(file_str, 'body', result.instructions)
-            preambles = _find_indent(file_str, 'preamble', result.preambles)
+            instructions = _find_indent(file_str, 'body', '\n'.join(
+                result.instructions))
             lines = file_src.safe_substitute(
                 defines='',
                 preamble='',
                 func_define=self.__get_kernel_defn(result.kernel),
                 body=instructions,
-                extra_kernels=result.extra_kernels)
+                extra_kernels='\n'.join(result.extra_kernels))
 
             if self.auto_diff:
                 lines = [x.replace('double', 'adouble') for x in lines]
@@ -1970,6 +2020,7 @@ ${name} : ${type}
 
         # include the preambles as well, such that they can be
         # included into other files to avoid duplications
+        preambles = '\n'.join(result.preambles + result.inits.keys())
         preambles = preambles.split('\n')
         preambles.extend([
             self.__get_kernel_defn(result.kernel) + utils.line_end[self.lang]])
@@ -1979,12 +2030,11 @@ ${name} : ${type}
                 self.lang]), self.lang) as file:
 
             file.add_headers(headers)
-            lines = '\n'.join(preambles).split('\n')
             if self.auto_diff:
                 file.add_headers('adept.h')
                 file.add_lines('using adept::adouble;\n')
-                lines = [x.replace('double', 'adouble') for x in lines]
-            file.add_lines(lines)
+                preambles = preambles.replace('double', 'adouble')
+            file.add_lines(preambles)
 
         return filename
 
