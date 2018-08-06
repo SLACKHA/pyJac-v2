@@ -11,6 +11,7 @@ import logging
 from collections import defaultdict
 import six
 from six.moves import cPickle as pickle
+import subprocess
 
 import loopy as lp
 from loopy.types import AtomicNumpyType, to_loopy_type
@@ -2891,13 +2892,9 @@ class opencl_kernel_generator(kernel_generator):
                 path, self.name + '_compiler' + utils.file_ext[self.lang])
 
             # call cog
-            import subprocess
             try:
-                import sys
-                subprocess.check_call([
-                    'python{}.{}'.format(
-                        sys.version_info[0], sys.version_info[1]), '-m',
-                    'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
+                utils.run_with_our_python([
+                    '-m', 'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
                     '-o', filename, infile])
             except subprocess.CalledProcessError:
                 logger = logging.getLogger(__name__)

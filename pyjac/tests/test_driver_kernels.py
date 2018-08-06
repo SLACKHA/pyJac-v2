@@ -129,9 +129,7 @@ class SubTest(TestClass):
                         output_files=''))
 
                 try:
-                    subprocess.check_call([
-                        'python{}.{}'.format(
-                            sys.version_info[0], sys.version_info[1]), 'test.py'])
+                    utils.run_with_our_python(['test.py'])
                 except subprocess.CalledProcessError:
                     logger = logging.getLogger(__name__)
                     logger.debug(utils.stringify_args(vars(loopy_opts), kwd=True))

@@ -1481,10 +1481,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 output_files=''))
 
         try:
-            subprocess.check_call([
-                'python{}.{}'.format(
-                    sys.version_info[0], sys.version_info[1]),
-                os.path.join(lib_dir, 'test.py')])
+            utils.run_with_our_python([os.path.join(lib_dir, 'test.py')])
             # cleanup
             for x in args + tests:
                 os.remove(x)

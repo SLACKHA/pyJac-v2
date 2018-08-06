@@ -10,6 +10,8 @@ import logging.config
 import yaml
 import functools
 import six
+import sys
+import subprocess
 from six.moves import reduce
 
 from pyjac.core import exceptions
@@ -497,14 +499,37 @@ def is_integer(val):
     """
     try:
         return val.is_integer()
-    except:
+    except AttributeError:
         if isinstance(val, int):
             return True
         # last ditch effort
         try:
             return int(val) == float(val)
-        except:
+        except (ValueError, TypeError):
             return False
+
+
+def run_with_our_python(command):
+    """
+    Run the given :param:`command` through subprocess, attempting as best as possible
+    to utilize the same python intepreter as is currently running.
+
+    Notes
+    -----
+    Does not perform any error checking, the calling code is responsible for this.
+
+    Params
+    ------
+    command: list of str
+        The subprocess command to run
+
+    Returns
+    -------
+    None
+    """
+
+    cmd = [sys.executable]
+    subprocess.check_call(cmd + command, env=os.environ.copy())
 
 
 def check_lang(lang):

@@ -95,10 +95,7 @@ class SubTest(TestClass):
             with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
                 file.write(imp.substitute(path=lib_dir, package=packages[lang]))
 
-            python_str = 'python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1])
-            subprocess.check_call([python_str,
-                                   os.path.join(lib_dir, 'test_import.py')])
+            utils.run_with_our_python([os.path.join(lib_dir, 'test_import.py')])
 
     def __test_cases():
         for state in OptionLoop(OrderedDict(
@@ -142,10 +139,7 @@ class SubTest(TestClass):
             with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
                 file.write(imp.substitute(path=lib_dir, package=packages[lang]))
 
-            python_str = 'python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1])
-            subprocess.check_call([python_str,
-                                   os.path.join(lib_dir, 'test_import.py')])
+            utils.run_with_our_python([os.path.join(lib_dir, 'test_import.py')])
 
     def test_fixed_size(self):
         # test bad fixed size
@@ -218,11 +212,9 @@ class SubTest(TestClass):
                                          'read_ic_wrapper.pyx'),
                             os.path.join(build_dir, 'read_ic_wrapper.pyx'))
             # setup
-            python_str = 'python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1])
-            call = [python_str, os.path.join(build_dir, 'setup.py'),
-                    'build_ext', '--build-lib', lib_dir]
-            subprocess.check_call(call)
+            utils.run_with_our_python(
+                [os.path.join(build_dir, 'setup.py'),
+                 'build_ext', '--build-lib', lib_dir])
             # copy in tester
             shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
                                          'ric_tester.py'),
@@ -251,6 +243,6 @@ class SubTest(TestClass):
                 out_file.tofile(file)
 
             # and run
-            subprocess.check_call(
-                [python_str, os.path.join(lib_dir, 'ric_tester.py'), opts.order,
-                 str(self.store.test_size)])
+            utils.run_with_our_python([
+                os.path.join(lib_dir, 'ric_tester.py'), opts.order,
+                str(self.store.test_size)])

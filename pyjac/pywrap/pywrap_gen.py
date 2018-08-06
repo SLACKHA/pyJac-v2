@@ -2,7 +2,6 @@
 """
 import sys
 import os
-import subprocess
 from string import Template
 import logging
 import multiprocessing
@@ -10,6 +9,7 @@ import multiprocessing
 from pyjac.libgen import generate_library
 from pyjac.core.enum_types import KernelType
 from pyjac import siteconf as site
+from pyjac import utils
 
 
 def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
@@ -185,12 +185,11 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
                    build_dir, lib, extra_include_dirs, libraries, libdirs,
                    btype=btype)
 
-    python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
     setupfile = os.path.join(home_dir, setupfile[:setupfile.index('.in')])
     # build
-    call = [python_str, setupfile, 'build_ext', '--build-lib', out_dir,
+    call = [setupfile, 'build_ext', '--build-lib', out_dir,
             '--build-temp', obj_dir, '-j', str(multiprocessing.cpu_count())]
     if rpath:
         call += ['--rpath', rpath]
 
-    subprocess.check_call(call)
+    utils.run_with_our_python(call)
