@@ -8,13 +8,11 @@ import os
 from string import Template
 import subprocess
 from collections import OrderedDict
-import re
 
 import pyopencl as cl
-from parameterized import parameterized, param
+from parameterized import parameterized
 import numpy as np
 import loopy as lp
-from optionloop import OptionLoop
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
 from pyjac import utils
@@ -22,7 +20,8 @@ from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.array_creator import array_splitter
 from pyjac.kernel_utils.kernel_gen import CallgenResult
-from pyjac.kernel_utils.memory_tools import DeviceMemoryType, get_memory
+from pyjac.kernel_utils.memory_tools import DeviceMemoryType, get_memory, \
+    DeviceNamer, HostNamer
 from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
 from pyjac.libgen.libgen import compiler, file_struct, libgen
 from pyjac.tests import build_dir, obj_dir, lib_dir, script_dir
@@ -71,8 +70,9 @@ def test_memory_tools_alloc():
             assert 'a1 = (int*)malloc(problem_size * sizeof(int))' in mem.alloc(
                 False, a1)
             # test namer
-            assert 'data->a1 = (int*)malloc(problem_size * sizeof(int))' \
-                in mem.alloc(False, a1, namer=lambda x: 'data->{}'.format(x))
+            mem2 = get_memory(callgen, host_namer=HostNamer())
+            assert 'h_a1 = (int*)malloc(problem_size * sizeof(int))' \
+                in mem2.alloc(False, a1)
             # test more complex shape / other dtypes
             assert 'a2 = (double*)malloc(10 * problem_size * sizeof(double))'\
                 in mem.alloc(False, a2)
@@ -150,7 +150,7 @@ def test_memory_tools_memset():
         a1 = lp.GlobalArg('a1', shape=(arc.problem_size, 10), dtype=np.int32)
         d1 = lp.GlobalArg('d1', shape=(arc.problem_size, 10, 10), dtype=np.float64)
 
-        # test frees
+        # test memset
         if opts.lang == 'c':
             assert mem.memset(True, a1) == \
                 'memset(a1, 0, 10 * per_run * sizeof(int));'
@@ -177,9 +177,10 @@ def test_memory_tools_memset():
                         'NULL, NULL));') in dev
 
                 # check namer
-                dev = mem.memset(True, a1, namer=lambda x: 'data->{}'.format(x))
-                assert ', data->a1, ' in dev
-                assert 'data->temp_i = ' in dev
+                mem2 = get_memory(callgen, device_namer=DeviceNamer('data'))
+                dev = mem2.memset(True, a1)
+                assert ', data->d_a1, ' in dev
+                assert 'data->d_temp_i = ' in dev
             else:
                 # check for opencl 1.2 memset
                 assert ('clEnqueueFillBuffer(queue, a1, &zero, sizeof(double), 0, '

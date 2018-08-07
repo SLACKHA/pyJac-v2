@@ -31,6 +31,31 @@ device_prefix = 'd_'
 """ the prefix for device arrays """
 
 
+class Namer(object):
+    def __init__(self, prefix=None):
+        self.prefix = prefix
+
+    def __call__(self, name, **kwargs):
+        if kwargs.get('prefix', ''):
+            return kwargs.get('prefix') + name
+        if self.prefix:
+            return self.prefix + name
+        return name
+
+
+class HostNamer(Namer):
+    def __init__(self):
+        super(HostNamer, self).__init__(host_prefix)
+
+
+class DeviceNamer(Namer):
+    def __init__(self, owner=''):
+        prefix = device_prefix
+        if owner:
+            prefix = '{}->{}'.format(owner, device_prefix)
+        super(DeviceNamer, self).__init__(prefix)
+
+
 class DeviceMemoryType(Enum):
     pinned = 0,
     mapped = 1
@@ -92,7 +117,8 @@ class StrideCalculator(object):
 class MemoryManager(object):
     def __init__(self, lang, order, type_map, alloc={}, sync={}, copy_in_1d={},
                  copy_in_2d={}, copy_out_1d={}, copy_out_2d={}, free={}, memset={},
-                 alloc_flags={}, host_const_in={}):
+                 alloc_flags={}, host_const_in={}, host_namer=None,
+                 device_namer=None):
         self.order = order
         self.type_map = type_map.copy()
         self.alloc_template = alloc
@@ -107,6 +133,8 @@ class MemoryManager(object):
         self.device_lang = lang
         self.alloc_flags = alloc_flags
         self.host_const_in = host_const_in
+        self.host_namer = host_namer
+        self.device_namer = device_namer
 
     def buffer_size(self, device, arr, num_ics='per_run'):
         calc = StrideCalculator(self.type_map)
@@ -116,18 +144,18 @@ class MemoryManager(object):
             subs['problem_size'] = num_ics
         return calc.buffer_size(arr, subs)
 
-    def get_name(self, arr, namer):
+    def get_name(self, arr, device, **kwargs):
+        namer = self.device_namer if device else self.host_namer
         try:
             name = arr.name
         except AttributeError:
             name = arr
-        return name if not namer else namer(name)
+        return name if not namer else namer(name, **kwargs)
 
     def lang(self, device):
         return self.host_lang if not device else self.device_lang
 
-    def alloc(self, device, arr, readonly=False, num_ics='per_run', namer=None,
-              **kwargs):
+    def alloc(self, device, arr, readonly=False, num_ics='per_run', **kwargs):
         """
         Return an allocation for a buffer in the given :param:`lang`
 
@@ -141,9 +169,6 @@ class MemoryManager(object):
             The number of initial conditions to evaluated per prun
         readonly: bool
             Changes memory flags / allocation type (e.g., for OpenCL)
-        namer: :class:`six.Callable` [None]
-            A callable function to generate the name of the buffer to be allocated.
-            If not specified, simply use :param:`arr.name`.
 
         Returns
         -------
@@ -157,7 +182,7 @@ class MemoryManager(object):
                 + flags.split(' | ')
             flags = ' | '.join([x for x in flags if x])
 
-        name = self.get_name(arr, namer)
+        name = self.get_name(arr, device)
         dtype = self.type_map[arr.dtype]
         buff_size = self.buffer_size(device, arr, num_ics=num_ics)
 
@@ -165,8 +190,7 @@ class MemoryManager(object):
             name=name, buff_size=buff_size, memflag=flags,
             dtype=dtype, **kwargs)
 
-    def copy(self, to_device, host_name, dev_name, buff_size, dim,
-             host_constant=False, **kwargs):
+    def copy(self, to_device, arr, host_constant=False, **kwargs):
         """
         Return a copy of a buffer to/from the "device"
 
@@ -191,7 +215,7 @@ class MemoryManager(object):
         # get templates
         if host_constant:
             template = self.host_const_in
-        elif dim <= 1:
+        elif arr.ndim <= 1:
             template = self.copy_in_1d if to_device else self.copy_out_1d
         else:
             template = self.copy_in_2d if to_device else self.copy_out_2d
@@ -220,7 +244,7 @@ class MemoryManager(object):
             return self.sync_template[self.device_lang]
         return ''
 
-    def memset(self, device, arr, num_ics='per_run', namer=None, **kwargs):
+    def memset(self, device, arr, num_ics='per_run', **kwargs):
         """
         Set the host / device memory
 
@@ -232,9 +256,6 @@ class MemoryManager(object):
             The array to set
         num_ics: str ['per_run']
             The number of initial conditions to evaluated per prun
-        namer: :class:`six.Callable` [None]
-            A callable function to generate the name of the buffer to be allocated.
-            If not specified, simply use :param:`arr.name`.
 
         Returns
         -------
@@ -242,7 +263,7 @@ class MemoryManager(object):
             The instructions to memset the buffer
         """
 
-        name = self.get_name(arr, namer)
+        name = self.get_name(arr, device)
         buff_size = self.buffer_size(device, arr, num_ics=num_ics)
         return self.memset_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, **kwargs)
@@ -423,7 +444,8 @@ class MappedMemory(MemoryManager):
                 else:
                     return __f_unsplit(ctype)
 
-    def __init__(self, lang, order, type_map, **overrides):
+    def __init__(self, lang, order, type_map, device_namer=None, host_namer=None,
+                 **overrides):
 
         self.order = order
         self.type_map = type_map.copy()
@@ -497,11 +519,14 @@ class MappedMemory(MemoryManager):
 
         if 'use_full' in overrides:
             overrides.pop('use_full')
-        super(MappedMemory, self).__init__(lang, order, type_map, **overrides)
+        super(MappedMemory, self).__init__(lang, order, type_map,
+                                           host_namer=host_namer,
+                                           device_namer=device_namer, **overrides)
 
 
 class PinnedMemory(MappedMemory):
-    def __init__(self, lang, order, type_map, **kwargs):
+    def __init__(self, lang, order, type_map, host_namer=None, device_namer=None,
+                 **kwargs):
 
         self.order = order
         self.type_map = type_map.copy()
@@ -575,7 +600,8 @@ class PinnedMemory(MappedMemory):
 
         # get the defaults from :class:`mapped_memory`
         super(PinnedMemory, self).__init__(lang, order, type_map, memset=memset,
-                                           **copies)
+                                           host_namer=host_namer,
+                                           device_namer=device_namer, **copies)
 
     def alloc(self, device, arr, readonly=False, num_ics='per_run',
               namer=None, **kwargs):
@@ -665,14 +691,20 @@ class PinnedMemory(MappedMemory):
 
         map_flags = self.map_flags[self.lang(True)][device]
         dtype = self.type_map[arr.dtype]
-        temp_name = self.get_name('temp_{}'.format(dtype[0]),
-                                  kwargs.get('namer', None))
+
+        # mess with the prefix for the device namer
+        kwargs = {}
+        if self.device_namer:
+            prefix = self.device_namer.prefix
+            prefix = prefix[:prefix.index(device_prefix)]
+
+        temp_name = self.get_name('temp_{}'.format(dtype[0]), True, **kwargs)
         return super(PinnedMemory, self).memset(
             device, arr, *args, dtype=dtype, temp_name=temp_name,
             map_flags=map_flags, **kwargs)
 
 
-def get_memory(callgen):
+def get_memory(callgen, host_namer=None, device_namer=None):
     """
     Returns the appropriate memory manager given this :class:`pyjac.CallgenResult`
     object.
@@ -681,9 +713,17 @@ def get_memory(callgen):
     ----------
     callgen: :class:`CallgenResult`
         The unpickled callgen result
+    host_namer: :class:`Namer`
+        If specified, an instance of the :class:`Namer` to transform the names of
+        host arrays
+    device_namer: :class:`Namer`
+        If specified, an instance of the :class:`Namer` to transform the names of
+        device arrays
     """
 
     if callgen.dev_mem_type == DeviceMemoryType.pinned:
-        return PinnedMemory(callgen.lang, callgen.order, callgen.type_map)
+        return PinnedMemory(callgen.lang, callgen.order, callgen.type_map,
+                            host_namer=host_namer, device_namer=device_namer)
     else:
-        return MappedMemory(callgen.lang, callgen.order, callgen.type_map)
+        return MappedMemory(callgen.lang, callgen.order, callgen.type_map,
+                            host_namer=host_namer, device_namer=device_namer)
