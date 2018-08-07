@@ -1041,6 +1041,9 @@ def _should_skip_oploop(state, skip_test=None):
             and state.get('is_simd', False):
         return True
 
+    if state['lang'] != 'opencl' and state.get('device_type', ''):
+        return True
+
     if skip_test and skip_test(state):
         return True
 
@@ -1082,6 +1085,28 @@ class OptionLoopWrapper(object):
         self.skip_test = skip_test
         self.bad_platforms = set()
         self.ignored_state_vals = ignored_state_vals[:]
+
+    @staticmethod
+    def from_dict(oploop_base, skip_test=None, yield_index=False,
+                  ignored_state_vals=['conp']):
+        """
+        A convenience method that returns a :class:`OptionLoopWrapper` from the
+        list of tuples provided (i.e., that may be turned into an option loop)
+
+        Parameters
+        ----------
+        oploop_base: dict
+            The options that may be converted into an :class:`OptionLoop`
+
+        Returns
+        -------
+        wrapper: :class:`OptionLoopWrapper`
+            The constructed wrapper
+        """
+
+        return OptionLoopWrapper(OptionLoop(oploop_base), skip_test=skip_test,
+                                 yield_index=yield_index,
+                                 ignored_state_vals=ignored_state_vals)
 
     @staticmethod
     def from_get_oploop(owner, skip_test=None, yield_index=False,

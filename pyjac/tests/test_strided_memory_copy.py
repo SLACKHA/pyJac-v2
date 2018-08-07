@@ -1,9 +1,14 @@
-# tests the memory manager's copy abilities
+"""
+Tests for the memory manager for code-generation
+
+Copyright Nicholas Curtis 2018
+"""
 import shutil
 import os
 from string import Template
 import subprocess
 from collections import OrderedDict
+import re
 
 import pyopencl as cl
 from parameterized import parameterized, param
@@ -12,34 +17,179 @@ import loopy as lp
 from optionloop import OptionLoop
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
-from pyjac.libgen.libgen import compiler, file_struct, libgen
-from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
-from pyjac.tests import build_dir, obj_dir, lib_dir, script_dir
-from pyjac.core.array_creator import array_splitter
-from pyjac.tests.test_utils import clean_dir
 from pyjac import utils
+from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
+from pyjac.core.array_creator import array_splitter
+from pyjac.kernel_utils.kernel_gen import CallgenResult
+from pyjac.kernel_utils.memory_tools import DeviceMemoryType, get_memory
+from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
+from pyjac.libgen.libgen import compiler, file_struct, libgen
+from pyjac.tests import build_dir, obj_dir, lib_dir, script_dir
+from pyjac.tests.test_utils import clean_dir
+from pyjac.tests.test_utils import OptionLoopWrapper, get_test_langs
 
 
 def __test_cases():
-    for state in OptionLoop(OrderedDict(
-            [('lang', ['opencl', 'c']), ('order', ['C', 'F']),
-             ('width', [4, None]), ('depth', [4, None]),
+    return OptionLoopWrapper.from_dict(
+        OrderedDict(
+            [('lang', get_test_langs()),
+             ('order', ['C', 'F']),
+             ('width', [4, None]),
+             ('depth', [4, None]),
              ('device_type', (cl.device_type.CPU, cl.device_type.GPU, None)),
-             ('is_simd', [True, False])])):
-        if state['depth'] and state['width']:
-            continue
-        elif (state['depth'] is not None or state['width'] is not None) \
-                and state['lang'] == 'c':
-            continue
-        elif (state['lang'] == 'c' and state['device_type'] is not None):
-            continue
-        elif state['is_simd'] and (
-                state['lang'] == 'c' or
-                state['device_type'] != cl.device_type.CPU or
-                not state['width']):
-            continue
-        yield param(state)
+             ('is_simd', [True, False]),
+             ('dev_mem_type', (DeviceMemoryType.pinned, DeviceMemoryType.mapped))]),
+        ignored_state_vals=['dev_mem_type'],
+        skip_test=lambda x: x['lang'] == 'c' and
+        x['dev_mem_type'] == DeviceMemoryType.pinned)
+
+
+type_map = {}
+type_map[lp.to_loopy_type(np.float64)] = 'double'
+type_map[lp.to_loopy_type(np.int32)] = 'int'
+type_map[lp.to_loopy_type(np.int64)] = 'long int'
+
+
+def test_memory_tools_alloc():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map)
+        # create a memory manager
+        mem = get_memory(callgen)
+
+        # create some arrays
+        a1 = lp.GlobalArg('a1', shape=(arc.problem_size,), dtype=np.int32)
+        a2 = lp.GlobalArg('a2', shape=(arc.problem_size, 10), dtype=np.float64)
+
+        # test alloc
+        if opts.lang == 'c':
+            # test default
+            assert 'a1 = (int*)malloc(problem_size * sizeof(int))' in mem.alloc(
+                False, a1)
+            # test namer
+            assert 'data->a1 = (int*)malloc(problem_size * sizeof(int))' \
+                in mem.alloc(False, a1, namer=lambda x: 'data->{}'.format(x))
+            # test more complex shape / other dtypes
+            assert 'a2 = (double*)malloc(10 * problem_size * sizeof(double))'\
+                in mem.alloc(False, a2)
+            # test device mem
+            assert 'a2 = (double*)malloc(10 * per_run * sizeof(double))'\
+                in mem.alloc(True, a2)
+            # and ic specification
+            assert 'a2 = (double*)malloc(10 * run * sizeof(double))'\
+                in mem.alloc(True, a2, num_ics='run')
+        elif opts.lang == 'opencl':
+            # test default host
+            assert 'a1 = (int*)malloc(problem_size * sizeof(int))' in mem.alloc(
+                False, a1)
+            assert (('CL_MEM_ALLOC_HOST_PTR' in mem.alloc(True, a1)) ==
+                    (wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned))
+            # test default device
+            assert ('a1 = clCreateBuffer(context, CL_MEM_READ_WRITE') \
+                in mem.alloc(True, a1)
+            assert 'per_run * sizeof(int)' in mem.alloc(True, a1)
+            # test readonly
+            assert 'CL_MEM_READ_ONLY' in mem.alloc(True, a1, readonly=True)
+        else:
+            raise NotImplementedError
+
+
+def test_memory_tools_sync():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map)
+        # create a memory manager
+        mem = get_memory(callgen)
+
+        # not implemented as all calls are currently blocking
+        assert not mem.sync()
+
+
+def test_memory_tools_free():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map)
+        # create a memory manager
+        mem = get_memory(callgen)
+
+        # create a test array
+        a1 = lp.GlobalArg('a1', shape=(arc.problem_size,), dtype=np.int32)
+
+        # test frees
+        if opts.lang == 'c':
+            assert mem.free(True, a1) == 'free(a1);'
+            assert mem.free(False, a1) == 'free(a1);'
+        elif opts.lang == 'opencl':
+            assert mem.free(False, a1) == 'free(a1);'
+            assert mem.free(True, a1) == 'check_err(clReleaseMemObject(a1));'
+        else:
+            raise NotImplementedError
+
+
+def test_memory_tools_memset():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map)
+        # create a memory manager
+        mem = get_memory(callgen)
+
+        # create a test array
+        a1 = lp.GlobalArg('a1', shape=(arc.problem_size, 10), dtype=np.int32)
+        d1 = lp.GlobalArg('d1', shape=(arc.problem_size, 10, 10), dtype=np.float64)
+
+        # test frees
+        if opts.lang == 'c':
+            assert mem.memset(True, a1) == \
+                'memset(a1, 0, 10 * per_run * sizeof(int));'
+            assert mem.memset(False, a1) == \
+                'memset(a1, 0, 10 * problem_size * sizeof(int));'
+            # check double
+            assert 'sizeof(double)' in mem.memset(False, d1)
+            assert '100 * problem_size' in mem.memset(False, d1)
+            # check ic spec
+            assert '100 * dummy' in mem.memset(True, d1, num_ics='dummy')
+
+        elif opts.lang == 'opencl':
+            assert mem.memset(False, a1) == \
+                'memset(a1, 0, 10 * problem_size * sizeof(int));'
+            dev = mem.memset(True, a1)
+            if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
+                # pinned -> should have a regular memset
+                assert 'memset(temp_i, 0, 10 * per_run * sizeof(int));' in dev
+                # and map / unmaps
+                assert ('(int*)clEnqueueMapBuffer(queue, a1, CL_TRUE, CL_MAP_WRITE, '
+                        '0, 10 * per_run * sizeof(int), 0, NULL, NULL, &return_code)'
+                        ) in dev
+                assert ('check_err(clEnqueueUnmapMemObject(queue, a1, temp_i, 0, '
+                        'NULL, NULL));') in dev
+
+                # check namer
+                dev = mem.memset(True, a1, namer=lambda x: 'data->{}'.format(x))
+                assert ', data->a1, ' in dev
+                assert 'data->temp_i = ' in dev
+            else:
+                # check for opencl 1.2 memset
+                assert ('clEnqueueFillBuffer(queue, a1, &zero, sizeof(double), 0, '
+                        '10 * per_run * sizeof(int), 0, NULL, NULL)') in dev
+                # check for opencl <= 1.1 memset
+                assert ('clEnqueueWriteBuffer(queue, a1, CL_TRUE, 0, '
+                        '10 * per_run * sizeof(int), zero, 0, NULL, NULL)') in dev
+
+        else:
+            raise NotImplementedError
 
 
 @parameterized(__test_cases)

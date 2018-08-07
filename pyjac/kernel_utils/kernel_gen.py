@@ -28,6 +28,7 @@ from pytools import ImmutableRecord
 from pyjac.kernel_utils import file_writers as filew
 from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
     memory_type, guarded_call, MemoryGenerationResult
+from pyjac.kernel_utils.memory_tools import DeviceMemoryType
 from pyjac import siteconf as site
 from pyjac import utils
 from pyjac.loopy_utils import loopy_utils as lp_utils
@@ -256,6 +257,60 @@ class CodegenResult(ImmutableWithPytoolsCopy):
                                  extra_kernels=extra_kernels, kernel=kernel,
                                  pointer_offsets=pointer_offsets, inits=inits,
                                  name=name)
+
+
+def kernel_arg_docs():
+    return {'phi': ('double', 'The state vector'),
+            'P_arr': ('double', 'The array of pressures.'),
+            'V_arr': ('double', 'The array of volumes'),
+            'dphi': ('double', 'The time rate of change of the state-vector'),
+            'jac': ('double', 'The Jacobian of the time-rate of change of '
+                              'the state vector')}
+
+
+class CallgenResult(ImmutableWithPytoolsCopy):
+    """
+    A convenience class that provides intermediate storage for generation of the
+    calling program
+
+    Attributes
+    ----------
+    name: str
+        The name of the generated kernel
+    cl_level: str ['']
+        If supplied, OpenCL level for macro definitions
+    work_arrays: list of :class:`loopy.ArrayArg`
+        The list of work-buffers created for the top-level kernel
+    kernel_args: dict of str -> list of :class:`loopy.ArrayArg`
+        A dictionary mapping of kernel name -> global input / output args for this
+        kernel
+    docs: dict of str->str
+        A mapping of kernel argument names to their
+    local_size: int [1]
+        The OpenCL vector width, set to 1 by default for all other languages
+    max_per_run: int [None]
+        The maximum number of initial conditions that can be evaluated per-kernel
+        call
+    lang: str ['c']
+        The language this kernel is being generated for.
+    order: str {'C', 'F'}
+        The data ordering
+    dev_mem_type: :class:`DeviceMemoryType`
+        The type of device memory to used, 'pinned', or 'mapped'
+    type_map: dict of :class:`LoopyType` -> str
+        The mapping of loopy types to ctypes
+    """
+
+    def __init__(self, name='', work_arrays=[], kernel_args={}, cl_level='',
+                 docs={}, local_size=1, max_per_run=None, order='C', lang='c',
+                 dev_mem_type=DeviceMemoryType.mapped, type_map={}):
+        if not docs:
+            docs = kernel_arg_docs()
+        ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
+                                 kernel_args=kernel_args, cl_level=cl_level,
+                                 docs=docs, local_size=local_size,
+                                 max_per_run=max_per_run, order=order, lang=lang,
+                                 dev_mem_type=dev_mem_type, type_map=type_map)
 
 
 class CompgenResult(ImmutableWithPytoolsCopy):
