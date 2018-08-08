@@ -193,6 +193,90 @@ def test_memory_tools_memset():
             raise NotImplementedError
 
 
+def test_memory_tools_copy():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map)
+        # create a memory manager
+        mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
+
+        # create a test array
+        a1 = lp.GlobalArg('a1', shape=(arc.problem_size), dtype=np.int32)
+        a2 = lp.GlobalArg('a2', shape=(arc.problem_size, 10), dtype=np.int32)
+        d3 = lp.GlobalArg('d3', shape=(arc.problem_size, 10, 10), dtype=np.float64)
+
+        # test frees
+        if opts.lang == 'c':
+            # test host constant copy
+            assert mem.copy(True, a1, host_constant=True) == (
+                'memcpy(d_a1, h_a1, problem_size * sizeof(int));')
+            # test copy to device
+            assert mem.copy(True, a1) == ('memcpy(d_a1, &h_a1[offset * 1], '
+                                          'this_run * sizeof(int));')
+            # test copy from device
+            if opts.order == 'C':
+                assert mem.copy(False, a2) == ('memcpy(&h_a2[offset * 10], d_a2, '
+                                               '10 * this_run * sizeof(int));')
+            else:
+                assert mem.copy(False, a2) == ('memcpy2D_out(h_a2, problem_size, '
+                                               'd_a2, per_run, offset, '
+                                               'this_run * sizeof(int), '
+                                               '10);')
+            if opts.order == 'C':
+                assert mem.copy(True, d3) == ('memcpy(d_d3, &h_d3[offset * 100], '
+                                              '100 * this_run * sizeof(double));')
+            else:
+                assert mem.copy(True, d3, num_ics='test', num_ics_this_run='test2')\
+                    == ('memcpy2D_in(d_d3, test, h_d3, problem_size, offset, '
+                        'test2 * sizeof(double), 100);')
+        elif opts.lang == 'opencl':
+            dev = mem.copy(True, a1, host_constant=True)
+            if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
+                assert 'clEnqueueUnmapMemObject' in dev
+                assert ('d_temp_i = (int*)clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
+                        'CL_MAP_WRITE, 0, problem_size * sizeof(int), 0, NULL, '
+                        'NULL, &return_code);') in dev
+                assert 'memcpy(d_temp_i, h_a1, problem_size * sizeof(int));' in dev
+            else:
+                # mapped
+                assert ('clEnqueueWriteBuffer(queue, d_a1, CL_TRUE, 0, '
+                        'problem_size * sizeof(int), &h_a1, 0, NULL, NULL)') in dev
+
+            dev = mem.copy(False, d3, offset='test', num_ics_this_run='test2')
+            if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
+                assert ('d_temp_d = (double*)clEnqueueMapBuffer(queue, d_d3, '
+                        'CL_TRUE, CL_MAP_READ, 0, 100 * per_run * sizeof(double)'
+                        ', 0, NULL, NULL, &return_code);') in dev
+                if opts.order == 'C':
+                    assert ('memcpy(&h_d3[test * 100], d_temp_d, '
+                            '100 * test2 * sizeof(double));') in dev
+                else:
+                    assert ('memcpy2D_out(h_d3, d_temp_d, '
+                            '(size_t[]) {test * sizeof(double), 0, 0}, '
+                            '(size_t[]) {test2 * sizeof(double), 100, 1}, '
+                            'per_run * sizeof(double), 0, '
+                            'problem_size * sizeof(double), 0);')
+            else:
+                # mapped
+                if opts.order == 'C':
+                    assert ('clEnqueueReadBuffer(queue, d_d3, CL_TRUE, 0, '
+                            '100 * test2 * sizeof(double), &h_d3[test*100], '
+                            '0, NULL, NULL)') in dev
+                else:
+                    assert ('clEnqueueReadBufferRect(queue, d_d3, CL_TRUE, '
+                            '(size_t[]) {0, 0, 0}, '
+                            '(size_t[]) {test * sizeof(double), 0, 0}, '
+                            '(size_t[]) {test2 * sizeof(double), 100, 1}, '
+                            'per_run * sizeof(double), 0, '
+                            'problem_size * sizeof(double), 0, h_d3, 0, NULL, NULL)'
+                            ) in dev
+        else:
+            raise NotImplementedError
+
+
 @parameterized(__test_cases)
 def test_strided_copy(state):
     lang = state['lang']
