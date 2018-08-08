@@ -8,6 +8,8 @@ from string import Template
 import six
 from enum import Enum
 
+from pyjac.core.array_creator import problem_size
+
 
 asserts = {'c': Template('cassert(${call}, "${message}");'),
            'opencl': Template('check_err(${call});')}
@@ -119,7 +121,7 @@ class StrideCalculator(object):
 
         return buff_size
 
-    def non_ic_size(self, arr, subs={'problem_size': ''}):
+    def non_ic_size(self, arr, subs={problem_size.name: ''}):
         """
         Return the size in number of elements (Note: not bytes!) of the array
         dimensions that do no correspond to initial conditions axes
@@ -155,7 +157,7 @@ class MemoryManager(object):
         # setup substitution for device buffer # of initial conditions
         subs = {}
         if device:
-            subs['problem_size'] = num_ics
+            subs[problem_size.name] = num_ics
         return calc.buffer_size(arr, subs)
 
     def non_ic_size(self, arr):
@@ -407,7 +409,8 @@ class MappedMemory(MemoryManager):
                 buffer_row_pitch='VECWIDTH * ${itemsize}',
                 buffer_slice_pitch='VECWIDTH * ${per_run} * ${itemsize}',
                 host_row_pitch='VECWIDTH * ${itemsize}',
-                host_slice_pitch='VECWIDTH * problem_size * ${itemsize}',
+                host_slice_pitch='VECWIDTH * {problem_size} * ${{itemsize}}'.format(
+                    problem_size=problem_size.name),
                 ctype=ctype
                 ))
 
@@ -418,7 +421,8 @@ class MappedMemory(MemoryManager):
                 region='{${this_run} * ${itemsize}, ${non_ic_size}, 1}',
                 buffer_row_pitch='${per_run} * ${itemsize}',
                 buffer_slice_pitch='0',
-                host_row_pitch='problem_size * ${itemsize}',
+                host_row_pitch='{problem_size} * ${{itemsize}}'.format(
+                    problem_size=problem_size.name),
                 host_slice_pitch='0',
                 ctype=ctype
                 ))
@@ -472,7 +476,7 @@ class MappedMemory(MemoryManager):
                     # therefore, we only need the regular 2D-C copy, rather than
                     # the writeRect implementation
                     dev_arrays += ['${per_run}']
-                    host_arrays += ['problem_size']
+                    host_arrays += [problem_size.name]
                     arrays = __combine(host_arrays, dev_arrays)
                     return Template(Template(
                         'memcpy2D_${ctype}(${arrays}, ${offset}, '
