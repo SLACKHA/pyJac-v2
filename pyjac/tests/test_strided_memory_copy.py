@@ -9,6 +9,7 @@ from string import Template
 import subprocess
 from collections import OrderedDict
 
+from six.moves import cPickle as pickle
 import pyopencl as cl
 from parameterized import parameterized
 import numpy as np
@@ -24,9 +25,11 @@ from pyjac.kernel_utils.memory_tools import DeviceMemoryType, get_memory, \
     DeviceNamer, HostNamer
 from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
 from pyjac.libgen.libgen import compiler, file_struct, libgen
+from pyjac.loopy_utils.loopy_utils import get_target
 from pyjac.tests import build_dir, obj_dir, lib_dir, script_dir
 from pyjac.tests.test_utils import clean_dir
-from pyjac.tests.test_utils import OptionLoopWrapper, get_test_langs
+from pyjac.tests.test_utils import OptionLoopWrapper, get_test_langs, \
+    temporary_directory
 
 
 def __test_cases():
@@ -44,10 +47,13 @@ def __test_cases():
         x['dev_mem_type'] == DeviceMemoryType.pinned)
 
 
-type_map = {}
-type_map[lp.to_loopy_type(np.float64)] = 'double'
-type_map[lp.to_loopy_type(np.int32)] = 'int'
-type_map[lp.to_loopy_type(np.int64)] = 'long int'
+def type_map(lang):
+    target = get_target(lang)
+    type_map = {}
+    type_map[lp.to_loopy_type(np.float64, target=target)] = 'double'
+    type_map[lp.to_loopy_type(np.int32, target=target)] = 'int'
+    type_map[lp.to_loopy_type(np.int64, target=target)] = 'long int'
+    return type_map
 
 
 def test_memory_tools_alloc():
@@ -56,7 +62,7 @@ def test_memory_tools_alloc():
         # create a dummy callgen
         callgen = CallgenResult(order=opts.order, lang=opts.lang,
                                 dev_mem_type=wrapper.state['dev_mem_type'],
-                                type_map=type_map)
+                                type_map=type_map(opts.lang))
         # create a memory manager
         mem = get_memory(callgen)
 
@@ -104,7 +110,7 @@ def test_memory_tools_sync():
         # create a dummy callgen
         callgen = CallgenResult(order=opts.order, lang=opts.lang,
                                 dev_mem_type=wrapper.state['dev_mem_type'],
-                                type_map=type_map)
+                                type_map=type_map(opts.lang))
         # create a memory manager
         mem = get_memory(callgen)
 
@@ -118,7 +124,7 @@ def test_memory_tools_free():
         # create a dummy callgen
         callgen = CallgenResult(order=opts.order, lang=opts.lang,
                                 dev_mem_type=wrapper.state['dev_mem_type'],
-                                type_map=type_map)
+                                type_map=type_map(opts.lang))
         # create a memory manager
         mem = get_memory(callgen)
 
@@ -142,7 +148,7 @@ def test_memory_tools_memset():
         # create a dummy callgen
         callgen = CallgenResult(order=opts.order, lang=opts.lang,
                                 dev_mem_type=wrapper.state['dev_mem_type'],
-                                type_map=type_map)
+                                type_map=type_map(opts.lang))
         # create a memory manager
         mem = get_memory(callgen)
 
@@ -199,7 +205,7 @@ def test_memory_tools_copy():
         # create a dummy callgen
         callgen = CallgenResult(order=opts.order, lang=opts.lang,
                                 dev_mem_type=wrapper.state['dev_mem_type'],
-                                type_map=type_map)
+                                type_map=type_map(opts.lang))
         # create a memory manager
         mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
 
@@ -275,6 +281,51 @@ def test_memory_tools_copy():
                             ) in dev
         else:
             raise NotImplementedError
+
+
+def test_can_load():
+    """
+    Tests whether the external cog code-gen app can load our serialized objects
+    """
+
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map(opts.lang))
+        with temporary_directory() as tdir:
+            with open(os.path.join(tdir, 'test.cpp'), mode='w') as file:
+                file.write("""
+                    /*[[[cog
+                        import cog
+                        import os
+                        import pickle
+                        # next, unserialize the callgen
+                        with open(callgen, 'rb') as file:
+                            call = pickle.load(file)
+
+                        # and create a memory manager
+                        from pyjac.kernel_utils.memory_tools import get_memory
+                        mem = get_memory(call)
+                        cog.outl('success!')
+                       ]]]
+                       [[[end]]]*/""")
+
+            # and serialize mem
+            with open(os.path.join(tdir, 'callgen.pickle'), 'wb') as file:
+                pickle.dump(callgen.as_immutable(), file)
+
+            # and call cog
+            from cogapp import Cog
+            cmd = [
+                'cog', '-e', '-d', '-Dcallgen={}'.format(
+                    os.path.join(tdir, 'callgen.pickle')),
+                '-o', os.path.join(tdir, 'test'), os.path.join(tdir, 'test.cpp')]
+            Cog().callableMain(cmd)
+
+            with open(os.path.join(tdir, 'test'), 'r') as file:
+                assert file.read().strip() == 'success!'
 
 
 @parameterized(__test_cases)
