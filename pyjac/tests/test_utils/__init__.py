@@ -87,7 +87,37 @@ def temporary_directory(cleanup=True):
     finally:
         os.chdir(owd)
         if cleanup:
-            clean_dir(dirpath)
+            clean_dir(dirpath, remove_dir=True)
+
+
+@contextmanager
+def temporary_build_dirs(cleanup=True):
+    """
+    Returns a self-cleaning set of directories that may be used as build / object /
+    library dirs.
+
+    Returns
+    -------
+    dir_tuple: (str, str, str)
+        The build_dir, obj_dir, and lib_dir respectively
+    """
+    dirpath = tempfile.mkdtemp()
+    # make build, obj, lib
+    build = os.path.join(dirpath, 'build')
+    obj = os.path.join(dirpath, 'obj')
+    lib = os.path.join(dirpath, 'lib')
+
+    utils.create_dir(build)
+    utils.create_dir(obj)
+    utils.create_dir(lib)
+    owd = os.getcwd()
+    try:
+        os.chdir(dirpath)
+        yield build, obj, lib
+    finally:
+        os.chdir(owd)
+        if cleanup:
+            clean_dir(dirpath, remove_dir=True)
 
 
 class kernel_runner(object):
