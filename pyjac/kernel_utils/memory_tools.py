@@ -8,6 +8,7 @@ from string import Template
 import six
 from enum import Enum
 import loopy as lp
+import numpy as np
 
 from pyjac.core.array_creator import problem_size
 
@@ -169,7 +170,7 @@ class MemoryManager(object):
 
     def determine_cl_mem_type(self, arr):
         if isinstance(arr, lp.ValueArg):
-            if self.type_map[arr.dtype] == 'int':
+            if arr.dtype.is_integral():
                 # hack to get unsigned ints
                 temp = 'cl_u{}'
             else:
@@ -200,7 +201,7 @@ class MemoryManager(object):
     def lang(self, device):
         return self.host_lang if not device else self.device_lang
 
-    def define(self, device, arr):
+    def define(self, device, arr, host_constant=False):
         """
         Declare a host or device array
 
@@ -212,8 +213,24 @@ class MemoryManager(object):
             The buffer to allocate
         """
 
+        if host_constant:
+            assert isinstance(arr, lp.TemporaryVariable) and isinstance(
+                arr.initializer, np.ndarray)
+            if device:
+                raise Exception('Cannot directly define a host-constant on the '
+                                'device')
+
         name = self.get_name(arr, device)
         dtype = self.mem_type[self.lang(device)](arr)
+
+        if host_constant:
+            init = arr.initializer.flatten(self.order)
+            size = init.shape[0]
+            precision = '{:d}' if arr.dtype.is_integral() else '{:.16e}'
+            init = ', '.join([precision.format(x) for x in init])
+            return 'const {dtype} {name}[{size}] = {{{init}}};'.format(
+                dtype=self.type_map[arr.dtype], name=name, size=size, init=init)
+
         return self.definition[self.lang(device)].safe_substitute(
             mem_type=dtype, name=name)
 

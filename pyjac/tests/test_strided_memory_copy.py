@@ -14,6 +14,7 @@ import pyopencl as cl
 import numpy as np
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
+from nose.tools import assert_raises
 
 from pyjac import utils
 from pyjac.core import array_creator as arc
@@ -296,6 +297,8 @@ def test_memory_tools_defn():
         d3 = lp.GlobalArg('d3', shape=(arc.problem_size, 10, 10), dtype=np.float64)
         a4 = lp.ValueArg('a4', dtype=np.int64)
         a5 = lp.ValueArg('a5', dtype=np.int32)
+        a6 = lp.TemporaryVariable('a6', initializer=np.array([0, 1, 2]),
+                                  read_only=True)
 
         if opts.lang == 'opencl':
             assert mem.define(True, a1) == 'cl_mem d_a1;'
@@ -303,12 +306,22 @@ def test_memory_tools_defn():
             assert mem.define(True, d3) == 'cl_mem d_d3;'
             assert mem.define(False, a4) == 'long int h_a4;'
             assert mem.define(True, a5) == 'cl_uint d_a5;'
+            assert mem.define(True, a5) == 'cl_uint d_a5;'
+            with assert_raises(Exception):
+                mem.define(True, a6, host_constant=True)
+            assert mem.define(False, a6, host_constant=True) == \
+                'const long int h_a6[3] = {0, 1, 2};'
+
         elif opts.lang == 'c':
             assert mem.define(True, a1) == 'int* d_a1;'
             assert mem.define(False, a2) == 'long int* h_a2;'
             assert mem.define(True, d3) == 'double* d_d3;'
             assert mem.define(False, a4) == 'long int h_a4;'
             assert mem.define(True, a5) == 'int d_a5;'
+            with assert_raises(Exception):
+                mem.define(True, a6, host_constant=True)
+            assert mem.define(False, a6, host_constant=True) == \
+                'const long int h_a6[3] = {0, 1, 2};'
         else:
             raise NotImplementedError
 
