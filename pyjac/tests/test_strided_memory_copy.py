@@ -186,6 +186,10 @@ def test_memory_tools_memset():
                 dev = mem2.memset(True, a1)
                 assert ', data->d_a1, ' in dev
                 assert 'data->d_temp_i = ' in dev
+                mem3 = get_memory(callgen, device_namer=DeviceNamer(
+                    'data', postfix='_test'))
+                dev = mem3.memset(True, a1)
+                assert ', data->d_a1_test, ' in dev
             else:
                 # check for opencl 1.2 memset
                 assert ('clEnqueueFillBuffer(queue, a1, &zero, sizeof(double), 0, '

@@ -36,28 +36,27 @@ device_prefix = 'd_'
 
 
 class Namer(object):
-    def __init__(self, prefix=None):
-        self.prefix = prefix
+    def __init__(self, prefix=None, postfix=None):
+        self.prefix = prefix if prefix is not None else ''
+        self.postfix = postfix if postfix is not None else ''
 
     def __call__(self, name, **kwargs):
-        if kwargs.get('prefix', ''):
-            return kwargs.get('prefix') + name
-        if self.prefix:
-            return self.prefix + name
-        return name
+        prefix = kwargs.get('prefix', self.prefix)
+        postfix = kwargs.get('postfix', self.postfix)
+        return prefix + name + postfix
 
 
 class HostNamer(Namer):
-    def __init__(self):
-        super(HostNamer, self).__init__(host_prefix)
+    def __init__(self, **kwargs):
+        super(HostNamer, self).__init__(prefix=host_prefix, **kwargs)
 
 
 class DeviceNamer(Namer):
-    def __init__(self, owner=''):
+    def __init__(self, owner='', **kwargs):
         prefix = device_prefix
         if owner:
             prefix = '{}->{}'.format(owner, device_prefix)
-        super(DeviceNamer, self).__init__(prefix)
+        super(DeviceNamer, self).__init__(prefix, **kwargs)
 
 
 class DeviceMemoryType(Enum):
