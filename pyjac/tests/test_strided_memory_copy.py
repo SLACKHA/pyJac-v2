@@ -11,7 +11,6 @@ from collections import OrderedDict
 
 from six.moves import cPickle as pickle
 import pyopencl as cl
-from parameterized import parameterized
 import numpy as np
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
@@ -26,10 +25,9 @@ from pyjac.kernel_utils.memory_tools import DeviceMemoryType, get_memory, \
 from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
 from pyjac.libgen.libgen import compiler, file_struct, libgen
 from pyjac.loopy_utils.loopy_utils import get_target
-from pyjac.tests import build_dir, obj_dir, lib_dir, script_dir
-from pyjac.tests.test_utils import clean_dir
+from pyjac.tests import script_dir
 from pyjac.tests.test_utils import OptionLoopWrapper, get_test_langs, \
-    temporary_directory
+    temporary_directory, temporary_build_dirs
 
 
 def __test_cases():
@@ -279,6 +277,38 @@ def test_memory_tools_copy():
                             'per_run * sizeof(double), 0, '
                             'problem_size * sizeof(double), 0, h_d3, 0, NULL, NULL)'
                             ) in dev
+        else:
+            raise NotImplementedError
+
+
+def test_memory_tools_defn():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map(opts.lang))
+        # create a memory manager
+        mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
+
+        a1 = lp.GlobalArg('a1', shape=(arc.problem_size), dtype=np.int32)
+        a2 = lp.GlobalArg('a2', shape=(arc.problem_size, 10), dtype=np.int64)
+        d3 = lp.GlobalArg('d3', shape=(arc.problem_size, 10, 10), dtype=np.float64)
+        a4 = lp.ValueArg('a4', dtype=np.int64)
+        a5 = lp.ValueArg('a5', dtype=np.int32)
+
+        if opts.lang == 'opencl':
+            assert mem.define(True, a1) == 'cl_mem d_a1;'
+            assert mem.define(False, a2) == 'long int* h_a2;'
+            assert mem.define(True, d3) == 'cl_mem d_d3;'
+            assert mem.define(False, a4) == 'long int h_a4;'
+            assert mem.define(True, a5) == 'cl_uint d_a5;'
+        elif opts.lang == 'c':
+            assert mem.define(True, a1) == 'int* d_a1;'
+            assert mem.define(False, a2) == 'long int* h_a2;'
+            assert mem.define(True, d3) == 'double* d_d3;'
+            assert mem.define(False, a4) == 'long int h_a4;'
+            assert mem.define(True, a5) == 'int d_a5;'
         else:
             raise NotImplementedError
 

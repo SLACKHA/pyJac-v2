@@ -7,6 +7,7 @@ from string import Template
 
 import six
 from enum import Enum
+import loopy as lp
 
 from pyjac.core.array_creator import problem_size
 
@@ -137,6 +138,7 @@ class MemoryManager(object):
                  device_namer=None):
         self.order = order
         self.type_map = type_map.copy()
+        self.def_map = {}
         self.alloc_template = alloc
         self.sync_template = sync
         self.copy_in_1d = copy_in_1d
@@ -151,6 +153,30 @@ class MemoryManager(object):
         self.host_const_in = host_const_in
         self.host_namer = host_namer
         self.device_namer = device_namer
+        self.definition = {'c': Template('${mem_type} ${name};'),
+                           'opencl': Template('${mem_type} ${name};')}
+
+        self.mem_type = {'c': self.determine_c_mem_type,
+                         'opencl': self.determine_cl_mem_type}
+
+    def determine_c_mem_type(self, arr):
+        # array
+        temp = '{}*'
+        if isinstance(arr, lp.ValueArg):
+            # int
+            temp = '{}'
+        return temp.format(self.type_map[arr.dtype])
+
+    def determine_cl_mem_type(self, arr):
+        if isinstance(arr, lp.ValueArg):
+            if self.type_map[arr.dtype] == 'int':
+                # hack to get unsigned ints
+                temp = 'cl_u{}'
+            else:
+                temp = 'cl_{}'
+            return temp.format(self.type_map[arr.dtype])
+        # array
+        return 'cl_mem'
 
     def buffer_size(self, device, arr, num_ics='per_run'):
         calc = StrideCalculator(self.type_map)
@@ -174,6 +200,23 @@ class MemoryManager(object):
     def lang(self, device):
         return self.host_lang if not device else self.device_lang
 
+    def define(self, device, arr):
+        """
+        Declare a host or device array
+
+        Parameters
+        ----------
+        device: bool
+            If true, allocate a device buffer, else a host buffer
+        arr: :class:`loopy.ArrayArg`
+            The buffer to allocate
+        """
+
+        name = self.get_name(arr, device)
+        dtype = self.mem_type[self.lang(device)](arr)
+        return self.definition[self.lang(device)].safe_substitute(
+            mem_type=dtype, name=name)
+
     def alloc(self, device, arr, readonly=False, num_ics='per_run', **kwargs):
         """
         Return an allocation for a buffer in the given :param:`lang`
@@ -182,8 +225,8 @@ class MemoryManager(object):
         ----------
         device: bool
             If true, allocate a device buffer, else a host buffer
-        name: str
-            The desired name of the buffer
+        arr: :class:`loopy.ArrayArg`
+            The buffer to allocate
         num_ics: str ['per_run']
             The number of initial conditions to evaluated per run
         readonly: bool
