@@ -230,23 +230,24 @@ class SubTest(TestClass):
                     assert arg.name in offsets
 
             def __check_local_unpacks(result, args):
-                # select a few random args
-                assert 3 < len(args)
-                choice = np.random.choice(list(range(len(args))), size=3,
-                                          replace=False)
-                # get offsets
-                cargs = [args[x] for x in choice]
-                offsets = [result.pointer_offsets[x.name][1] for x in cargs]
-                new = kgen._get_local_unpacks(result, cargs)
-                # and check
-                for i in range(len(new.pointer_unpacks)):
-                    assert re.search(r'\b' + re.escape(offsets[i]) + r'\b',
-                                     new.pointer_unpacks[i])
+                for i, arg in enumerate(args):
+                    # get offset
+                    offsets = result.pointer_offsets[arg.name][1]
+                    new = kgen._get_local_unpacks(result, [arg])
+                    if not new.pointer_unpacks:
+                        assert isinstance(arg, lp.TemporaryVariable)
+                    else:
+                        # and check
+                        assert re.search(r'\b' + re.escape(offsets) + r'\b',
+                                         new.pointer_unpacks[0])
 
             # check that all args are in the pointer unpacks
             __check_unpacks(result.pointer_unpacks, result.pointer_offsets,
-                            recordnew.args + recordnew.local)
-            __check_local_unpacks(result, recordnew.args + recordnew.local)
+                            recordnew.args + recordnew.local
+                            + recordnew.host_constants)
+            # check unpacks for driver function (note: this isn't the 'local' scope
+            # rather, local copies out of the working buffer)
+            __check_local_unpacks(result, recordnew.args)
             # next, write a dummy input file, such that we can force the constant
             # memory allocation to zero
             with NamedTemporaryFile(suffix='.yaml', mode='w') as temp:

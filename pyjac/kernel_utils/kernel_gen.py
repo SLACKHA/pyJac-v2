@@ -1509,6 +1509,10 @@ ${name} : ${type}
         itype = to_loopy_type(arc.kint_type, target=self.target)
         iargs, dargs = utils.partition(offset_args, lambda x: x.dtype == itype)
 
+        if record.host_constants:
+            # include host constants in integer workspace
+            iargs += record.host_constants
+
         if for_driver:
             # filter out any args we shouldn't be compressing
             dargs = [x for x in dargs if x.name not in set(self.mem.host_arrays)]
