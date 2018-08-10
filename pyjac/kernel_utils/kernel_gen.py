@@ -24,6 +24,7 @@ except ImportError:
 import numpy as np
 import cgen
 from pytools import ImmutableRecord
+from cogapp import Cog
 
 from pyjac.kernel_utils import file_writers as filew
 from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
@@ -1804,22 +1805,6 @@ ${name} : ${type}
         if not fake_calls:
             fake_calls = self.fake_calls
 
-        # determine
-
-        # # and add to the memory store
-        # if not for_driver:
-        #     self.mem.add_arrays(record.kernel_data)
-        # else:
-        #     # add the working buffer to the driver function
-        #     for i, kernel in enumerate(kernels):
-        #         if kernel.name.endswith('driver'):
-        #             kargs = kernel.args[:]
-        #             for arg in record.kernel_data:
-        #                 if arg not in kargs:
-        #                     kargs.append(arg)
-        #             kernels[i] = kernel.copy(args=kargs)
-        #             break
-
         # generate the kernel code
         preambles = []
         extra_kernels = []
@@ -2957,10 +2942,10 @@ class opencl_kernel_generator(kernel_generator):
 
             # call cog
             try:
-                utils.run_with_our_python([
-                    '-m', 'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
-                    '-o', filename, infile])
-            except subprocess.CalledProcessError:
+                Cog().callableMain([
+                        'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
+                        '-o', filename, infile])
+            except Exception:
                 logger = logging.getLogger(__name__)
                 logger.error('Error generating compiling file {}'.format(filename))
                 raise
