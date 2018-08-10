@@ -284,6 +284,9 @@ class CallgenResult(ImmutableWithPytoolsCopy):
     kernel_args: dict of str -> list of :class:`loopy.ArrayArg`
         A dictionary mapping of kernel name -> global input / output args for this
         kernel
+    host_constants: dict of str -> list of :class:`loopy.TemporaryVariables`
+        A dictionary mapping of kernel name -> constant variables to be placed in
+        the working buffer
     docs: dict of str->str
         A mapping of kernel argument names to their
     local_size: int [1]
@@ -303,14 +306,16 @@ class CallgenResult(ImmutableWithPytoolsCopy):
 
     def __init__(self, name='', work_arrays=[], kernel_args={}, cl_level='',
                  docs={}, local_size=1, max_per_run=None, order='C', lang='c',
-                 dev_mem_type=DeviceMemoryType.mapped, type_map={}):
+                 dev_mem_type=DeviceMemoryType.mapped, type_map={},
+                 host_constants=[]):
         if not docs:
             docs = kernel_arg_docs()
         ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
                                  kernel_args=kernel_args, cl_level=cl_level,
                                  docs=docs, local_size=local_size,
                                  max_per_run=max_per_run, order=order, lang=lang,
-                                 dev_mem_type=dev_mem_type, type_map=type_map)
+                                 dev_mem_type=dev_mem_type, type_map=type_map,
+                                 host_constants=host_constants)
 
 
 class CompgenResult(ImmutableWithPytoolsCopy):
@@ -2940,7 +2945,7 @@ class opencl_kernel_generator(kernel_generator):
             # serialize
             compout = os.path.join(path, 'comp.pickle')
             with open(compout, 'wb') as file:
-                pickle.dump(result.as_immutable(), file)
+                pickle.dump(result, file)
 
             # input
             infile = os.path.join(
