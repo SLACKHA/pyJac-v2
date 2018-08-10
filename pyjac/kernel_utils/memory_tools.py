@@ -656,7 +656,7 @@ class PinnedMemory(MappedMemory):
             'host_const_in': host_const_in
         }
         self.map_template = {'opencl': Template(
-            '${temp_name} = (${dtype}*)clEnqueueMapBuffer(queue, ${dev_name}, '
+            '${temp_name} = clEnqueueMapBuffer(queue, ${dev_name}, '
             'CL_TRUE, ${map_flags}, 0, ${per_run_size}, 0, NULL, NULL, '
             '&return_code);\n'
             '${check}'

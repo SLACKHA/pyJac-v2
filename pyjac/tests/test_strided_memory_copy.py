@@ -5,9 +5,9 @@ Copyright Nicholas Curtis 2018
 """
 import shutil
 import os
-from string import Template
 import subprocess
 from collections import OrderedDict
+from textwrap import dedent
 
 from six.moves import cPickle as pickle
 import pyopencl as cl
@@ -19,11 +19,10 @@ from nose.tools import assert_raises
 from pyjac import utils
 from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
-from pyjac.core.array_creator import array_splitter
 from pyjac.kernel_utils.kernel_gen import CallgenResult
 from pyjac.kernel_utils.memory_tools import DeviceMemoryType, get_memory, \
     DeviceNamer, HostNamer
-from pyjac.kernel_utils.memory_manager import memory_manager, host_langs
+from pyjac.kernel_utils.memory_manager import host_langs
 from pyjac.libgen.libgen import compiler, file_struct, libgen
 from pyjac.loopy_utils.loopy_utils import get_target
 from pyjac.tests import script_dir
@@ -91,7 +90,7 @@ def test_memory_tools_alloc():
             # test default host
             assert 'a1 = (int*)malloc(problem_size * sizeof(int))' in mem.alloc(
                 False, a1)
-            assert (('CL_MEM_ALLOC_HOST_PTR' in mem.alloc(True, a1)) ==
+            assert (('CL_MEM_ALLOC_HOST_PT' in mem.alloc(True, a1)) ==
                     (wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned))
             # test default device
             assert ('a1 = clCreateBuffer(context, CL_MEM_READ_WRITE') \
@@ -175,7 +174,7 @@ def test_memory_tools_memset():
                 # pinned -> should have a regular memset
                 assert 'memset(temp_i, 0, 10 * per_run * sizeof(int));' in dev
                 # and map / unmaps
-                assert ('(int*)clEnqueueMapBuffer(queue, a1, CL_TRUE, CL_MAP_WRITE, '
+                assert ('clEnqueueMapBuffer(queue, a1, CL_TRUE, CL_MAP_WRITE, '
                         '0, 10 * per_run * sizeof(int), 0, NULL, NULL, &return_code)'
                         ) in dev
                 assert ('check_err(clEnqueueUnmapMemObject(queue, a1, temp_i, 0, '
@@ -245,7 +244,7 @@ def test_memory_tools_copy():
             dev = mem.copy(True, a1, host_constant=True)
             if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
                 assert 'clEnqueueUnmapMemObject' in dev
-                assert ('d_temp_i = (int*)clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
+                assert ('d_temp_i = clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
                         'CL_MAP_WRITE, 0, problem_size * sizeof(int), 0, NULL, '
                         'NULL, &return_code);') in dev
                 assert 'memcpy(d_temp_i, h_a1, problem_size * sizeof(int));' in dev
@@ -256,7 +255,7 @@ def test_memory_tools_copy():
 
             dev = mem.copy(False, d3, offset='test', num_ics_this_run='test2')
             if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
-                assert ('d_temp_d = (double*)clEnqueueMapBuffer(queue, d_d3, '
+                assert ('d_temp_d = clEnqueueMapBuffer(queue, d_d3, '
                         'CL_TRUE, CL_MAP_READ, 0, 100 * per_run * sizeof(double)'
                         ', 0, NULL, NULL, &return_code);') in dev
                 if opts.order == 'C':
@@ -361,7 +360,7 @@ def test_can_load():
 
             # and serialize mem
             with open(os.path.join(tdir, 'callgen.pickle'), 'wb') as file:
-                pickle.dump(callgen.as_immutable(), file)
+                pickle.dump(callgen, file)
 
             # and call cog
             from cogapp import Cog
@@ -375,286 +374,330 @@ def test_can_load():
                 assert file.read().strip() == 'success!'
 
 
-@parameterized(__test_cases)
-def test_strided_copy(state):
-    lang = state['lang']
-    order = state['order']
-    depth = state['depth']
-    width = state['width']
+def test_strided_copy():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        lang = opts.lang
+        order = opts.order
+        depth = opts.depth
+        width = opts.width
 
-    # cleanup
-    clean_dir(build_dir)
-    clean_dir(obj_dir)
-    clean_dir(lib_dir)
+        import pdb; pdb.set_trace()
+        with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
+            vec_size = depth if depth else (width if width else 0)
+            # set max per run such that we will have a non-full run (1024 - 1008)
+            # this should also be evenly divisible by depth and width
+            # (as should the non full run)
+            max_per_run = 16
+            # number of ics should be divisibly by depth and width
+            ics = max_per_run * 8 + vec_size
+            if vec_size:
+                assert ics % vec_size == 0
+                assert max_per_run % vec_size == 0
+                assert int(np.floor(ics / max_per_run) * max_per_run) % vec_size == 0
 
-    # create
-    utils.create_dir(build_dir)
-    utils.create_dir(obj_dir)
-    utils.create_dir(lib_dir)
+            # build initial callgen
+            callgen = CallgenResult(
+                order=opts.order, lang=opts.lang,
+                dev_mem_type=wrapper.state['dev_mem_type'],
+                type_map=type_map(opts.lang))
 
-    vec_size = depth if depth else (width if width else 0)
-    # set max per run such that we will have a non-full run (1024 - 1008)
-    # this should also be evenly divisible by depth and width
-    # (as should the non full run)
-    max_per_run = 16
-    # number of ics should be divisibly by depth and width
-    ics = max_per_run * 8 + vec_size
-    if vec_size:
-        assert ics % vec_size == 0
-        assert max_per_run % vec_size == 0
-        assert int(np.floor(ics / max_per_run) * max_per_run) % vec_size == 0
-    dtype = np.dtype('float64')
+            # set type
+            dtype = np.dtype('float64')
 
-    # create test arrays
-    def __create(shape):
-        if not isinstance(shape, tuple):
-            shape = (shape,)
-        shape = (ics,) + shape
-        arr = np.zeros(shape, dtype=dtype, order=order)
-        arr.flat[:] = np.arange(np.prod(shape))
-        return arr
-    arrays = [__create(16), __create(10), __create(20), __create((20, 20)),
-              __create(())]
-    const = [np.arange(10, dtype=dtype)]
-    lp_arrays = [lp.GlobalArg('a{}'.format(i), shape=('problem_size',) + a.shape[1:],
-                              order=order, dtype=(arrays + const)[i].dtype)
-                 for i, a in enumerate(arrays)] + \
-                [lp.TemporaryVariable('a{}'.format(i + len(arrays)), dtype=dtype,
-                 order=order, initializer=const[i], read_only=True,
-                 shape=const[i].shape) for i in range(len(const))]
-    const = lp_arrays[len(arrays):]
+            # create test arrays
+            def __create(shape):
+                if not isinstance(shape, tuple):
+                    shape = (shape,)
+                shape = (ics,) + shape
+                arr = np.zeros(shape, dtype=dtype, order=order)
+                arr.flat[:] = np.arange(np.prod(shape))
+                return arr
+            arrays = [__create(16), __create(10), __create(20), __create((20, 20)),
+                      __create(())]
+            const = [np.arange(10, dtype=dtype)]
 
-    dtype = 'double'
+            # max size for initialization in kernel
+            max_size = max([x.size for x in arrays])
 
-    # create array splitter
-    opts = type('', (object,), state)
-    asplit = array_splitter(opts)
+            def _get_dtype(dtype):
+                return lp.to_loopy_type(
+                    dtype, target=get_target(opts.lang))
 
-    # split numpy
-    arrays = asplit.split_numpy_arrays(arrays)
-    # make dummy knl
-    knl = lp.make_kernel('{[i]: 0 <= i <= 1}',
-                         """
-                            if i > 1
-                                a0[i, i] = 0
-                                a1[i, i] = 0
-                                a2[i, i] = 0
-                                a3[i, i, i] = 0
-                                a4[i] = 0
-                                <> k = a5[i]
-                            end
-                         """, lp_arrays)
-    # split loopy
-    lp_arrays = asplit.split_loopy_arrays(knl).args
+            lp_arrays = [lp.GlobalArg('a{}'.format(i),
+                                      shape=(arc.problem_size.name,) + a.shape[1:],
+                                      order=order,
+                                      dtype=_get_dtype(arrays[i].dtype))
+                         for i, a in enumerate(arrays)] + \
+                        [lp.TemporaryVariable(
+                            'a{}'.format(i + len(arrays)),
+                            dtype=_get_dtype(dtype), order=order,
+                            initializer=const[i],
+                            read_only=True, shape=const[i].shape)
+                         for i in range(len(const))]
+            const = lp_arrays[len(arrays):]
 
-    # now create a simple library
-    mem = memory_manager(opts.lang, opts.order, asplit,
-                         dev_type=state['device_type'],
-                         strided_c_copy=lang == 'c')
-    mem.add_arrays([x for x in lp_arrays],
-                   in_arrays=[x.name for x in lp_arrays if x not in const],
-                   out_arrays=[x.name for x in lp_arrays if x not in const],
-                   host_constants=const)
+            # now update args
+            callgen = callgen.copy(kernel_args={'test': [x for x in lp_arrays
+                                                if x not in const]},
+                                   host_constants={'test': const})
 
-    # create "kernel"
-    size_type = 'int'
-    lang_headers = []
-    if lang == 'opencl':
-        lang_headers.extend([
-                        '#include "memcpy_2d.oclh"',
-                        '#include "vectorization.oclh"',
-                        '#include <CL/cl.h>',
-                        '#include "ocl_errorcheck.oclh"'])
-        size_type = 'cl_uint'
-    elif lang == 'c':
-        lang_headers.extend([
-            '#include "memcpy_2d.h"',
-            '#include "error_check.h"'])
+            temp_fname = os.path.join(build_dir, 'in' + utils.file_ext[lang])
+            fname = os.path.join(build_dir, 'test' + utils.file_ext[lang])
+            with open(temp_fname, 'w') as file:
+                file.write(dedent("""
+       /*[[[cog
+            # expected globals:
+            #   callgen      - path to serialized callgen object
+            #   lang         - the language to use
+            #   problem_size - the problem size
+            #   max_per_run  - the run-size
+            #   max_size     - the maximum array size
+            #   order        - The data ordering
 
-    # kernel must copy in and out, using the mem_manager's format
-    knl = Template("""
-    for (size_t offset = 0; offset < problem_size; offset += per_run)
-    {
-        ${type} this_run = problem_size - offset < per_run ? \
-            problem_size - offset : per_run;
-        /* Memory Transfers into the kernel, if any */
-        ${mem_transfers_in}
+            import cog
+            import os
+            import numpy as np
+            from six.moves import cPickle as pickle
 
-        /* Memory Transfers out */
-        ${mem_transfers_out}
-    }
-    """).safe_substitute(type=size_type,
-                         mem_transfers_in=mem._mem_transfers(
-                            to_device=True, host_postfix='_save'),
-                         mem_transfers_out=mem.get_mem_transfers_out(),
-                         problem_size=ics
-                         )
+            # unserialize the callgen
+            with open(callgen, 'rb') as file:
+                callgen = pickle.load(file)
 
-    # create the host memory allocations
-    host_names = ['h_' + arr.name for arr in lp_arrays]
-    host_allocs = mem.get_mem_allocs(True, host_postfix='')
+            # determine the headers to include
+            lang_headers = []
+            if lang == 'opencl':
+                lang_headers.extend([
+                                '#include "memcpy_2d.oclh"',
+                                '#include "vectorization.oclh"',
+                                '#include <CL/cl.h>',
+                                '#include "ocl_errorcheck.oclh"'])
+            elif lang == 'c':
+                lang_headers.extend([
+                    '#include "memcpy_2d.h"',
+                    '#include "error_check.h"'])
+            cog.outl('\\n'.join(lang_headers))
+            ]]]
+            [[[end]]]*/
 
-    # device memory allocations
-    device_allocs = mem.get_mem_allocs(False)
-
-    # copy to save for test
-    host_name_saves = ['h_' + a.name + '_save' for a in lp_arrays]
-    host_const_allocs = mem.get_host_constants()
-    host_copies = [Template(
-        """
-        ${type} ${save} [${size}] = {${vals}};
-        memset(${host}, 0, ${size} * sizeof(${type}));
-        """).safe_substitute(
-            save='h_' + lp_arrays[i].name + '_save',
-            host='h_' + lp_arrays[i].name,
-            size=arrays[i].size,
-            vals=', '.join([str(x) for x in arrays[i].flatten()]),
-            type=dtype)
-        for i in range(len(arrays))]
-
-    # and finally checks
-    check_template = Template("""
-        for(int i = 0; i < ${size}; ++i)
-        {
-            assert(${host}[i] == ${save}[i]);
-        }
-    """)
-    checks = [check_template.safe_substitute(host=host_names[i],
-                                             save=host_name_saves[i],
-                                             size=arrays[i].size)
-              for i in range(len(arrays))]
-
-    # and preambles
-    ocl_preamble = """
-    double* temp_d;
-    int* temp_i;
-    // create a context / queue
-    int lim = 10;
-    cl_uint num_platforms;
-    cl_uint num_devices;
-    cl_platform_id platform [lim];
-    cl_device_id device [lim];
-    cl_int return_code;
-    cl_context context;
-    cl_command_queue queue;
-    check_err(clGetPlatformIDs(lim, platform, &num_platforms));
-    for (int i = 0; i < num_platforms; ++i)
-    {
-        check_err(clGetDeviceIDs(platform[i], CL_DEVICE_TYPE_ALL, lim, device,
-            &num_devices));
-        if(num_devices > 0)
-            break;
-    }
-    context = clCreateContext(NULL, 1, &device[0], NULL, NULL, &return_code);
-    check_err(return_code);
-
-    //create queue
-    queue = clCreateCommandQueue(context, device[0], 0, &return_code);
-    check_err(return_code);
-    """
-    preamble = ''
-    if lang == 'opencl':
-        preamble = ocl_preamble
-
-    end = ''
-    if lang == 'opencl':
-        end = """
-        check_err(clFlush(queue));
-        check_err(clReleaseCommandQueue(queue));
-        check_err(clReleaseContext(context));
-    """
-
-    file_src = Template("""
-${lang_headers}
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
+            // normal headers
+            #include <stdlib.h>
+            #include <string.h>
+            #include <assert.h>
 
 
-void main()
-{
-    ${preamble}
+            void main()
+            {
+                /*[[[cog
+                    if lang == 'opencl':
+                        cog.outl(
+                    'double* temp_d;\\n'
+                    'int* temp_i;\\n'
+                    '// create a context / queue\\n'
+                    'int lim = 10;\\n'
+                    'cl_uint num_platforms;\\n'
+                    'cl_uint num_devices;\\n'
+                    'cl_platform_id platform [lim];\\n'
+                    'cl_device_id device [lim];\\n'
+                    'cl_int return_code;\\n'
+                    'cl_context context;\\n'
+                    'cl_command_queue queue;\\n'
+                    'check_err(clGetPlatformIDs(lim, platform, &num_platforms));\\n'
+                    'for (int i = 0; i < num_platforms; ++i)\\n'
+                    '{\\n'
+                    '    check_err(clGetDeviceIDs(platform[i], CL_DEVICE_TYPE_ALL, '
+                    '    lim, device, &num_devices));\\n'
+                    '    if(num_devices > 0)\\n'
+                    '        break;\\n'
+                    '}\\n'
+                    'context = clCreateContext(NULL, 1, &device[0], NULL, NULL, '
+                    '&return_code);\\n'
+                    'check_err(return_code);\\n'
+                    '//create queue\\n'
+                    'queue = clCreateCommandQueue(context, device[0], 0, '
+                    '&return_code);\\n'
+                    'check_err(return_code);\\n')
+                ]]]
+                [[[end]]]*/
 
-    double zero [${max_dim}] = {0};
+                /*[[[cog
 
-    ${size_type} problem_size = ${problem_size};
-    ${size_type} per_run = ${max_per_run};
+                    # determine maximum array size
+                    cog.outl('double zero [{max_size}] = {{0}};'.format(
+                        max_size=max_size))
 
-    ${host_allocs}
-    ${host_const_allocs}
-    ${mem_declares}
-    ${device_allocs}
+                    # init variables
+                    cog.outl('int problem_size = {};'.format(problem_size))
+                    cog.outl('int per_run = {};'.format(max_per_run))
+                  ]]]
+                  [[[end]]]*/
 
-    ${mem_saves}
+                /*[[[cog
+                    # create memory tool
+                    from string import Template
+                    import loopy as lp
+                    from pyjac.kernel_utils.memory_tools import get_memory
+                    from pyjac.kernel_utils.memory_tools import HostNamer
+                    from pyjac.kernel_utils.memory_tools import DeviceNamer
+                    mem = get_memory(callgen, host_namer=HostNamer(),
+                                     device_namer=DeviceNamer())
 
-    ${host_constant_copy}
+                    # declare host and device arrays
+                    for arr in callgen.kernel_args['test'] + callgen.work_arrays:
+                        if not isinstance(arr, lp.ValueArg):
+                            cog.outl(mem.define(False, arr))
+                            cog.outl(mem.define(True, arr))
+                    # define host constants
+                    for arr in callgen.host_constants['test']:
+                        cog.outl(mem.define(False, arr, host_constant=True))
+                        cog.outl(mem.define(True, arr))
 
-    ${knl}
+                    # and declare the temporary array
+                    cog.outl(mem.define(True, lp.GlobalArg('temp_d')))
 
-    ${checks}
+                    # allocate host and device arrays
+                    for arr in callgen.kernel_args['test'] + callgen.work_arrays:
+                        if not isinstance(arr, lp.ValueArg):
+                            cog.outl(mem.alloc(False, arr))
+                            cog.outl(mem.alloc(True, arr))
+                    for arr in callgen.host_constants['test']:
+                        # alloc device version of host constant
+                        cog.outl(mem.alloc(True, arr))
+                        # copy host constants
+                        cog.outl(mem.copy(True, arr, host_constant=True))
 
-    ${end}
+                    def _get_size(arr):
+                        size = 1
+                        for x in arr.shape:
+                            if not isinstance(x, int):
+                                assert x.name == 'problem_size'
+                                size *= int(max_per_run)
+                            else:
+                                size *= x
+                        return size
 
-    exit(0);
-}
-    """).safe_substitute(lang_headers='\n'.join(lang_headers),
-                         mem_declares=mem.get_defns(),
-                         host_allocs=host_allocs,
-                         host_const_allocs=host_const_allocs,
-                         device_allocs=device_allocs,
-                         mem_saves='\n'.join(host_copies),
-                         host_constant_copy=mem.get_host_constants_in(),
-                         checks='\n'.join(checks),
-                         knl=knl,
-                         preamble=preamble,
-                         end=end,
-                         size_type=size_type,
-                         max_per_run=max_per_run,
-                         problem_size=ics,
-                         max_dim=max([x.size for x in arrays]))
+                    # save copies of host arrays
+                    host_copies = [Template(
+                        '${type} ${save} [${size}] = {${vals}};\\n'
+                        'memset(${host}, 0, ${size} * sizeof(${type}));'
+                        ).safe_substitute(
+                            save='h_' + arr.name + '_save',
+                            host='h_' + arr.name,
+                            size=_get_size(arr),
+                            vals=', '.join([str(x) for x in np.arange(
+                                _get_size(arr)).flatten(order)]),
+                            type=callgen.type_map[arr.dtype])
+                            for arr in callgen.kernel_args['test'] +
+                                       callgen.host_constants['test']]
+                    for hc in host_copies:
+                        cog.outl(hc)
+                  ]]]
+                  [[[end]]]*/
 
-    # write file
-    fname = os.path.join(build_dir, 'test' + utils.file_ext[lang])
-    with open(fname, 'w') as file:
-        file.write(file_src)
-    files = [fname]
+            // kernel
+            for (size_t offset = 0; offset < problem_size; offset += per_run)
+            {
+                int this_run = problem_size - offset < per_run ? \
+                    problem_size - offset : per_run;
+                /* Memory Transfers into the kernel, if any */
+                /*[[[cog
+                  mem2 = get_memory(callgen, host_namer=HostNamer(postfix='_save'),
+                                    device_namer=DeviceNamer())
+                  for arr in callgen.kernel_args['test']:
+                      cog.outl(mem2.copy(True, arr))
+                  ]]]
+                  [[[end]]]*/
 
-    # write aux
-    write_aux(build_dir, opts, [], [])
+                /* Memory Transfers out */
+                /*[[[cog
+                  for arr in callgen.kernel_args['test']:
+                      cog.outl(mem.copy(False, arr))
+                  ]]]
+                  [[[end]]]*/
+            }
 
-    # copy any deps
-    def __copy_deps(lang, scan_path, out_path, change_extension=True,
-                    ffilt=None):
-        deps = [x for x in os.listdir(scan_path) if os.path.isfile(
-            os.path.join(scan_path, x)) and not x.endswith('.in')]
-        if ffilt is not None:
-            deps = [x for x in deps if ffilt in x]
-        files = []
-        for dep in deps:
-            dep_dest = dep
-            dep_is_header = dep.endswith(utils.header_ext[lang])
-            ext = (utils.file_ext[lang] if not dep_is_header
-                   else utils.header_ext[lang])
-            if change_extension and not dep.endswith(ext):
-                dep_dest = dep[:dep.rfind('.')] + ext
-            shutil.copyfile(os.path.join(scan_path, dep),
-                            os.path.join(out_path, dep_dest))
-            if not dep_is_header:
-                files.append(os.path.join(out_path, dep_dest))
-        return files
+                /*[[[cog
+                    # and finally check
+                    check_template = Template(
+                        'for(int i = 0; i < ${size}; ++i)\\n'
+                        '{\\n'
+                        '    assert(${host}[i] == ${save}[i]);\\n'
+                        '}\\n')
+                    checks = [check_template.safe_substitute(
+                        host=mem.get_name(arr, False),
+                        save=mem2.get_name(arr, False),
+                        size=_get_size(arr))
+                              for arr in callgen.kernel_args['test']]
+                    for check in checks:
+                        cog.outl(check)
+                  ]]]
+                  [[[end]]]*/
 
-    scan = os.path.join(script_dir, os.pardir, 'kernel_utils', lang)
-    files += __copy_deps(lang, scan, build_dir)
-    scan = os.path.join(script_dir, os.pardir, 'kernel_utils', 'common')
-    files += __copy_deps(host_langs[lang], scan, build_dir, change_extension=False,
-                         ffilt='memcpy_2d')
+                /*[[[cog
+                    if lang == 'opencl':
+                        cog.outl('check_err(clFlush(queue));')
+                        cog.outl('check_err(clReleaseCommandQueue(queue));')
+                        cog.outl('check_err(clReleaseContext(context));')
+                  ]]]
+                  [[[end]]]*/
+                exit(0);
+            }
+            """.strip()))
 
-    # build
-    files = [file_struct(lang, lang, f[:f.rindex('.')], [build_dir], [],
-                         build_dir, obj_dir, True, True) for f in files]
-    assert not any(compiler(x) for x in files)
-    lib = libgen(lang, obj_dir, lib_dir, [x.filename for x in files],
-                 True, False, True)
-    lib = os.path.join(lib_dir, lib)
-    # and run
-    subprocess.check_call(lib)
+            # serialize callgen
+            with open(os.path.join(build_dir, 'callgen.pickle'), 'wb') as file:
+                pickle.dump(callgen, file)
+
+            # cogify
+            from cogapp import Cog
+            cmd = [
+                'cog', '-e', '-d', '-Dcallgen={}'.format(
+                    os.path.join(build_dir, 'callgen.pickle')),
+                '-Dmax_per_run={}'.format(max_per_run),
+                '-Dproblem_size={}'.format(ics),
+                '-Dmax_size={}'.format(max_size),
+                '-Dlang={}'.format(lang),
+                '-Dorder={}'.format(order),
+                '-o', fname, temp_fname]
+            Cog().callableMain(cmd)
+
+            files = [fname]
+            # write aux
+            write_aux(build_dir, opts, [], [])
+
+            # copy any deps
+            def __copy_deps(lang, scan_path, out_path, change_extension=True,
+                            ffilt=None):
+                deps = [x for x in os.listdir(scan_path) if os.path.isfile(
+                    os.path.join(scan_path, x)) and not x.endswith('.in')]
+                if ffilt is not None:
+                    deps = [x for x in deps if ffilt in x]
+                files = []
+                for dep in deps:
+                    dep_dest = dep
+                    dep_is_header = dep.endswith(utils.header_ext[lang])
+                    ext = (utils.file_ext[lang] if not dep_is_header
+                           else utils.header_ext[lang])
+                    if change_extension and not dep.endswith(ext):
+                        dep_dest = dep[:dep.rfind('.')] + ext
+                    shutil.copyfile(os.path.join(scan_path, dep),
+                                    os.path.join(out_path, dep_dest))
+                    if not dep_is_header:
+                        files.append(os.path.join(out_path, dep_dest))
+                return files
+
+            scan = os.path.join(script_dir, os.pardir, 'kernel_utils', lang)
+            files += __copy_deps(lang, scan, build_dir)
+            scan = os.path.join(script_dir, os.pardir, 'kernel_utils', 'common')
+            files += __copy_deps(host_langs[lang], scan, build_dir,
+                                 change_extension=False, ffilt='memcpy_2d')
+
+            # build
+            files = [file_struct(lang, lang, f[:f.rindex('.')], [build_dir], [],
+                                 build_dir, obj_dir, True, True) for f in files]
+            assert not any(compiler(x) for x in files)
+            lib = libgen(lang, obj_dir, lib_dir, [x.filename for x in files],
+                         True, False, True)
+            lib = os.path.join(lib_dir, lib)
+            # and run
+            subprocess.check_call(lib)
