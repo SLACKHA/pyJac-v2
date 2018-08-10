@@ -10,7 +10,6 @@ from loopy.kernel.array import ArrayBase
 from loopy.kernel.data import AddressSpace as scopes
 from loopy.types import to_loopy_type
 from nose.tools import assert_raises
-import numpy as np
 import six
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
