@@ -102,14 +102,13 @@ class StrideCalculator(object):
         for x in arr.shape:
             # try as integer
             try:
-                int_shape *= x
-            except TypeError:
-                # try as valuearg
-                try:
+                if isinstance(x, lp.ValueArg):
                     str_shape = __update_str(str_shape, x.name)
-                except AttributeError:
-                    # it's a string
-                    str_shape = __update_str(str_shape, x)
+                else:
+                    int_shape *= int(x)
+            except TypeError:
+                # it's a stringified value arg
+                str_shape = __update_str(str_shape, str(x))
 
         # stitch together
         buff_size = __update_str(str(int_shape), str_shape) if int_shape != 1 else \

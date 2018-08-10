@@ -329,6 +329,33 @@ def test_memory_tools_defn():
             raise NotImplementedError
 
 
+def test_buffer_sizes():
+    wrapper = __test_cases()
+    for opts in wrapper:
+        # create a dummy callgen
+        callgen = CallgenResult(order=opts.order, lang=opts.lang,
+                                dev_mem_type=wrapper.state['dev_mem_type'],
+                                type_map=type_map(opts.lang))
+        # create a memory manager
+        mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
+
+        # test with value arg
+        a1 = lp.GlobalArg('a1', shape=(arc.problem_size), dtype=np.int32)
+        assert mem.non_ic_size(a1) == '1'
+        assert mem.buffer_size(True, a1, num_ics='per_run') == \
+            'per_run * sizeof(int)'
+        assert mem.buffer_size(False, a1) == 'problem_size * sizeof(int)'
+
+        # test with Variable
+        from pymbolic.primitives import Variable
+        a1 = lp.GlobalArg('a1', shape=(Variable(arc.problem_size.name)),
+                          dtype=np.int32)
+        assert mem.non_ic_size(a1) == '1'
+        assert mem.buffer_size(True, a1, num_ics='per_run') == \
+            'per_run * sizeof(int)'
+        assert mem.buffer_size(False, a1) == 'problem_size * sizeof(int)'
+
+
 def test_can_load():
     """
     Tests whether the external cog code-gen app can load our serialized objects
