@@ -409,7 +409,6 @@ def test_strided_copy():
         depth = opts.depth
         width = opts.width
 
-        import pdb; pdb.set_trace()
         with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
             vec_size = depth if depth else (width if width else 0)
             # set max per run such that we will have a non-full run (1024 - 1008)
@@ -580,7 +579,8 @@ def test_strided_copy():
                         cog.outl(mem.define(True, arr))
 
                     # and declare the temporary array
-                    cog.outl(mem.define(True, lp.GlobalArg('temp_d')))
+                    cog.outl(mem.define(True, lp.GlobalArg(
+                        'temp_d', dtype=lp.to_loopy_type(np.float64))))
 
                     # allocate host and device arrays
                     for arr in callgen.kernel_args['test'] + callgen.work_arrays:
@@ -598,7 +598,7 @@ def test_strided_copy():
                         for x in arr.shape:
                             if not isinstance(x, int):
                                 assert x.name == 'problem_size'
-                                size *= int(max_per_run)
+                                size *= int(problem_size)
                             else:
                                 size *= x
                         return size
