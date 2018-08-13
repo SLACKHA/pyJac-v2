@@ -188,7 +188,7 @@ class MemoryManager(object):
     def non_ic_size(self, arr):
         return StrideCalculator(self.type_map).non_ic_size(arr)
 
-    def get_name(self, arr, device, **kwargs):
+    def get_name(self, device, arr, **kwargs):
         namer = self.device_namer if device else self.host_namer
         try:
             name = arr.name
@@ -218,7 +218,7 @@ class MemoryManager(object):
                 raise Exception('Cannot directly define a host-constant on the '
                                 'device')
 
-        name = self.get_name(arr, device)
+        name = self.get_name(device, arr)
         dtype = self.mem_type[self.lang(device)](arr)
 
         if host_constant:
@@ -259,7 +259,7 @@ class MemoryManager(object):
                 + flags.split(' | ')
             flags = ' | '.join([x for x in flags if x])
 
-        name = self.get_name(arr, device)
+        name = self.get_name(device, arr)
         dtype = self.type_map[arr.dtype]
         buff_size = self.buffer_size(device, arr, num_ics=num_ics)
 
@@ -320,8 +320,8 @@ class MemoryManager(object):
         if not template:
             return ''
 
-        host_name = self.get_name(arr, False)
-        dev_name = self.get_name(arr, True)
+        host_name = self.get_name(False, arr)
+        dev_name = self.get_name(True, arr)
 
         return template.safe_substitute(
             host_name=host_name, dev_name=dev_name, buff_size=buff_size,
@@ -363,7 +363,7 @@ class MemoryManager(object):
             The instructions to memset the buffer
         """
 
-        name = self.get_name(arr, device)
+        name = self.get_name(device, arr)
         buff_size = self.buffer_size(device, arr, num_ics=num_ics)
         return self.memset_template[self.lang(device)].safe_substitute(
             name=name, buff_size=buff_size, **kwargs)
@@ -742,7 +742,7 @@ class PinnedMemory(MappedMemory):
         if self.device_namer:
             prefix = self.device_namer.prefix
             prefix = prefix[:prefix.index(device_prefix)]
-        return self.get_name('temp_{}'.format(dtype[0]), True, **kwargs)
+        return self.get_name(True, 'temp_{}'.format(dtype[0]), **kwargs)
 
     def copy(self, to_device, arr, **kwargs):
         """

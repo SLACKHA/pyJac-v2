@@ -651,8 +651,8 @@ def test_strided_copy():
                         '    assert(${host}[i] == ${save}[i]);\\n'
                         '}\\n')
                     checks = [check_template.safe_substitute(
-                        host=mem.get_name(arr, False),
-                        save=mem2.get_name(arr, False),
+                        host=mem.get_name(False, arr),
+                        save=mem2.get_name(False, arr),
                         size=_get_size(arr))
                               for arr in callgen.kernel_args['test']]
                     for check in checks:
