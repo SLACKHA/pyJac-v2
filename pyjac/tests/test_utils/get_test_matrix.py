@@ -7,10 +7,10 @@ from nose.tools import nottest
 import six
 from optionloop import OptionLoop
 
-from pyjac.tests import _get_test_input, get_test_langs, platform_is_gpu
 from pyjac.core.enum_types import KernelType, JacobianType, JacobianFormat
 from pyjac.utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
-    stringify_args
+    stringify_args, platform_is_gpu
+from pyjac.tests import _get_test_input, get_test_langs
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidTestEnvironmentException, \

@@ -18,7 +18,9 @@ from pyjac.core import exceptions
 
 __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
-           'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
+           'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser',
+           'platform_is_gpu', 'stringify_args', 'partition', 'enum_to_string',
+           'listify']
 
 langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
@@ -28,6 +30,47 @@ package_lang = {'opencl': 'ocl',
 """dict: str->str
    short-names for the python wrappers for each language
 """
+
+
+def platform_is_gpu(platform):
+    """
+    Attempts to determine if the given platform name corresponds to a GPU
+
+    Parameters
+    ----------
+    platform_name: str or :class:`pyopencl.platform`
+        The name of the platform to check
+
+    Returns
+    -------
+    is_gpu: bool or None
+        True if platform found and the device type is GPU
+        False if platform found and the device type is not GPU
+        None otherwise
+    """
+    # filter out C or other non pyopencl platforms
+    if not platform:
+        return False
+    if isinstance(platform, six.string_types) and 'nvidia' in platform.lower():
+        return True
+    try:
+        import pyopencl as cl
+        if isinstance(platform, cl.Platform):
+            return platform.get_devices()[0].type == cl.device_type.GPU
+
+        for p in cl.get_platforms():
+            if platform.lower() in p.name.lower():
+                # match, get device type
+                dtype = set(d.type for d in p.get_devices())
+                assert len(dtype) == 1, (
+                    "Mixed device types on platform {}".format(p.name))
+                # fix cores for GPU
+                if cl.device_type.GPU in dtype:
+                    return True
+                return False
+    except ImportError:
+        pass
+    return None
 
 
 def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False):

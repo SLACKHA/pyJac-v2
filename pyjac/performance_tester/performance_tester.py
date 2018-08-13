@@ -19,8 +19,9 @@ import logging
 # Local imports
 from pyjac.libgen import generate_library
 from pyjac.core.enum_types import KernelType
+from pyjac.utils import platform_is_gpu
 from pyjac.tests.test_utils import _run_mechanism_tests, runner
-from pyjac.tests import get_matrix_file, platform_is_gpu
+from pyjac.tests import get_matrix_file
 
 
 class performance_runner(runner):

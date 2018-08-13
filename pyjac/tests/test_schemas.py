@@ -495,7 +495,7 @@ def test_get_test_matrix():
                                      langs=current_test_langs,
                                      raise_on_missing=True)
 
-    from pyjac.tests import platform_is_gpu
+    from pyjac.utils import platform_is_gpu
 
     def sparsetest(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.exact):

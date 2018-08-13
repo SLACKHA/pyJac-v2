@@ -24,8 +24,9 @@ from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.pywrap import generate_wrapper
 from pyjac import utils
+from pyjac.utils import platform_is_gpu
 from pyjac.core.enum_types import KernelType
-from pyjac.tests import platform_is_gpu, _get_test_input, get_test_langs
+from pyjac.tests import _get_test_input, get_test_langs
 from pyjac.tests.test_utils.get_test_matrix import load_platforms
 try:
     from scipy.sparse import csr_matrix, csc_matrix

@@ -87,48 +87,6 @@ def get_test_langs():
 
     return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
 
-
-def platform_is_gpu(platform):
-    """
-    Attempts to determine if the given platform name corresponds to a GPU
-
-    Parameters
-    ----------
-    platform_name: str or :class:`pyopencl.platform`
-        The name of the platform to check
-
-    Returns
-    -------
-    is_gpu: bool or None
-        True if platform found and the device type is GPU
-        False if platform found and the device type is not GPU
-        None otherwise
-    """
-    # filter out C or other non pyopencl platforms
-    if not platform:
-        return False
-    if isinstance(platform, six.string_types) and 'nvidia' in platform.lower():
-        return True
-    try:
-        import pyopencl as cl
-        if isinstance(platform, cl.Platform):
-            return platform.get_devices()[0].type == cl.device_type.GPU
-
-        for p in cl.get_platforms():
-            if platform.lower() in p.name.lower():
-                # match, get device type
-                dtype = set(d.type for d in p.get_devices())
-                assert len(dtype) == 1, (
-                    "Mixed device types on platform {}".format(p.name))
-                # fix cores for GPU
-                if cl.device_type.GPU in dtype:
-                    return True
-                return False
-    except ImportError:
-        pass
-    return None
-
-
 def set_seed(seed=0):
     np.random.seed(seed)
 
@@ -410,4 +368,4 @@ class TestClass(unittest.TestCase):
 
 
 __all__ = ["TestClass", "_get_test_input", "get_platform_file", "get_mechanism_file",
-           "get_test_langs", "platform_is_gpu"]
+           "get_test_langs"]
