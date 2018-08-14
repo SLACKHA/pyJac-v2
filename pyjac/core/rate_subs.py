@@ -835,7 +835,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
-                    {id=final, dep=lb2, atomic, nosync=temp_init}
+                    {id=final, dep=lb2, atomic, nosync=temp_init:temp_sum}
                 """
             ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
@@ -861,7 +861,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
-                    {id=final, dep=lb2, atomic, nosync=temp_init}
+                    {id=final, dep=lb2, atomic, nosync=temp_init:temp_sum}
                 """
             ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
@@ -985,10 +985,11 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
             """
             temp_sum[0] = 0 {id=temp_init, atomic}
             ... lbarrier {id=lb1, dep=temp_init}
-            temp_sum[0] = temp_sum[0] + lower {id=temp_sum, dep=lb1:sum*, atomic}
+            temp_sum[0] = temp_sum[0] + lower {id=temp_sum, dep=lb1:sum*, \
+                nosync=temp_init, atomic}
             ... lbarrier {id=lb2, dep=temp_sum}
             ${Tdot_str} = ${Tdot_str} - upper / temp_sum[0] \
-                {id=final, dep=lb2, atomic}
+                {id=final, dep=lb2, nosync=temp_sum:temp_init, atomic}
             """
         ).safe_substitute(**locals())]
         kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
