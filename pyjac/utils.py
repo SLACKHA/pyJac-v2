@@ -31,6 +31,11 @@ package_lang = {'opencl': 'ocl',
    short-names for the python wrappers for each language
 """
 
+indent = ' ' * 4
+"""
+Standard indentation
+"""
+
 
 def platform_is_gpu(platform):
     """

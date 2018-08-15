@@ -378,6 +378,28 @@ class SubTest(TestClass):
                 assert 'char* platform = "{}";'.format(
                     opts.platform.vendor)
 
+    def test_call_generator(self):
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            with temporary_directory() as tdir:
+                kgen._make_kernels()
+                callgen, record, result = kgen._generate_wrapping_kernel(tdir)
+                driver_record, callgen = kgen._generate_driver_kernel(
+                    tdir, record, result, callgen)
+                out = kgen._generate_calling_program(
+                    tdir, 'dummy.bin', callgen, driver_record, for_validation=False)
+
+                # data
+                import pdb; pdb.set_trace()
+                with open(out, 'r') as file:
+                    out = file.read()
+
 
 def test_remove_worksize():
     assert kernel_generator._remove_work_size(

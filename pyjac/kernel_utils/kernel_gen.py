@@ -309,9 +309,12 @@ class CallgenResult(TargetCheckingRecord):
         A mapping of kernel argument names to their
     local_size: int [1]
         The OpenCL vector width, set to 1 by default for all other languages
-    max_per_run: int [None]
-        The maximum number of initial conditions that can be evaluated per-kernel
-        call
+    max_ic_per_run: int [None]
+        The maximum number of initial conditions allowed per kernel-call
+        due to memory constaints
+    max_ws_per_run: int
+        The maximum number of OpenCL groups / CUDA threads / OpenMP threads allowed
+        per kernel-call
     lang: str ['c']
         The language this kernel is being generated for.
     order: str {'C', 'F'}
@@ -320,20 +323,34 @@ class CallgenResult(TargetCheckingRecord):
         The type of device memory to used, 'pinned', or 'mapped'
     type_map: dict of :class:`LoopyType` -> str
         The mapping of loopy types to ctypes
+    source_names: list of str
+        The list of filenames of kernels to be compiled. Relevant for OpenCL, such
+        that they are available in code.
+    platform: str
+        The OpenCL platform name, if applicable
+    build_options: str
+        The OpenCL build options, if applicable
+    device_type: int
+        The OpenCL device type, if applicable
     """
 
     def __init__(self, name='', work_arrays=[], kernel_args={}, cl_level='',
-                 docs={}, local_size=1, max_per_run=None, order='C', lang='c',
-                 dev_mem_type=DeviceMemoryType.mapped, type_map={},
-                 host_constants=[]):
+                 docs={}, local_size=1, max_ic_per_run=None, max_ws_per_run=None,
+                 order='C', lang='c', dev_mem_type=DeviceMemoryType.mapped,
+                 type_map={}, host_constants={}, source_names={},
+                 platform='', build_options='', device_type=None):
         if not docs:
             docs = kernel_arg_docs()
         ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
                                  kernel_args=kernel_args, cl_level=cl_level,
                                  docs=docs, local_size=local_size,
-                                 max_per_run=max_per_run, order=order, lang=lang,
-                                 dev_mem_type=dev_mem_type, type_map=type_map,
-                                 host_constants=host_constants)
+                                 max_ic_per_run=max_ic_per_run,
+                                 max_ws_per_run=max_ws_per_run, order=order,
+                                 lang=lang, dev_mem_type=dev_mem_type,
+                                 type_map=type_map, host_constants=host_constants,
+                                 source_names=source_names, platform=platform,
+                                 build_options=build_options,
+                                 device_type=device_type)
 
 
 class CompgenResult(TargetCheckingRecord):
@@ -384,7 +401,8 @@ class kernel_generator(object):
                  mem_limits='',
                  for_testing=False,
                  compiler=None,
-                 driver_type=DriverType.lockstep):
+                 driver_type=DriverType.lockstep,
+                 use_pinned=True):
         """
         Parameters
         ----------
@@ -440,6 +458,9 @@ class kernel_generator(object):
             :class:`pyjac.loopy_utils.AdeptCompiler`), or None
         driver_type: :class:`DriverType`
             The type of kernel driver to generate
+        use_pinned: bool [True]
+            If true, use pinned memory for device host buffers (e.g., on CUDA or
+            OpencL).  If false, use normal device buffers / copies
         """
 
         self.compiler = compiler
@@ -466,8 +487,9 @@ class kernel_generator(object):
         self.test_size = test_size
         self.auto_diff = auto_diff
 
-        # update the memory manager
-        self.mem.add_arrays(in_arrays=input_arrays, out_arrays=output_arrays)
+        # update kernel inputs / outputs
+        self.in_arrays = input_arrays[:]
+        self.out_arrays = output_arrays
 
         self.type_map = {}
         self.type_map[to_loopy_type(np.float64, target=self.target)] = 'double'
@@ -504,6 +526,8 @@ class kernel_generator(object):
         self.for_testing = isinstance(test_size, int)
         # setup driver type
         self.driver_type = driver_type
+        # and pinned
+        self.use_pinned = use_pinned
 
         # mark owners
         self.owner = None
@@ -854,14 +878,12 @@ class kernel_generator(object):
         """
         utils.create_dir(path)
         self._make_kernels()
-        source_files, record, result = self._generate_wrapping_kernel(path)
-        driver, max_ic_per_run, max_ws_per_run = self._generate_driver_kernel(
-            path, record, result)
-        # add to source list
-        source_files += [driver]
-        self._generate_compiling_program(path, source_files)
-        self._generate_calling_program(path, data_filename, max_ic_per_run,
-                                       max_ws_per_run, for_validation=for_validation)
+        callgen, record, result = self._generate_wrapping_kernel(path)
+        driver_record, callgen = self._generate_driver_kernel(
+            path, record, result, callgen)
+        callgen = self._generate_compiling_program(path, callgen)
+        self._generate_calling_program(path, data_filename, callgen, driver_record,
+                                       for_validation=for_validation)
         self._generate_calling_header(path)
         self._generate_common(path)
 
@@ -952,7 +974,7 @@ class kernel_generator(object):
                     if not any(x.name == a for x in self.mem.host_constants)]),
                 knl_name=self.name))
 
-    def _special_kernel_subs(self, file_src):
+    def _special_kernel_subs(self, path, callgen):
         """
         Substitutes kernel template parameters that are specific to a
         target languages, to be specialized by subclasses of the
@@ -960,16 +982,17 @@ class kernel_generator(object):
 
         Parameters
         ----------
-        file_src : Template
-            The kernel source template to substitute into
+        path : str
+            The output path to write files to
+        callgen : :class:`CallgenResult`
+            The intermediate call-generation store
 
         Returns
         -------
-        new_file_src : str
-            An updated kernel source string to substitute general template
-            parameters into
+        updated : :class:`CallgenResult`
+            The updated call-generation storage
         """
-        return file_src
+        return callgen
 
     def _special_wrapper_subs(self, file_src):
         """
@@ -992,8 +1015,8 @@ class kernel_generator(object):
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
 
-    def _generate_calling_program(self, path, data_filename, max_ic_per_run,
-                                  max_ws_per_run, for_validation=False):
+    def _generate_calling_program(self, path, data_filename, callgen, record,
+                                  for_validation=False):
         """
         Needed for all languages, this generates a simple C file that
         reads in data, sets up the kernel call, executes, etc.
@@ -1004,146 +1027,61 @@ class kernel_generator(object):
             The output path to write files to
         data_filename : str
             The path to the data file for command line input
-        max_ic_per_run: int
-            The maximum # of initial conditions that can be evaluated per kernel
-            call based on memory limits
-        max_ws_per_run: int
-            The maximum kernel work size
+        callgen: :class:`CallgenResult`
+            The current callgen object used to generate the calling program
+        record: :class:`MemoryGenerationResult`
+            The memory record for the generated program
         for_validation: bool [False]
             If True, this kernel is being generated to validate pyJac, hence we need
             to save output data to a file
 
         Returns
         -------
-        None
+        file: str
+            The output file name
         """
 
-        # find definitions
-        mem_declares = self.mem.get_defns()
+        # vec width
+        vec_width = self.vec_width
+        if not vec_width:
+            # set to default
+            vec_width = 1
 
-        # and input args
+        # update callgen
+        callgen = callgen.copy(
+            name=self.name,
+            kernel_args={self.name: record.kernel_data[:]},
+            local_size=vec_width,
+            order=self.loopy_opts.order,
+            lang=self.lang,
+            type_map=self.type_map.copy(),
+            host_constants={self.name: record.host_constants[:]})
 
-        # these are the args in the kernel defn
-        knl_args = ', '.join([self._get_pass(
-            next(x for x in self.mem.arrays if x.name == a))
-            for a in self.mem.host_arrays
-            if not any(x.name == a for x in self.mem.host_constants)])
-        # these are the args passed to the kernel (exclude type)
-        input_args = ', '.join([self._get_pass(
-            next(x for x in self.mem.arrays if x.name == a),
-            include_type=False) for a in self.mem.host_arrays
-            if not any(x.name == a for x in self.mem.host_constants)])
-        # these are passed from the main method (exclude type, add _local
-        # postfix)
-        local_input_args = ', '.join([self._get_pass(
-            next(x for x in self.mem.arrays if x.name == a),
-            include_type=False,
-            postfix='_local') for a in self.mem.host_arrays
-            if not any(x.name == a for x in self.mem.host_constants)])
-        # create doc strings
-        knl_args_doc = []
-        knl_args_doc_template = Template(
-            """
-${name} : ${type}
-    ${desc}
-""")
-        logger = logging.getLogger(__name__)
-        for x in [y for y in self.mem.in_arrays if not any(
-                z.name == y for z in self.mem.host_constants)]:
-            if x == 'phi':
-                knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc='The state vector'))
-            elif x == 'P_arr':
-                knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc='The array of pressures'))
-            elif x == 'V_arr':
-                knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc='The array of volumes'))
-            elif x == 'dphi':
-                knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc=('The time rate of change of'
-                                                  'the state vector, in '
-                                                  '{}-order').format(
-                        self.loopy_opts.order)))
-            elif x == 'jac':
-                knl_args_doc.append(knl_args_doc_template.safe_substitute(
-                    name=x, type='double*', desc=(
-                        'The Jacobian of the time-rate of change of the state vector'
-                        ' in {}-order').format(
-                        self.loopy_opts.order)))
-            else:
-                logger.warn('Argument documentation not found for arg {}'.format(x))
+        # any target specific substitutions
+        callgen = self._special_kernel_subs(path, callgen)
 
-        knl_args_doc = '\n'.join(knl_args_doc)
-        # memory transfers in
-        mem_in = self.mem.get_mem_transfers_in()
-        # memory transfers out
-        mem_out = self.mem.get_mem_transfers_out()
-        # memory allocations
-        mem_allocs = self.mem.get_mem_allocs()
-        # input allocs
-        local_allocs = self.mem.get_mem_allocs(True)
-        # read args are those that aren't initalized elsewhere
-        read_args = ', '.join(['h_' + x + '_local' for x in self.mem.in_arrays
-                               if x in ['phi', 'P_arr', 'V_arr']])
-        # memory frees
-        mem_frees = self.mem.get_mem_frees()
-        # input frees
-        local_frees = self.mem.get_mem_frees(True)
+        # serialize
+        callout = os.path.join(path, 'callgen.pickle')
+        with open(callout, 'wb') as file:
+            pickle.dump(callgen, file)
 
-        # get template
-        with open(os.path.join(script_dir, self.lang,
-                               'kernel.c.in'), 'r') as file:
-            file_src = file.read()
+        infile = os.path.join(script_dir, self.lang, 'kernel.c.in')
+        filename = os.path.join(path, self.name + '_main' + utils.file_ext[
+                self.lang])
 
-        # specialize for language
-        file_src = self._special_kernel_subs(file_src)
+        # cogify
+        try:
+            Cog().callableMain([
+                        'cogapp', '-e', '-d', '-Dcallgen={}'.format(callout),
+                        '-o', filename, infile])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.error('Error generating calling file {}'.format(filename))
+            raise
 
-        # get data output
-        if for_validation:
-            num_outputs = len(self.mem.out_arrays)
-            output_paths = ', '.join(['"{}"'.format(x + '.bin')
-                                      for x in self.mem.out_arrays])
-            outputs = ', '.join(['h_{}_local'.format(x)
-                                 for x in self.mem.out_arrays])
-            # get lp array map
-            out_arrays = [next(x for x in self.mem.arrays if x.name == y)
-                          for y in self.mem.out_arrays]
-            output_sizes = ', '.join([str(self.mem._get_size(
-                x, include_item_size=False)) for x in out_arrays])
-        else:
-            num_outputs = 0
-            output_paths = ""
-            outputs = ''
-            output_sizes = ''
+        return filename
 
-        with filew.get_file(os.path.join(path, self.name + '_main' + utils.file_ext[
-                self.lang]), self.lang, use_filter=False) as file:
-            file.add_lines(subs_at_indent(
-                file_src,
-                mem_declares=mem_declares,
-                knl_args=knl_args,
-                knl_args_doc=knl_args_doc,
-                knl_name=self.name,
-                input_args=input_args,
-                local_input_args=local_input_args,
-                mem_transfers_in=mem_in,
-                mem_transfers_out=mem_out,
-                mem_allocs=mem_allocs,
-                mem_frees=mem_frees,
-                read_args=read_args,
-                order=self.loopy_opts.order,
-                data_filename=data_filename,
-                local_allocs=local_allocs,
-                local_frees=local_frees,
-                max_per_run=max_per_run,
-                num_outputs=num_outputs,
-                output_paths=output_paths,
-                outputs=outputs,
-                output_sizes=output_sizes
-            ))
-
-    def _generate_compiling_program(self, path, source_files):
+    def _generate_compiling_program(self, path, callgen):
         """
         Needed for some languages (e.g., OpenCL) this may be overriden in
         subclasses to generate a program that compilers the kernel
@@ -1152,15 +1090,16 @@ ${name} : ${type}
         ----------
         path : str
             The output path for the compiling program
-        source_files : list of str
-            The filename(s) of the wrapping kernel
+        callgen: :class:`CallgenResult`
+            The current callgen result, to be updated with driver info
 
         Returns
         -------
-        None
+        callgen: :class:`CallgenResult`
+            The updated callgen result
         """
 
-        pass
+        return callgen
 
     def __migrate_locals(self, kernel, ldecls):
         """
@@ -2041,8 +1980,8 @@ ${name} : ${type}
 
         Returns
         -------
-        source_files: list of str
-            The name of the generated files
+        callgen: :class:`CallgenResult`
+            The current callgen result, containing the names of the generated files
         record: :class:`MemoryGenerationResult`
             The resulting memory object
         result: :class:`CodegenResult`
@@ -2080,14 +2019,14 @@ ${name} : ${type}
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=self.kernels)
 
-        source_files = []
+        source_names = []
         if is_owner and self.depends_on:
             codegen_results = self._constant_deduplication(record, result)
             # write kernels to file
             for dr in codegen_results:
-                source_files.append(self._to_file(path, dr))
+                source_names.append(self._to_file(path, dr))
 
-        return source_files, record, result
+        return CallgenResult(source_names=source_names), record, result
 
     def _to_file(self, path, result, for_driver=False):
         """
@@ -2197,7 +2136,8 @@ ${name} : ${type}
                    for k, (dtype, v) in six.iteritems(unpacks)]
         return CodegenResult(pointer_unpacks=unpacks)
 
-    def _generate_driver_kernel(self, path, wrapper_memory, wrapper_result):
+    def _generate_driver_kernel(self, path, wrapper_memory, wrapper_result,
+                                callgen):
         """
         Generates a driver kernel that is responsible for looping through the entire
         set of initial conditions for testing / execution.  This is useful so that
@@ -2213,21 +2153,21 @@ ${name} : ${type}
             The memory configuration of the wrapper kernel we are trying to drive
         wrapper_result: :class:`CodegenResult`
             The resulting code-generation object
+        callgen: :class:`CallgenResult`
+            The current callgen result, to be updated with driver info
 
         Returns
         -------
-        driver_source: str
-            The driver source file name
-        max_ic_per_run: int
-            The maximum number of initial conditions allowed per-run
-        max_ws_per_run: int
-            The maximum number of OpenCL groups / CUDA threads allowed per-run
+        driver_record: :class:`MemoryGenerationResult`
+            The record for the driver class, with all kernel arguments stored
+        updated_callgen: :class:`CallgenResult`
+            The updated callgen result w/ driver source, and IC limits added
         """
 
         # make driver kernels
         knl_info = drivers.get_driver(
-                self.loopy_opts, self.namestore, self.mem.in_arrays,
-                self.mem.out_arrays, self, test_size=self.test_size)
+                self.loopy_opts, self.namestore, self.in_arrays,
+                self.out_arrays, self, test_size=self.test_size)
 
         if self.driver_type == DriverType.lockstep:
             template = drivers.lockstep_driver_template(self.loopy_opts, self)
@@ -2253,7 +2193,8 @@ ${name} : ${type}
         # 3. the problem size variable
 
         # first, find kernel args global kernel args (by name)
-        kernel_data = [x for x in record.args if x.name in set(self.mem.host_arrays)]
+        kernel_data = [x for x in record.args if x.name in set(
+            self.in_arrays + self.out_arrays)]
         # and add problem size
         kernel_data.append(self._with_target(p_size))
         record = record.copy(kernel_data=kernel_data + wrapper_memory.kernel_data)
@@ -2280,7 +2221,11 @@ ${name} : ${type}
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
 
-        return filename, int(max_ic_per_run), int(max_ws_per_run)
+        # update callgen
+        callgen = callgen.copy(source_names=callgen.source_names + [filename],
+                               max_ic_per_run=int(max_ic_per_run),
+                               max_ws_per_run=int(max_ws_per_run))
+        return record, callgen
 
     def remove_unused_temporaries(self, knl):
         """
@@ -2636,32 +2581,25 @@ class c_kernel_generator(kernel_generator):
 
         return []
 
-    def _special_kernel_subs(self, file_src):
+    def _special_kernel_subs(self, path, callgen):
         """
         An override of the :method:`kernel_generator._special_wrapping_subs`
         that implements C-specific wrapping kernel arguement passing
 
         Parameters
         ----------
-        file_src : Template
-            The kernel source template to substitute into
+        path : str
+            The output path to write files to
+        callgen : :class:`CallgenResult`
+            The intermediate call-generation store
 
         Returns
         -------
-        new_file_src : str
-            An updated kernel source string to substitute general template
-            parameters into
+        updated : :class:`CallgenResult`
+            The updated call-generation storage
         """
 
-        # and input args
-
-        # these are the args in the kernel defn
-        full_kernel_args = ', '.join(self._set_sort(
-            [self._get_pass(a, include_type=False, is_host=False)
-             for a in self.mem.arrays]))
-
-        return Template(file_src).safe_substitute(
-            full_kernel_args=full_kernel_args)
+        return callgen
 
 
 class autodiff_kernel_generator(c_kernel_generator):
@@ -2793,74 +2731,35 @@ class opencl_kernel_generator(kernel_generator):
         return '__{} {}* {} = rwk + {};'.format(scope_str, self.type_map[dtype],
                                                 array, offset)
 
-    def _special_kernel_subs(self, file_src):
+    def _special_kernel_subs(self, path, callgen):
         """
         An override of the :method:`kernel_generator._special_kernel_subs`
         that implements OpenCL specific kernel substitutions
 
         Parameters
         ----------
-        file_src : Template
-            The kernel source template to substitute into
+        path : str
+            The output path to write files to
+        callgen : :class:`CallgenResult`
+            The intermediate call-generation store
 
         Returns
         -------
-        new_file_src : str
-            An updated kernel source string to substitute general template
-            parameters into
+        updated : :class:`CallgenResult`
+            The updated call-generation storage
         """
 
         # open cl specific
-        # vec width
-        vec_width = self.vec_width
-        if not vec_width:
-            # set to default
-            vec_width = 1
-        # platform
-        platform_str = self.loopy_opts.platform.vendor
-        # build options
-        build_options = self.build_options
-        # kernel arg setting
-        kernel_arg_set = self.get_kernel_arg_setting()
-        # kernel list
-        kernel_paths = [self.bin_name]
-        kernel_paths = ', '.join('"{}"'.format(x)
-                                 for x in kernel_paths if x.strip())
+        callgen = callgen.copy(
+            cl_level=int(float(self._get_cl_level()) * 100),
+            platform=self.platform_str,
+            build_options=self.build_options(path),
+            dev_mem_type=(DeviceMemoryType.pinned if self.use_pinned else
+                          DeviceMemoryType.mapped),
+            device_type=self.loopy_opts.device_type
+            )
 
-        # find maximum size of device arrays (that are allocated per-run)
-        p_var = p_size.name
-        # filter arrays to those depending on problem size
-        arrays = [a for a in self.mem.arrays if any(
-            p_var in str(x) for x in a.shape)]
-        # next convert to size
-        arrays = [np.prod(np.fromstring(
-            self.mem._get_size(a, subs_n='1'), dtype=arc.kint_type, sep=' * '))
-            for a in arrays]
-        # and get max size
-        max_size = str(max(arrays)) + ' * {}'.format(
-            self.arg_name_maps[p_size])
-
-        # find converted constant variables -> global args
-        host_constants = self.mem.get_host_constants()
-        host_constants_transfers = self.mem.get_host_constants_in()
-
-        # get host memory syncs if necessary
-        mem_strat = self.mem.get_mem_strategy()
-
-        return subs_at_indent(file_src,
-                              vec_width=vec_width,
-                              platform_str=platform_str,
-                              build_options=build_options,
-                              kernel_arg_set=kernel_arg_set,
-                              kernel_paths=kernel_paths,
-                              device_type=str(self.loopy_opts.device_type),
-                              num_source=1,  # only 1 program / binary is built
-                              CL_LEVEL=int(float(self._get_cl_level()) * 100),  # noqa -- CL standard level
-                              max_size=max_size,  # max size for CL1.1 mem init
-                              host_constants=host_constants,
-                              host_constants_transfers=host_constants_transfers,
-                              MEM_STRATEGY=mem_strat
-                              )
+        return callgen
 
     def get_kernel_arg_setting(self):
         """
@@ -2929,7 +2828,32 @@ class opencl_kernel_generator(kernel_generator):
             # default to the site level
             return site.CL_VERSION
 
-    def _generate_compiling_program(self, path, source_files):
+    def build_options(self, path):
+        """
+        Returns a string version of the OpenCL build options,
+        based on the :file:`siteconf.py`
+        """
+        # for the build options, we turn to the siteconf
+        build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
+        build_options.extend(site.CL_FLAGS)
+        build_options.append('-cl-std=CL{}'.format(self._get_cl_level()))
+        return ' '.join(build_options)
+
+    @property
+    def platform_str(self):
+        # get the platform from the options
+        if self.loopy_opts.platform_is_pyopencl:
+            platform_str = self.loopy_opts.platform.get_info(
+                cl.platform_info.VENDOR)
+        else:
+            logger = logging.getLogger(__name__)
+            logger.warn('OpenCL platform name "{}" could not be checked as '
+                        'PyOpenCL not found, using user supplied platform '
+                        'name.'.format(self.loopy_opts.platform_name))
+            platform_str = self.loopy_opts.platform_name
+        return platform_str
+
+    def _generate_compiling_program(self, path, callgen):
         """
         Needed for OpenCL, this generates a simple C file that
         compiles and stores the binary OpenCL kernel generated w/ the wrapper
@@ -2938,63 +2862,44 @@ class opencl_kernel_generator(kernel_generator):
         ----------
         path : str
             The output path to write files to
-        source_files : list of str
-            The filename(s) of the wrapping kernel
+        callgen: :class:`CallgenResult`
+            The current callgen result
 
         Returns
         -------
-        filename: str
-            The output path of the compiling program
+        callgen: :class:`CallgenResult`
+            The callgen result, updated with the path to the compiler program
         """
 
-        build_options = ''
-        if self.lang == 'opencl':
-            # get the platform from the options
-            if self.loopy_opts.platform_is_pyopencl:
-                platform_str = self.loopy_opts.platform.get_info(
-                    cl.platform_info.VENDOR)
-            else:
-                logger = logging.getLogger(__name__)
-                logger.warn('OpenCL platform name "{}" could not be checked as '
-                            'PyOpenCL not found, using user supplied platform '
-                            'name.'.format(self.loopy_opts.platform_name))
-                platform_str = self.loopy_opts.platform_name
+        outname = self.name + '.bin'
+        result = CompgenResult(source_names=callgen.source_files[:],
+                               platform=self.platform_str,
+                               outname=outname,
+                               build_options=self.build_options(path))
+        # serialize
+        compout = os.path.join(path, 'comp.pickle')
+        with open(compout, 'wb') as file:
+            pickle.dump(result, file)
 
-            cl_std = self._get_cl_level()
+        # input
+        infile = os.path.join(
+            script_dir, self.lang, 'opencl_kernel_compiler.c.in')
 
-            # for the build options, we turn to the siteconf
-            build_options = ['-I' + x for x in site.CL_INC_DIR + [path]]
-            build_options.extend(site.CL_FLAGS)
-            build_options.append('-cl-std=CL{}'.format(cl_std))
-            build_options = ' '.join(build_options)
+        # output
+        filename = os.path.join(
+            path, self.name + '_compiler' + utils.file_ext[self.lang])
 
-            outname = self.name + '.bin'
-            result = CompgenResult(source_names=source_files, platform=platform_str,
-                                   outname=outname, build_options=build_options)
-            # serialize
-            compout = os.path.join(path, 'comp.pickle')
-            with open(compout, 'wb') as file:
-                pickle.dump(result, file)
+        # call cog
+        try:
+            Cog().callableMain([
+                    'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
+                    '-o', filename, infile])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.error('Error generating compiling file {}'.format(filename))
+            raise
 
-            # input
-            infile = os.path.join(
-                script_dir, self.lang, 'opencl_kernel_compiler.c.in')
-
-            # output
-            filename = os.path.join(
-                path, self.name + '_compiler' + utils.file_ext[self.lang])
-
-            # call cog
-            try:
-                Cog().callableMain([
-                        'cogapp', '-e', '-d', '-Dcompgen={}'.format(compout),
-                        '-o', filename, infile])
-            except Exception:
-                logger = logging.getLogger(__name__)
-                logger.error('Error generating compiling file {}'.format(filename))
-                raise
-
-            return filename
+        return callgen.copy(source_files=callgen.source_files + [filename])
 
     def apply_barriers(self, instructions):
         """

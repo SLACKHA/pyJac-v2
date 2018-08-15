@@ -16,7 +16,9 @@ Nicholas Curtis - 2017
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <CL/cl.h>
+extern "C" {
+    #include <CL/cl.h>
+}
 #include <stdbool.h>
 #include "timer.oclh"
 
