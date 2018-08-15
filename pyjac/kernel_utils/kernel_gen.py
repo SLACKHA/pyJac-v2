@@ -210,7 +210,33 @@ def _unSIMDable_arrays(knl, loopy_opts, mstore, warn=True):
     return cant_simd
 
 
-class CodegenResult(ImmutableRecord):
+class TargetCheckingRecord(ImmutableRecord):
+    """
+    A simple base class that overrides :class:`ImmutableRecord`'s pickling behavior
+    to assert that all :class:`loopy.KernelArg`'s have a properly set :attr:`dtype`,
+    that is, the :attr:`target` of the dtype is set, such that they may be unpickled
+    """
+
+    def __check(self, field, value):
+        if isinstance(value, lp.KernelArgument):
+            assert value.dtype.target is not None, (
+                'Argument {} in field {} has unset dtype'.format(value.name, field))
+        elif isinstance(value, list):
+            all(self.__check(field, x) for x in value)
+        elif isinstance(value, dict):
+            # kernel arguments can't be dictionary keys
+            all(self.__check(field, x) for x in value.values())
+        return True
+
+    def __getstate__(self):
+        for field in self.__class__.fields:
+            if hasattr(self, field):
+                self.__check(field, getattr(self, field))
+
+        return super(TargetCheckingRecord, self).__getstate__()
+
+
+class CodegenResult(TargetCheckingRecord):
     """
     A convenience class that provides storage for intermediate code-generation
     results.
@@ -257,7 +283,7 @@ def kernel_arg_docs():
                               'the state vector')}
 
 
-class CallgenResult(ImmutableRecord):
+class CallgenResult(TargetCheckingRecord):
     """
     A convenience class that provides intermediate storage for generation of the
     calling program
@@ -307,7 +333,7 @@ class CallgenResult(ImmutableRecord):
                                  host_constants=host_constants)
 
 
-class CompgenResult(ImmutableRecord):
+class CompgenResult(TargetCheckingRecord):
     """
     A convenience class that provides storage for intermediate compilation file
     generation

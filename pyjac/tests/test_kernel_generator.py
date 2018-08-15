@@ -19,7 +19,7 @@ from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
-from pyjac.kernel_utils.kernel_gen import kernel_generator
+from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord
 from pyjac.utils import partition
 from pyjac.tests import TestClass, test_utils, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper, temporary_directory
@@ -392,3 +392,23 @@ def test_remove_worksize():
         'call(work_size, dummy)') == 'call(dummy)'
     assert kernel_generator._remove_work_size(
         'call(dummy, work_size, dummy)') == 'call(dummy, dummy)'
+
+
+def test_target_record():
+    # make bad argument (i.e, one without the target set)
+    import numpy as np
+    bad = lp.GlobalArg('bad', dtype=np.int32, shape=(1,), order='C')
+
+    def __check(record):
+        with assert_raises(AssertionError):
+            record.__getstate__()
+
+    # and check list
+    __check(TargetCheckingRecord(kernel_data=[bad]))
+    # dictionary
+    __check(TargetCheckingRecord(kernel_data={'a': bad}))
+    # dictionary of lists
+    __check(TargetCheckingRecord(kernel_data={'a': [bad]}))
+    # and plain value
+    # dictionary of lists
+    __check(TargetCheckingRecord(kernel_data=bad))
