@@ -196,21 +196,24 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         # now create the instructions
         instruction_template = Template("""
             if ${ind} < ${problem_size}
-                ${local_buffer} = ${global_buffer}
+                ${local_buffer} = ${global_buffer} {id=copy_${name}}
             end
         """) if for_input else Template("""
             if ${ind} < ${problem_size}
-                ${global_buffer} = ${local_buffer}
+                ${global_buffer} = ${local_buffer} {id=copy_${name}}
             end
         """)
 
+        warnings = []
         instructions = []
         for i, arr in enumerate(arrs):
             instructions.append(instruction_template.substitute(
                 local_buffer=working_strs[i],
                 global_buffer=strs[i],
                 ind=global_indicies[0],
-                problem_size=arc.problem_size.name))
+                problem_size=arc.problem_size.name,
+                name=arr.name))
+            warnings.append('write_race(copy_{})'.format(arr.name))
         instructions = '\n'.join(instructions)
 
         # and return the kernel info
@@ -220,7 +223,8 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                               var_name=arc.var_name,
                               extra_inames=extra_inames,
                               kernel_data=buffers + working_buffers + [
-                                arc.work_size, arc.problem_size, driver_index])
+                                arc.work_size, arc.problem_size, driver_index],
+                              silenced_warnings=warnings)
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function
