@@ -121,7 +121,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
             if shape:
                 if inp.shape != shape:
                     logger = logging.getLogger(__name__)
-                    logger.debug('{} array for queue_driver kernel {} does not '
+                    logger.debug('{} array for driver kernel {} does not '
                                  'match expected shape (from array {}).  '
                                  'Expected: ({}), got: ({})'.format(
                                     desc, inp.name, nameref,
@@ -133,9 +133,9 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                 shape = inp.shape[:]
         if not shape:
             logger = logging.getLogger(__name__)
-            logger.debug('No {} arrays supplied to queue_driver that require '
+            logger.debug('No {} arrays supplied to driver that require '
                          'copying to working buffer!'.format(desc))
-            raise InvalidInputSpecificationException('queue_driver')
+            raise InvalidInputSpecificationException('Driver ' + desc + ' arrays')
     __check(True)
     __check(False)
 
