@@ -150,15 +150,17 @@ class MemoryManager(object):
         self.mem_type = {'c': self.determine_c_mem_type,
                          'opencl': self.determine_cl_mem_type}
 
-    def determine_c_mem_type(self, arr):
+    def determine_c_mem_type(self, arr, include_pointer=False):
         # array
-        temp = '{}*'
+        pointer = '*'
+        temp = '{type}{pointer}'
         if isinstance(arr, lp.ValueArg):
             # int
-            temp = '{}'
-        return temp.format(self.type_map[arr.dtype])
+            pointer = ''
+        return temp.format(type=self.type_map[arr.dtype],
+                           pointer=pointer)
 
-    def determine_cl_mem_type(self, arr):
+    def determine_cl_mem_type(self, arr, include_pointer=False):
         if isinstance(arr, lp.ValueArg):
             if arr.dtype.is_integral():
                 # hack to get unsigned ints
@@ -168,6 +170,9 @@ class MemoryManager(object):
             return temp.format(self.type_map[arr.dtype])
         # array
         return 'cl_mem'
+
+    def dtype(self, device, arr, include_pointer=False):
+        return self.mem_type[self.lang(device)](arr, include_pointer=include_pointer)
 
     def buffer_size(self, device, arr, num_ics='per_run'):
         calc = StrideCalculator(self.type_map)
