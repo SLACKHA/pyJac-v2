@@ -718,6 +718,28 @@ class kernel_generator(object):
 
         self.depends_on.extend(k_gens)
 
+    def _with_target(self, kernel_arg, for_atomic=False):
+        """
+        Returns a copy of :param:`kernel_arg` with it's :attr:`dtype.target` set
+        for proper pickling
+
+        Parameters
+        ----------
+        kernel_arg: :class:`loopy.KernelArgument`
+            The argument to convert
+        for_atomic: bool [False]
+            If true, convert to an :class:`AtomicNumpyType`
+
+        Returns
+        -------
+        updated: :class:`loopy.KernelArgument`
+            The argument with correct target set in the dtype
+        """
+
+        return kernel_arg.copy(
+            dtype=to_loopy_type(kernel_arg.dtype, for_atomic=for_atomic,
+                                target=self.target).with_target(self.target))
+
     def _make_kernels(self, kernels=[]):
         """
         Turns the supplied kernel infos into loopy kernels,
@@ -1270,8 +1292,7 @@ ${name} : ${type}
         """
 
         def __atomify(arg):
-            return arg.copy(dtype=to_loopy_type(arg.dtype, for_atomic=True,
-                                                target=self.target))
+            return self._with_target(arg, for_atomic=True)
 
         return arg1 == arg2 or (__atomify(arg1) == __atomify(arg2))
 
@@ -1486,7 +1507,8 @@ ${name} : ${type}
             # once we've converted enough, we need to physically change the types
             for x in [v for arrs in type_changes.values() for v in arrs]:
                 args.append(
-                    lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape))
+                    self._with_target(
+                        lp.GlobalArg(x.name, dtype=x.dtype, shape=x.shape)))
                 readonly.add(args[-1].name)
                 host_constants.append(x)
 
@@ -1563,11 +1585,11 @@ ${name} : ${type}
             from pymbolic.primitives import Variable
             shape = static + Variable(w_size.name) * size_per_wi
             for_atomic = isinstance(args[0].dtype, AtomicNumpyType)
-            wb = lp.ArrayArg(name, shape=shape,
-                             order=self.loopy_opts.order,
-                             dtype=to_loopy_type(args[0].dtype, target=self.target,
-                                                 for_atomic=for_atomic),
-                             address_space=scope)
+            wb = self._with_target(
+                lp.ArrayArg(name, shape=shape,
+                            order=self.loopy_opts.order,
+                            dtype=args[0].dtype,
+                            address_space=scope), for_atomic=for_atomic)
             return wb, result
 
         # globals
@@ -1670,9 +1692,9 @@ ${name} : ${type}
                 new_temps = {t: v for t, v in six.iteritems(
                              kernels[i].temporary_variables) if t not in transferred}
                 # create new args
-                new_args = [lp.GlobalArg(
+                new_args = [self._with_target(lp.GlobalArg(
                     t, shape=v.shape, dtype=v.dtype, order=v.order,
-                    dim_tags=v.dim_tags)
+                    dim_tags=v.dim_tags))
                     for t, v in six.iteritems(kernels[i].temporary_variables)
                     if t in transferred]
                 kernels[i] = kernels[i].copy(
@@ -2048,7 +2070,8 @@ ${name} : ${type}
             record, result = self._compress_to_working_buffer(record)
 
             # add work size
-            record = record.copy(kernel_data=record.kernel_data + [w_size])
+            record = record.copy(kernel_data=record.kernel_data + [self._with_target(
+                w_size)])
         else:
             # create a new codegen result that contains only our pointer unpacks
             result = CodegenResult(pointer_unpacks=result.pointer_unpacks.copy(),
@@ -2232,7 +2255,7 @@ ${name} : ${type}
         # first, find kernel args global kernel args (by name)
         kernel_data = [x for x in record.args if x.name in set(self.mem.host_arrays)]
         # and add problem size
-        kernel_data.append(p_size.copy(dtype=p_size.dtype, target=self.target))
+        kernel_data.append(self._with_target(p_size))
         record = record.copy(kernel_data=kernel_data + wrapper_memory.kernel_data)
 
         # next, we need to determine where in the working buffer the arrays
