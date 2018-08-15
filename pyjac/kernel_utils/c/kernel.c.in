@@ -10,7 +10,6 @@ A cog-templated skeleton for pyJac C-kernel (OpenMP) execution
         - kernel_names: a comma separated list of kernels to generate interfaces for
         - mem: path to a serialized :class:`memory_manager`
 
-
 */
 
 /*[[[cog

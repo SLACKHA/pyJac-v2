@@ -6,10 +6,10 @@ to generate copys / allocations / etc. for host and device memory.
 from string import Template
 
 import six
-from enum import Enum
 import loopy as lp
 import numpy as np
 
+from pyjac.core.enum_types import DeviceMemoryType
 from pyjac.core.array_creator import problem_size
 
 
@@ -57,14 +57,6 @@ class DeviceNamer(Namer):
         if owner:
             prefix = '{}->{}'.format(owner, device_prefix)
         super(DeviceNamer, self).__init__(prefix, **kwargs)
-
-
-class DeviceMemoryType(Enum):
-    pinned = 0,
-    mapped = 1
-
-    def __int__(self):
-        return self.value
 
 
 class StrideCalculator(object):

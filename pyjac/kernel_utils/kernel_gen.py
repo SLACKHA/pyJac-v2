@@ -11,7 +11,6 @@ import logging
 from collections import defaultdict
 import six
 from six.moves import cPickle as pickle
-import subprocess
 
 import loopy as lp
 from loopy.types import AtomicNumpyType, to_loopy_type
@@ -29,7 +28,7 @@ from cogapp import Cog
 from pyjac.kernel_utils import file_writers as filew
 from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
     memory_type, guarded_call, MemoryGenerationResult
-from pyjac.kernel_utils.memory_tools import DeviceMemoryType
+from pyjac.core.enum_types import DeviceMemoryType
 from pyjac import siteconf as site
 from pyjac import utils
 from pyjac.loopy_utils import loopy_utils as lp_utils
@@ -211,18 +210,7 @@ def _unSIMDable_arrays(knl, loopy_opts, mstore, warn=True):
     return cant_simd
 
 
-class ImmutableWithPytoolsCopy(ImmutableRecord):
-    """
-    A wrapper around :class:`pytools.ImmutableRecord` that provides a method
-    :func:`as_immutable` to return a pytools-based copy (and avoid having to load
-    pyjac in cog during codegen)
-    """
-
-    def as_immutable(self):
-        return ImmutableRecord(**self.get_copy_kwargs())
-
-
-class CodegenResult(ImmutableWithPytoolsCopy):
+class CodegenResult(ImmutableRecord):
     """
     A convenience class that provides storage for intermediate code-generation
     results.
@@ -269,7 +257,7 @@ def kernel_arg_docs():
                               'the state vector')}
 
 
-class CallgenResult(ImmutableWithPytoolsCopy):
+class CallgenResult(ImmutableRecord):
     """
     A convenience class that provides intermediate storage for generation of the
     calling program
@@ -319,7 +307,7 @@ class CallgenResult(ImmutableWithPytoolsCopy):
                                  host_constants=host_constants)
 
 
-class CompgenResult(ImmutableWithPytoolsCopy):
+class CompgenResult(ImmutableRecord):
     """
     A convenience class that provides storage for intermediate compilation file
     generation

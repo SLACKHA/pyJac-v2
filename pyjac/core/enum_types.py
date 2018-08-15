@@ -136,3 +136,15 @@ class DriverType(Enum):
     """
     queue = 0,
     lockstep = 1
+
+
+class DeviceMemoryType(Enum):
+    """
+    The type of memory to use for platforms with separate device memory pools
+    (e.g., CUDA, OpenCL)
+    """
+    pinned = 0,
+    mapped = 1
+
+    def __int__(self):
+        return self.value
