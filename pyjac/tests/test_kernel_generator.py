@@ -397,6 +397,7 @@ def test_remove_worksize():
 def test_target_record():
     # make bad argument (i.e, one without the target set)
     import numpy as np
+    from loopy.types import to_loopy_type
     bad = lp.GlobalArg('bad', dtype=np.int32, shape=(1,), order='C')
 
     def __check(record):
@@ -410,5 +411,7 @@ def test_target_record():
     # dictionary of lists
     __check(TargetCheckingRecord(kernel_data={'a': [bad]}))
     # and plain value
-    # dictionary of lists
     __check(TargetCheckingRecord(kernel_data=bad))
+    # numpy dtype as dictionary key
+    dtype = to_loopy_type(np.int32)
+    __check(TargetCheckingRecord(kernel_data={dtype: 'bad'}))

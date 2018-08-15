@@ -13,7 +13,7 @@ import six
 from six.moves import cPickle as pickle
 
 import loopy as lp
-from loopy.types import AtomicNumpyType, to_loopy_type
+from loopy.types import NumpyType, AtomicNumpyType, to_loopy_type
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from loopy.kernel.data import AddressSpace as scopes
 try:
@@ -221,11 +221,14 @@ class TargetCheckingRecord(ImmutableRecord):
         if isinstance(value, lp.KernelArgument):
             assert value.dtype.target is not None, (
                 'Argument {} in field {} has unset dtype'.format(value.name, field))
+        elif isinstance(value, NumpyType):
+            assert value.target is not None, (
+                'dtype {} in field {} has unset dtype'.format(value, field))
         elif isinstance(value, list):
-            all(self.__check(field, x) for x in value)
+            return all(self.__check(field, x) for x in value)
         elif isinstance(value, dict):
-            # kernel arguments can't be dictionary keys
-            all(self.__check(field, x) for x in value.values())
+            return all(self.__check(field, x) for x in value.values()) and \
+                all(self.__check(field, x) for x in value.keys())
         return True
 
     def __getstate__(self):
@@ -467,9 +470,9 @@ class kernel_generator(object):
         self.mem.add_arrays(in_arrays=input_arrays, out_arrays=output_arrays)
 
         self.type_map = {}
-        self.type_map[to_loopy_type(np.float64)] = 'double'
-        self.type_map[to_loopy_type(np.int32)] = 'int'
-        self.type_map[to_loopy_type(np.int64)] = 'long int'
+        self.type_map[to_loopy_type(np.float64, target=self.target)] = 'double'
+        self.type_map[to_loopy_type(np.int32, target=self.target)] = 'int'
+        self.type_map[to_loopy_type(np.int64, target=self.target)] = 'long int'
 
         self.depends_on = depends_on[:]
         self.array_props = array_props.copy()
@@ -1559,9 +1562,12 @@ ${name} : ${type}
             # create working buffer
             from pymbolic.primitives import Variable
             shape = static + Variable(w_size.name) * size_per_wi
+            for_atomic = isinstance(args[0].dtype, AtomicNumpyType)
             wb = lp.ArrayArg(name, shape=shape,
                              order=self.loopy_opts.order,
-                             dtype=args[0].dtype, address_space=scope)
+                             dtype=to_loopy_type(args[0].dtype, target=self.target,
+                                                 for_atomic=for_atomic),
+                             address_space=scope)
             return wb, result
 
         # globals
@@ -2226,7 +2232,7 @@ ${name} : ${type}
         # first, find kernel args global kernel args (by name)
         kernel_data = [x for x in record.args if x.name in set(self.mem.host_arrays)]
         # and add problem size
-        kernel_data.append(p_size)
+        kernel_data.append(p_size.copy(dtype=p_size.dtype, target=self.target))
         record = record.copy(kernel_data=kernel_data + wrapper_memory.kernel_data)
 
         # next, we need to determine where in the working buffer the arrays
@@ -2696,12 +2702,13 @@ class opencl_kernel_generator(kernel_generator):
             'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
         }
 
-        # add atomic types to typemap
-        from loopy.types import to_loopy_type
         # these don't need to be volatile, as they are on the host side
-        self.type_map[to_loopy_type(np.float64, for_atomic=True)] = 'double'
-        self.type_map[to_loopy_type(np.int32, for_atomic=True)] = 'int'
-        self.type_map[to_loopy_type(np.int64, for_atomic=True)] = 'long int'
+        self.type_map[to_loopy_type(np.float64, for_atomic=True,
+                                    target=self.target)] = 'double'
+        self.type_map[to_loopy_type(np.int32, for_atomic=True,
+                                    target=self.target)] = 'int'
+        self.type_map[to_loopy_type(np.int64, for_atomic=True,
+                                    target=self.target)] = 'long int'
 
     @property
     def target_preambles(self):
