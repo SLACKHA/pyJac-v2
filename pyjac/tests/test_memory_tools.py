@@ -139,6 +139,16 @@ def test_memory_tools_free():
         else:
             raise NotImplementedError
 
+        # and test w/ device prefix
+        mem = get_memory(callgen, device_namer=DeviceNamer('this'))
+        # test frees
+        if opts.lang == 'c':
+            assert mem.free(False, a1) == 'free(a1);'
+        elif opts.lang == 'opencl':
+            assert mem.free(True, a1) == 'check_err(clReleaseMemObject(this->d_a1));'
+        else:
+            raise NotImplementedError
+
 
 def test_memory_tools_memset():
     wrapper = __test_cases()
@@ -464,8 +474,8 @@ def test_strided_copy():
             const = lp_arrays[len(arrays):]
 
             # now update args
-            callgen = callgen.copy(kernel_args={'test': [x for x in lp_arrays
-                                                if x not in const]},
+            callgen = callgen.copy(input_args={'test': [x for x in lp_arrays
+                                               if x not in const]},
                                    host_constants={'test': const})
 
             temp_fname = os.path.join(build_dir, 'in' + utils.file_ext[lang])

@@ -193,6 +193,14 @@ class MemoryManager(object):
             name = arr
         return name if not namer else namer(name, **kwargs)
 
+    def get_signature(self, device, arr):
+        """
+        Returns the stringified version of :param:`arg`, for a use in a function
+        signature definition.
+        """
+
+        return self.dtype(device, arr, True) + ' ' + self.get_name(device, arr)
+
     def lang(self, device):
         return self.host_lang if not device else self.device_lang
 
@@ -380,7 +388,7 @@ class MemoryManager(object):
             The resulting free instructions
         """
         return self.free_template[self.lang(device)].safe_substitute(
-            name=arr.name)
+            name=self.get_name(device, arr))
 
 
 class MappedMemory(MemoryManager):
