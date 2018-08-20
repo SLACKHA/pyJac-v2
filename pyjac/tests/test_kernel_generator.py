@@ -390,15 +390,26 @@ class SubTest(TestClass):
             with temporary_directory() as tdir:
                 kgen._make_kernels()
                 callgen, record, result = kgen._generate_wrapping_kernel(tdir)
-                driver_record, callgen = kgen._generate_driver_kernel(
+                callgen = kgen._generate_driver_kernel(
                     tdir, record, result, callgen)
                 out = kgen._generate_calling_program(
-                    tdir, 'dummy.bin', callgen, driver_record, for_validation=False)
+                    tdir, 'dummy.bin', callgen, record, for_validation=True)
 
-                # data
-                import pdb; pdb.set_trace()
+                # check that 1) it runs
                 with open(out, 'r') as file:
                     out = file.read()
+
+                # and 2) the validation output is in there
+                assert """// write output to file if supplied
+    char* output_files[1] = {"jac.bin"};
+    size_t output_sizes[1] = {1681 * problem_size * sizeof(double)};
+    double* outputs[1] = {h_jac_local};
+    for(int i = 0; i < 1; ++i)
+    {
+        write_data(output_files[i], outputs[i], output_sizes[i]);
+    }
+
+    kernel->finalize();""".strip() in out
 
 
 def test_remove_worksize():

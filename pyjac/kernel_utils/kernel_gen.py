@@ -283,7 +283,9 @@ def kernel_arg_docs():
             'V_arr': ('double', 'The array of volumes'),
             'dphi': ('double', 'The time rate of change of the state-vector'),
             'jac': ('double', 'The Jacobian of the time-rate of change of '
-                              'the state vector')}
+                              'the state vector'),
+            'problem_size': ('size_t', 'The number of initial conditions to '
+                             'evaluate this kernel for')}
 
 
 class CallgenResult(TargetCheckingRecord):
@@ -299,8 +301,11 @@ class CallgenResult(TargetCheckingRecord):
         If supplied, OpenCL level for macro definitions
     work_arrays: list of :class:`loopy.ArrayArg`
         The list of work-buffers created for the top-level kernel
-    kernel_args: dict of str -> list of :class:`loopy.ArrayArg`
-        A dictionary mapping of kernel name -> global input / output args for this
+    input_args: dict of str -> list of :class:`loopy.ArrayArg`
+        A dictionary mapping of kernel name -> global input args for this
+        kernel
+    output_args: dict of str -> list of :class:`loopy.ArrayArg`
+        A dictionary mapping of kernel name -> global output args for this
         kernel
     host_constants: dict of str -> list of :class:`loopy.TemporaryVariables`
         A dictionary mapping of kernel name -> constant variables to be placed in
@@ -332,25 +337,66 @@ class CallgenResult(TargetCheckingRecord):
         The OpenCL build options, if applicable
     device_type: int
         The OpenCL device type, if applicable
+    input_data_path: str
+        The path to the input data binary, if applicable
+    for_validation: bool [False]
+        If true, save copies of local arrays to file(s) for validation testing.
     """
 
-    def __init__(self, name='', work_arrays=[], kernel_args={}, cl_level='',
-                 docs={}, local_size=1, max_ic_per_run=None, max_ws_per_run=None,
-                 order='C', lang='c', dev_mem_type=DeviceMemoryType.mapped,
-                 type_map={}, host_constants={}, source_names={},
-                 platform='', build_options='', device_type=None):
+    def __init__(self, name='', work_arrays=[], input_args={}, output_args={},
+                 cl_level='', docs={}, local_size=1, max_ic_per_run=None,
+                 max_ws_per_run=None, order='C', lang='c',
+                 dev_mem_type=DeviceMemoryType.mapped, type_map={},
+                 host_constants={}, source_names={}, platform='', build_options='',
+                 device_type=None, input_data_path='', for_validation=False):
         if not docs:
             docs = kernel_arg_docs()
         ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
-                                 kernel_args=kernel_args, cl_level=cl_level,
-                                 docs=docs, local_size=local_size,
+                                 input_args=input_args, output_args=output_args,
+                                 cl_level=cl_level, docs=docs, local_size=local_size,
                                  max_ic_per_run=max_ic_per_run,
                                  max_ws_per_run=max_ws_per_run, order=order,
                                  lang=lang, dev_mem_type=dev_mem_type,
                                  type_map=type_map, host_constants=host_constants,
                                  source_names=source_names, platform=platform,
                                  build_options=build_options,
-                                 device_type=device_type)
+                                 device_type=device_type,
+                                 input_data_path=input_data_path,
+                                 for_validation=for_validation)
+
+    def _get_data(self, include_work=False):
+        data = {}
+
+        def _update(dictv):
+            for key, vals in six.iteritems(dictv):
+                if key in data:
+                    data[key].extend(vals[:])
+                else:
+                    data[key] = vals[:]
+
+        _update(self.input_args)
+        _update(self.output_args)
+
+        if include_work:
+            for key in data:
+                data[key].extend(self.work_arrays[:])
+
+        return data
+
+    @property
+    def kernel_data(self):
+        """
+        Returns a dictionary kernel name-> complete list of kernel arguments
+        and work arrays
+        """
+        return self._get_data(True)
+
+    @property
+    def kernel_args(self):
+        """
+        Returns a dictionary kernel name-> complete list of kernel arguments
+        """
+        return self._get_data(False)
 
 
 class CompgenResult(TargetCheckingRecord):
@@ -879,10 +925,10 @@ class kernel_generator(object):
         utils.create_dir(path)
         self._make_kernels()
         callgen, record, result = self._generate_wrapping_kernel(path)
-        driver_record, callgen = self._generate_driver_kernel(
+        callgen = self._generate_driver_kernel(
             path, record, result, callgen)
         callgen = self._generate_compiling_program(path, callgen)
-        self._generate_calling_program(path, data_filename, callgen, driver_record,
+        self._generate_calling_program(path, data_filename, callgen, record,
                                        for_validation=for_validation)
         self._generate_calling_header(path)
         self._generate_common(path)
@@ -1050,12 +1096,12 @@ class kernel_generator(object):
         # update callgen
         callgen = callgen.copy(
             name=self.name,
-            kernel_args={self.name: record.kernel_data[:]},
             local_size=vec_width,
             order=self.loopy_opts.order,
             lang=self.lang,
             type_map=self.type_map.copy(),
-            host_constants={self.name: record.host_constants[:]})
+            input_data_path=data_filename,
+            for_validation=for_validation)
 
         # any target specific substitutions
         callgen = self._special_kernel_subs(path, callgen)
@@ -2158,8 +2204,6 @@ class kernel_generator(object):
 
         Returns
         -------
-        driver_record: :class:`MemoryGenerationResult`
-            The record for the driver class, with all kernel arguments stored
         updated_callgen: :class:`CallgenResult`
             The updated callgen result w/ driver source, and IC limits added
         """
@@ -2224,8 +2268,18 @@ class kernel_generator(object):
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],
                                max_ic_per_run=int(max_ic_per_run),
-                               max_ws_per_run=int(max_ws_per_run))
-        return record, callgen
+                               max_ws_per_run=int(max_ws_per_run),
+                               input_args={self.name: [
+                                x for x in record.args if x.name in self.in_arrays]},
+                               output_args={self.name: [
+                                x for x in record.args
+                                if x.name in self.out_arrays]},
+                               work_arrays=[
+                                x for x in wrapper_memory.kernel_data[:]
+                                if x != w_size],
+                               host_constants={
+                                self.name: wrapper_memory.host_constants[:]})
+        return callgen
 
     def remove_unused_temporaries(self, knl):
         """
@@ -2872,7 +2926,7 @@ class opencl_kernel_generator(kernel_generator):
         """
 
         outname = self.name + '.bin'
-        result = CompgenResult(source_names=callgen.source_files[:],
+        result = CompgenResult(source_names=callgen.source_names[:],
                                platform=self.platform_str,
                                outname=outname,
                                build_options=self.build_options(path))
@@ -2899,7 +2953,7 @@ class opencl_kernel_generator(kernel_generator):
             logger.error('Error generating compiling file {}'.format(filename))
             raise
 
-        return callgen.copy(source_files=callgen.source_files + [filename])
+        return callgen.copy(source_names=callgen.source_names + [filename])
 
     def apply_barriers(self, instructions):
         """

@@ -47,7 +47,9 @@ class Kernel
 {
 
 public:
-    Kernel() : init(false)
+    Kernel(): initialized(false),
+              problem_size(0),
+              work_groups(0)
     {
 
     }
@@ -57,22 +59,49 @@ public:
         this->finalize();
     }
 
-    // execute the kernel, defined in the subclasses
-    virtual void operator()(size_t problem_size, size_t work_groups) = 0;
+    void resize(size_t problem_size, size_t work_groups)
+    {
+        if (this->initialized && ((work_groups != this->work_groups) || (problem_size != this->problem_size)))
+        {
+            this->finalize_memory();
+            this->init(problem_size, work_groups);
+        }
+        else if (!this->initialized)
+        {
+            this->init(problem_size, work_groups);
+        }
+    }
 
 protected:
-    // opencl context, kerne, etc.
+    size_t per_run()
+    {
+        return this->max_per_run < this->problem_size ? this->max_per_run : this->problem_size;
+    }
+
+    size_t per_run(size_t problem_size)
+    {
+        return this->max_per_run < problem_size ? this->max_per_run : problem_size;
+    }
+
+    size_t this_run(size_t offset)
+    {
+        size_t per_run = this->per_run();
+        return this->problem_size - offset < per_run ? this->problem_size - offset : per_run;
+    }
+
+    // opencl context, kernel, etc.
     cl_kernel kernel;
     cl_program program;
     cl_context context;
     cl_command_queue queue;
 
     // flag indicating initialization status
-    bool init;
+    bool initialized;
 
     // past run sizes
-    size_t per_run_store;
+    size_t problem_size;
     size_t max_per_run;
+    size_t work_groups;
 
     // info variables -- specified per kernel
     unsigned int num_source;
@@ -96,12 +125,12 @@ protected:
         May be >= problem_size
     problem_size : size_t
         The number of initial conditions to execute in total
-    work_size : uint
+    work_groups : uint
         The number of OpenCL groups to launch.
         If using GPUs, this is the # of CUDA blocks to use
         If for CPUs, this is the number of logical cores to use
     */
-    void init(size_t per_run, size_t problem_size, cl_uint work_size)
+    void init(size_t problem_size, cl_uint work_groups)
     {
         cl_platform_id platform_id[NUM_PLATFORMS];
         cl_device_id device_ids[MAX_DEVICE];
@@ -175,7 +204,7 @@ protected:
             cl_uint num_compute;
             //first get the maximum number of sub partitions (i.e. logical threads)
             check_err(clGetDeviceInfo(device_ids[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(num_compute), &num_compute, NULL));
-            cassert(work_size <= num_compute, "Too many cores used...");
+            cassert(work_groups <= num_compute, "Too many cores used...");
 
             //ok, now we know we're ok
             //let's create a subdevice with the required number of compute units
@@ -184,7 +213,7 @@ protected:
             // Partition type
             properties[0] = CL_DEVICE_PARTITION_BY_COUNTS;
             // number of compute units
-            properties[1] = work_size;
+            properties[1] = work_groups;
             // List end
             properties[2] = CL_DEVICE_PARTITION_BY_COUNTS_LIST_END;
 
@@ -247,13 +276,15 @@ protected:
         free(source_bins);
         free(source_sizes);
 
-        this->mem_init(per_run, problem_size, work_size);
+        this->mem_init(problem_size, work_groups);
         // mark initialized
-        this->init = true;
+        this->initialized = true;
+        this->problem_size = problem_size;
+        this->work_groups = work_groups;
     }
 
     // memory initialization / release accomplished in sub-classes
-    virtual void mem_init(size_t per_run, size_t problem_size, size_t work_size) = 0;
+    virtual void mem_init(size_t problem_size, size_t work_groups) = 0;
     virtual void finalize_memory() = 0;
 
     void finalize()
@@ -263,14 +294,14 @@ protected:
         check_err(clReleaseCommandQueue(this->queue));
         check_err(clReleaseContext(this->context));
         // mark deinit
-        this->init = false;
+        this->initialized = false;
     }
 }
 
 
-    /*[[[cog
+/*[[[cog
 # generate sub-kernel classes
-for kernel in callgen.kernel_args:
+for kernel in callgen.kernel_data:
     # create a new memory manager to get 'this->' for device buffers
     kmem = get_memory(callgen, host_namer=HostNamer(),
                       device_namer=DeviceNamer('this'))
@@ -285,14 +316,15 @@ protected:
     # always have a double-precision temp
     temps = [lp.GlobalArg('temp_d', dtype=np.float64)]
     if any([x.dtype.is_integral() and isinstance(x, lp.ArrayArg)
-            for x in callgen.kernel_args[kernel]]):
+            for x in callgen.kernel_data[kernel]]):
         # need integer temporary
-        arr = next(x for x in callgen.kernel_args[kernel] if x.dtype.is_integral())
+        arr = next(x for x in callgen.kernel_data[kernel]
+                   if x.dtype.is_integral())
         temps.append(lp.GlobalArg('temp_i', dtype=arr.dtype))
 
     # define kernel args
     from pyjac.utils import indent as stdindent
-    for arg in callgen.kernel_args[kernel]:
+    for arg in callgen.kernel_data[kernel]:
         cog.outl(indent(mem.define(True, arg), stdindent))
     cog.out("""
     #ifdef PINNED
@@ -302,6 +334,19 @@ protected:
     for arg in temps:
         cog.outl(indent(mem.define(False, arg), stdindent))
 
+    # determine maximum size
+    max_size = [mem.non_ic_size(arr) for arr in callgen.kernel_data[kernel]
+                if not isinstance(arr, lp.ValueArg)]
+    from pyjac.utils import partition, is_integer
+    problem_sizes, work_sizes = partition(max_size, is_integer)
+    problem_size='{} * problem_size'.format(max([int(x) for x in problem_sizes]))
+    # make sure work sizes are what we expect
+    regex=re.compile(r'work_size\s*\*\s*(\d+)')
+    assert all(regex.search(x) for x in work_sizes)
+    # next, extract the work sizes
+    work_size='{} * work_size'.format(
+        max([int(regex.search(x).group(1)) for x in work_sizes]))
+    max_size='({0} > {1} ? {0} : {1})'.format(problem_size, work_size)
     cog.out("""
     #endif
 
@@ -310,39 +355,21 @@ protected:
 
     Parameters
     ----------
-    per_run : size_t
-        The number of conditions to execute per run, the problem_size will be broken
-        into chunks if it exceeds the per_run size
     problem_size : size_t
         The total number of conditions to execute this kernel over
-    work_size : size_t
+    work_groups : size_t
         The number of OpenCL groups to launch.
         If using GPUs, this is the # of CUDA blocks to use
         If for CPUs, this is the number of logical cores to use
     */
-    void mem_init(size_t per_run, size_t problem_size, size_t work_size)
-    {
+    void mem_init(size_t problem_size, size_t work_groups)
+    {{
+        size_t per_run = this->per_run(problem_size);
         #if CL_LEVEL >= 120
             // with CL 1.2, we have access to clEnqueueFillBuffer
             double zero = 0;
         #else
             // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
-    """, dedent=True, trimblanklines=True)
-    # determine maximum size
-    max_size = [mem.non_ic_size(arr) for arr in callgen.kernel_args[kernel]
-                if not isinstance(arr, lp.ValueArg)]
-    from pyjac.utils import partition, is_integer
-    problem_sizes, work_sizes = partition(max_size, is_integer)
-    problem_size = '{} * problem_size'.format(max([int(x) for x in problem_sizes]))
-    # make sure work sizes are what we expect
-    regex = re.compile(r'work_size\s*\*\s*(\d+)')
-    assert all(regex.search(x) for x in work_sizes)
-    # next, extract the work sizes
-    work_size = '{} * work_size'.format(
-        max([int(regex.search(x).group(1)) for x in work_sizes]))
-    max_size = '({0} > {1} ? {0} : {1})'.format(problem_size, work_size)
-
-    cog.out("""
             double* zero = (double*)malloc({max_size} * sizeof(double));
             memset(zero, 0, {max_size} * sizeof(double));
         #endif
@@ -358,45 +385,46 @@ protected:
         """.format(kmem.define(False, arr, host_constant=True)),
                  dedent=True, trimblanklines=True)
 
-    cog.out("""
-    cl_int return_code;
-    /* Alloc buffers */
+    cog.outl("""
+        cl_int return_code;
+        /* Alloc buffers */
     """, dedent=False, trimblanklines=True)
 
-    for arr in callgen.kernel_args[kernel]:
+    for arr in callgen.kernel_data[kernel]:
         if not isinstance(arr, lp.ValueArg):
-            cog.outl(indent(kmem.alloc(True, arr), stdindent))
+            cog.outl(indent(kmem.alloc(True, arr), stdindent*2))
 
     cog.out("""
     /* we transfer the constants here, as we only need to do so once */
     """, dedent=False, trimblanklines=True)
+
     for arr in callgen.host_constants[kernel]:
         cog.outl(indent(kmem.copy(True, arr, host_constant=True), stdindent))
 
     # and create kernel
     cog.outl("""
-    #if CL_LEVEL < 120
-        free(zero);
-    #endif
+        #if CL_LEVEL < 120
+            free(zero);
+        #endif
 
-    /* Create OpenCL Kernel */
-    this->kernel = clCreateKernel(program, "{knl_name}", &return_code);
-    check_err(return_code);
+        /* Create OpenCL Kernel */
+        this->kernel = clCreateKernel(program, "{knl_name}", &return_code);
+        check_err(return_code);
 
-    /* Kernel arg setting */
+        /* Kernel arg setting */
     """.format(knl_name=kernel), dedent=False, trimblanklines=True)
     # finally set kernel args
     set_arg = ('check_err(clSetKernelArg(kernel, {arg_index}, '
                '{arg_size}, {arg_value}));')
 
-    for i, arg in enumerate(callgen.kernel_args[kernel]):
+    for i, arg in enumerate(callgen.kernel_data[kernel]):
         if not isinstance(arg, lp.ValueArg):
             cog.outl(
                 indent(set_arg.format(
                     arg_index=i,
                     arg_size='sizeof({})'.format(kmem.dtype(True, arg)),
                     arg_value='&' + kmem.get_name(True, arg.name)),
-                    stdindent))
+                    stdindent*2))
         else:
             # workaround for integer overflow of cl_uint
             # switch problem-size -> per-run, as that is what the device sees
@@ -407,37 +435,59 @@ protected:
                     arg_index=i,
                     arg_size='sizeof({})'.format(kmem.dtype(True, arg)),
                     arg_value='&{}'.format(kmem.get_name(True, name)))
-            cog.outl(indent(arg_set, stdindent))
+            cog.outl(indent(arg_set, stdindent*2))
 
-    cog.outl('}')
+    cog.outl(indent('}', stdindent))
 
     # memory free's
     cog.out("""
-void finalize_memory()
-{
-    """, dedent=False, trimblanklines=True)
-    for arr in callgen.kernel_args[kernel]:
-        cog.outl(indent(kmem.free(True, arr), stdindent))
-    cog.outl("""
-}
+    void finalize_memory()
+    {
+        /* Finalization of our current queue / kernel */
+        check_err(clFlush(this->queue));
+        check_err(clReleaseKernel(this->kernel));
+        check_err(clFinish(this->queue));
 
-    public:
+        /* Free Memory */
+    """, dedent=False, trimblanklines=True)
+    for arr in callgen.kernel_data[kernel]:
+        cog.outl(indent(kmem.free(True, arr), stdindent*2))
+    cog.outl("""
+    }
+
+public:
     """, trimblanklines=True)
+
+    knl_path_strs = [indent('kernel_paths({', stdindent)]
+    for i, file in enumerate(callgen.source_names):
+        knl_path_strs.append(indent('"{}"{}{}'.format(
+            file, ',' if i < len(callgen.source_names) - 1 else '',
+            '}),' if i == len(callgen.source_names) - 1 else ''), stdindent*2))
+    knl_path_str = '\n'.join(knl_path_strs)
 
     # write constructor
     cog.out("""
     {name}Kernel():
     """.format(name=kernel.title()), dedent=True, trimblanklines=True)
     cog.outl(indent('num_source({}),'.format(len(callgen.source_names)), stdindent))
-    cog.outl(indent('kernel_paths({', stdindent))
-    files = callgen.source_names
-    for i, file in enumerate(files):
-        cog.outl(indent("\"{}\"{}{}".format(
-        file, ',' if i < len(files) - 1 else '',
-        '})' if i == len(files) - 1 else ''), stdindent))
+    cog.outl(knl_path_str)
+    cog.outl(indent('max_per_run({})'.format(callgen.max_ic_per_run), stdindent))
     cog.out("""
     {
 
+    }
+    """, dedent=False, trimblanklines=True)
+
+    # and write alternate constructor that allows memory initialization
+    cog.out("""
+    {name}Kernel(size_t problem_size, size_t work_groups):
+    """.format(name=kernel.title()), dedent=True, trimblanklines=True)
+    cog.outl(indent('num_source({}),'.format(len(callgen.source_names)), stdindent))
+    cog.outl(knl_path_str)
+    cog.outl(indent('max_per_run({})'.format(callgen.max_ic_per_run), stdindent))
+    cog.out("""
+    {
+        this->init(problem_size, work_groups);
     }
     """, dedent=False, trimblanklines=True)
 
@@ -449,12 +499,6 @@ void finalize_memory()
 
     Parameters
     ----------
-    problem_size : size_t
-        The number of initial conditions to evaluate
-    work_groups: size_t
-        On a CPU, this corresponds to the number of cores to run on,
-        while on a GPU this represents the total number of OpenCL work-groups
-        (a.k.a., Blocks in CUDA terminology) to run.
     """.format(kernel), dedent=True, trimblanklines=True)
 
     def __get_docs(arg):
@@ -472,51 +516,52 @@ void finalize_memory()
 
     # write kernel defn
     cog.out("""
-void operator()(size_t problem_size, size_t work_groups)
+void operator()({knl_args})
 {{
-    """.format(name=kernel, knl_args=', '.join([
-            mem.get_name(False, arr) for arr in callgen.kernel_args[kernel]])),
+    cassert(this->initialized, "Must initialize kernel (e.g., via resize()) before use.");
+    """.format(knl_args=', '.join([
+            mem.get_signature(False, arr) for arr in callgen.kernel_args[kernel]])),
             dedent=False, trimblanklines=True)
 
     cog.out("""
-        // error checking for pinned memory transfers
-        cl_int return_code;
-        size_t per_run = this->max_per_run < problem_size ? this->max_per_run : problem_size;
+    // error checking for pinned memory transfers
+    cl_int return_code;
+    size_t per_run = this->per_run();
 
-        for (size_t offset = 0; offset < problem_size; offset += per_run)
-        {{
-            size_t this_run = problem_size - offset < per_run ? problem_size - offset : per_run;
-            size_t global_work_size = work_groups;
-            size_t local_work_size = {local_size};
-            #if defined(DEEP) && !defined(EXPLICIT_SIMD)
-                // need to multiply global worksize by local worksize
-                // to get correct number of global items (as)
-                global_work_size *= local_work_size;
-            #endif
-            // Memory Transfers into the kernel, if any
-        """.format(local_size=callgen.local_size), dedent=False, trimblanklines=True)
+    for (size_t offset = 0; offset < this->problem_size; offset += per_run)
+    {{
+        size_t this_run = this->this_run(offset);
+        size_t global_work_size = this->work_groups;
+        size_t local_work_size = {local_size};
+        #if defined(DEEP) && !defined(EXPLICIT_SIMD)
+            // need to multiply global worksize by local worksize
+            // to get correct number of global items (as)
+            global_work_size *= local_work_size;
+        #endif
+        // Memory Transfers into the kernel, if any
+    """.format(local_size=callgen.local_size), dedent=False, trimblanklines=True)
 
     # write memory transfers in
-    for arg in callgen.kernel_args[kernel]:
+    for arg in callgen.input_args[kernel]:
         if not isinstance(arg, lp.ValueArg):
-            cog.outl(indent(kmem.copy(to_device=True, arr=arg), stdindent * 3))
+            cog.outl(indent(kmem.copy(to_device=True, arr=arg), stdindent * 2))
 
     # call kernel
     cog.outl("""
-            // run kernel
-            check_err(clEnqueueNDRangeKernel(queue, this->kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
-            // Memory Transfers out
-            """, dedent=False, trimblanklines=True)
+        // run kernel
+        check_err(clEnqueueNDRangeKernel(queue, this->kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
+        // Memory Transfers out
+        """, dedent=False, trimblanklines=True)
 
     # and finally write memory transfers out
-    for arg in callgen.kernel_args[kernel]:
+    for arg in callgen.output_args[kernel]:
         if not isinstance(arg, lp.ValueArg):
-            cog.outl(indent(kmem.copy(to_device=False, arr=arg), stdindent * 3))
+            cog.outl(indent(kmem.copy(to_device=False, arr=arg), stdindent * 2))
 
     # and close
     cog.out("""
-        }
     }
+}
     """, dedent=False, trimblanklines=True)
 ]]]
 [[[end]]]*/
@@ -549,37 +594,82 @@ int main(int argc, char* argv[])
         compilation_time = GetTimer();
     }
 
-    ${local_allocs}
+    /*[[[cog
+        # create local versions of kernel arguments
+        lmem = get_memory(callgen, host_namer=HostNamer(postfix='_local'),
+                          device_namer=DeviceNamer())
+        for arg in callgen.kernel_args[callgen.name]:
+            cog.outl(lmem.alloc(False, arg))
+      ]]]
+    [[[end]]]*/
 
     //init memory & program
     StartTimer();
     size_t per_run = max_per_run < problem_size ? max_per_run : problem_size;
     init(per_run, problem_size, work_size);
-    double setup_time = GetTimer();
     //read input data
-    read_initial_conditions("${data_filename}", problem_size,
-                                ${read_args},
-                                '${order}');
+    /*[[[cog
+      local_args = ', '.join([mem.get_name(False, arr)
+             for arr in callgen.kernel_args[callgen.name]])
+      cog.outl(indent(
+        'read_initial_conditions("{path}", problem_size, {args}, "{order}");'.format(
+        path=callgen.input_data_path,
+        args=local_args,
+        order=callgen.order), stdindent))
 
+      cog.outl(indent('StartTimer();', stdindent))
+
+      # make kernel
+      cog.outl(indent('{0}Kernel kernel = {0}Kernel(problem_size, work_size);'.format(
+            callgen.name.title()), stdindent))
+     ]]]
+     [[[end]]]*/
+    double setup_time = GetTimer();
     StartTimer();
-    execute_kernel(problem_size, ${local_input_args});
+    /*[[[cog
+      # and call
+      cog.outl(indent('kernel({});'.format(
+            local_args), stdindent))
+      ]]]
+      [[[end]]]*/
     double runtime = GetTimer();
 
     printf("%zu,%.15le,%.15le,%.15le\n", problem_size, compilation_time,
                 setup_time, runtime);
 
     // write output to file if supplied
-    char* output_files[${num_outputs}] = {${output_paths}};
-    size_t output_sizes[${num_outputs}] = {${output_sizes}};
-    double* outputs[${num_outputs}] = {${outputs}};
-    for(int i = 0; i < ${num_outputs}; ++i)
-    {
-        write_data(output_files[i], outputs[i], output_sizes[i]);
-    }
+    /*[[[cog
+        num_outputs = len(callgen.output_args[callgen.name])
+        output_paths = ', '.join(['"{}.bin"'.format(x.name)
+                                  for x in callgen.output_args[callgen.name]])
+        output_sizes = ', '.join(['{}'.format(lmem.buffer_size(False, x))
+                                  for x in callgen.output_args[callgen.name]])
+        outputs = ', '.join(['{}'.format(lmem.get_name(False, x))
+                             for x in callgen.output_args[callgen.name]])
+        if callgen.for_validation:
+            cog.outl("""
+                char* output_files[{num_outputs}] = {{{output_paths}}};
+                size_t output_sizes[{num_outputs}] = {{{output_sizes}}};
+                double* outputs[{num_outputs}] = {{{outputs}}};
+                for(int i = 0; i < {num_outputs}; ++i)
+                {{
+                    write_data(output_files[i], outputs[i], output_sizes[i]);
+                }}
+            """.format(num_outputs=num_outputs,
+                       output_paths=output_paths,
+                       output_sizes=output_sizes,
+                       outputs=outputs),
+            dedent=True, trimblanklines=True)
+      ]]]
+      [[[end]]]*/
+    kernel->finalize();
 
-    finalize();
-
-    ${local_frees}
+    // local frees
+    /*[[[cog
+      for x in callgen.kernel_args[callgen.name]:
+          cog.outl(lmem.free(False, x))
+      ]]]
+      [[[end]]]*/
 
     return 0;
 }
