@@ -25,14 +25,160 @@ extern "C" {
 #define NUM_PLATFORMS (16)
 #define MAX_DEVICE (16)
 
+/*[[[cog
+    import six
+    from textwrap import indent
+    from six.moves import cPickle as pickle
+    from pyjac.utils import indent as stdindent
+    # load serialized callgen
+    with open(callgen, 'rb') as file:
+        callgen = pickle.load(file)
 
-/*
-Completely cleanup the opencl kernel
-*/
-void finalize(void);
-void compiler(void);
+    # and create memory tools
+    from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
+    mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
 
-void ${knl_name}_call(size_t problem_size, cl_uint num_devices,
-                    ${input_args});
+    from pyjac.kernel_utils.opencl.tools import get_kernel_args, get_temporaries
+  ]]]
+  [[[end]]]*/
+
+
+// base kernel class
+class Kernel
+{
+
+public:
+    Kernel();
+    ~Kernel();
+    void resize(size_t problem_size, size_t work_groups);
+protected:
+    size_t per_run();
+    size_t per_run(size_t problem_size);
+    size_t this_run(size_t offset);
+
+    // opencl context, kernel, etc.
+    cl_kernel kernel;
+    cl_program program;
+    cl_context context;
+    cl_command_queue queue;
+
+    // flag indicating initialization status
+    bool initialized;
+
+    // past run sizes
+    size_t problem_size;
+    size_t max_per_run;
+    size_t work_groups;
+
+    // info variables -- specified per kernel
+    unsigned int num_source;
+    char** kernel_paths;
+
+    // info variables -- common to all kernels
+    /*[[[cog
+    cog.outl('char* build_options = "{}";'.format(callgen.build_options))
+    cog.outl('char* platform_check = "{}";'.format(callgen.platform))
+    cog.outl('unsigned int device_type = {};'.format(int(callgen.device_type)));
+    ]]]
+    [[[end]]]*/
+
+    /*
+    Create opencl kernel
+
+    Parameters
+    ----------
+    size_t per_run: size_t
+        The number of initial conditions to execute per-run, due to memory limits.
+        May be >= problem_size
+    problem_size : size_t
+        The number of initial conditions to execute in total
+    work_groups : uint
+        The number of OpenCL groups to launch.
+        If using GPUs, this is the # of CUDA blocks to use
+        If for CPUs, this is the number of logical cores to use
+    */
+    void init(size_t problem_size, cl_uint work_groups);
+
+    // memory initialization / release accomplished in sub-classes
+    virtual void mem_init(size_t problem_size, size_t work_groups) = 0;
+    virtual void finalize_memory() = 0;
+
+    void finalize();
+}
+
+// and subclass(es)
+/*[[[cog
+for kernel, args in six.iteritems(callgen.kernel_args):
+    cog.out("""
+class {kernel_name}Kernel : protected Kernel
+{{
+protected:
+    // declare device buffers
+""".format(kernel_name=kernel.title()), dedent=True, trimblanklines=True)
+
+    # define kernel args
+    for arg in callgen.kernel_data[kernel]:
+        cog.outl(indent(mem.define(True, arg), stdindent))
+    cog.out("""
+    #ifdef PINNED
+        // declare temporary pointers to hold mapped addresses
+    """,  dedent=True, trimblanklines=True)
+    # define temps
+    for temp in get_temporaries(mem, callgen.kernel_data[kernel]):
+        cog.outl(indent(temp, stdindent))
+    cog.out("""
+    #endif
+    """,  dedent=True, trimblanklines=True)
+
+    cog.outl('public:')
+
+    # write constructor
+    cog.out("""
+    /*
+    Base constructor -- no arguments necessary, for use with Cython.
+    {name}Kernel::resize() must be called before use.
+    */
+    {name}Kernel();
+    """.format(name=kernel.title()), dedent=False, trimblanklines=True)
+
+    # write alternate constructor that allows memory initialization
+    cog.out("""
+    /*
+    Initializing constructor.
+
+    Parameters
+    ---------
+    problem_size : size_t
+        The number of initial conditions to execute in total
+    work_groups : uint
+        The number of OpenCL groups to launch.
+        If using GPUs, this is the # of CUDA blocks to use
+        If for CPUs, this is the number of logical cores to use
+
+    {name}Kernel(size_t problem_size, size_t work_groups);
+    """.format(name=kernel.title()), dedent=False, trimblanklines=True)
+
+    cog.out("""
+
+    /*
+    Execute the OpenCL kernel '{}'
+
+    Parameters
+    ----------
+    """.format(kernel), dedent=False, trimblanklines=True)
+
+    for arg in callgen.kernel_args[kernel]:
+        cog.outl("""
+        {} : {}
+            {}""".format(arg.name, *callgen.get_docs(arg)), dedent=False, trimblanklines=True)
+
+    cog.out("""
+    */
+    void operator()({knl_args});
+    """.format(knl_args=get_kernel_args(mem, callgen.kernel_args[kernel])), dedent=False, trimblanklines=True)
+]]]
+[[[end]]]*/
+}
+
 
 #endif

@@ -392,7 +392,7 @@ class SubTest(TestClass):
                 callgen, record, result = kgen._generate_wrapping_kernel(tdir)
                 callgen = kgen._generate_driver_kernel(
                     tdir, record, result, callgen)
-                out = kgen._generate_calling_program(
+                out, _ = kgen._generate_calling_program(
                     tdir, 'dummy.bin', callgen, record, for_validation=True)
 
                 # check that 1) it runs
@@ -410,6 +410,47 @@ class SubTest(TestClass):
     }
 
     kernel->finalize();""".strip() in out
+
+    def test_call_header_generator(self):
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+        for opts in oploop:
+            # create a species rates kernel generator for this state
+            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
+                                       conp=oploop.state['conp'])
+            with temporary_directory() as tdir:
+                kgen._make_kernels()
+                callgen, record, result = kgen._generate_wrapping_kernel(tdir)
+                callgen = kgen._generate_driver_kernel(
+                    tdir, record, result, callgen)
+                _, callgen = kgen._generate_calling_program(
+                    tdir, 'dummy.bin', callgen, record, for_validation=True)
+                file = kgen._generate_calling_header(tdir, callgen)
+                with open(file, 'r') as file:
+                    file_src = file.read()
+
+                assert 'JacobianKernel();' in file_src
+                assert 'JacobianKernel(size_t problem_size, size_t work_groups);' \
+                    in file_src
+                assert ('void operator()(double* h_P_arr, double* h_phi, '
+                        'double* h_jac);') in file_src
+
+                if opts.lang == 'opencl':
+                    # check build options
+                    assert re.search(
+                        r'build_options = [^\n]+-I{}'.format(tdir), file_src)
+                    assert re.search(opts.platform.vendor, file_src)
+
+                    # check arguments
+                    for x in kgen.in_arrays + kgen.out_arrays:
+                        assert re.search(r'cl_mem d_{};'.format(x), file_src)
+                    # and work arrays
+                    for x in callgen.work_arrays:
+                        assert re.search(r'cl_mem d_{};'.format(x.name), file_src)
+                else:
+                    raise NotImplementedError
 
 
 def test_remove_worksize():

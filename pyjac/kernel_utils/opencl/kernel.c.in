@@ -20,17 +20,20 @@ Global declarations for Cog:
     from textwrap import indent
     from six.moves import cPickle as pickle
     from string import Template
+    from pyjac.utils import indent as stdindent
+    from pyjac.kernel_utils.opencl.tools import get_kernel_args, get_temporaries, \
+        max_size
+
     with open(callgen, 'rb') as file:
         callgen = pickle.load(file)
     num_source = len(callgen.source_names)
 
     from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
     mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
-]]]
-[[[end]]]*/
 
-//[[[cog cog.outl('#include "{}_main.oclh"'.format(callgen.name))]]]
-//[[[end]]]
+    cog.outl('#include "{}_main.oclh"'.format(callgen.name))
+ ]]]
+ [[[end]]]*/
 #include "read_initial_conditions.oclh"
 #include "write_data.oclh"
 #include "memcpy_2d.oclh"
@@ -313,16 +316,7 @@ protected:
     // declare device buffers
     """.format(kernel_name=kernel.title()), dedent=True, trimblanklines=True)
 
-    # always have a double-precision temp
-    temps = [lp.GlobalArg('temp_d', dtype=np.float64)]
-    if any([x.dtype.is_integral() and isinstance(x, lp.ArrayArg)
-            for x in callgen.kernel_data[kernel]]):
-        # need integer temporary
-        arr = next(x for x in callgen.kernel_data[kernel]
-                   if x.dtype.is_integral())
-        temps.append(lp.GlobalArg('temp_i', dtype=arr.dtype))
-
-    # define kernel args
+    # define kernel data
     from pyjac.utils import indent as stdindent
     for arg in callgen.kernel_data[kernel]:
         cog.outl(indent(mem.define(True, arg), stdindent))
@@ -331,22 +325,10 @@ protected:
         // declare temporary pointers to hold mapped addresses
     """,  dedent=True, trimblanklines=True)
     # define temps
-    for arg in temps:
-        cog.outl(indent(mem.define(False, arg), stdindent))
+    for temp in get_temporaries(mem, callgen.kernel_data[kernel]):
+        cog.outl(indent(temp, stdindent))
 
     # determine maximum size
-    max_size = [mem.non_ic_size(arr) for arr in callgen.kernel_data[kernel]
-                if not isinstance(arr, lp.ValueArg)]
-    from pyjac.utils import partition, is_integer
-    problem_sizes, work_sizes = partition(max_size, is_integer)
-    problem_size='{} * problem_size'.format(max([int(x) for x in problem_sizes]))
-    # make sure work sizes are what we expect
-    regex=re.compile(r'work_size\s*\*\s*(\d+)')
-    assert all(regex.search(x) for x in work_sizes)
-    # next, extract the work sizes
-    work_size='{} * work_size'.format(
-        max([int(regex.search(x).group(1)) for x in work_sizes]))
-    max_size='({0} > {1} ? {0} : {1})'.format(problem_size, work_size)
     cog.out("""
     #endif
 
@@ -377,7 +359,9 @@ protected:
         /* If we've run out of constant memory space, we will place converted
            global constant here */
 
-    """.format(max_size=max_size), dedent=False, trimblanklines=True)
+    """.format(max_size=max_size(mem, callgen.kernel_data[kernel])),
+       dedent=False, trimblanklines=True)
+
     for arr in callgen.host_constants[kernel]:
         # define
         cog.outl("""
@@ -501,17 +485,11 @@ public:
     ----------
     """.format(kernel), dedent=True, trimblanklines=True)
 
-    def __get_docs(arg):
-        if arg.name in callgen.docs:
-            return callgen.docs[arg.name]
-        else:
-            return ('???', 'Unknown kernel argument {}.'.format(arg.name))
-
     # generate docs
     for arg in callgen.kernel_args[kernel]:
         cog.outl("""
     {} : {}
-        {}""".format(arg.name, *__get_docs(arg)), dedent=True, trimblanklines=True)
+        {}""".format(arg.name, *callgen.get_docs(arg)), dedent=True, trimblanklines=True)
     cog.outl('*/')
 
     # write kernel defn
@@ -519,8 +497,7 @@ public:
 void operator()({knl_args})
 {{
     cassert(this->initialized, "Must initialize kernel (e.g., via resize()) before use.");
-    """.format(knl_args=', '.join([
-            mem.get_signature(False, arr) for arr in callgen.kernel_args[kernel]])),
+    """.format(knl_args=get_kernel_args(mem, callgen.kernel_args[kernel])),
             dedent=False, trimblanklines=True)
 
     cog.out("""

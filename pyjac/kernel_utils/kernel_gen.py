@@ -398,6 +398,27 @@ class CallgenResult(TargetCheckingRecord):
         """
         return self._get_data(False)
 
+    def get_docs(self, arg):
+        """
+        Returns the :attr:`docs` matching this :param:`arg`'s :attr:`name`,
+        if available, or else a default place-holder string.
+
+        Parameters
+        ----------
+        arg: :class:`loopy.KernelArgument`
+            The argument to generate documentation for
+
+        Returns
+        -------
+        (dtype, docstring): tuple of str
+            The type and docstring of the argument
+        """
+
+        if arg.name in self.docs:
+            return self.docs[arg.name]
+        else:
+            return ('???', 'Unknown kernel argument {}.'.format(arg.name))
+
 
 class CompgenResult(TargetCheckingRecord):
     """
@@ -922,15 +943,16 @@ class kernel_generator(object):
         -------
         None
         """
+
         utils.create_dir(path)
         self._make_kernels()
         callgen, record, result = self._generate_wrapping_kernel(path)
         callgen = self._generate_driver_kernel(
             path, record, result, callgen)
         callgen = self._generate_compiling_program(path, callgen)
-        self._generate_calling_program(path, data_filename, callgen, record,
-                                       for_validation=for_validation)
-        self._generate_calling_header(path)
+        _, callgen = self._generate_calling_program(
+            path, data_filename, callgen, record, for_validation=for_validation)
+        self._generate_calling_header(path, callgen)
         self._generate_common(path)
 
         # finally, copy any dependencies to the path
@@ -989,7 +1011,7 @@ class kernel_generator(object):
             prefix=prefix,
             name=argv.name + postfix)
 
-    def _generate_calling_header(self, path):
+    def _generate_calling_header(self, path, callgen):
         """
         Creates the header file for this kernel
 
@@ -997,28 +1019,35 @@ class kernel_generator(object):
         ----------
         path : str
             The output path for the header file
+        callgen: :class:`CallgenResult`
+            The current callgen object used to generate the calling program
 
         Returns
         -------
-        None
+        file: str
+            The path to the generated file
         """
-        assert self.filename or self.bin_name, ('Cannot generate calling '
-                                                'header before wrapping kernel'
-                                                ' is generated...')
-        with open(os.path.join(script_dir, self.lang,
-                               'kernel.h.in'), 'r') as file:
-            file_src = Template(file.read())
 
-        self.header_name = os.path.join(path, self.file_prefix + self.name + '_main'
-                                        + utils.header_ext[self.lang])
-        with filew.get_file(os.path.join(self.header_name), self.lang,
-                            use_filter=False) as file:
-            file.add_lines(file_src.safe_substitute(
-                input_args=', '.join([self._get_pass(next(
-                    x for x in self.mem.arrays if x.name == a))
-                    for a in self.mem.host_arrays
-                    if not any(x.name == a for x in self.mem.host_constants)]),
-                knl_name=self.name))
+        # serialize
+        callout = os.path.join(path, 'callgen.pickle')
+        with open(callout, 'wb') as file:
+            pickle.dump(callgen, file)
+
+        infile = os.path.join(script_dir, self.lang, 'kernel.h.in')
+        filename = os.path.join(path, self.name + '_main' + utils.header_ext[
+                self.lang])
+
+        # cogify
+        try:
+            Cog().callableMain([
+                        'cogapp', '-e', '-d', '-Dcallgen={}'.format(callout),
+                        '-o', filename, infile])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.error('Error generating calling header {}'.format(filename))
+            raise
+
+        return filename
 
     def _special_kernel_subs(self, path, callgen):
         """
@@ -1085,6 +1114,8 @@ class kernel_generator(object):
         -------
         file: str
             The output file name
+        callgen: :class:`CallgenResult`
+            The updated callgen result
         """
 
         # vec width
@@ -1125,7 +1156,7 @@ class kernel_generator(object):
             logger.error('Error generating calling file {}'.format(filename))
             raise
 
-        return filename
+        return filename, callgen
 
     def _generate_compiling_program(self, path, callgen):
         """
