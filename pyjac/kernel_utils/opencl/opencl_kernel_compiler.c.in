@@ -40,11 +40,11 @@ void compiler()
 
     /*[[[cog
         # write variables
-        cog.outl('char* filename[{}] = {{ {} }};'.format(num_source,
+        cog.outl('const char* filename[{}] = {{ {} }};'.format(num_source,
             ', '.join(['"{}"'.format(name) for name in compgen.source_names])))
-        cog.outl('char* platform = "{}";'.format(compgen.platform))
-        cog.outl('char* out_name = "{}";'.format(compgen.outname))
-        cog.outl('char* build_options = "{}";'.format(compgen.build_options))
+        cog.outl('const char* platform = "{}";'.format(compgen.platform))
+        cog.outl('const char* out_name = "{}";'.format(compgen.outname))
+        cog.outl('const char* build_options = "{}";'.format(compgen.build_options))
     ]]]
     [[[end]]]*/
 
@@ -84,7 +84,7 @@ void compiler()
         char pvendor[100];
         size_t psize = 100 * sizeof(char);
         check_err(clGetPlatformInfo(platform_id[i], CL_PLATFORM_VENDOR, psize, pvendor, NULL));
-        if(strstr(pvendor, platform_check) != NULL)
+        if(strstr(pvendor, platform) != NULL)
         {
             pid = platform_id[i];
             break;
@@ -105,13 +105,12 @@ void compiler()
     command_queue = clCreateCommandQueue(context, device_id, 0, &return_code);
     check_err(return_code);
 
-    /* Create Kernel program from the read in source */
+    /* Create Kernel program from the source */
     /*[[[cog
     ]]]
     cog.outl('program = clCreateProgramWithSource(context, {}, (const char **)source_str, '
              '(const size_t *)source_size, &return_code);'.format(num_source))
-    [[[end]]]
-    */
+    [[[end]]]*/
     check_err(return_code);
 
     /* Build Kernel Program */
@@ -123,13 +122,13 @@ void compiler()
     size_t len;
     char *buffer;
     check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &len));
-    buffer = calloc(len, sizeof(char));
+    buffer = (char*)calloc(len, sizeof(char));
     check_err(clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, len * sizeof(char), buffer, NULL));
     printf("%s\n", buffer);
     free(buffer);
 
     clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_STATUS, sizeof(char*), NULL, &len);
-    buffer = calloc(len, sizeof(char));
+    buffer = (char*)calloc(len, sizeof(char));
     clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_STATUS, len * sizeof(char), buffer, NULL);
     printf("%s\n", buffer);
     free(buffer);
@@ -157,7 +156,7 @@ void compiler()
     for (int i = 0; i < expected_progs; ++i)
     {
         // Then write binary to file
-        fp = fopen(outname, "wb");
+        fp = fopen(out_name, "wb");
         if (!fp) {
             exit(-1);
         }
