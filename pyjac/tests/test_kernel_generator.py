@@ -397,9 +397,21 @@ class SubTest(TestClass):
 
                 # check that 1) it runs
                 with open(out, 'r') as file:
-                    out = file.read()
+                    file_src = file.read()
 
-                # and 2) the validation output is in there
+                # check for local defn's
+                for arr in kgen.in_arrays + kgen.out_arrays:
+                    assert 'double* h_{}_local;'.format(arr) in file_src
+
+                # check for operator defn
+                assert ('void JacobianKernel::operator()(double* h_P_arr, '
+                        'double* h_phi, double* h_jac)') in file_src
+
+                # check kernel paths
+                for file in callgen.source_names:
+                    assert file in file_src
+
+                # and the validation output
                 assert """// write output to file if supplied
     char* output_files[1] = {"jac.bin"};
     size_t output_sizes[1] = {1681 * problem_size * sizeof(double)};
@@ -409,7 +421,7 @@ class SubTest(TestClass):
         write_data(output_files[i], outputs[i], output_sizes[i]);
     }
 
-    kernel->finalize();""".strip() in out
+    kernel->finalize();""".strip() in file_src
 
     def test_call_header_generator(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,

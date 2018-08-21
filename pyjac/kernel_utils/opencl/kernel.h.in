@@ -43,6 +43,15 @@ extern "C" {
   [[[end]]]*/
 
 
+// macro definitions
+/*[[[cog
+    from pyjac.utils import enum_to_string
+    cog.outl('#define CL_LEVEL {}'.format(callgen.cl_level))
+    cog.outl('#define {}'.format(enum_to_string(callgen.dev_mem_type).upper()))
+  ]]]
+  [[[end]]]*/
+
+
 // base kernel class
 class Kernel
 {
