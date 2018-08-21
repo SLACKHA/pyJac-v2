@@ -4,15 +4,16 @@ from __future__ import print_function
 
 import os
 import subprocess
-import sys
-import multiprocessing
-import platform
 import logging
+
+from codepy.toolchain import GCCToolchain
+from codepy import CompileError
 
 from pyjac import utils
 from pyjac import siteconf as site
 from pyjac.core.enum_types import KernelType
-from pyjac.core.exceptions import CompilationError, LinkingError
+from pyjac.core.exceptions import CompilationError, LinkingError, \
+    LibraryGenerationError
 
 
 def lib_ext(shared):
@@ -20,80 +21,32 @@ def lib_ext(shared):
     return '.a' if not shared else '.so'
 
 
-cmd_compile = dict(c='gcc',
-                   opencl='gcc',
+cmd_compile = dict(c='g++',
+                   opencl='g++',
                    # cuda='nvcc'
                    )
 
-
-def cmd_lib(lang, shared):
-    """Returns the appropriate compilation command for creation of the library based
-    on the language and shared flag"""
-    if lang in ['c', 'opencl']:
-        return ['ar', 'rcs'] if not shared else ['gcc', '-shared']
-    # elif lang == 'cuda':
-    #    return ['nvcc', '-lib'] if not shared else ['nvcc', '-shared']
-
-
-includes = dict(c=['/usr/local/include/'],
+includes = dict(c=[],
                 opencl=site.CL_INC_DIR
                 )
 
 shared_flags = dict(c=['-fPIC'],
-                    opencl=['-fPIC'],
-                    cuda=['-Xcompiler', '"-fPIC"']
+                    opencl=['-fPIC']
                     )
 shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
                          opencl=['-pie', '-Wl,-E'])
 
 opt_flags = ['-O3', '-mtune=native']
 debug_flags = ['-O0', '-g']
-compile_flags = debug_flags if 'PYJAC_DEBUG' in os.environ else opt_flags
 
-flags = dict(c=site.CC_FLAGS + compile_flags + ['-fopenmp', '-std=c99'],
-             opencl=site.CC_FLAGS + compile_flags + ['-xc', '-std=c99'])
 
-libs = dict(c=['-lm', '-fopenmp'],
-            opencl=['-l' + x for x in site.CL_LIBNAME]
+flags = dict(c=site.CC_FLAGS + ['-fopenmp'],
+             opencl=site.CC_FLAGS + ['-xc++'])
+ldflags = dict(c=['-fopenmp'],
+               opencl=[])
+libs = dict(c=['m'],
+            opencl=site.CL_LIBNAME[:]
             )
-
-
-def which(file):
-    """A substitute for the `which` command, searches the PATH for
-    a given file"""
-    for path in os.environ["PATH"].split(os.pathsep):
-        if os.path.exists(os.path.join(path, file)):
-            return os.path.join(path, file)
-
-    return None
-
-
-def get_cuda_path():
-    """Returns location of CUDA (nvcc) on the system.
-
-    Parameters
-    ----------
-    None
-
-    Returns
-    -------
-    cuda_path : str
-        Path where CUDA (nvcc) is found on the system.
-
-    """
-    cuda_path = which('nvcc')
-    logger = logging.getLogger(__name__)
-    if cuda_path is None:
-        logger.warn('nvcc not found!')
-        return []
-
-    sixtyfourbit = platform.architecture()[0] == '64bit'
-    cuda_path = os.path.dirname(os.path.dirname(cuda_path))
-    cuda_path = os.path.join(cuda_path,
-                             'lib{}'.format('64' if sixtyfourbit else '')
-                             )
-    return [cuda_path]
-
 
 lib_dirs = dict(c=[],
                 # cuda=get_cuda_path(),
@@ -103,191 +56,48 @@ run_dirs = dict(c=[],
                 opencl=site.CL_LIB_DIR)
 
 
-def compiler(fstruct):
-    """Given a file structure, this method will compile the source file for the
-    language and options specified
-
-    Parameters
-    ----------
-    fstruct : `file_struct`
-        An information struct that holds the various compilation options
-
-    Returns
-    -------
-    success : int
-        0 if the compilation process was sucessful, -1 otherwise
-
-    Notes
-    -----
-    Designed to work with a multiprocess compilation workflow
+def get_toolchain(lang, shared=True, executable=True):
     """
-    args = [cmd_compile[fstruct.build_lang]]
-    if fstruct.auto_diff:
-        args = ['g++']
-    args.extend(flags[fstruct.build_lang])
-    if fstruct.auto_diff:
-        args = [x for x in args if 'std=' not in x]
-
-    # always use fPIC in case we're building wrapper
-    args.extend(shared_flags[fstruct.build_lang])
-    if fstruct.as_executable:
-        args.extend(shared_exec_flags[fstruct.build_lang])
-    # and any other flags
-    args.extend(fstruct.args)
-    # includes
-    include = ['-I{}'.format(d) for d in fstruct.i_dirs +
-               includes[fstruct.build_lang]
-               ]
-    args.extend(include)
-    args.extend([
-        '-{}c'.format('d' if fstruct.lang == 'cuda' else ''),
-        os.path.join(fstruct.source_dir, fstruct.filename +
-                     utils.file_ext[fstruct.build_lang]
-                     ),
-        '-o', os.path.join(fstruct.obj_dir,
-                           os.path.basename(fstruct.filename) + '.o')
-    ])
-    args = [val for val in args if val.strip()]
-    try:
-        print(' '.join(args))
-        subprocess.check_call(args)
-    except OSError:
-        logger = logging.getLogger(__name__)
-        logger.error(
-            'Compiler {} not found, generation of pyjac library failed.'.format(
-                args[0]))
-        return -1
-    except subprocess.CalledProcessError as exc:
-        logger = logging.getLogger(__name__)
-        logger.error('Error: compilation failed for file {} with error:{}'.format(
-            fstruct.filename + utils.file_ext[fstruct.build_lang],
-            exc.output))
-        return exc.returncode
-    return 0
-
-
-def libgen(lang, obj_dir, out_dir, filelist, shared, auto_diff, as_executable):
-    """Create a library from a list of compiled files
+    Return a codepy :class:`Toolchain` to build / link pyJac files.
 
     Parameters
     ----------
-    Parameters
-    ----------
-    obj_dir : str
-        Path with object files
-    out_dir : str
-        Path to place the library in
-    lang : {'c', 'cuda'}
-        Programming language
-    filelist : List of `str`
-        The list of object files to include in the library
-    auto_diff : Optional[bool]
-        Optional; if ``True``, include autodifferentiation
-
+    lang: str
+        The language to build
+    shared: bool [True]
+        If true, build a shared library
+    executable: bool [True]
+        If true, build a _executable_ shared library; note: requires
+        :param:`shared`=True
     """
-    command = cmd_lib(lang, shared)
 
-    if lang == 'opencl':
-        desc = 'ocl'
-    elif lang == 'c':
-        if auto_diff:
-            desc = 'ad'
-        else:
-            desc = 'c'
+    # compilation flags
+    compile_flags = opt_flags
+    if 'PYJAC_DEBUG' in os.environ and os.environ['PYJAC_DEBUG']:
+        compile_flags = debug_flags
 
-    libname = 'lib{}_pyjac'.format(desc)
-
-    # remove the old library
-    if os.path.exists(os.path.join(out_dir, libname + lib_ext(shared))):
-        os.remove(os.path.join(out_dir, libname + lib_ext(shared)))
-    if os.path.exists(os.path.join(out_dir, libname + lib_ext(not shared))):
-        os.remove(os.path.join(out_dir, libname + lib_ext(not shared)))
-
-    libname += lib_ext(shared)
-
+    # link flags
+    linkflags = ldflags[lang]
     if shared:
-        # add optimization / debug flags
-        command.extend(compile_flags)
+        linkflags += shared_flags[lang]
+    if executable:
+        if not shared:
+            logger = logging.getLogger(__name__)
+            logger.error('Cannot create an executable non-shared library!')
+            raise LibraryGenerationError()
 
-    if not shared and lang != 'cuda':
-        command += [os.path.join(out_dir, libname)]
+        linkflags += shared_exec_flags[lang]
+    so_ext = lib_ext(shared)
 
-    # add the files
-    command.extend(
-        [os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
-
-    if shared and not as_executable:
-        command.extend(shared_flags[lang])
-    elif as_executable:
-        command.extend(shared_exec_flags[lang])
-
-    if shared or lang == 'cuda':
-        command += ['-o']
-        command += [os.path.join(out_dir, libname)]
-
-        command += ['-L{}'.format(path) for path in lib_dirs[lang]]
-        command.extend(libs[lang])
-
-    try:
-        print(' '.join(command))
-        subprocess.check_call(command)
-    except OSError:
-        logger = logging.getLogger(__name__)
-        logging.error(
-            'Compiler {} not found, generation of pyjac library failed.'.format(
-                command[0]))
-        raise LinkingError([
-            os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
-    except subprocess.CalledProcessError as exc:
-        logger = logging.getLogger(__name__)
-        logger.error('Generation of pyjac library failed with error: {}'.format(
-            exc.output))
-        raise LinkingError([
-            os.path.join(obj_dir, os.path.basename(f) + '.o') for f in filelist])
-
-    return libname
-
-
-class file_struct(object):
-
-    """A simple structure designed to enable multiprocess compilation
-    """
-
-    def __init__(self, lang, build_lang, filename, i_dirs, args,
-                 source_dir, obj_dir, shared, as_executable):
-        """
-        Parameters
-        ----------
-        lang : str
-            Compiler to use
-        build_lang : {'c', 'cuda'}
-            Programming language
-        file_name : str
-            The file to compile
-        i_dirs : List of str
-            List of include directorys for compilation
-        args : List of str
-            List of additional arguements
-        source_dir : str
-            The directory the file is located in
-        obj_dir : str
-            The directory to place the compiled object file in
-        shared : bool
-            If true, this is creating a shared library
-        as_executable: bool
-            If true, this is a shared library that is also executable
-        """
-
-        self.lang = lang
-        self.build_lang = build_lang
-        self.filename = filename
-        self.i_dirs = i_dirs
-        self.args = args
-        self.source_dir = source_dir
-        self.obj_dir = obj_dir
-        self.shared = shared
-        self.auto_diff = False
-        self.as_executable = as_executable
+    return GCCToolchain(cc=cmd_compile[lang],
+                        cflags=flags[lang] + compile_flags,
+                        ldflags=linkflags,
+                        include_dirs=includes[lang],
+                        library_dirs=lib_dirs[lang],
+                        libraries=libs[lang],
+                        so_ext=so_ext,
+                        defines=[],
+                        undefines=[])
 
 
 def get_file_list(source_dir, lang, btype):
@@ -314,11 +124,11 @@ def get_file_list(source_dir, lang, btype):
     files = ['read_initial_conditions', 'timer']
 
     # look for right code in the directory
-    file_base = 'jacobian_kernel'
+    file_base = 'jacobian'
     if btype == KernelType.species_rates:
-        file_base = 'species_rates_kernel'
+        file_base = 'species_rates'
     elif btype == KernelType.chem_utils:
-        file_base = 'chem_utils_kernel'
+        file_base = 'chem_utils'
 
     if lang == 'opencl':
         files += [file_base + x for x in ['_compiler', '_main']]
@@ -326,22 +136,6 @@ def get_file_list(source_dir, lang, btype):
     elif lang == 'c':
         files += [file_base + x for x in ['', '_main']]
         files += ['error_check']
-
-    flists = []
-    for flist in flists:
-        try:
-            with open(os.path.join(source_dir, flist[0], flist[1].format(lang)),
-                      'r') as file:
-                vals = file.readline().strip().split(' ')
-                vals = [os.path.join(flist[0],
-                                     f[:f.index(utils.file_ext[lang])]) for f in vals
-                        ]
-                files += vals
-                i_dirs.append(os.path.join(source_dir, flist[0]))
-        except:
-            pass
-    if lang == 'cuda':
-        files += ['gpu_memory']
 
     return i_dirs, files
 
@@ -379,17 +173,17 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     logger = logging.getLogger(__name__)
     if lang not in flags.keys():
         logger.error('Cannot generate library for unknown language {}'.format(lang))
-        sys.exit(-1)
+        raise LibraryGenerationError()
 
     shared = shared and lang != 'cuda'
 
     if lang == 'cuda' and shared:
         logger.error('CUDA does not support linking of shared device libraries.')
-        sys.exit(-1)
+        raise LibraryGenerationError()
 
     if not shared and as_executable:
         logger.error('Can only make an executable out of a shared library')
-        sys.exit(-1)
+        raise LibraryGenerationError()
 
     build_lang = lang if lang != 'icc' else 'c'
 
@@ -413,18 +207,38 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     # get file lists
     i_dirs, files = get_file_list(source_dir, build_lang, btype)
 
-    # Compile generated source code
-    structs = [file_struct(lang, build_lang, f, i_dirs, [],
-                           source_dir, obj_dir, shared, as_executable)
-               for f in files]
+    # get toolchain
+    toolchain = get_toolchain(lang, shared, as_executable)
+    toolchain = toolchain.copy(include_dirs=toolchain.include_dirs + i_dirs)
 
-    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-    results = pool.imap(compiler, structs)
-    pool.close()
-    pool.join()
-    if any(r != 0 for r in results):
-        failures = [i for i, r in enumerate(results) if r != -1]
-        raise CompilationError([structs[i].filename for i in failures])
+    # compile
+    ext = utils.file_ext[lang]
+    obj_files = []
+    for file in files:
+        try:
+            obj_files.append(os.path.join(obj_dir, file + '.o'))
+            file = os.path.join(source_dir, file + ext)
+            toolchain.build_object(obj_files[-1], [file])
+        except CompileError as e:
+            logger = logging.getLogger(__name__)
+            import pdb; pdb.set_trace()
+            logger.error('Error compiling file: {}'.format(file))
+            raise CompilationError(file)
 
-    libname = libgen(lang, obj_dir, out_dir, files, shared, False, as_executable)
+    # and link
+    if lang == 'opencl':
+        desc = 'ocl'
+    elif lang == 'c':
+        desc = 'c'
+    libname = 'lib{}_pyjac'.format(desc)
+    libname += toolchain.so_ext
+
+    try:
+        toolchain.link_extension(libname, obj_files)
+    except CompileError:
+        logger = logging.getLogger(__name__)
+        logging.error(
+            'Compiler {} not found, generation of pyjac library failed.')
+        raise LinkingError(obj_files)
+
     return os.path.join(out_dir, libname)

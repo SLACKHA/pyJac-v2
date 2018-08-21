@@ -55,6 +55,16 @@ class LinkingError(Exception):
         super(CompilationError, self).__init__(self.message)
 
 
+class LibraryGenerationError(Exception):
+    """
+    Error during library generation
+    """
+
+    def __init__(self):
+        self.message = 'Error generating pyJac library.'
+        super(LibraryGenerationError, self).__init__(self.message)
+
+
 class BrokenPlatformError(Exception):
     """
     The combination of platform and vectorization options is broken
