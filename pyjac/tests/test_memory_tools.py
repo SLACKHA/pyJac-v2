@@ -285,10 +285,15 @@ def test_memory_tools_copy():
                             '100 * test2 * sizeof(double), &h_d3[test*100], '
                             '0, NULL, NULL)') in dev
                 else:
+                    assert 'size_t buffer_origin[3] = {0, 0, 0};' in dev
+                    assert ('size_t host_origin[3] = {test * sizeof(double)'
+                            ', 0, 0};') in dev
+                    assert ('size_t region[3] = {test2 * sizeof(double)'
+                            ', 100, 1};') in dev
                     assert ('clEnqueueReadBufferRect(queue, d_d3, CL_TRUE, '
-                            '(size_t[]) {0, 0, 0}, '
-                            '(size_t[]) {test * sizeof(double), 0, 0}, '
-                            '(size_t[]) {test2 * sizeof(double), 100, 1}, '
+                            '&buffer_origin[0], '
+                            '&host_origin[0], '
+                            '&region[0], '
                             'per_run * sizeof(double), 0, '
                             'problem_size * sizeof(double), 0, h_d3, 0, NULL, NULL)'
                             ) in dev

@@ -3,12 +3,14 @@ Standalone memory tools that can be easily imported into Cog / unit-tests
 to generate copys / allocations / etc. for host and device memory.
 """
 
+from textwrap import indent
 from string import Template
 
 import six
 import loopy as lp
 import numpy as np
 
+from pyjac.utils import indent as stdindent
 from pyjac.core.enum_types import DeviceMemoryType
 from pyjac.core.array_creator import problem_size
 
@@ -445,28 +447,38 @@ class MappedMemory(MemoryManager):
         have_split = self.have_split
 
         if lang == 'opencl':
-            rect_copy_template = Template(guarded_call(
+            rect_copy_template = Template(
+                '{\n' +
+                indent('const size_t buffer_origin[3] = {0, 0, 0};\n', stdindent) +
+                indent('const size_t host_origin[3] = ${host_origin};\n', stdindent)
+                + indent('const size_t region[3] = ${region};\n', stdindent) +
+                indent(guarded_call(
                     lang,
                     'clEnqueue${ctype}BufferRect(queue, ${dev_name}, CL_TRUE, '
-                    '(size_t[]) {0, 0, 0}, '  # buffer origin
-                    '(size_t[]) ${host_origin}, '  # host origin
-                    '(size_t[]) ${region}, '  # region
+                    '&buffer_origin[0], '  # buffer origin
+                    '&host_origin[0], '  # host origin
+                    '&region[0], '  # region
                     '${buffer_row_pitch}, '  # buffer_row_pitch
                     '${buffer_slice_pitch}, '  # buffer_slice_pitch
                     '${host_row_pitch}, '  # host_row_pitch
                     '${host_slice_pitch}, '  # host_slice_pitch
                     '${host_name}, 0, NULL, NULL)'
-                ))
+                ), stdindent) +
+                '\n}\n')
         elif lang == 'c':
             rect_copy_template = Template(
-                'memcpy2D_${ctype}(${host_name}, ${dev_name}, '
-                '(size_t[]) ${host_origin}, '  # host origin
-                '(size_t[]) ${region}, '  # region
-                '${buffer_row_pitch}, '  # buffer_row_pitch
-                '${buffer_slice_pitch}, '  # buffer_slice_pitch
-                '${host_row_pitch}, '  # host_row_pitch
-                '${host_slice_pitch}'  # host_slice_pitch
-                ');')
+                '{\n' +
+                indent('const size_t host_origin[3] = ${host_origin};\n', stdindent)
+                + indent('const size_t region[3] = ${region};\n', stdindent) +
+                indent('memcpy2D_${ctype}(${host_name}, ${dev_name}, '
+                       '&host_origin[0], '  # host origin
+                       '&region[0], '  # region
+                       '${buffer_row_pitch}, '  # buffer_row_pitch
+                       '${buffer_slice_pitch}, '  # buffer_slice_pitch
+                       '${host_row_pitch}, '  # host_row_pitch
+                       '${host_slice_pitch}'  # host_slice_pitch
+                       ');', stdindent) +
+                '\n}\n')
 
         def __f_split(ctype):
             # this us a F-split which requires a Rect Read/Write
