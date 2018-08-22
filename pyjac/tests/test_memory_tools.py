@@ -23,7 +23,7 @@ from pyjac.core.enum_types import DeviceMemoryType
 from pyjac.kernel_utils.kernel_gen import CallgenResult
 from pyjac.kernel_utils.memory_tools import get_memory, DeviceNamer, HostNamer
 from pyjac.kernel_utils.memory_manager import host_langs
-from pyjac.libgen.libgen import compiler, file_struct, libgen
+from pyjac.libgen.libgen import get_toolchain, compile, link
 from pyjac.loopy_utils.loopy_utils import get_target
 from pyjac.tests import script_dir
 from pyjac.tests.test_utils import OptionLoopWrapper, get_test_langs, \
@@ -255,7 +255,7 @@ def test_memory_tools_copy():
             dev = mem.copy(True, a1, host_constant=True)
             if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
                 assert 'clEnqueueUnmapMemObject' in dev
-                assert ('h_temp_i = clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
+                assert ('h_temp_i = (int*)clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
                         'CL_MAP_WRITE, 0, problem_size * sizeof(int), 0, NULL, '
                         'NULL, &return_code);') in dev
                 assert 'memcpy(h_temp_i, h_a1, problem_size * sizeof(int));' in dev
@@ -266,7 +266,7 @@ def test_memory_tools_copy():
 
             dev = mem.copy(False, d3, offset='test', num_ics_this_run='test2')
             if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
-                assert ('h_temp_d = clEnqueueMapBuffer(queue, d_d3, '
+                assert ('h_temp_d = (double*)clEnqueueMapBuffer(queue, d_d3, '
                         'CL_TRUE, CL_MAP_READ, 0, 100 * per_run * sizeof(double)'
                         ', 0, NULL, NULL, &return_code);') in dev
                 if opts.order == 'C':
@@ -523,13 +523,13 @@ def test_strided_copy():
             #include <assert.h>
 
 
-            void main()
+            int main()
             {
                 /*[[[cog
                     if lang == 'opencl':
                         cog.outl(
-                    'double* temp_d;\\n'
-                    'int* temp_i;\\n'
+                    'double* h_temp_d;\\n'
+                    'int* h_temp_i;\\n'
                     '// create a context / queue\\n'
                     'int lim = 10;\\n'
                     'cl_uint num_platforms;\\n'
@@ -586,7 +586,8 @@ def test_strided_copy():
                             cog.outl(mem.define(True, arr))
                     # define host constants
                     for arr in callgen.host_constants['test']:
-                        cog.outl(mem.define(False, arr, host_constant=True))
+                        cog.outl(mem.define(False, arr, host_constant=True,
+                                            force_no_const=True))
                         cog.outl(mem.define(True, arr))
 
                     # and declare the temporary array
@@ -678,7 +679,7 @@ def test_strided_copy():
                         cog.outl('check_err(clReleaseContext(context));')
                   ]]]
                   [[[end]]]*/
-                exit(0);
+                return 0;
             }
             """.strip()))
 
@@ -705,11 +706,13 @@ def test_strided_copy():
 
             # copy any deps
             def __copy_deps(lang, scan_path, out_path, change_extension=True,
-                            ffilt=None):
+                            ffilt=None, nfilt=None):
                 deps = [x for x in os.listdir(scan_path) if os.path.isfile(
                     os.path.join(scan_path, x)) and not x.endswith('.in')]
                 if ffilt is not None:
                     deps = [x for x in deps if ffilt in x]
+                if nfilt is not None:
+                    deps = [x for x in deps if nfilt not in x]
                 files = []
                 for dep in deps:
                     dep_dest = dep
@@ -725,17 +728,15 @@ def test_strided_copy():
                 return files
 
             scan = os.path.join(script_dir, os.pardir, 'kernel_utils', lang)
-            files += __copy_deps(lang, scan, build_dir)
+            files += __copy_deps(lang, scan, build_dir, nfilt='.py')
             scan = os.path.join(script_dir, os.pardir, 'kernel_utils', 'common')
             files += __copy_deps(host_langs[lang], scan, build_dir,
                                  change_extension=False, ffilt='memcpy_2d')
 
             # build
-            files = [file_struct(lang, lang, f[:f.rindex('.')], [build_dir], [],
-                                 build_dir, obj_dir, True, True) for f in files]
-            assert not any(compiler(x) for x in files)
-            lib = libgen(lang, obj_dir, lib_dir, [x.filename for x in files],
-                         True, False, True)
-            lib = os.path.join(lib_dir, lib)
+            toolchain = get_toolchain(lang)
+            obj_files = compile(
+                lang, toolchain, files, source_dir=build_dir, obj_dir=obj_dir)
+            lib = link(toolchain, obj_files, 'memory_test', lib_dir=lib_dir)
             # and run
             subprocess.check_call(lib)

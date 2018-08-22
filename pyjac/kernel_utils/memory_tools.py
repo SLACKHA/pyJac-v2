@@ -207,7 +207,7 @@ class MemoryManager(object):
     def lang(self, device):
         return self.host_lang if not device else self.device_lang
 
-    def define(self, device, arr, host_constant=False):
+    def define(self, device, arr, host_constant=False, force_no_const=False):
         """
         Declare a host or device array
 
@@ -217,6 +217,11 @@ class MemoryManager(object):
             If true, allocate a device buffer, else a host buffer
         arr: :class:`loopy.ArrayArg`
             The buffer to allocate
+        host_constant: bool [False]
+            If true, define as a host constant (i.e., use an initializer)
+        force_no_const: bool [False]
+            Used for testing -- define a host constant w/o applying the const
+            attribute
         """
 
         if host_constant:
@@ -234,7 +239,8 @@ class MemoryManager(object):
             size = init.shape[0]
             precision = '{:d}' if arr.dtype.is_integral() else '{:.16e}'
             init = ', '.join([precision.format(x) for x in init])
-            return 'const {dtype} {name}[{size}] = {{{init}}};'.format(
+            return '{const}{dtype} {name}[{size}] = {{{init}}};'.format(
+                const='const ' if not force_no_const else '',
                 dtype=self.type_map[arr.dtype], name=name, size=size, init=init)
 
         return self.definition[self.lang(device)].safe_substitute(
@@ -663,7 +669,7 @@ class PinnedMemory(MappedMemory):
             'host_const_in': host_const_in
         }
         self.map_template = {'opencl': Template(
-            '${temp_name} = clEnqueueMapBuffer(queue, ${dev_name}, '
+            '${temp_name} = (${dtype}*)clEnqueueMapBuffer(queue, ${dev_name}, '
             'CL_TRUE, ${map_flags}, 0, ${per_run_size}, 0, NULL, NULL, '
             '&return_code);\n'
             '${check}'
@@ -746,7 +752,7 @@ class PinnedMemory(MappedMemory):
 
     def get_temp_name(self, dtype):
         # temp's are always host buffers!
-        return self.get_name(False, 'temp_{}'.format(dtype[0]))
+        return self.get_name(False, 'temp_{}'.format(dtype[0]), postfix='')
 
     def copy(self, to_device, arr, **kwargs):
         """
