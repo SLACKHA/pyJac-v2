@@ -191,10 +191,11 @@ def test_memory_tools_memset():
                         'NULL, NULL));') in dev
 
                 # check namer
-                mem2 = get_memory(callgen, device_namer=DeviceNamer('data'))
+                mem2 = get_memory(callgen, device_namer=DeviceNamer('data'),
+                                  host_namer=HostNamer('data'))
                 dev = mem2.memset(True, a1)
                 assert ', data->d_a1, ' in dev
-                assert 'data->d_temp_i = ' in dev
+                assert 'data->h_temp_i = ' in dev
                 mem3 = get_memory(callgen, device_namer=DeviceNamer(
                     'data', postfix='_test'))
                 dev = mem3.memset(True, a1)
@@ -254,10 +255,10 @@ def test_memory_tools_copy():
             dev = mem.copy(True, a1, host_constant=True)
             if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
                 assert 'clEnqueueUnmapMemObject' in dev
-                assert ('d_temp_i = clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
+                assert ('h_temp_i = clEnqueueMapBuffer(queue, d_a1, CL_TRUE, '
                         'CL_MAP_WRITE, 0, problem_size * sizeof(int), 0, NULL, '
                         'NULL, &return_code);') in dev
-                assert 'memcpy(d_temp_i, h_a1, problem_size * sizeof(int));' in dev
+                assert 'memcpy(h_temp_i, h_a1, problem_size * sizeof(int));' in dev
             else:
                 # mapped
                 assert ('clEnqueueWriteBuffer(queue, d_a1, CL_TRUE, 0, '
@@ -265,14 +266,14 @@ def test_memory_tools_copy():
 
             dev = mem.copy(False, d3, offset='test', num_ics_this_run='test2')
             if wrapper.state['dev_mem_type'] == DeviceMemoryType.pinned:
-                assert ('d_temp_d = clEnqueueMapBuffer(queue, d_d3, '
+                assert ('h_temp_d = clEnqueueMapBuffer(queue, d_d3, '
                         'CL_TRUE, CL_MAP_READ, 0, 100 * per_run * sizeof(double)'
                         ', 0, NULL, NULL, &return_code);') in dev
                 if opts.order == 'C':
-                    assert ('memcpy(&h_d3[test * 100], d_temp_d, '
+                    assert ('memcpy(&h_d3[test * 100], h_temp_d, '
                             '100 * test2 * sizeof(double));') in dev
                 else:
-                    assert ('memcpy2D_out(h_d3, d_temp_d, '
+                    assert ('memcpy2D_out(h_d3, h_temp_d, '
                             '(size_t[]) {test * sizeof(double), 0, 0}, '
                             '(size_t[]) {test2 * sizeof(double), 100, 1}, '
                             'per_run * sizeof(double), 0, '

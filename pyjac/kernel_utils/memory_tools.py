@@ -36,7 +36,11 @@ device_prefix = 'd_'
 
 
 class Namer(object):
-    def __init__(self, prefix=None, postfix=None):
+    def __init__(self, owner=None, prefix=None, postfix=None):
+        if owner and prefix:
+            prefix = '{}->{}'.format(owner, prefix)
+        elif owner:
+            prefix = '{}->'.format(owner)
         self.prefix = prefix if prefix is not None else ''
         self.postfix = postfix if postfix is not None else ''
 
@@ -47,16 +51,15 @@ class Namer(object):
 
 
 class HostNamer(Namer):
-    def __init__(self, **kwargs):
-        super(HostNamer, self).__init__(prefix=host_prefix, **kwargs)
+    def __init__(self, owner='', **kwargs):
+        super(HostNamer, self).__init__(owner=owner, prefix=host_prefix,
+                                        **kwargs)
 
 
 class DeviceNamer(Namer):
     def __init__(self, owner='', **kwargs):
-        prefix = device_prefix
-        if owner:
-            prefix = '{}->{}'.format(owner, device_prefix)
-        super(DeviceNamer, self).__init__(prefix, **kwargs)
+        super(DeviceNamer, self).__init__(owner=owner, prefix=device_prefix,
+                                          **kwargs)
 
 
 class StrideCalculator(object):
@@ -742,12 +745,8 @@ class PinnedMemory(MappedMemory):
             namer=namer, num_ics=num_ics, **kwargs)
 
     def get_temp_name(self, dtype):
-        # mess with the prefix for the device namer
-        kwargs = {}
-        if self.device_namer:
-            prefix = self.device_namer.prefix
-            prefix = prefix[:prefix.index(device_prefix)]
-        return self.get_name(True, 'temp_{}'.format(dtype[0]), **kwargs)
+        # temp's are always host buffers!
+        return self.get_name(False, 'temp_{}'.format(dtype[0]))
 
     def copy(self, to_device, arr, **kwargs):
         """
