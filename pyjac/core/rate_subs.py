@@ -31,6 +31,41 @@ from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
 
 
+def inputs_and_outputs(conp, ktype=KernelType.species, output_full_rop=False):
+    """
+    A convenience method such that kernel inputs / output argument names are
+    available for inspection
+
+    Parameters
+    ----------
+    conp: bool
+        If true, use constant-pressure formulation, else constant-volume
+    ktype: :class:`KernelType`
+        The kernel type to return the arguments for -- if unspecified, defaults to
+        species rates
+
+    Returns
+    -------
+    input_args: list of str
+        The input arguments to kernels generated in this file
+    output_args: list of str
+        The output arguments to kernels generated in this file
+    """
+    if ktype == KernelType.species:
+        input_args = ['phi', 'P_arr' if conp else 'V_arr']
+        output_args = ['dphi']
+    elif ktype == KernelType.chem_utils:
+        input_args = ['T_arr']
+        output_args = ['h', 'cp'] if conp else ['u', 'cv']
+    else:
+        raise NotImplementedError()
+
+    if output_full_rop:
+        output_args += ['rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+
+    return input_args, output_args
+
+
 def assign_rates(reacs, specs, rate_spec):
     """
     From a given set of reactions, determine the rate types for evaluation
@@ -3083,13 +3118,13 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                   test_size=None))
 
     # get a wrapper for the dependecies
+    thermo_in, thermo_out = inputs_and_outputs(conp, KernelType.chem_utils)
     thermo_wrap = k_gen.make_kernel_generator(kernel_type=KernelType.chem_utils,
                                               loopy_opts=loopy_opts,
                                               kernels=depends_on,
                                               namestore=nstore,
-                                              input_arrays=['T_arr'],
-                                              output_arrays=['h', 'cp'] if conp else
-                                                            ['u', 'cv'],
+                                              input_arrays=thermo_in,
+                                              output_arrays=thermo_out,
                                               auto_diff=auto_diff,
                                               test_size=test_size,
                                               mem_limits=mem_limits
@@ -3140,15 +3175,13 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         # and at the extra variable rates for Tdot
         __insert_at('get_extra_var_rates', True)
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
-    output_arrays = ['dphi']
+    input_arrays, output_arrays = inputs_and_outputs(
+        conp, output_full_rop=output_full_rop)
     if output_full_rop:
-        output_arrays += ['rop_fwd']
-        if rate_info['rev']['num']:
-            output_arrays += ['rop_rev']
-        if rate_info['thd']['num']:
-            output_arrays += ['pres_mod']
-        output_arrays += ['rop_net']
+        if not rate_info['rev']['num']:
+            output_arrays = [x for x in output_arrays if x != 'rop_rev']
+        if not rate_info['thd']['num']:
+            output_arrays = [x for x in output_arrays if x != 'pres_mod']
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
         kernel_type=KernelType.species_rates,

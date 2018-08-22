@@ -26,7 +26,7 @@ from pyjac.core import mech_interpret as mech
 from pyjac.core import rate_subs as rate
 from pyjac.core import mech_auxiliary as aux
 from pyjac.core.enum_types import (JacobianType, JacobianFormat,
-                                   FiniteDifferenceMode, RateSpecialization)
+                                   FiniteDifferenceMode)
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.loopy_utils import load_platform
@@ -39,6 +39,28 @@ from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
 from pyjac.core.rate_subs import assign_rates
 from pyjac.core.exceptions import InvalidInputSpecificationException
+
+
+def inputs_and_outputs(conp):
+    """
+    A convenience method such that kernel inputs / output argument names are
+    available for inspection
+
+    Parameters
+    ----------
+    conp: bool
+        If true, use constant-pressure formulation, else constant-volume
+
+    Returns
+    -------
+    input_args: list of str
+        The input arguments to kernels generated in this file
+    output_args: list of str
+        The output arguments to kernels generated in this file
+    """
+    input_args = ['phi', 'P_arr' if conp else 'V_arr']
+    output_args = ['jac']
+    return input_args, output_args
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
@@ -4816,8 +4838,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # inputs and outputs
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
-    output_arrays = ['jac']
+    input_arrays, output_arrays = inputs_and_outputs(conp)
 
     # and finally add a reset array
     reset = reset_arrays(loopy_opts, namestore, test_size=test_size)
@@ -5050,8 +5071,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # barrier for dependency on dEdotdE
     __insert_at(kernels[-1].name)
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
-    output_arrays = ['jac']
+    input_arrays, output_arrays = inputs_and_outputs()
 
     # create the specrates subkernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
