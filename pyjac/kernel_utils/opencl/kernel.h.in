@@ -60,6 +60,7 @@ public:
     Kernel();
     ~Kernel();
     void resize(size_t problem_size, size_t work_size);
+    void finalize();
 
     // info variables -- common to all kernels
     static const char* build_options;
@@ -109,15 +110,13 @@ protected:
     // memory initialization / release accomplished in sub-classes
     virtual void mem_init(size_t problem_size, size_t work_size) = 0;
     virtual void finalize_memory() = 0;
-
-    void finalize();
 };
 
 // and subclass(es)
 /*[[[cog
 for kernel, args in six.iteritems(callgen.kernel_args):
     cog.out("""
-class {kernel_name}Kernel : protected Kernel
+class {kernel_name}Kernel : public Kernel
 {{
 protected:
     // declare device buffers
