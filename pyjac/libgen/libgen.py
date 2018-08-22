@@ -3,7 +3,6 @@
 from __future__ import print_function
 
 import os
-import subprocess
 import logging
 
 from codepy.toolchain import GCCToolchain
@@ -78,14 +77,16 @@ def get_toolchain(lang, shared=True, executable=True):
 
     # link flags
     linkflags = ldflags[lang]
-    if shared:
+    if shared and not executable:
         linkflags += shared_flags[lang]
-    if executable:
+        compile_flags += shared_flags[lang]
+    elif executable:
         if not shared:
             logger = logging.getLogger(__name__)
             logger.error('Cannot create an executable non-shared library!')
             raise LibraryGenerationError()
 
+        compile_flags += shared_flags[lang]
         linkflags += shared_exec_flags[lang]
     so_ext = lib_ext(shared)
 
@@ -96,6 +97,7 @@ def get_toolchain(lang, shared=True, executable=True):
                         library_dirs=lib_dirs[lang],
                         libraries=libs[lang],
                         so_ext=so_ext,
+                        o_ext='.o',
                         defines=[],
                         undefines=[])
 
@@ -138,6 +140,108 @@ def get_file_list(source_dir, lang, btype):
         files += ['error_check']
 
     return i_dirs, files
+
+
+def compile(lang, toolchain, files, source_dir='', obj_dir=''):
+    """
+    Compiles the source files with the given toolchain
+
+    Parameters
+    ----------
+    lang: str
+        The language to compile for, used to determine the file extension
+    toolchain: :class:`codepy.Toolchain`
+        The toolchain to build the files with
+    files: list of str
+        The list of source files.  If :param:`source_dir` is not specified, these
+        should be a absolute path to the file.
+    source_dir: str ['']
+        If specified, the base directory the source files are located in
+    obj_dir: str ['']
+        If specified, place the object files in this directory
+
+    Returns
+    -------
+    objs: list of str
+        The compiled object files
+
+    Raises
+    ------
+    CompilationError
+    """
+
+    extension = utils.file_ext[lang]
+    obj_files = []
+    for file in files:
+        try:
+            # get source file
+            if not source_dir:
+                file_base = os.path.basename(file[:file.index(extension)])
+            else:
+                file_base = file[:file.index(extension)]
+                file = os.path.join(source_dir, file)
+
+            # get object file
+            obj_file = file_base + toolchain.o_ext
+            if obj_dir:
+                obj_file = os.path.join(obj_dir, obj_file)
+            obj_files.append(obj_file)
+
+            # compile
+            toolchain.build_object(obj_files[-1], [file])
+        except CompileError as e:
+            logger = logging.getLogger(__name__)
+            logger.error('Error compiling file: {}'.format(file))
+            raise CompilationError(file)
+
+    return obj_files
+
+
+def link(toolchain, obj_files, libname, lib_dir=''):
+    """
+    Link the given object files into a library
+
+    Parameters
+    ----------
+    toolchain: :class:`codepy.Toolchain`
+        The toolchain to link the files with
+    object_files: list of str
+        The list of object files to link
+    libname: str
+        The output library name
+    lib_dir: str ['']
+        If specified, place the linked library in this directory
+
+    Returns
+    -------
+    libname: str
+        The full path to the library, this is just :param:`libname` if
+        :param:`lib_dir` is unspecified
+
+    Raises
+    ------
+    LinkingError
+    """
+
+    if lib_dir:
+        libname = os.path.join(lib_dir, libname)
+
+    # filter out language flags, if necessary, to avoid having the compiler thing
+    # we are trying to compile the object files
+    filtered = ['-xc++']
+    if any(y in toolchain.cflags for y in filtered):
+        toolchain = toolchain.copy(cflags=[
+            x for x in toolchain.cflags if x not in filtered])
+
+    try:
+        toolchain.link_extension(libname, obj_files)
+    except CompileError:
+        logger = logging.getLogger(__name__)
+        logger.error(
+            'Compiler {} not found, generation of pyjac library failed.')
+        raise LinkingError(obj_files)
+
+    return libname
 
 
 def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
@@ -213,17 +317,8 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
 
     # compile
     ext = utils.file_ext[lang]
-    obj_files = []
-    for file in files:
-        try:
-            obj_files.append(os.path.join(obj_dir, file + '.o'))
-            file = os.path.join(source_dir, file + ext)
-            toolchain.build_object(obj_files[-1], [file])
-        except CompileError as e:
-            logger = logging.getLogger(__name__)
-            import pdb; pdb.set_trace()
-            logger.error('Error compiling file: {}'.format(file))
-            raise CompilationError(file)
+    obj_files = compile(lang, toolchain, [x + ext for x in files],
+                        source_dir=source_dir, obj_dir=obj_dir)
 
     # and link
     if lang == 'opencl':
@@ -232,13 +327,4 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
         desc = 'c'
     libname = 'lib{}_pyjac'.format(desc)
     libname += toolchain.so_ext
-
-    try:
-        toolchain.link_extension(libname, obj_files)
-    except CompileError:
-        logger = logging.getLogger(__name__)
-        logging.error(
-            'Compiler {} not found, generation of pyjac library failed.')
-        raise LinkingError(obj_files)
-
-    return os.path.join(out_dir, libname)
+    return link(toolchain, obj_files, libname, lib_dir=out_dir)
