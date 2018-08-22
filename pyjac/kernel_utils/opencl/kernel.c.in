@@ -41,7 +41,7 @@ Global declarations for Cog:
 Kernel::Kernel():
     initialized(false),
     problem_size(0),
-    work_groups(0)
+    work_size(0)
 {
 
 }
@@ -51,16 +51,23 @@ Kernel::~Kernel()
     this->finalize();
 }
 
-void Kernel::resize(size_t problem_size, size_t work_groups)
+/*[[[cog
+cog.outl('const char* Kernel::build_options = "{}";'.format(callgen.build_options))
+cog.outl('const char* Kernel::platform_check = "{}";'.format(callgen.platform))
+cog.outl('const unsigned int Kernel::device_type = {};'.format(int(callgen.device_type)));
+]]]
+[[[end]]]*/
+
+void Kernel::resize(size_t problem_size, size_t work_size)
 {
-    if (this->initialized && ((work_groups != this->work_groups) || (problem_size != this->problem_size)))
+    if (this->initialized && ((work_size != this->work_size) || (problem_size != this->problem_size)))
     {
         this->finalize_memory();
-        this->init(problem_size, work_groups);
+        this->init(problem_size, work_size);
     }
     else if (!this->initialized)
     {
-        this->init(problem_size, work_groups);
+        this->init(problem_size, work_size);
     }
 }
 
@@ -90,12 +97,12 @@ size_t per_run: size_t
     May be >= problem_size
 problem_size : size_t
     The number of initial conditions to execute in total
-work_groups : uint
+work_size : uint
     The number of OpenCL groups to launch.
     If using GPUs, this is the # of CUDA blocks to use
     If for CPUs, this is the number of logical cores to use
 */
-void Kernel::init(size_t problem_size, cl_uint work_groups)
+void Kernel::init(size_t problem_size, cl_uint work_size)
 {
     cl_platform_id platform_id[NUM_PLATFORMS];
     cl_device_id device_ids[MAX_DEVICE];
@@ -108,7 +115,7 @@ void Kernel::init(size_t problem_size, cl_uint work_groups)
     size_t* source_sizes = (size_t*)malloc(this->num_source * sizeof(size_t));
     unsigned char** source_bins = (unsigned char**)malloc(this->num_source * sizeof(unsigned char*));
 
-    cl_device_type device_type = this->device_type
+    cl_device_type device_type = this->device_type;
     FILE *fp;
 
     for (int i = 0; i < this->num_source; ++i)
@@ -169,7 +176,7 @@ void Kernel::init(size_t problem_size, cl_uint work_groups)
         cl_uint num_compute;
         //first get the maximum number of sub partitions (i.e. logical threads)
         check_err(clGetDeviceInfo(device_ids[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(num_compute), &num_compute, NULL));
-        cassert(work_groups <= num_compute, "Too many cores used...");
+        cassert(work_size <= num_compute, "Too many cores used...");
 
         //ok, now we know we're ok
         //let's create a subdevice with the required number of compute units
@@ -178,7 +185,7 @@ void Kernel::init(size_t problem_size, cl_uint work_groups)
         // Partition type
         properties[0] = CL_DEVICE_PARTITION_BY_COUNTS;
         // number of compute units
-        properties[1] = work_groups;
+        properties[1] = work_size;
         // List end
         properties[2] = CL_DEVICE_PARTITION_BY_COUNTS_LIST_END;
 
@@ -220,13 +227,13 @@ void Kernel::init(size_t problem_size, cl_uint work_groups)
           size_t len;
           char *buffer;
           check_err(clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_LOG, sizeof(char*), NULL, &len));
-          buffer = calloc(len, sizeof(char));
+          buffer = (char*)calloc(len, sizeof(char));
           check_err(clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_LOG, len * sizeof(char), buffer, NULL));
           fprintf(stderr, "%s\n", buffer);
           free(buffer);
 
           clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_STATUS, sizeof(char*), NULL, &len);
-          buffer = calloc(len, sizeof(char));
+          buffer = (char*)calloc(len, sizeof(char));
           clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_STATUS, len * sizeof(char), buffer, NULL);
           fprintf(stderr, "%s\n", buffer);
           free(buffer);
@@ -241,11 +248,11 @@ void Kernel::init(size_t problem_size, cl_uint work_groups)
     free(source_bins);
     free(source_sizes);
 
-    this->mem_init(problem_size, work_groups);
+    this->mem_init(problem_size, work_size);
     // mark initialized
     this->initialized = true;
     this->problem_size = problem_size;
-    this->work_groups = work_groups;
+    this->work_size = work_size;
 }
 
 void Kernel::finalize()
@@ -276,12 +283,12 @@ Parameters
 ----------
 problem_size : size_t
     The total number of conditions to execute this kernel over
-work_groups : size_t
+work_size : size_t
     The number of OpenCL groups to launch.
     If using GPUs, this is the # of CUDA blocks to use
     If for CPUs, this is the number of logical cores to use
 */
-void {kernel_name}::mem_init(size_t problem_size, size_t work_groups)
+void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 {{
     size_t per_run = this->per_run(problem_size);
     #if CL_LEVEL >= 120
@@ -400,14 +407,14 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_groups)
 
     # and write alternate constructor that allows memory initialization
     cog.out("""
-    {name}Kernel::{name}Kernel(size_t problem_size, size_t work_groups):
+    {name}Kernel::{name}Kernel(size_t problem_size, size_t work_size):
     """.format(name=kernel.title()), dedent=True, trimblanklines=True)
     cog.outl(indent('num_source({}),'.format(len(callgen.source_names)), stdindent))
     cog.outl(knl_path_str)
     cog.outl(indent('max_per_run({})'.format(callgen.max_ic_per_run), stdindent))
     cog.out("""
     {
-        this->init(problem_size, work_groups);
+        this->init(problem_size, work_size);
     }
     """, dedent=True, trimblanklines=True)
 
@@ -445,7 +452,7 @@ void {kernel_name}::operator()({knl_args})
     for (size_t offset = 0; offset < this->problem_size; offset += per_run)
     {{
         size_t this_run = this->this_run(offset);
-        size_t global_work_size = this->work_groups;
+        size_t global_work_size = this->work_size;
         size_t local_work_size = {local_size};
         #if defined(DEEP) && !defined(EXPLICIT_SIMD)
             // need to multiply global worksize by local worksize
