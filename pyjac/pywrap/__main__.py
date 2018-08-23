@@ -3,7 +3,7 @@
 from argparse import ArgumentParser
 
 from pyjac import utils
-from pywrap_gen import pywrap
+from pyjac.pywrap.pywrap_gen import pywrap
 from pyjac.core.enum_types import KernelType
 
 if __name__ == '__main__':
