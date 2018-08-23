@@ -437,8 +437,9 @@ class CompgenResult(TargetCheckingRecord):
         The OpenCL build options
     """
 
-    def __init__(self, source_names=[], platform=None, outname='', build_options=''):
-        ImmutableRecord.__init__(self, source_names=source_names,
+    def __init__(self, name='', source_names=[], platform=None, outname='',
+                 build_options=''):
+        ImmutableRecord.__init__(self, name=name, source_names=source_names,
                                  platform=platform, outname=outname,
                                  build_options=build_options)
 
@@ -2957,7 +2958,8 @@ class opencl_kernel_generator(kernel_generator):
         """
 
         outname = self.name + '.bin'
-        result = CompgenResult(source_names=callgen.source_names[:],
+        result = CompgenResult(name=self.name,
+                               source_names=callgen.source_names[:],
                                platform=self.platform_str,
                                outname=outname,
                                build_options=self.build_options(path))

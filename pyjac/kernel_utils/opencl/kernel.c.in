@@ -44,6 +44,7 @@ void compiler();
 
 Kernel::Kernel():
     initialized(false),
+    compiled(false),
     problem_size(0),
     work_size(0)
 {
@@ -114,6 +115,11 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
     cl_uint ret_num_devices;
     cl_uint num_devices = 1;
     cl_int return_code;
+
+    if (!this->compiled)
+    {
+        this->compile();
+    }
 
     size_t* source_sizes = (size_t*)malloc(this->num_source * sizeof(size_t));
     unsigned char** source_bins = (unsigned char**)malloc(this->num_source * sizeof(unsigned char*));
@@ -274,6 +280,7 @@ void Kernel::finalize()
         check_err(clReleaseCommandQueue(this->queue));
         check_err(clReleaseContext(this->context));
         // mark deinit
+        this->compiled=false;
         this->initialized = false;
     }
 }
@@ -411,7 +418,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
                     'calloc({}, sizeof(char*));'.format(num_source)]
     for i, file in enumerate(callgen.source_names):
         kernel_paths.append('this->kernel_paths[{}] = '
-                            '(char*)malloc({} * sizeof(char));'.format(i, len(file)))
+                            '(char*)calloc({}, sizeof(char));'.format(i, len(file)))
         kernel_paths.append('memcpy(this->kernel_paths[{}], "{}", '
                             '{} * sizeof(char));'.format(i, file, len(file)))
     kernel_paths = '\n'.join([indent(x, stdindent) for x in kernel_paths])
@@ -533,15 +540,6 @@ int main(int argc, char* argv[])
     if (argc >= 4)
         compile = atoi(argv[3]);
 
-    //first compile to binary
-    double compilation_time = -1;
-    if (compile)
-    {
-        StartTimer();
-        compiler();
-        compilation_time = GetTimer();
-    }
-
     /*[[[cog
         # create local versions of kernel arguments
         lmem = get_memory(callgen, host_namer=HostNamer(postfix='_local'),
@@ -563,15 +561,22 @@ int main(int argc, char* argv[])
             path=callgen.input_data_path,
             args=local_args,
             order=callgen.order), stdindent))
-
-      cog.outl(indent('StartTimer();', stdindent))
-
       # make kernel
       cog.outl(indent('{0}Kernel kernel(problem_size, work_size);'.format(
             callgen.name.title()), stdindent))
      ]]]
      [[[end]]]*/
+    //first compile to binary
+    double compilation_time = -1;
+    if (compile)
+    {
+        StartTimer();
+        kernel.compile();
+        compilation_time = GetTimer();
+    }
+
     double setup_time = GetTimer();
+    kernel.resize(problem_size, work_size);
     StartTimer();
     /*[[[cog
       local_args = ', '.join([lmem.get_name(False, arr)

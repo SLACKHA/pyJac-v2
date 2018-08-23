@@ -13,9 +13,11 @@ Global declarations for Cog:
     with open(compgen, 'rb') as file:
         compgen = pickle.load(file)
     num_source = len(compgen.source_names)
+
+    #include main header to get kernel def'n
+    cog.outl('#include "{}_main.oclh"'.format(compgen.name))
 ]]]
 [[[end]]]*/
-
 #include "ocl_errorcheck.oclh"
 #include <stdlib.h>
 #include <stdio.h>
@@ -25,7 +27,8 @@ Global declarations for Cog:
 #define MAX_DEVICE (16)
 #define MAX_PLATFORM (16)
 
-void compiler()
+//[[[cog cog.outl('void {name}Kernel::compile()'.format(name=compgen.name.title()))]]]
+//[[[end]]]
 {
     cl_platform_id platform_id[MAX_PLATFORM];
     cl_device_id device_id = NULL;
@@ -107,9 +110,9 @@ void compiler()
 
     /* Create Kernel program from the source */
     /*[[[cog
-    ]]]
     cog.outl('program = clCreateProgramWithSource(context, {}, (const char **)source_str, '
              '(const size_t *)source_size, &return_code);'.format(num_source))
+    ]]]
     [[[end]]]*/
     check_err(return_code);
 
@@ -167,4 +170,7 @@ void compiler()
         free(binary[i]);
         free(source_str[i]);
     }
+
+    // mark compiled
+    this->compiled=true;
 }

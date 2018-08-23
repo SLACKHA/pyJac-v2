@@ -61,6 +61,7 @@ public:
     ~Kernel();
     void resize(size_t problem_size, size_t work_size);
     void finalize();
+    virtual void compile() = 0;
 
     // info variables -- common to all kernels
     static const char* build_options;
@@ -78,8 +79,9 @@ protected:
     cl_context context;
     cl_command_queue queue;
 
-    // flag indicating initialization status
+    // flags indicating initialization status, etc.
     bool initialized;
+    bool compiled;
 
     // past run sizes
     size_t problem_size;
@@ -140,6 +142,7 @@ protected:
     cog.outl(indent('void mem_init(size_t problem_size, size_t work_size);', stdindent))
 
     cog.outl('public:')
+    cog.out('void compile();')
 
     # write constructor
     cog.out("""
