@@ -126,7 +126,7 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
         /* Load kernel source code */
         fp = fopen(this->kernel_paths[i], "rb");
         if (!fp) {
-            fprintf(stderr, "Kernel file: %s not found!", this->kernel_paths[i]);
+            fprintf(stderr, "Kernel file: %s not found!\n", this->kernel_paths[i]);
             exit(EXIT_FAILURE);
         }
         //find file size
@@ -408,12 +408,12 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     # get kernel path initializer
     num_source = len(callgen.source_names)
     kernel_paths = ['this->kernel_paths = (char**)'
-                    'malloc({} * sizeof(char*));'.format(num_source)]
+                    'calloc({}, sizeof(char*));'.format(num_source)]
     for i, file in enumerate(callgen.source_names):
         kernel_paths.append('this->kernel_paths[{}] = '
                             '(char*)malloc({} * sizeof(char));'.format(i, len(file)))
-        kernel_paths.append('memcpy(this->kernel_paths[{0}], "{1}", '
-                            '{0} * sizeof(char));'.format(i, file))
+        kernel_paths.append('memcpy(this->kernel_paths[{}], "{}", '
+                            '{} * sizeof(char));'.format(i, file, len(file)))
     kernel_paths = '\n'.join([indent(x, stdindent) for x in kernel_paths])
 
     # write constructor
@@ -424,7 +424,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 {{
     this->num_source = {num_source};
     this->max_per_run = {max_per_run};
-    {kernel_paths};
+{kernel_paths};
 }}
     """.format(num_source=num_source, kernel_paths=kernel_paths,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
@@ -440,7 +440,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     this->init(problem_size, work_size);
     this->num_source = {num_source};
     this->max_per_run = {max_per_run};
-    {kernel_paths};
+{kernel_paths};
 }}
     """.format(num_source=num_source, kernel_paths=kernel_paths,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
