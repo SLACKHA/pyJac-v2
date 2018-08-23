@@ -52,7 +52,7 @@ class LinkingError(Exception):
         if isinstance(files, str):
             files = [files]
         self.message = 'Error linking file(s): {}.'.format(','.join(files))
-        super(CompilationError, self).__init__(self.message)
+        super(LinkingError, self).__init__(self.message)
 
 
 class LibraryGenerationError(Exception):
