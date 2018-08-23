@@ -333,6 +333,13 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
         if not isinstance(arr, lp.ValueArg):
             cog.outl(indent(kmem.alloc(True, arr), stdindent))
 
+    cog.outl("""
+    /* and memset to zero */
+    """, dedent=False, trimblanklines=True)
+    for arr in callgen.kernel_data[kernel]:
+        if not isinstance(arr, lp.ValueArg):
+            cog.outl(indent(kmem.memset(True, arr), stdindent))
+
     cog.out("""
 
     /* we transfer the constants here, as we only need to do so once */
