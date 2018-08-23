@@ -17,6 +17,7 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from nose.tools import assert_raises
 
 from pyjac import utils
+from pyjac.utils import temporary_directory
 from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.enum_types import DeviceMemoryType
@@ -27,7 +28,7 @@ from pyjac.libgen.libgen import get_toolchain, compile, link
 from pyjac.loopy_utils.loopy_utils import get_target
 from pyjac.tests import script_dir
 from pyjac.tests.test_utils import OptionLoopWrapper, get_test_langs, \
-    temporary_directory, temporary_build_dirs
+    temporary_build_dirs
 
 
 def __test_cases():

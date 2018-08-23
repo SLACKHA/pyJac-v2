@@ -7,12 +7,16 @@ import os
 import errno
 import argparse
 import logging.config
-import yaml
 import functools
-import six
 import sys
 import subprocess
+from contextlib import contextmanager
+import shutil
+import tempfile
+
+import six
 from six.moves import reduce
+import yaml
 
 from pyjac.core import exceptions
 
@@ -271,6 +275,29 @@ def setup_logging(
     logging.getLogger('pyopencl').setLevel(logging.WARNING)
     logging.getLogger('pytools').setLevel(logging.WARNING)
     logging.getLogger('codepy').setLevel(logging.WARNING)
+
+
+def clean_dir(dirname, remove_dir=True):
+    if not os.path.exists(dirname):
+        return
+    for file in os.listdir(dirname):
+        if os.path.isfile(os.path.join(dirname, file)):
+            os.remove(os.path.join(dirname, file))
+    if remove_dir:
+        shutil.rmtree(dirname, ignore_errors=True)
+
+
+@contextmanager
+def temporary_directory(cleanup=True):
+    dirpath = tempfile.mkdtemp()
+    owd = os.getcwd()
+    try:
+        os.chdir(dirpath)
+        yield dirpath
+    finally:
+        os.chdir(owd)
+        if cleanup:
+            clean_dir(dirpath, remove_dir=True)
 
 
 class EnumType(object):

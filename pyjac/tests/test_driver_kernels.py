@@ -1,7 +1,6 @@
 # system
 from os.path import join as pjoin
 import subprocess
-import sys
 import logging
 
 # external
@@ -16,9 +15,9 @@ from pyjac.core.driver_kernels import lockstep_driver
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.tests import TestClass, get_test_langs
-from pyjac.tests.test_utils import temporary_directory, get_run_source, \
-    OptionLoopWrapper
+from pyjac.tests.test_utils import get_run_source, OptionLoopWrapper
 from pyjac import utils
+from pyjac.utils import temporary_directory
 from pyjac.pywrap import generate_wrapper
 
 

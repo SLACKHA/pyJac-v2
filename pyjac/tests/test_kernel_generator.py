@@ -20,9 +20,9 @@ from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord
-from pyjac.utils import partition
-from pyjac.tests import TestClass, test_utils, get_test_langs
-from pyjac.tests.test_utils import OptionLoopWrapper, temporary_directory
+from pyjac.utils import partition, temporary_directory, clean_dir
+from pyjac.tests import TestClass, get_test_langs
+from pyjac.tests.test_utils import OptionLoopWrapper
 
 
 # get all kernels
@@ -38,15 +38,15 @@ def rec_kernel(gen, kernels=[]):
 class SubTest(TestClass):
     def __cleanup(self, remove_dirs=True):
         # remove library
-        test_utils.clean_dir(self.store.lib_dir, remove_dirs)
+        clean_dir(self.store.lib_dir, remove_dirs)
         # remove build
-        test_utils.clean_dir(self.store.obj_dir, remove_dirs)
+        clean_dir(self.store.obj_dir, remove_dirs)
         # clean dummy builder
         dist_build = os.path.join(self.store.build_dir, 'build')
         if os.path.exists(dist_build):
             shutil.rmtree(dist_build)
         # clean sources
-        test_utils.clean_dir(self.store.build_dir, remove_dirs)
+        clean_dir(self.store.build_dir, remove_dirs)
 
     def __get_spec_lib(self, state, opts):
         build_dir = self.store.build_dir

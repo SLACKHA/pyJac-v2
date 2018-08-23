@@ -10,6 +10,7 @@ from parameterized import parameterized, param
 from nose.tools import assert_raises
 
 from pyjac import utils
+from pyjac.utils import clean_dir
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.create_jacobian import get_jacobian_kernel, \
     finite_difference_jacobian, create_jacobian
@@ -26,15 +27,15 @@ from pyjac.core.exceptions import InvalidInputSpecificationException
 class SubTest(TestClass):
     def __cleanup(self, remove_dirs=True):
         # remove library
-        test_utils.clean_dir(self.store.lib_dir, remove_dirs)
+        clean_dir(self.store.lib_dir, remove_dirs)
         # remove build
-        test_utils.clean_dir(self.store.obj_dir, remove_dirs)
+        clean_dir(self.store.obj_dir, remove_dirs)
         # clean dummy builder
         dist_build = os.path.join(self.store.build_dir, 'build')
         if os.path.exists(dist_build):
             shutil.rmtree(dist_build)
         # clean sources
-        test_utils.clean_dir(self.store.build_dir, remove_dirs)
+        clean_dir(self.store.build_dir, remove_dirs)
 
     def __get_spec_lib(self, state, opts):
         build_dir = self.store.build_dir
@@ -86,7 +87,7 @@ class SubTest(TestClass):
             self.__get_spec_lib(state, opts)
             # test wrapper generation
             pywrap(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                             ktype=KernelType.species_rates)
+                   ktype=KernelType.species_rates)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()
@@ -130,7 +131,7 @@ class SubTest(TestClass):
             write_aux(build_dir, opts, self.store.specs, self.store.reacs)
             # test wrapper generation
             pywrap(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                             ktype=KernelType.jacobian)
+                   ktype=KernelType.jacobian)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()
