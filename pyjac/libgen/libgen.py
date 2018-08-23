@@ -237,8 +237,7 @@ def link(toolchain, obj_files, libname, lib_dir=''):
         toolchain.link_extension(libname, obj_files)
     except CompileError:
         logger = logging.getLogger(__name__)
-        logger.error(
-            'Compiler {} not found, generation of pyjac library failed.')
+        logger.error('Generation of pyjac library failed.')
         raise LinkingError(obj_files)
 
     return libname
