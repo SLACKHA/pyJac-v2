@@ -22,16 +22,16 @@ from loopy.kernel.data import AddressSpace as scopes
 # Local imports
 from pyjac import utils
 from pyjac.core import chem_model as chem
-from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type,\
     RateSpecialization, KernelType
-from pyjac.core import array_creator as arc
-from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.core import instruction_creator as ic
+from pyjac.core import array_creator as arc
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.kernel_utils import kernel_gen as k_gen
 
 
-def inputs_and_outputs(conp, ktype=KernelType.species, output_full_rop=False):
+def inputs_and_outputs(conp, ktype=KernelType.species_rates, output_full_rop=False):
     """
     A convenience method such that kernel inputs / output argument names are
     available for inspection
@@ -51,7 +51,7 @@ def inputs_and_outputs(conp, ktype=KernelType.species, output_full_rop=False):
     output_args: list of str
         The output arguments to kernels generated in this file
     """
-    if ktype == KernelType.species:
+    if ktype == KernelType.species_rates:
         input_args = ['phi', 'P_arr' if conp else 'V_arr']
         output_args = ['dphi']
     elif ktype == KernelType.chem_utils:

@@ -5071,7 +5071,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # barrier for dependency on dEdotdE
     __insert_at(kernels[-1].name)
 
-    input_arrays, output_arrays = inputs_and_outputs()
+    input_arrays, output_arrays = inputs_and_outputs(conp)
 
     # create the specrates subkernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
