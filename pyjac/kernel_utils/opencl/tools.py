@@ -8,6 +8,7 @@ import loopy as lp
 import numpy as np
 from pyjac.utils import partition, is_integer
 
+
 def get_kernel_args(mem, args):
     """
     Parameters

@@ -1,3 +1,3 @@
-from pyjac.pywrap.pywrap_gen import generate_wrapper
+from pyjac.pywrap.pywrap_gen import pywrap
 
-__all__ = ['generate_wrapper']
+__all__ = ['pywrap']

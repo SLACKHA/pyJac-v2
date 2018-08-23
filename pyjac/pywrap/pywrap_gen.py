@@ -14,7 +14,7 @@ from pyjac import utils
 
 def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
-                   btype=KernelType.jacobian):
+                   ktype=KernelType.jacobian):
     """Helper method to fill in the template .in files
 
     Parameters
@@ -65,16 +65,36 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
     with open(setupfile[:setupfile.rindex('.in')], 'w') as file:
         file.write(src)
 
+
+def generate_wrapper(pyxfile, ktype=KernelType.jacobian, output_full_rop=False):
+    """
+    Generate the Cython wrapper file
+
+    Parameters
+    ----------
+    pyxfile : str
+        Filename of the pyx file template
+    ktype : :class:`KernelType` [KernelType.Jacobian]
+        The type of wrapper to generate
+    output_full_rop : bool [False]
+        If true, include the forward, backward and net rate of production in the
+        kernel arguments
+
+    Returns
+    -------
+    None
+    """
+
     # and the wrapper file
-    # load and create the setup file
     with open(pyxfile, 'r') as file:
         src = Template(file.read())
 
-    nice_name = str(btype)
+    nice_name = str(ktype)
     nice_name = nice_name[nice_name.index('.') + 1:]
     file_data = {'knl': nice_name}
 
     src = src.safe_substitute(file_data)
+    nice_pyx_name = pyxfile[:pyxfile.rindex('.in')]
     with open(nice_pyx_name, 'w') as file:
         file.write(src)
 
@@ -104,9 +124,9 @@ def distutils_dir_name(dname):
 home_dir = os.path.abspath(os.path.dirname(__file__))
 
 
-def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
-                     obj_dir=None, platform='', output_full_rop=False,
-                     btype=KernelType.jacobian):
+def pywrap(lang, source_dir, build_dir=None, out_dir=None,
+           obj_dir=None, platform='', additional_outputs=[],
+           ktype=KernelType.jacobian):
     """Generates a Python wrapper for the given language and source files
 
     Parameters
@@ -123,11 +143,14 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
         Directory path to place the compiled objects
     platform : Optional[str]
         Optional; if specified, the platform for OpenCL execution
-    output_full_rop : bool
-        If ``True``, output forward and reverse rates of progress
-        -- Useful in testing, as there are floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to
-        Cantera
+    additional_outputs : list of str
+        If specified, these additional arguments should be considered outputs of the
+        generated kernel call. Useful in testing, to allow output of the forward,
+        reverse, pressure depenedent and net rates of progress for a more thorough
+        comparison to Cantera (specifically, to quantify floating point errors for
+        net production rates near equilibrium)
+    ktype : :class:`KernelType` [KernelType.Jacobian]
+        The type of wrapper to generate
     Returns
     -------
     None
@@ -151,7 +174,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
     if lang != 'tchem':
         # first generate the library
         lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
-                               shared=shared, btype=btype)
+                               shared=shared, ktype=ktype)
         lib = os.path.abspath(lib)
         if shared:
             lib = lib[lib.index('lib') + len('lib'):lib.index(ext)]
@@ -183,7 +206,7 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
     generate_setup(os.path.join(home_dir, setupfile),
                    os.path.join(home_dir, pyxfile), home_dir, source_dir,
                    build_dir, lib, extra_include_dirs, libraries, libdirs,
-                   btype=btype)
+                   ktype=ktype)
 
     setupfile = os.path.join(home_dir, setupfile[:setupfile.index('.in')])
     # build

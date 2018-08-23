@@ -3,7 +3,7 @@
 from argparse import ArgumentParser
 
 from pyjac import utils
-from pywrap_gen import generate_wrapper
+from pywrap_gen import pywrap
 from pyjac.core.enum_types import KernelType
 
 if __name__ == '__main__':
@@ -35,5 +35,5 @@ if __name__ == '__main__':
                             type=str(utils.EnumType(KernelType))))
 
     args = parser.parse_args()
-    generate_wrapper(args.lang, args.source_dir, args.out_dir,
-                     btype=args.kernel_type)
+    pywrap(args.lang, args.source_dir, args.out_dir,
+           ktype=args.kernel_type)

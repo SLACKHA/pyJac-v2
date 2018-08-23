@@ -2682,7 +2682,7 @@ class SubTest(TestClass):
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=KernelType.jacobian, call_name='jacobian')
+                          ktype=KernelType.jacobian, call_name='jacobian')
 
     @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
@@ -2781,7 +2781,7 @@ class SubTest(TestClass):
         # we meet some _reasonable_ (but large) tolerances
         _full_kernel_test(self, lang, finite_difference_jacobian, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=KernelType.jacobian, call_name='jacobian',
+                          ktype=KernelType.jacobian, call_name='jacobian',
                           do_finite_difference=True,
                           atol=100, rtol=100, loose_rtol=1e7, loose_atol=100,
                           looser_tol_finder=__looser_tol_finder,

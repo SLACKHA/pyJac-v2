@@ -102,7 +102,7 @@ def get_toolchain(lang, shared=True, executable=True):
                         undefines=[])
 
 
-def get_file_list(source_dir, lang, btype):
+def get_file_list(source_dir, lang, ktype):
     """
 
     Parameters
@@ -111,7 +111,7 @@ def get_file_list(source_dir, lang, btype):
         Path with source files
     lang : {'c', 'cuda'}
         Programming language
-    btype: :class:`KernelType`
+    ktype: :class:`KernelType`
         The type of library being built
 
     Returns
@@ -127,9 +127,9 @@ def get_file_list(source_dir, lang, btype):
 
     # look for right code in the directory
     file_base = 'jacobian'
-    if btype == KernelType.species_rates:
+    if ktype == KernelType.species_rates:
         file_base = 'species_rates'
-    elif btype == KernelType.chem_utils:
+    elif ktype == KernelType.chem_utils:
         file_base = 'chem_utils'
 
     if lang == 'opencl':
@@ -245,7 +245,7 @@ def link(toolchain, obj_files, libname, lib_dir=''):
 
 
 def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
-                     btype=KernelType.jacobian, as_executable=False):
+                     ktype=KernelType.jacobian, as_executable=False):
     """Generate shared/static library for pyJac files.
 
     Parameters
@@ -262,7 +262,7 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
         If ``True``, include finite differences
     auto_diff : bool
         If ``True``, include autodifferentiation
-    btype: :class:`KernelType` [KernelType.jacobian]
+    ktype: :class:`KernelType` [KernelType.jacobian]
         The type of library being built
     as_executable: bool [False]
         If true, the generated library should use the '-fPIE' flag (or equivalent)
@@ -309,7 +309,7 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     out_dir = os.path.abspath(out_dir)
 
     # get file lists
-    i_dirs, files = get_file_list(source_dir, build_lang, btype)
+    i_dirs, files = get_file_list(source_dir, build_lang, ktype)
 
     # get toolchain
     toolchain = get_toolchain(lang, shared, as_executable)

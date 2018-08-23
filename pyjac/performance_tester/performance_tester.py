@@ -219,7 +219,7 @@ class performance_runner(runner):
         # first create the executable (via libgen)
         tester = generate_library(state['lang'], dirs['build'],
                                   obj_dir=dirs['obj'], out_dir=dirs['test'],
-                                  shared=True, btype=self.rtype, as_executable=True)
+                                  shared=True, ktype=self.rtype, as_executable=True)
 
         # and do runs
         with open(data_output, 'a+') as file:

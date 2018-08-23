@@ -464,7 +464,7 @@ class validation_runner(runner, hdf5_store):
 
         # compile library as executable
         lib = generate_library(state['lang'], my_build, obj_dir=my_obj,
-                               out_dir=my_test, btype=self.rtype, shared=True,
+                               out_dir=my_test, ktype=self.rtype, shared=True,
                                as_executable=True)
 
         # store phi array to file

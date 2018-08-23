@@ -2,8 +2,6 @@ import os
 from collections import OrderedDict
 import shutil
 from string import Template
-import sys
-import subprocess
 import re
 
 from optionloop import OptionLoop
@@ -21,7 +19,7 @@ from pyjac.libgen import generate_library
 from pyjac.core.enum_types import KernelType
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.array_creator import array_splitter, problem_size
-from pyjac.pywrap.pywrap_gen import generate_wrapper
+from pyjac.pywrap.pywrap_gen import pywrap
 from pyjac.core.exceptions import InvalidInputSpecificationException
 
 
@@ -72,7 +70,7 @@ class SubTest(TestClass):
             # compile
             generate_library(opts.lang, build_dir, obj_dir=obj_dir,
                              out_dir=lib_dir, shared=state['shared'],
-                             btype=KernelType.species_rates)
+                             ktype=KernelType.species_rates)
 
     @parameterized.expand([('opencl',), ('c',)])
     def test_specrates_pywrap(self, lang):
@@ -87,8 +85,8 @@ class SubTest(TestClass):
             # create / write files
             self.__get_spec_lib(state, opts)
             # test wrapper generation
-            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                             btype=KernelType.species_rates)
+            pywrap(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
+                             ktype=KernelType.species_rates)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()
@@ -131,8 +129,8 @@ class SubTest(TestClass):
             # write header
             write_aux(build_dir, opts, self.store.specs, self.store.reacs)
             # test wrapper generation
-            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                             btype=KernelType.jacobian)
+            pywrap(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
+                             ktype=KernelType.jacobian)
 
             # create the test importer, and run
             imp = test_utils.get_import_source()

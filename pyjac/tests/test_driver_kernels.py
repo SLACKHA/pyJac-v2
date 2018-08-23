@@ -111,7 +111,7 @@ class SubTest(TestClass):
                 generate_wrapper(loopy_opts.lang, out,
                                  obj_dir=obj, out_dir=lib,
                                  platform=str(loopy_opts.platform),
-                                 btype=KernelType.species_rates)
+                                 ktype=KernelType.species_rates)
                 # and python wrapper
                 with open(pjoin(path, 'test.py'), 'w') as file:
                     file.write(mod_test.safe_substitute(

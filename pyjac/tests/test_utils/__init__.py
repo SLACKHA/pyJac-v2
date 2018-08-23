@@ -22,7 +22,7 @@ from pyjac.core.exceptions import MissingPlatformError, BrokenPlatformError
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
-from pyjac.pywrap import generate_wrapper
+from pyjac.pywrap import pywrap
 from pyjac import utils
 from pyjac.utils import platform_is_gpu
 from pyjac.core.enum_types import KernelType
@@ -1332,7 +1332,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
-                      btype, call_name, call_kwds={}, looser_tol_finder=None,
+                      ktype, call_name, call_kwds={}, looser_tol_finder=None,
                       atol=1e-8, rtol=1e-5, loose_rtol=1e-4, loose_atol=1,
                       **oploop_kwds):
 
@@ -1387,9 +1387,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
         # generate wrapper
-        generate_wrapper(opts.lang, build_dir, build_dir=obj_dir,
-                         obj_dir=obj_dir, out_dir=lib_dir,
-                         platform=str(opts.platform), btype=btype)
+        pywrap(opts.lang, build_dir, build_dir=obj_dir,
+               obj_dir=obj_dir, out_dir=lib_dir,
+               platform=str(opts.platform), ktype=ktype)
 
         # get arrays
         phi = np.array(
@@ -1956,13 +1956,13 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                     old=subdict[key],
                                     new=lim))
 
-            for btype in mech_info['limits']:
-                btype = __try_convert(KernelType, btype)
-                if btype == KernelType.jacobian:
-                    __change_limit([btype, JacobianFormat.sparse])
-                    __change_limit([btype, JacobianFormat.full])
+            for ktype in mech_info['limits']:
+                ktype = __try_convert(KernelType, ktype)
+                if ktype == KernelType.jacobian:
+                    __change_limit([ktype, JacobianFormat.sparse])
+                    __change_limit([ktype, JacobianFormat.full])
                 else:
-                    __change_limit([btype])
+                    __change_limit([ktype])
 
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
