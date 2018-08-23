@@ -126,7 +126,8 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
         /* Load kernel source code */
         fp = fopen(this->kernel_paths[i], "rb");
         if (!fp) {
-            exit(-1);
+            fprintf(stderr, "Kernel file: %s not found!", this->kernel_paths[i]);
+            exit(EXIT_FAILURE);
         }
         //find file size
         fseek(fp, 0L, SEEK_END);
