@@ -1,3 +1,3 @@
-from pyjac.libgen.libgen import generate_library
+from pyjac.libgen.libgen import generate_library, lib_ext
 
-__all__ = ['generate_library']
+__all__ = ['generate_library', 'lib_ext']

@@ -29,8 +29,8 @@ includes = dict(c=[],
                 opencl=site.CL_INC_DIR
                 )
 
-shared_flags = dict(c=['-fPIC'],
-                    opencl=['-fPIC']
+shared_flags = dict(c=['-fPIC', '-shared'],
+                    opencl=['-fPIC', '-shared']
                     )
 shared_exec_flags = dict(c=['-pie', '-Wl,-E'],
                          opencl=['-pie', '-Wl,-E'])
@@ -277,8 +277,6 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     if lang not in flags.keys():
         logger.error('Cannot generate library for unknown language {}'.format(lang))
         raise LibraryGenerationError()
-
-    shared = shared and lang != 'cuda'
 
     if lang == 'cuda' and shared:
         logger.error('CUDA does not support linking of shared device libraries.')
