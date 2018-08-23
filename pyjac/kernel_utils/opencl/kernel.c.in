@@ -112,7 +112,6 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
     cl_device_id device_ids[MAX_DEVICE];
     cl_uint ret_num_platforms;
     cl_uint ret_num_devices;
-    cl_uint num_cores;
     cl_uint num_devices = 1;
     cl_int return_code;
 
@@ -122,7 +121,7 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
     cl_device_type device_type = this->device_type;
     FILE *fp;
 
-    for (int i = 0; i < this->num_source; ++i)
+    for (unsigned int i = 0; i < this->num_source; ++i)
     {
         /* Load kernel source code */
         fp = fopen(this->kernel_paths[i], "rb");
@@ -143,7 +142,7 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
     /* Get platform/device information */
     check_err(clGetPlatformIDs(NUM_PLATFORMS, platform_id, &ret_num_platforms));
     cl_platform_id pid = NULL;
-    for (int i = 0; i < ret_num_platforms; ++i)
+    for (unsigned int i = 0; i < ret_num_platforms; ++i)
     {
         //check if matches user-supplied platform
         char pvendor[100];
@@ -245,7 +244,7 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
           check_err(return_code);
     }
 
-    for(int i = 0; i < this->num_source; ++i)
+    for(unsigned int i = 0; i < this->num_source; ++i)
     {
         free(source_bins[i]);
     }
@@ -304,13 +303,15 @@ work_size : size_t
 void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 {{
     size_t per_run = this->per_run(problem_size);
-    #if CL_LEVEL >= 120
-        // with CL 1.2, we have access to clEnqueueFillBuffer
-        double zero = 0;
-    #else
-        // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
-        double* zero = (double*)malloc({max_size} * sizeof(double));
-        memset(zero, 0, {max_size} * sizeof(double));
+    #ifndef PINNED
+        #if CL_LEVEL >= 120
+            // with CL 1.2, we have access to clEnqueueFillBuffer
+            double zero = 0;
+        #else
+            // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
+            double* zero = (double*)malloc({max_size} * sizeof(double));
+            memset(zero, 0, {max_size} * sizeof(double));
+        #endif
     #endif
 
     /* If we've run out of constant memory space, we will place converted
