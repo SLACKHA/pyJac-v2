@@ -265,16 +265,18 @@ class CodegenResult(TargetCheckingRecord):
         Dictionary mapping constant array name -> initialization to avoid duplication
     name: str
         The name of the generated kernel
+    dependencies: list of str
+        The list of dependencies for this code-generation result
     """
 
     def __init__(self, pointer_unpacks=[], instructions=[], preambles=[],
                  extra_kernels=[], kernel=None, pointer_offsets={}, inits={},
-                 name=''):
+                 name='', dependencies=[]):
         ImmutableRecord.__init__(self, pointer_unpacks=pointer_unpacks,
                                  instructions=instructions, preambles=preambles,
                                  extra_kernels=extra_kernels, kernel=kernel,
                                  pointer_offsets=pointer_offsets, inits=inits,
-                                 name=name)
+                                 name=name, dependencies=dependencies)
 
 
 def kernel_arg_docs():
@@ -1069,24 +1071,6 @@ class kernel_generator(object):
             The updated call-generation storage
         """
         return callgen
-
-    def _special_wrapper_subs(self, file_src):
-        """
-        Substitutes wrapper kernel template parameters that are specific to a
-        target languages, to be specialized by subclasses of the
-        :class:`kernel_generator`
-
-        Parameters
-        ----------
-        file_src : Template
-            The kernel source template to substitute into
-
-        Returns:
-        new_file_src : Template
-            An updated kernel source template to substitute general template
-            parameters into
-        """
-        return file_src
 
     def _set_sort(self, arr):
         return sorted(set(arr), key=lambda x: arr.index(x))
@@ -1993,6 +1977,19 @@ class kernel_generator(object):
                            extra_kernels=extra_kernels, kernel=kernel,
                            inits=inits, name=self.name)
 
+    def _get_deps(self):
+        """
+        Returns
+        -------
+        deps: list of :class:`kernel_generator`
+            The recursive list of dependencies for this kernel generator
+        """
+
+        deps = self.depends_on[:]
+        for dep in self.depends_on:
+            deps += dep._get_deps()
+        return deps
+
     def _constant_deduplication(self, record, result):
         """
         Handles de-duplication of constant array data in subkernels of the top-level
@@ -2016,15 +2013,10 @@ class kernel_generator(object):
         results = [result]
         if self.depends_on:
             # generate wrapper for deps
-            def __get_deps(kgen):
-                deps = kgen.depends_on[:]
-                for dep in kgen.depends_on:
-                    deps += __get_deps(dep)
-                return deps
-
+            deps = self._get_deps()
             # cleanup duplicate inits
             init_list = {}
-            for kgen in reversed(__get_deps(self)):
+            for kgen in reversed(deps):
                 _, _, dr = kgen._generate_wrapping_kernel('', record, result)
                 # remove shared inits
                 dr = dr.copy(inits={k: v for k, v in six.iteritems(dr.inits)
@@ -2039,6 +2031,31 @@ class kernel_generator(object):
                 if k not in init_list})
 
         return results
+
+    def _set_dependencies(self, codegen_results):
+        """
+        Sets the dependency field of the codegen results for file generation
+
+        Parameters
+        ----------
+        codegen_results:  list of :class:`CodegenResult`
+            The (almost) finalized codegen results, listified by
+            :func:`_constant_deduplication`
+
+        Returns
+        -------
+        updated_results:  list of :class:`CodegenResult`
+            The results with the :attr:`dependencies` set.
+        """
+
+        generators = [self] + self._get_deps()
+        for i, result in enumerate(codegen_results):
+            owner = next(x for x in generators if x.name == result.name)
+            deps = owner._get_deps()
+            codegen_results[i] = result.copy(
+                dependencies=[x.name for x in deps] + result.dependencies)
+
+        return codegen_results
 
     def _generate_wrapping_kernel(self, path, record=None, result=None):
         """
@@ -2099,7 +2116,11 @@ class kernel_generator(object):
 
         source_names = []
         if is_owner and self.depends_on:
+            # remove duplicate constant definitions
             codegen_results = self._constant_deduplication(record, result)
+            # and set dependencies
+            codegen_results = self._set_dependencies(codegen_results)
+
             # write kernels to file
             for dr in codegen_results:
                 source_names.append(self._to_file(path, dr))
@@ -2140,8 +2161,6 @@ class kernel_generator(object):
             file_str = file.read()
             file_src = Template(file_str)
 
-        file_src = self._special_wrapper_subs(file_src)
-
         # create the file
         filename = os.path.join(path, self.file_prefix + name + utils.file_ext[
             self.lang])
@@ -2166,8 +2185,8 @@ class kernel_generator(object):
             headers.append(basename + utils.header_ext[self.lang])
         else:
             # include sub kernels
-            for x in self.depends_on:
-                headers.append(x.name + utils.header_ext[self.lang])
+            for x in result.dependencies:
+                headers.append(x + utils.header_ext[self.lang])
 
         # include the preambles as well, such that they can be
         # included into other files to avoid duplications
