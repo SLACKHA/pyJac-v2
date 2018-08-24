@@ -396,7 +396,8 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     """.format(kernel_name=kernel_name), dedent=True, trimblanklines=True)
 
     for arr in callgen.kernel_data[kernel]:
-        cog.outl(indent(kmem.free(True, arr), stdindent))
+        if not isinstance(arr, lp.ValueArg):
+            cog.outl(indent(kmem.free(True, arr), stdindent))
 
     cog.outl('}\n')
 
