@@ -2320,6 +2320,14 @@ class kernel_generator(object):
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
 
+        # get work arrays for driver
+        work_arrays = []
+        for x in record.kernel_data:
+            if isinstance(x, lp.ValueArg) and x != w_size:
+                work_arrays.append(x)
+            elif x not in kernel_data:
+                work_arrays.append(x)
+
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],
                                max_ic_per_run=int(max_ic_per_run),
@@ -2329,9 +2337,7 @@ class kernel_generator(object):
                                output_args={self.name: [
                                 x for x in record.args
                                 if x.name in self.out_arrays]},
-                               work_arrays=[
-                                x for x in wrapper_memory.kernel_data[:]
-                                if x != w_size],
+                               work_arrays=work_arrays,
                                host_constants={
                                 self.name: wrapper_memory.host_constants[:]})
         return callgen
