@@ -46,12 +46,6 @@ def get_header_preamble(lang):
         The preamble to include
     """
     utils.check_lang(lang)
-    if lang == 'opencl':
-        return [textwrap.dedent("""
-    #if __OPENCL_C_VERSION__ < 120
-    #pragma OPENCL EXTENSION cl_khr_fp64: enable
-    #endif
-    """)]
     return []
 
 
