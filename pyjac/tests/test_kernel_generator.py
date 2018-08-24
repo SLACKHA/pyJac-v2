@@ -303,7 +303,7 @@ class SubTest(TestClass):
             result = kgen._merge_kernels(record, result)
 
             # get ownership
-            owner = kgen._get_kernel_ownership(kgen.kernels)
+            owner = kgen._get_kernel_ownership()
 
             # check we have generated our own kernels
             for kernel in kgen.kernels:

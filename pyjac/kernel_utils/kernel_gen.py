@@ -1793,7 +1793,7 @@ class kernel_generator(object):
             text = r.sub(s, text)
         return text
 
-    def _get_kernel_ownership(self, kernels):
+    def _get_kernel_ownership(self):
         """
         Determine which generator in the dependency tree owns which kernel
 
@@ -1808,7 +1808,7 @@ class kernel_generator(object):
             if gen.depends_on:
                 for dep in gen.depends_on:
                     owner = __rec_dep_owner(dep, owner)
-            for k in kernels:
+            for k in gen.kernels:
                 if k in gen.kernels and k.name not in owner:
                     owner[k.name] = gen
             return owner
@@ -1856,7 +1856,7 @@ class kernel_generator(object):
         local_decls = []
 
         # figure out ownership
-        owner = self._get_kernel_ownership(kernels)
+        owner = self._get_kernel_ownership()
 
         def _get_func_body(cgr, subs={}):
             """
