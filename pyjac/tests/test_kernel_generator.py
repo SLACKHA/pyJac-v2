@@ -333,6 +333,13 @@ class SubTest(TestClass):
             'shared', shape=shared.shape, initializer=shared, read_only=True,
             address_space=scopes.GLOBAL)
 
+        # test for issue where inits defined in the top kernel were accidentally
+        # removed
+        nonshared_top = np.arange(10, dtype=arc.kint_type)
+        nonshared_top = lp.TemporaryVariable(
+            'nonshared_top', shape=nonshared_top.shape, initializer=nonshared_top,
+            read_only=True, address_space=scopes.GLOBAL)
+
         # and a non-shared temporary
         nonshared = np.arange(10, dtype=arc.kint_type)
         nonshared = lp.TemporaryVariable(
@@ -348,7 +355,7 @@ class SubTest(TestClass):
         )
         instructions1 = (
             """
-                {arg} = {arg} + shared[i]
+                {arg} = {arg} + shared[i] + nonshared_top[i]
             """
         )
 
@@ -367,7 +374,8 @@ class SubTest(TestClass):
             knl0 = knl_info('knl0', instructions0.format(arg=arg_str), mapstore,
                             kernel_data=[arg_lp, shared, nonshared, arc.work_size])
             knl1 = knl_info('knl1', instructions1.format(arg=arg_str), mapstore,
-                            kernel_data=[arg_lp, shared, arc.work_size])
+                            kernel_data=[arg_lp, shared, nonshared_top,
+                                         arc.work_size])
             # create generators
             gen0 = make_kernel_generator(
                  opts, KernelType.chem_utils, [knl0],
@@ -402,6 +410,7 @@ class SubTest(TestClass):
 
             assert 'shared' in inits
             assert 'nonshared' in inits
+            assert 'nonshared_top' in inits
 
     def test_compilation_generator(self):
         # currently separate compiler code only exists for OpenCL
