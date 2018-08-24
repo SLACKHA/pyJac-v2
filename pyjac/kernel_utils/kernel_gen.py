@@ -1977,17 +1977,22 @@ class kernel_generator(object):
                            extra_kernels=extra_kernels, kernel=kernel,
                            inits=inits, name=self.name)
 
-    def _get_deps(self):
+    def _get_deps(self, include_self=True):
         """
+        Parameters
+        ----------
+        include_self: bool [True]
+            If True, include the calling kernel generator at the front of the list
         Returns
         -------
         deps: list of :class:`kernel_generator`
             The recursive list of dependencies for this kernel generator
         """
 
-        deps = self.depends_on[:]
+        deps = [self] if include_self else []
+        deps += [x for x in self.depends_on[:] if x not in deps]
         for dep in self.depends_on:
-            deps += dep._get_deps()
+            deps += [x for x in dep._get_deps() if x not in deps]
         return deps
 
     def _constant_deduplication(self, record, result):
@@ -2010,25 +2015,20 @@ class kernel_generator(object):
             results[0]
         """
 
-        results = [result]
-        if self.depends_on:
-            # generate wrapper for deps
-            deps = self._get_deps()
-            # cleanup duplicate inits
-            init_list = {}
-            for kgen in reversed(deps):
-                _, _, dr = kgen._generate_wrapping_kernel('', record, result)
-                # remove shared inits
-                dr = dr.copy(inits={k: v for k, v in six.iteritems(dr.inits)
-                                    if k not in init_list})
-                # update inits
-                init_list.update(dr.inits)
-                # and store
-                results.append(dr)
-            # and finally remove shared inits in main kernel
-            results[0] = results[0].copy(inits={
-                k: v for k, v in six.iteritems(dr.inits)
-                if k not in init_list})
+        results = []
+        # generate wrapper for deps
+        deps = self._get_deps(include_self=True)
+        # cleanup duplicate inits
+        init_list = {}
+        for kgen in reversed(deps):
+            _, _, dr = kgen._generate_wrapping_kernel('', record, result)
+            # remove shared inits
+            dr = dr.copy(inits={k: v for k, v in six.iteritems(dr.inits)
+                                if k not in init_list})
+            # update inits
+            init_list.update(dr.inits)
+            # and store
+            results.append(dr)
 
         return results
 
@@ -2048,7 +2048,7 @@ class kernel_generator(object):
             The results with the :attr:`dependencies` set.
         """
 
-        generators = [self] + self._get_deps()
+        generators = self._get_deps(include_self=True)
         for i, result in enumerate(codegen_results):
             owner = next(x for x in generators if x.name == result.name)
             deps = owner._get_deps()
