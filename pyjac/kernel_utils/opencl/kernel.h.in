@@ -90,7 +90,7 @@ protected:
 
     // info variables -- specified per kernel
     unsigned int num_source;
-    char** kernel_paths;
+    const char* kernel_path;
 
     /*
     Create opencl kernel

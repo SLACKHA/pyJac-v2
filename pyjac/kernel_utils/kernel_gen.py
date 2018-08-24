@@ -343,6 +343,8 @@ class CallgenResult(TargetCheckingRecord):
         The path to the input data binary, if applicable
     for_validation: bool [False]
         If true, save copies of local arrays to file(s) for validation testing.
+    binname: str
+        The path to the compiled OpenCL binary, if applicable
     """
 
     def __init__(self, name='', work_arrays=[], input_args={}, output_args={},
@@ -350,7 +352,8 @@ class CallgenResult(TargetCheckingRecord):
                  max_ws_per_run=None, order='C', lang='c',
                  dev_mem_type=DeviceMemoryType.mapped, type_map={},
                  host_constants={}, source_names={}, platform='', build_options='',
-                 device_type=None, input_data_path='', for_validation=False):
+                 device_type=None, input_data_path='', for_validation=False,
+                 binname=''):
         if not docs:
             docs = kernel_arg_docs()
         ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
@@ -364,7 +367,8 @@ class CallgenResult(TargetCheckingRecord):
                                  build_options=build_options,
                                  device_type=device_type,
                                  input_data_path=input_data_path,
-                                 for_validation=for_validation)
+                                 for_validation=for_validation,
+                                 binname=binname)
 
     def _get_data(self, include_work=False):
         data = {}
@@ -2976,7 +2980,7 @@ class opencl_kernel_generator(kernel_generator):
             The callgen result, updated with the path to the compiler program
         """
 
-        outname = self.name + '.bin'
+        outname = os.path.join(path, self.name + '.bin')
         result = CompgenResult(name=self.name,
                                source_names=callgen.source_names[:],
                                platform=self.platform_str,
@@ -3005,7 +3009,8 @@ class opencl_kernel_generator(kernel_generator):
             logger.error('Error generating compiling file {}'.format(filename))
             raise
 
-        return callgen.copy(source_names=callgen.source_names + [filename])
+        return callgen.copy(source_names=callgen.source_names + [filename],
+                            binname=result.outname)
 
     def apply_barriers(self, instructions):
         """

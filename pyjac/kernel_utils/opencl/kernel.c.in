@@ -115,36 +115,33 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
     cl_uint ret_num_devices;
     cl_uint num_devices = 1;
     cl_int return_code;
+    cl_device_type device_type = this->device_type;
 
     if (!this->compiled)
     {
         this->compile();
     }
 
-    size_t* source_sizes = (size_t*)malloc(this->num_source * sizeof(size_t));
-    unsigned char** source_bins = (unsigned char**)malloc(this->num_source * sizeof(unsigned char*));
+    size_t source_size;
+    unsigned char* source_bin;
 
-    cl_device_type device_type = this->device_type;
     FILE *fp;
 
-    for (unsigned int i = 0; i < this->num_source; ++i)
-    {
-        /* Load kernel source code */
-        fp = fopen(this->kernel_paths[i], "rb");
-        if (!fp) {
-            fprintf(stderr, "Kernel file: %s not found!\n", this->kernel_paths[i]);
-            exit(EXIT_FAILURE);
-        }
-        //find file size
-        fseek(fp, 0L, SEEK_END);
-        source_sizes[i] = ftell(fp);
-        rewind(fp);
-
-        //read file
-        source_bins[i] = (unsigned char*)malloc(source_sizes[i]);
-        cassert(fread(source_bins[i], 1, source_sizes[i], fp) == source_sizes[i], "Error reading source binary...");
-        fclose(fp);
+    /* Load compiled kernel binary */
+    fp = fopen(this->kernel_path, "rb");
+    if (!fp) {
+        fprintf(stderr, "Compiled kernel binary file: %s not found!\n", this->kernel_path);
+        exit(EXIT_FAILURE);
     }
+    //find file size
+    fseek(fp, 0L, SEEK_END);
+    source_size = ftell(fp);
+    rewind(fp);
+
+    //read file
+    source_bin = (unsigned char*)malloc(source_size);
+    cassert(fread(source_bin, 1, source_size, fp) == source_size, "Error reading source binary...");
+    fclose(fp);
 
     /* Get platform/device information */
     check_err(clGetPlatformIDs(NUM_PLATFORMS, platform_id, &ret_num_platforms));
@@ -175,7 +172,7 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
         exit(EXIT_FAILURE);
     }
 
-    //get the device to compile for
+    //get the device
     check_err(clGetDeviceIDs(pid, device_type, num_devices, device_ids, &ret_num_devices));
 
     cassert(ret_num_devices > 0, "No devices found!");
@@ -224,7 +221,8 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
 
     /* Create Kernel program from the read in source binary */
     cl_int bin_status;
-    this->program = clCreateProgramWithBinary(context, num_devices, &device_ids[0], source_sizes, (const unsigned char**)source_bins, &bin_status, &return_code);
+    this->program = clCreateProgramWithBinary(context, num_devices, &device_ids[0], (const size_t*)&source_size,
+                                              (const unsigned char**)&source_bin, &bin_status, &return_code);
     check_err(bin_status);
     check_err(return_code);
 
@@ -251,12 +249,7 @@ void Kernel::init(size_t problem_size, cl_uint work_size)
           check_err(return_code);
     }
 
-    for(unsigned int i = 0; i < this->num_source; ++i)
-    {
-        free(source_bins[i]);
-    }
-    free(source_bins);
-    free(source_sizes);
+    free(source_bin);
 
     this->mem_init(problem_size, work_size);
     // mark initialized
@@ -270,11 +263,6 @@ void Kernel::finalize()
 {
     if(this->initialized)
     {
-        for(unsigned int i = 0; i < this->num_source; ++i)
-        {
-            free(this->kernel_paths[i]);
-        }
-        free(this->kernel_paths);
         this->finalize_memory();
         check_err(clReleaseProgram(this->program));
         check_err(clReleaseCommandQueue(this->queue));
@@ -412,17 +400,6 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 
     cog.outl('}\n')
 
-    # get kernel path initializer
-    num_source = len(callgen.source_names)
-    kernel_paths = ['this->kernel_paths = (char**)'
-                    'calloc({}, sizeof(char*));'.format(num_source)]
-    for i, file in enumerate(callgen.source_names):
-        kernel_paths.append('this->kernel_paths[{}] = '
-                            '(char*)calloc({}, sizeof(char));'.format(i, len(file)))
-        kernel_paths.append('memcpy(this->kernel_paths[{}], "{}", '
-                            '{} * sizeof(char));'.format(i, file, len(file)))
-    kernel_paths = '\n'.join([indent(x, stdindent) for x in kernel_paths])
-
     # write constructor
     cog.out("""
     {name}Kernel::{name}Kernel()
@@ -431,9 +408,9 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 {{
     this->num_source = {num_source};
     this->max_per_run = {max_per_run};
-{kernel_paths};
+    this->kernel_path = "{binary_path}";
 }}
-    """.format(num_source=num_source, kernel_paths=kernel_paths,
+    """.format(num_source=num_source, binary_path=callgen.binname,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
 
     cog.outl('\n')
@@ -447,9 +424,9 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     this->init(problem_size, work_size);
     this->num_source = {num_source};
     this->max_per_run = {max_per_run};
-{kernel_paths};
+    this->kernel_path = "{binary_path}";
 }}
-    """.format(num_source=num_source, kernel_paths=kernel_paths,
+    """.format(num_source=num_source, binary_path=callgen.binname,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
 
     # write kernel docs
