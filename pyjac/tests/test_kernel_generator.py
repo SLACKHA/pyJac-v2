@@ -4,8 +4,9 @@ import shutil
 from tempfile import NamedTemporaryFile
 import re
 
-from optionloop import OptionLoop
+import numpy as np
 import loopy as lp
+from optionloop import OptionLoop
 from loopy.kernel.array import ArrayBase
 from loopy.kernel.data import AddressSpace as scopes
 from loopy.types import to_loopy_type
@@ -13,13 +14,14 @@ from nose.tools import assert_raises
 import six
 
 from pyjac.core.create_jacobian import get_jacobian_kernel
-from pyjac.core.enum_types import JacobianFormat
+from pyjac.core.enum_types import JacobianFormat, KernelType
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
-from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord
+from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
+    knl_info, make_kernel_generator
 from pyjac.utils import partition, temporary_directory, clean_dir
 from pyjac.tests import TestClass, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper
@@ -323,26 +325,73 @@ class SubTest(TestClass):
                                                    do_conp=False,
                                                    do_vector=False,
                                                    do_sparse=False)
+        # create some test kernels
+
+        # first, make a shared temporary
+        shared = np.arange(10, dtype=arc.kint_type)
+        shared = lp.TemporaryVariable(
+            'shared', shape=shared.shape, initializer=shared, read_only=True,
+            address_space=scopes.GLOBAL)
+
+        # and a non-shared temporary
+        nonshared = np.arange(10, dtype=arc.kint_type)
+        nonshared = lp.TemporaryVariable(
+            'nonshared', shape=nonshared.shape, initializer=nonshared,
+            read_only=True, address_space=scopes.GLOBAL)
+
+        # and finally two kernels (one for each generator)
+        # kernel 0 contains the non-shared temporary
+        instructions0 = (
+            """
+                {arg} = shared[i] + nonshared[i]
+            """
+        )
+        instructions1 = (
+            """
+                {arg} = {arg} + shared[i]
+            """
+        )
+
         for opts in oploop:
-            # create a species rates kernel generator for this state
-            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
-                                       conp=oploop.state['conp'])
+            # create mapstore
+            domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                                 initializer=np.arange(10, dtype=arc.kint_type))
+            mapstore = arc.MapStore(opts, domain, None)
+            # create global arg
+            arg = arc.creator('arg', np.float64, (arc.problem_size.name, 10),
+                              opts.order)
+            # create array / array string
+            arg_lp, arg_str = mapstore.apply_maps(arg, 'j', 'i')
+
+            # create kernel infos
+            knl0 = knl_info('knl0', instructions0.format(arg=arg_str), mapstore,
+                            kernel_data=[arg_lp, shared, nonshared, arc.work_size])
+            knl1 = knl_info('knl1', instructions1.format(arg=arg_str), mapstore,
+                            kernel_data=[arg_lp, shared, arc.work_size])
+            # create generators
+            gen0 = make_kernel_generator(
+                 opts, KernelType.chem_utils, [knl0],
+                 type('', (object,), {'jac': ''}))
+            gen1 = make_kernel_generator(
+                 opts, KernelType.chem_utils, [knl1],
+                 type('', (object,), {'jac': ''}), depends_on=[gen0])
+
             # make kernels
-            kgen._make_kernels()
+            gen1._make_kernels()
 
             # process the arguements
-            record = kgen._process_args()
+            record = gen1._process_args()
 
             # test that process memory works
-            record, mem_limits = kgen._process_memory(record)
+            record, mem_limits = gen1._process_memory(record)
 
             # and generate working buffers
-            recordnew, result = kgen._compress_to_working_buffer(record)
+            recordnew, result = gen1._compress_to_working_buffer(record)
 
-            result = kgen._merge_kernels(record, result)
+            result = gen1._merge_kernels(record, result)
 
             # and de-duplicate
-            results = kgen._constant_deduplication(record, result)
+            results = gen1._constant_deduplication(record, result)
 
             # check inits
             inits = {}
@@ -350,6 +399,9 @@ class SubTest(TestClass):
                 for k, v in six.iteritems(result.inits):
                     assert k not in inits
                     inits[k] = v
+
+            assert 'shared' in inits
+            assert 'nonshared' in inits
 
     def test_compilation_generator(self):
         # currently separate compiler code only exists for OpenCL
