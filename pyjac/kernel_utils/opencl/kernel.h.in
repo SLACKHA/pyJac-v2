@@ -84,6 +84,7 @@ protected:
     bool compiled;
 
     // past run sizes
+    size_t d_per_run; // store for device per-run size
     size_t problem_size;
     size_t max_per_run;
     size_t work_size;

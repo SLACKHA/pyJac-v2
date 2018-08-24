@@ -458,7 +458,8 @@ void {kernel_name}::operator()({knl_args})
     cog.out("""
     // error checking for pinned memory transfers
     cl_int return_code;
-    size_t per_run = this->per_run();
+    size_t per_run = this->d_per_run = this->per_run();
+
 
     for (size_t offset = 0; offset < this->problem_size; offset += per_run)
     {{
