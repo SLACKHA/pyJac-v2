@@ -2323,8 +2323,9 @@ class kernel_generator(object):
         # get work arrays for driver
         work_arrays = []
         for x in record.kernel_data:
-            if isinstance(x, lp.ValueArg) and x != w_size:
-                work_arrays.append(x)
+            if isinstance(x, lp.ValueArg):
+                if x != w_size:
+                    work_arrays.append(x)
             elif x not in kernel_data:
                 work_arrays.append(x)
 
