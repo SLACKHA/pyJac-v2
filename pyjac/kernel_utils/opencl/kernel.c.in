@@ -352,7 +352,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     #endif
 
     /* Create OpenCL Kernel */
-    this->kernel = clCreateKernel(program, "{knl_name}", &return_code);
+    this->kernel = clCreateKernel(program, "{knl_name}_driver", &return_code);
     check_err(return_code);
 
     /* Kernel arg setting */
