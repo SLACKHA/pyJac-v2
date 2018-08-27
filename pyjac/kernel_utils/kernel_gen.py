@@ -1665,7 +1665,7 @@ class kernel_generator(object):
         knl = lp.make_kernel(domains, insns, kdata, name=name,
                              target=self.target)
 
-        if self.vec_width:
+        if self.vec_width and not self.loopy_opts.is_simd:
             ggs = vecwith_fixer(knl.copy(), self.vec_width)
             knl = knl.copy(overridden_get_grid_sizes_for_insn_ids=ggs)
 
