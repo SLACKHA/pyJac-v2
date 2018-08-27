@@ -2127,7 +2127,10 @@ class kernel_generator(object):
             codegen_results = self._constant_deduplication(record, result)
             # and set dependencies
             codegen_results = self._set_dependencies(codegen_results)
+        elif is_owner:
+            codegen_results = [result]
 
+        if is_owner:
             # write kernels to file
             for dr in codegen_results:
                 source_names.append(self._to_file(path, dr))
