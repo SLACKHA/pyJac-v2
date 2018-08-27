@@ -166,6 +166,11 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         global_indicies = indicies[:]
         global_indicies[0] += ' + ' + driver_index.name
 
+        # bake in SIMD pre-split
+        conditional_index = global_indicies[0]
+        if loopy_opts.is_simd:
+            conditional_index = indicies[0] + '_outer + ' + driver_index.name
+
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies
             if isinstance(arr, arc.jac_creator) and arr.is_sparse:
@@ -173,6 +178,9 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                 # indexing (as we're doing a straight copy)
                 kwargs['ignore_lookups'] = True
             if arr_non_ic(arr):
+                if loopy_opts.is_simd:
+                    # need to use SIMD pre-split
+                    kwargs['replace_global_ind_only'] = True
                 return mapstore.apply_maps(arr, *inds, **kwargs)
             else:
                 return mapstore.apply_maps(arr, inds[0], **kwargs)
@@ -210,7 +218,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
             instructions.append(instruction_template.substitute(
                 local_buffer=working_strs[i],
                 global_buffer=strs[i],
-                ind=global_indicies[0],
+                ind=conditional_index,
                 problem_size=arc.problem_size.name,
                 name=arr.name))
             warnings.append('write_race(copy_{})'.format(arr.name))

@@ -191,7 +191,7 @@ class array_splitter(object):
         return shape, grow_axis, vec_axis, split_axis
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
-                                count, order='C', vec=False):
+                                count, order='C', vec=False, use_work_size=False):
         if count == 1:
             return kernel
 
@@ -213,11 +213,11 @@ class array_splitter(object):
         assert new_shape is not None, 'Cannot split auto-sized arrays'
         new_shape = list(new_shape)
         axis_len = new_shape[split_axis]
-        if str(axis_len) == problem_size.name:
+        if str(axis_len) == problem_size.name and not use_work_size:
             # bake in the assumption that the problem size is divisible by the
             # vector width
             outer_len = div_ceil(axis_len, count)  # todo: fix map_quotient in loopy
-        elif str(axis_len) == work_size.name:
+        elif str(axis_len) == work_size.name or use_work_size:
             # no need to split, we're simply adding a new dimension
             using_work_size = True
             outer_len = new_shape[split_axis]
@@ -308,6 +308,7 @@ class array_splitter(object):
 
         if vec:
             achng = ArrayChanger(kernel, array_name)
+            from loopy.kernel.array import VectorArrayDimTag
             new_strides = [t.layout_nesting_level for t in achng.get().dim_tags]
             tag = ['N{}'.format(s) if i != dest_axis else 'vec'
                    for i, s in enumerate(new_strides)]
@@ -315,7 +316,7 @@ class array_splitter(object):
 
         return kernel
 
-    def split_loopy_arrays(self, kernel, cant_simd=[]):
+    def split_loopy_arrays(self, kernel, cant_simd=[], use_work_size=False):
         """
         Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
         to conform to this split pattern
@@ -327,6 +328,9 @@ class array_splitter(object):
         cant_simd: list of str
             List of array names that should be split, but not have a 'vec' tag
             applied
+        use_work_size: bool [False]
+            Override the heurisitic to determine if we're utilizing pre-split
+            indicies for SIMD execution
 
         Returns
         -------
@@ -345,7 +349,8 @@ class array_splitter(object):
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,
                 self.vector_width, self.data_order, self.is_simd
-                and array_name not in cant_simd)
+                and array_name not in cant_simd,
+                use_work_size=use_work_size)
 
         return kernel
 
@@ -1456,27 +1461,34 @@ class creator(object):
         use_local_name: bool [False]
             If True, rename the created variable to avoid duplicate argument names.
             Should be used to mark the _creation_ of working buffers
+        replace_global_ind_only: bool [False]
+            If True, replace the global index with :param:`working_buffer_index`
+            without modifying the shape of the resulting array
         """
         # figure out whether to use private memory or not
         wbi = kwargs.pop('working_buffer_index', None)
         is_input_or_output = kwargs.pop('is_input_or_output', False)
+        replace_global_ind_only = kwargs.pop('replace_global_ind_only', False)
         use_local_name = kwargs.pop('use_local_name', False)
         inds = self.__get_indicies(*indicies)
 
         # handle working buffer request
         glob_ind = None
-        if wbi and not is_input_or_output:
+        if wbi and not is_input_or_output or replace_global_ind_only:
             # find the global ind if there
             glob_ind = next((i for i, ind in enumerate(inds)
-                             if ind == global_ind), None)
+                             if global_ind in ind), None)
 
         if glob_ind is not None:
             # convert index string to parallel iname only
-            inds = tuple(s if i != glob_ind else wbi
+            inds = tuple(s if i != glob_ind else s.replace(global_ind, wbi)
                          for i, s in enumerate(inds))
             # and reshape the array
-            shape = tuple(s if i != glob_ind else work_size.name
-                          for i, s in enumerate(self.shape))
+            if not replace_global_ind_only:
+                shape = tuple(s if i != glob_ind else work_size.name
+                              for i, s in enumerate(self.shape))
+            else:
+                shape = self.shape[:]
             lp_arr = self.__glob_arg_creator(shape=shape, **kwargs)
         else:
             lp_arr = self.creator(**kwargs)

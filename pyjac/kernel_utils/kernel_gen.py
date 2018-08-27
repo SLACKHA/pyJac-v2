@@ -838,7 +838,7 @@ class kernel_generator(object):
             dtype=to_loopy_type(kernel_arg.dtype, for_atomic=for_atomic,
                                 target=self.target).with_target(self.target))
 
-    def _make_kernels(self, kernels=[]):
+    def _make_kernels(self, kernels=[], **kwargs):
         """
         Turns the supplied kernel infos into loopy kernels,
         and vectorizes them!
@@ -882,7 +882,9 @@ class kernel_generator(object):
                                                info.mapstore)
 
             # update the kernel args
-            kernels[i] = self.array_split.split_loopy_arrays(kernels[i], cant_simd)
+            kernels[i] = self.array_split.split_loopy_arrays(
+                kernels[i], cant_simd,
+                use_work_size=kwargs.get('use_work_size', False))
 
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
@@ -1959,7 +1961,8 @@ class kernel_generator(object):
             record.kernel_data, record.readonly, vec_width,
             for_driver=for_driver)
         # and split
-        kernel = self.array_split.split_loopy_arrays(kernel)
+        if not for_driver:
+            kernel = self.array_split.split_loopy_arrays(kernel)
 
         # insert barriers if any
         if not for_driver:
@@ -2272,7 +2275,8 @@ class kernel_generator(object):
             template = drivers.lockstep_driver_template(self.loopy_opts, self)
         else:
             raise NotImplementedError
-        kernels = self._make_kernels(knl_info)
+
+        kernels = self._make_kernels(knl_info, use_work_size=True)
 
         # now we must modify the driver kernel, such that it expects the appropriate
         # data
