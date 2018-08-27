@@ -81,6 +81,9 @@ def max_size(mem, args):
     regex = re.compile(r'work_size\s*\*\s*(\d+)')
     assert all(regex.search(x) for x in work_sizes)
     # next, extract the work sizes
-    work_size = '{} * work_size'.format(
-        max([int(regex.search(x).group(1)) for x in work_sizes]))
+    work_size = [int(regex.search(x).group(1)) for x in work_sizes]
+    if not work_size:
+        # fixed work size
+        return '({})'.format(problem_size)
+    work_size = '{} * work_size'.format(max(work_size))
     return '({0} > {1} ? {0} : {1})'.format(problem_size, work_size)
