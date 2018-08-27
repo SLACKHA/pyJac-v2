@@ -45,7 +45,7 @@ like:
     end
 ```
 
-Here the calling code has implicity assumed that the ODE integrator operates on local
+Here the calling code has implicitly assumed that the ODE integrator operates on local
 copies of the global state arrays `phi` and `pressure`.  Hence, pyJac must support
 this sort of memory format.
 
@@ -53,6 +53,38 @@ In addition, reacting-flow codes may use different state-variables, e.g., mass-f
 mole-fractions, concentrations, etc.!  The driver function provides a natural place to
 enable conversion to/from the calling code's state variables to pyJac's state-vector
 (see :ref:`state-vector`).
+
+.. _work-size:
+
+========================
+Specifying the Work-Size
+========================
+
+In pyJac, the work-size is defined as the total number of separate (potentially
+vectorized) evaluations of the chemical kinetic properties / source rates / Jacobian
+happening concurrently.  This is determined automatically per-language via:
+
+|Language |OpenMP           |OpenCL          |
+|:-------:|-----------------|----------------|
+|Work-Size|omp_num_threads()|get_num_groups()|
+
+Alternatively, a more intuitive meaning for various devices is a follows:
+
+|Device   |CPU                 |GPU        |
+|:-------:|--------------------|-----------|
+|Work-Size|# of cores / threads|# of blocks|
+
+Where a 'thread block' for a GPU is defined in the CUDA sense.
+
+.. note::
+    While the work-size may be specified at run-time, if it is specified during the
+    generation process via the :ref:`work_size_flag`, more optimized code will be
+    generated.
+
+For vectorized codes, the work-size is not exactly equal to the number of
+thermochemical states that are being evaluated concurrently.  For example, if
+a single CPU core is being utilized, but a :ref:`vector-width` of 4 is specified, the
+work-size will still be equal to one.
 
 .. _working-buffer:
 
@@ -62,7 +94,7 @@ Memory Requirements
 
 The memory allocated by pyJac is based on a few factors:
 
-1.  The number of potential threads that may be accessing an array.
+1.  The :ref:`work-size` specified during generation or at run-time.
 
 For CPU and Accelerator devices, this tends to be in the 10s of threads.
 On a GPU however, typically 100s to 1000s of threads are required to saturate the
@@ -71,33 +103,26 @@ throughput of the device.
 In pyJac, a non-input/output array of size (per initial-condition) of `N_s`
 (e.g., the concentrations) is typically shaped:
 ```
-    concentrations.shape = (global_size, N_s)
+    concentrations.shape = (work-size, N_s)
 ```
 such that all threads have their own working copy of the `concentrations` array to
 work with.
 
-On a GPU, the `global_size` is calculated (in CUDA terminology) as the number of blocks
+On a GPU, the `work-size` is calculated (in CUDA terminology) as the number of blocks
 launched multipled by the size of each block (i.e., `gridDim * blockDim`).  Or in OpenCL
 terminology, the output of `get_global_size()`.
 On the CPU and MIC however, the `global_size` can typically be set the number of CPU
 cores (or threads) the user wishes to use, and the allocated memory size can be
 significantly reduced.
 
-If these options are known at generation time, they may be specified via command-line
-options to improve the generated code. TODO: document this.
-
-2.  The type of execution.
-
-For vectorized-OpenCL execution, the shape of the arrays changes slightly to
+For vectorized execution, the shape of the arrays changes slightly to
 (note: assuming a wide-vectorized "C"-ordering :see:`vector_split`):
 ```
-    concentrations.shape = (global_size, N_s, vector_width)
+    concentrations.shape = (work-size, N_s, vector_width)
 ```
 where the `vector_width` is typically 2--8 for CPUs and MICs, and 64--1024 for GPUs
 (note: this corresponds to the block-size in CUDA).
 
-Pratically speaking, what occurs here is that a group of `vector_width` execute
-together.
 
 =====================
 Lockstep-based driver
