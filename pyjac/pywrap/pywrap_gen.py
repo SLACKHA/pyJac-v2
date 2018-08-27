@@ -242,8 +242,7 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
 
     # generate wrapper
     wrapper = generate_wrapper(os.path.join(home_dir, pyxfile), build_dir,
-                               ktype=KernelType.jacobian,
-                               additional_outputs=additional_outputs)
+                               ktype=ktype, additional_outputs=additional_outputs)
 
     # generate setup
     setup = generate_setup(
