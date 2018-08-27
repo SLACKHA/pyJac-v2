@@ -10,7 +10,7 @@ from six.moves import cPickle as pickle
 from pytools import ImmutableRecord
 from cogapp import Cog
 
-from pyjac.libgen import generate_library, lib_ext
+from pyjac.libgen import generate_library
 from pyjac.core.enum_types import KernelType
 from pyjac.core.create_jacobian import inputs_and_outputs as jac_args
 from pyjac.core.rate_subs import inputs_and_outputs as rate_args
@@ -119,10 +119,16 @@ def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
 
     if ktype == KernelType.jacobian:
         inputs, outputs = jac_args(True)
+        # replace 'P_arr' w/ 'param' for clarity
+        replacements = {'P_arr': 'param'}
     else:
         inputs, outputs = rate_args(True, ktype)
-    # replate 'P_arr' w/ 'param' for clarity
-    args = [x if x != 'P_arr' else 'param' for x in inputs + outputs]
+        replacements = {'cp': 'specific_heat',
+                        'cv': 'specific_heat',
+                        'h': 'specific_energy',
+                        'u': 'specific_energy'}
+    args = [x if x not in replacements else replacements[x]
+            for x in inputs + outputs]
     wrapper = WrapperGen(name=nice_name, kernel_args=args)
 
     # dump wrapper

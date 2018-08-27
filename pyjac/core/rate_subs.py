@@ -56,7 +56,7 @@ def inputs_and_outputs(conp, ktype=KernelType.species_rates, output_full_rop=Fal
         output_args = ['dphi']
     elif ktype == KernelType.chem_utils:
         input_args = ['phi']
-        output_args = ['h', 'cp'] if conp else ['u', 'cv']
+        output_args = ['h', 'cp', 'b'] if conp else ['u', 'cv', 'b']
     else:
         raise NotImplementedError()
 
