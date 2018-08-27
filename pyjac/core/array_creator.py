@@ -222,6 +222,8 @@ class array_splitter(object):
             using_work_size = True
             outer_len = new_shape[split_axis]
         else:
+            # fixed problem size
+            using_work_size = True
             outer_len = div_ceil(axis_len, count)
         new_shape[split_axis] = outer_len
         new_shape.insert(dest_axis, count)
@@ -308,7 +310,6 @@ class array_splitter(object):
 
         if vec:
             achng = ArrayChanger(kernel, array_name)
-            from loopy.kernel.array import VectorArrayDimTag
             new_strides = [t.layout_nesting_level for t in achng.get().dim_tags]
             tag = ['N{}'.format(s) if i != dest_axis else 'vec'
                    for i, s in enumerate(new_strides)]

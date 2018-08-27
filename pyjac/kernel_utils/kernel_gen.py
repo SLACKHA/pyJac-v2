@@ -1960,9 +1960,6 @@ class kernel_generator(object):
         kernel = self._dummy_wrapper_kernel(
             record.kernel_data, record.readonly, vec_width,
             for_driver=for_driver)
-        # and split
-        if not for_driver:
-            kernel = self.array_split.split_loopy_arrays(kernel)
 
         # insert barriers if any
         if not for_driver:
