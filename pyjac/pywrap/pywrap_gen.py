@@ -93,7 +93,8 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
 
 
 def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
-                     additional_outputs=[]):
+                     additional_inputs=[], additional_outputs=[],
+                     nice_name=None):
     """
     Generate the Cython wrapper file
 
@@ -105,8 +106,12 @@ def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
         The path to place the generated cython wrapper in
     ktype : :class:`KernelType` [KernelType.jacobian]
         The type of wrapper to generate
-    additional_outouts : list of str
+    additional_inputs : list of str
+        If supplied, treat these arguments as additional input variables
+    additional_outputs : list of str
         If supplied, treat these arguments as additional output variables
+    nice_name: str [None]
+        If supplied, use this instead of :param:`ktype` to derive the kernel name
 
     Returns
     -------
@@ -115,20 +120,35 @@ def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
     """
 
     # create wrappergen
-    nice_name = utils.enum_to_string(ktype)
+    if nice_name is None:
+        nice_name = utils.enum_to_string(ktype)
 
     if ktype == KernelType.jacobian:
         inputs, outputs = jac_args(True)
         # replace 'P_arr' w/ 'param' for clarity
         replacements = {'P_arr': 'param'}
-    else:
+    elif ktype != KernelType.dummy:
         inputs, outputs = rate_args(True, ktype)
         replacements = {'cp': 'specific_heat',
                         'cv': 'specific_heat',
                         'h': 'specific_energy',
                         'u': 'specific_energy'}
-    args = [x if x not in replacements else replacements[x]
-            for x in inputs + outputs]
+    else:
+        assert additional_outputs
+        assert additional_inputs
+        replacements = {}
+        inputs = additional_inputs[:]
+        outputs = additional_outputs[:]
+
+    def extend(names, args=[]):
+        for name in names:
+            if name in replacements:
+                name = replacements[name]
+            if name not in args:
+                args.append(name)
+        return args
+
+    args = extend(outputs, extend(inputs))
     wrapper = WrapperGen(name=nice_name, kernel_args=args)
 
     # dump wrapper
@@ -179,7 +199,7 @@ home_dir = os.path.abspath(os.path.dirname(__file__))
 
 def pywrap(lang, source_dir, build_dir=None, out_dir=None,
            obj_dir=None, platform='', additional_outputs=[],
-           ktype=KernelType.jacobian):
+           ktype=KernelType.jacobian, **kwargs):
     """Generates a Python wrapper for the given language and source files
 
     Parameters
@@ -204,6 +224,17 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
         net production rates near equilibrium)
     ktype : :class:`KernelType` [KernelType.jacobian]
         The type of wrapper to generate
+
+    Keyword Arguments
+    -----------------
+    file_base: str
+        Used for creation of libraries for :param:`ktype`==KernelType.dummy -- the
+        base filename (generator name) for this library
+    additional_inputs: list of str [[]]
+        Use to supply additional input argument names to the generator process;
+        currently this is only used for :param:`ktype`==KernelType.dummy
+
+
     Returns
     -------
     None
@@ -224,7 +255,8 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
     shared = True
     # first generate the library
     lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
-                           shared=shared, ktype=ktype)
+                           shared=shared, ktype=ktype,
+                           file_base=kwargs.get('file_base', None))
     lib = os.path.abspath(lib)
 
     extra_include_dirs = []
@@ -248,7 +280,9 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
 
     # generate wrapper
     wrapper = generate_wrapper(os.path.join(home_dir, pyxfile), build_dir,
-                               ktype=ktype, additional_outputs=additional_outputs)
+                               ktype=ktype, additional_outputs=additional_outputs,
+                               additional_inputs=kwargs.pop('additional_inputs', []),
+                               nice_name=kwargs.get('file_base', None))
 
     # generate setup
     setup = generate_setup(

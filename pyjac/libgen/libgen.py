@@ -102,7 +102,7 @@ def get_toolchain(lang, shared=True, executable=True):
                         undefines=[])
 
 
-def get_file_list(source_dir, lang, ktype):
+def get_file_list(source_dir, lang, ktype, file_base=None):
     """
 
     Parameters
@@ -113,6 +113,8 @@ def get_file_list(source_dir, lang, ktype):
         Programming language
     ktype: :class:`KernelType`
         The type of library being built
+    file_base : str [None]
+        If :param:`ktype` == KernelType.dummy, use this as the base filename.
 
     Returns
     -------
@@ -126,11 +128,15 @@ def get_file_list(source_dir, lang, ktype):
     files = ['read_initial_conditions', 'timer']
 
     # look for right code in the directory
-    file_base = 'jacobian'
-    if ktype == KernelType.species_rates:
+    if ktype == KernelType.jacobian:
+        file_base = 'jacobian'
+    elif ktype == KernelType.species_rates:
         file_base = 'species_rates'
     elif ktype == KernelType.chem_utils:
         file_base = 'chem_utils'
+    elif ktype == KernelType.dummy:
+        assert file_base is not None
+        pass
 
     if lang == 'opencl':
         files += [file_base + x for x in ['_compiler', '_main']]
@@ -244,7 +250,7 @@ def link(toolchain, obj_files, libname, lib_dir=''):
 
 
 def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
-                     ktype=KernelType.jacobian, as_executable=False):
+                     ktype=KernelType.jacobian, as_executable=False, **kwargs):
     """Generate shared/static library for pyJac files.
 
     Parameters
@@ -266,6 +272,12 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     as_executable: bool [False]
         If true, the generated library should use the '-fPIE' flag (or equivalent)
         to be executable
+
+    Keyword Arguments
+    -----------------
+    file_base: str
+        Used for creation of libraries for :param:`ktype`==KernelType.dummy -- the
+        base filename (generator name) for this library
 
     Returns
     -------
@@ -306,7 +318,8 @@ def generate_library(lang, source_dir, obj_dir=None, out_dir=None, shared=None,
     out_dir = os.path.abspath(out_dir)
 
     # get file lists
-    i_dirs, files = get_file_list(source_dir, build_lang, ktype)
+    i_dirs, files = get_file_list(source_dir, build_lang, ktype,
+                                  file_base=kwargs.pop('file_base', None))
 
     # get toolchain
     toolchain = get_toolchain(lang, shared, as_executable)
