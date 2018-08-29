@@ -376,6 +376,7 @@ class CallgenResult(TargetCheckingRecord):
         def _update(dictv):
             for key, vals in six.iteritems(dictv):
                 if key in data:
+                    vals = [x for x in vals if x not in data[key]]
                     data[key].extend(vals[:])
                 else:
                     data[key] = vals[:]
@@ -645,7 +646,7 @@ class kernel_generator(object):
         """
 
         if self.kernel_type == KernelType.dummy:
-            return self.name
+            return self._name
         return utils.enum_to_string(self.kernel_type)
 
     @property
@@ -793,11 +794,17 @@ class kernel_generator(object):
             # executed once, as the loop over the work-size has been lifted to the
             # driver kernels
             test_size = 1
+        elif for_driver:
+            test_size = p_size.name
 
         if pre_split:
-            if self.loopy_opts.vector_width:
+            if self.vec_width:
                 # reduce the test size to avoid OOB errors in loopy
-                test_size = int(test_size / self.vec_width)
+                if for_driver:
+                    from pytools import div_ceil
+                    test_size = div_ceil(test_size, self.vec_width)
+                else:
+                    test_size = int(test_size / self.vec_width)
             gind += '_outer'
 
         inames = [gind]
@@ -2429,7 +2436,8 @@ class kernel_generator(object):
 
         # load inames
         if not info.iname_domain_override:
-            our_inames, our_iname_domains = self.get_inames(test_size)
+            our_inames, our_iname_domains = self.get_inames(
+                test_size, for_driver=for_driver)
         else:
             our_inames, our_iname_domains = zip(*info.iname_domain_override)
             our_inames, our_iname_domains = list(our_inames), \
