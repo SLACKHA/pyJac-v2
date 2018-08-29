@@ -738,9 +738,9 @@ class MapStore(object):
                                  if v == 'g.0'), global_ind)
             self.working_buffer_index = global_index
 
-            # unit tests operate on the whole array
-            if not self.is_unit_test:
-                self.reshape_to_working_buffer = True
+        # unit tests operate on the whole array
+        if not self.is_unit_test:
+            self.reshape_to_working_buffer = True
 
     def _is_map(self):
         """
@@ -1481,22 +1481,22 @@ class creator(object):
 
         # handle working buffer request
         glob_ind = None
-        if wbi:
-            def match(ind):
-                try:
-                    return global_ind in ind
-                except TypeError:
-                    # ind isn't iterable, hence not a str and therefore not global
-                    # ind
-                    return False
 
-            # find the global ind if there
-            glob_ind = next((i for i, ind in enumerate(inds) if match(ind)), None)
+        def match(ind):
+            try:
+                return global_ind in ind
+            except TypeError:
+                # ind isn't iterable, hence not a str and therefore not global
+                # ind
+                return False
 
+        # find the global ind if there
+        glob_ind = next((i for i, ind in enumerate(inds) if match(ind)), None)
         if glob_ind is not None:
-            # convert index string to parallel iname only
-            inds = tuple(s if i != glob_ind else s.replace(global_ind, wbi)
-                         for i, s in enumerate(inds))
+            if wbi:
+                # convert index string to parallel iname only
+                inds = tuple(s if i != glob_ind else s.replace(global_ind, wbi)
+                             for i, s in enumerate(inds))
             # and reshape the array
             if reshape:
                 shape = tuple(s if i != glob_ind else work_size.name

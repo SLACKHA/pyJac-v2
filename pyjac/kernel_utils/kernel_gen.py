@@ -730,7 +730,7 @@ class kernel_generator(object):
         """
         return instructions
 
-    def get_assumptions(self, test_size):
+    def get_assumptions(self, test_size, for_driver=False):
         """
         Returns a list of assumptions on the loop domains
         of generated subkernels
@@ -741,6 +741,8 @@ class kernel_generator(object):
             In testing, this should be the integer size of the test data
             For production, this should the 'test_size' (or the corresponding)
             for the variable test size passed to the kernel
+        for_driver: bool [False]
+            If this kernel is a driver function
 
         Returns
         -------
@@ -749,7 +751,7 @@ class kernel_generator(object):
             List of assumptions to apply to the generated sub kernel
         """
 
-        if self.for_testing:
+        if self.for_testing or not for_driver:
             return []
 
         # set test size
@@ -2450,7 +2452,7 @@ class kernel_generator(object):
         iname_range.extend(our_iname_domains)
 
         assumptions = []
-        assumptions.extend(self.get_assumptions(test_size))
+        assumptions.extend(self.get_assumptions(test_size, for_driver=for_driver))
 
         for iname, irange in info.extra_inames:
             inames.append(iname)
