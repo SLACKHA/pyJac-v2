@@ -580,7 +580,7 @@ int main(int argc, char* argv[])
                              for x in callgen.output_args[callgen.name]])
         if callgen.for_validation:
             cog.outl("""
-                char* output_files[{num_outputs}] = {{{output_paths}}};
+                const char* output_files[{num_outputs}] = {{{output_paths}}};
                 size_t output_sizes[{num_outputs}] = {{{output_sizes}}};
                 double* outputs[{num_outputs}] = {{{outputs}}};
                 for(int i = 0; i < {num_outputs}; ++i)
