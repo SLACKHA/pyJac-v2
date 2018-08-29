@@ -11,6 +11,7 @@ from string import Template
 import loopy as lp
 import numpy as np
 from loopy.kernel.data import AddressSpace as scopes
+
 from pyjac.core.enum_types import JacobianFormat, JacobianType
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.utils import listify
@@ -39,6 +40,7 @@ class array_splitter(object):
         self.vector_width = self.depth if bool(self.depth) else self.width
         self.data_order = loopy_opts.order
         self.is_simd = loopy_opts.is_simd
+        self.pre_split = loopy_opts.pre_split
 
     @property
     def _is_simd_split(self):
@@ -93,7 +95,7 @@ class array_splitter(object):
     def split_and_vec_axes(self, array):
         """
         Determine the axis that should be split, and the destination of the vector
-        axis for the given array and :attr:`data_order` \ :attr:`width` \
+        axis for the given array and :attr:`data_order`, :attr:`width` and
         :attr:`depth`
 
         Parameters
@@ -191,7 +193,7 @@ class array_splitter(object):
         return shape, grow_axis, vec_axis, split_axis
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
-                                count, order='C', vec=False, use_work_size=False):
+                                count, order='C', vec=False):
         if count == 1:
             return kernel
 
@@ -208,23 +210,18 @@ class array_splitter(object):
 
         # {{{ adjust shape
 
-        using_work_size = False
         new_shape = ary.shape
         assert new_shape is not None, 'Cannot split auto-sized arrays'
         new_shape = list(new_shape)
         axis_len = new_shape[split_axis]
-        if str(axis_len) == problem_size.name and not use_work_size:
-            # bake in the assumption that the problem size is divisible by the
-            # vector width
-            outer_len = div_ceil(axis_len, count)  # todo: fix map_quotient in loopy
-        elif str(axis_len) == work_size.name or use_work_size:
-            # no need to split, we're simply adding a new dimension
-            using_work_size = True
+        # still need to reduce the global problem size in unit testing
+        if self.pre_split and not isinstance(axis_len, int):
             outer_len = new_shape[split_axis]
         else:
-            # fixed problem size
-            using_work_size = True
+            # todo: automatic detection of when axis_len % count == 0, and we can
+            # replace with axis_len >> log2(count)
             outer_len = div_ceil(axis_len, count)
+
         new_shape[split_axis] = outer_len
         new_shape.insert(dest_axis, count)
         new_shape = tuple(new_shape)
@@ -289,7 +286,7 @@ class array_splitter(object):
 
             from loopy.symbolic import simplify_using_aff
             from pymbolic.primitives import Variable
-            if using_work_size:
+            if self.pre_split:
                 # no split, just add an axis
                 outer_index = axis_idx
                 name = str(outer_index)
@@ -298,6 +295,7 @@ class array_splitter(object):
             else:
                 inner_index = simplify_using_aff(kernel, axis_idx % count)
                 outer_index = simplify_using_aff(kernel, axis_idx // count)
+
             idx[split_axis] = outer_index
             idx.insert(dest_axis, inner_index)
             return expr.aggregate.index(tuple(idx))
@@ -317,7 +315,7 @@ class array_splitter(object):
 
         return kernel
 
-    def split_loopy_arrays(self, kernel, cant_simd=[], use_work_size=False):
+    def split_loopy_arrays(self, kernel, dont_split=[]):
         """
         Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
         to conform to this split pattern
@@ -326,12 +324,9 @@ class array_splitter(object):
         ----------
         kernel : `loopy.LoopKernel`
             The kernel to apply the splits to
-        cant_simd: list of str
-            List of array names that should be split, but not have a 'vec' tag
-            applied
-        use_work_size: bool [False]
-            Override the heurisitic to determine if we're utilizing pre-split
-            indicies for SIMD execution
+        dont_split: list of str
+            List of array names that should not be split (typically representing
+            global inputs / outputs)
 
         Returns
         -------
@@ -344,14 +339,13 @@ class array_splitter(object):
 
         for array_name, arr in [(x.name, x) for x in kernel.args
                                 if isinstance(x, lp.ArrayArg)
-                                and self._should_split(x)]:
+                                and self._should_split(x) and
+                                x.name not in dont_split]:
             split_axis, vec_axis = self.split_and_vec_axes(arr)
 
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,
-                self.vector_width, self.data_order, self.is_simd
-                and array_name not in cant_simd,
-                use_work_size=use_work_size)
+                self.vector_width, self.data_order, self.is_simd)
 
         return kernel
 
@@ -732,16 +726,21 @@ class MapStore(object):
         self.raise_on_final = raise_on_final
         self.is_finalized = False
 
-        # determine the parallel index, IFF we're not unit-testing
         self.working_buffer_index = None
-        if not self.is_unit_test:
+        self.reshape_to_working_buffer = False
+        # if we're using a pre-split, find the WBI
+        if self.loopy_opts.pre_split:
             from pyjac.kernel_utils.kernel_gen import kernel_generator
             specialization = kernel_generator.apply_specialization(
-                self.loopy_opts, var_name, None, self.is_unit_test,
+                self.loopy_opts, var_name, None,
                 get_specialization=True)
             global_index = next((k for k, v in six.iteritems(specialization)
                                  if v == 'g.0'), global_ind)
             self.working_buffer_index = global_index
+
+            # unit tests operate on the whole array
+            if not self.is_unit_test:
+                self.reshape_to_working_buffer = True
 
     def _is_map(self):
         """
@@ -1253,7 +1252,13 @@ class MapStore(object):
 
         # return affine mapping
         return variable(*tuple(__get_affine(i) for i in indicies),
-                        working_buffer_index=self.working_buffer_index, **kwargs)
+                        working_buffer_index=kwargs.pop(
+                            'working_buffer_index',
+                            self.working_buffer_index),
+                        reshape_to_working_buffer=kwargs.pop(
+                            'reshape_to_working_buffer',
+                            self.reshape_to_working_buffer),
+                        **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
@@ -1455,37 +1460,45 @@ class creator(object):
             ```
             should be passed the indicies ['i', 'j']
         working_buffer_index: str
-            If supplied, the :class:`creator` will generate an array / array string
-            for working buffer access.  :see:`working-buffer`.
-        is_input_or_output: bool [False]
-            If true, :param:`working_buffer_index` will be ignored
+            If supplied, the :class:`creator` will replace access to the global index
+            with the result of the vector specialization to enable pre-splitting of
+            the loopy arrays / indicies (and avoid index hell). :see:`working-buffer`
         use_local_name: bool [False]
-            If True, rename the created variable to avoid duplicate argument names.
-            Should be used to mark the _creation_ of working buffers
-        replace_global_ind_only: bool [False]
-            If True, replace the global index with :param:`working_buffer_index`
-            without modifying the shape of the resulting array
+            If True, append '_local" to the created variable to avoid duplicate
+            argument names in the driver functions.
+        reshape_to_working_buffer: bool [None]
+            If True, and :param:`working_buffer_index` is supplied, the created array
+            will be reshaped to the working buffer size.
+            If False, the created array will not be reshaped (but the indicies may
+            be changed).
+            If not specified, defaults to bool(:param:`working_buffer_index`)
         """
         # figure out whether to use private memory or not
         wbi = kwargs.pop('working_buffer_index', None)
-        is_input_or_output = kwargs.pop('is_input_or_output', False)
-        replace_global_ind_only = kwargs.pop('replace_global_ind_only', False)
         use_local_name = kwargs.pop('use_local_name', False)
+        reshape = kwargs.pop('reshape_to_working_buffer', bool(wbi))
         inds = self.__get_indicies(*indicies)
 
         # handle working buffer request
         glob_ind = None
-        if wbi and not is_input_or_output or replace_global_ind_only:
+        if wbi:
+            def match(ind):
+                try:
+                    return global_ind in ind
+                except TypeError:
+                    # ind isn't iterable, hence not a str and therefore not global
+                    # ind
+                    return False
+
             # find the global ind if there
-            glob_ind = next((i for i, ind in enumerate(inds)
-                             if global_ind in ind), None)
+            glob_ind = next((i for i, ind in enumerate(inds) if match(ind)), None)
 
         if glob_ind is not None:
             # convert index string to parallel iname only
             inds = tuple(s if i != glob_ind else s.replace(global_ind, wbi)
                          for i, s in enumerate(inds))
             # and reshape the array
-            if not replace_global_ind_only:
+            if reshape:
                 shape = tuple(s if i != glob_ind else work_size.name
                               for i, s in enumerate(self.shape))
             else:

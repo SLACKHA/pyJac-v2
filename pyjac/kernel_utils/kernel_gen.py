@@ -623,8 +623,8 @@ class kernel_generator(object):
                 ${post}
             end
             """)
-        if not self.for_testing and self.loopy_opts.width:
-            # fake split skeleton
+        if self.loopy_opts.pre_split:
+            # pre split skeleton
             self.skeleton = textwrap.dedent(
                 """
                 for j_outer
@@ -749,7 +749,7 @@ class kernel_generator(object):
             List of assumptions to apply to the generated sub kernel
         """
 
-        if not self.for_testing:
+        if self.for_testing:
             return []
 
         # set test size
@@ -759,7 +759,7 @@ class kernel_generator(object):
                 p_size.name, self.vec_width))
         return assumpt_list
 
-    def get_inames(self, test_size):
+    def get_inames(self, test_size, for_driver=False):
         """
         Returns the inames and iname_ranges for subkernels created using
         this generator
@@ -770,6 +770,8 @@ class kernel_generator(object):
             In testing, this should be the integer size of the test data
             For production, this should the 'test_size' (or the corresponding)
             for the variable test size passed to the kernel
+        for_driver : bool [False]
+            If True, utilize the entire test size
 
         Returns
         -------
@@ -779,22 +781,27 @@ class kernel_generator(object):
             The iname domains to add to created subkernels by default
         """
 
-        # need to implement a fake split, to avoid loopy mangling the inner / outer
+        # need to implement a pre-split, to avoid loopy mangling the inner / outer
         # parallel inames
-        fake_split = (not self.for_testing) and self.vec_width and \
-            self.loopy_opts.width
+        pre_split = self.loopy_opts.pre_split
 
         gind = global_ind
-        if not self.for_testing:
-            test_size = w_size.name
+        if not (self.for_testing or for_driver):
+            # if we're not testing, or in a driver function the kernel must only be
+            # executed once, as the loop over the work-size has been lifted to the
+            # driver kernels
+            test_size = 1
 
-        if fake_split:
+        if pre_split:
+            if self.loopy_opts.vector_width:
+                # reduce the test size to avoid OOB errors in loopy
+                test_size = int(test_size / self.vec_width)
             gind += '_outer'
 
         inames = [gind]
         domains = ['0 <= {} < {}'.format(gind, test_size)]
 
-        if fake_split:
+        if pre_split:
             # add dummy j_inner domain
             inames += [global_ind + '_inner']
             domains += ['0 <= {} < {}'.format(inames[-1], self.vec_width)]
@@ -863,28 +870,21 @@ class kernel_generator(object):
             if isinstance(info, lp.LoopKernel):
                 continue
             # create kernel from k_gen.knl_info
-            kernels[i] = self.make_kernel(info, self.target, self.test_size)
+            kernels[i] = self.make_kernel(info, self.target, self.test_size,
+                                          for_driver=kwargs.get('for_driver', False))
             # apply vectorization
             kernels[i] = self.apply_specialization(
                 self.loopy_opts,
                 info.var_name,
                 kernels[i],
-                self.for_testing,
                 vecspec=info.vectorization_specializer,
                 can_vectorize=info.can_vectorize)
 
-            cant_simd = []
-            if self.loopy_opts.is_simd:
-                # if SIMD we need to determine whether we can actually vectorize
-                # the arrays in this kernel (sometimes we must leave them as)
-                # unrolled vectors accesses
-                cant_simd = _unSIMDable_arrays(kernels[i], self.loopy_opts,
-                                               info.mapstore)
+            dont_split = kwargs.get('dont_split', [])
 
             # update the kernel args
             kernels[i] = self.array_split.split_loopy_arrays(
-                kernels[i], cant_simd,
-                use_work_size=kwargs.get('use_work_size', False))
+                kernels[i], dont_split=dont_split)
 
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
@@ -956,8 +956,7 @@ class kernel_generator(object):
         utils.create_dir(path)
         self._make_kernels()
         callgen, record, result = self._generate_wrapping_kernel(path)
-        callgen = self._generate_driver_kernel(
-            path, record, result, callgen)
+        callgen = self._generate_driver_kernel(path, record, result, callgen)
         callgen = self._generate_compiling_program(path, callgen)
         _, callgen = self._generate_calling_program(
             path, data_filename, callgen, record, for_validation=for_validation)
@@ -2276,7 +2275,11 @@ class kernel_generator(object):
         else:
             raise NotImplementedError
 
-        kernels = self._make_kernels(knl_info, use_work_size=True)
+        kernels = self._make_kernels(knl_info, for_driver=True,
+                                     # mark input / output arrays as un-simdable
+                                     # to trigger correct scatter / gather copy
+                                     # if necessary
+                                     dont_split=self.in_arrays + self.out_arrays)
 
         # now we must modify the driver kernel, such that it expects the appropriate
         # data
@@ -2392,7 +2395,7 @@ class kernel_generator(object):
         return knl.copy(temporary_variables={arg: knl.temporary_variables[arg]
                                              for arg in new_args})
 
-    def make_kernel(self, info, target, test_size):
+    def make_kernel(self, info, target, test_size, for_driver=False):
         """
         Convience method to create loopy kernels from :class:`knl_info`'s
 
@@ -2404,6 +2407,8 @@ class kernel_generator(object):
             The target to generate code for
         test_size : int/str
             The integer (or symbolic) problem size
+        for_driver : bool [False]
+            If True, include the work-size loop in full
 
         Returns
         -------
@@ -2528,7 +2533,7 @@ class kernel_generator(object):
         return self.remove_unused_temporaries(knl)
 
     @classmethod
-    def apply_specialization(cls, loopy_opts, inner_ind, knl, for_testing,
+    def apply_specialization(cls, loopy_opts, inner_ind, knl,
                              vecspec=None, can_vectorize=True,
                              get_specialization=False):
         """
@@ -2543,8 +2548,6 @@ class kernel_generator(object):
             The inner loop index variable
         knl : :class:`loopy.LoopKernel`
             The kernel to transform
-        for_testing: bool [False]
-            If False, apply fake split for wide-vectorizations
         vecspec : :function:
             An optional specialization function that is applied after
             vectorization to fix hanging loopy issues
@@ -2597,8 +2600,8 @@ class kernel_generator(object):
             tag = 'vec' if loopy_opts.is_simd else 'l.0'
             if get_specialization:
                 specialization[to_split + '_inner'] = tag
-            elif loopy_opts.width and not for_testing:
-                # apply the fake split
+            elif loopy_opts.pre_split:
+                # apply the pre-split
                 knl = lp.tag_inames(knl, [(to_split + '_inner', tag)])
             else:
                 knl = lp.split_iname(knl, to_split, vec_width, inner_tag=tag)
@@ -2673,33 +2676,6 @@ class c_kernel_generator(kernel_generator):
         """
 
         return [work_size]
-
-    def get_assumptions(self, test_size):
-        """
-        Returns a list of assumptions on the loop domains
-        of generated subkernels
-
-        For the C-kernels, the problem_size is abstracted out into the wrapper
-        kernel's OpenMP loop.
-
-        Additionally, there is no concept of a "vector width", hence
-        we return an empty assumption set
-
-        Parameters
-        ----------
-        test_size : int or str
-            In testing, this should be the integer size of the test data
-            For production, this should the 'test_size' (or the corresponding)
-            for the variable test size passed to the kernel
-
-        Returns
-        -------
-
-        assumptions : list of str
-            List of assumptions to apply to the generated sub kernel
-        """
-
-        return []
 
     def _special_kernel_subs(self, path, callgen):
         """

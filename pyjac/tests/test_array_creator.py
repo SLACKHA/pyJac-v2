@@ -625,7 +625,7 @@ def test_working_buffer_creations():
 
         # and a final "input" array
         inp = arc.creator('b', arc.kint_type, (10, 10), lp_opt.order,
-                          is_input_or_output=True)
+                          reshape_to_working_buffer=True)
 
         mstore = arc.MapStore(lp_opt, c, True, 'i')
         arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')

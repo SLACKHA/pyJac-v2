@@ -291,6 +291,18 @@ class loopy_options(object):
         return True
 
     @property
+    def pre_split(self):
+        """
+        It is sometimes advantageous to 'pre-split' the outer loop into an
+        inner (vector) iname and an outer (parallel) iname, particularly when
+        using explicit-SIMD w/ loopy (and avoid having to figure out how to simplify
+        floor-div's of the problem size in loopy)
+
+        If this property is True, utilize a pre-split.
+        """
+        return self.is_simd and self.width
+
+    @property
     def vector_width(self):
         """
         Returns the vector width for this :class:`loopy_options` or None if
