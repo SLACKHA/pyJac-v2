@@ -197,6 +197,72 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
+def kernel_argument_ordering(args):
+    """
+    A convenience method to ensure that we have a consistent set of argument
+    orderings throughout pyJac
+
+    Parameters
+    ----------
+    args: list of str, or :class:`loopy.KernelArgument`'s
+        The arguments to determine the order of
+
+    Returns
+    -------
+    ordered_args: lif of str or :class:`loopy.KernelArgument`
+        The ordered kernel arguments
+    """
+
+    from pyjac.core import array_creator as arc
+    import loopy as lp
+    # first create a mapping of names -> original arguments
+    mapping = {}
+    for arg in args:
+        try:
+            mapping[arg.name] = arg
+        except AttributeError:
+            # str
+            mapping[arg] = arg
+
+    ordered = []
+    value_args = [arc.problem_size.name, arc.work_size.name]
+    # next, place all value arg's at the front
+    for name, val in six.iteritems(mapping):
+        if isinstance(val, lp.ValueArg) or name in value_args:
+            ordered.append(name)
+
+    def index_of(x, arry):
+        if x not in arry:
+            return len(arry)
+        return arry.index(x)
+
+    # now sort ordered by name
+    ordered = sorted(ordered, key=lambda x: index_of(x, value_args))
+
+    # next, repeat with kernel arguments
+    kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector,
+                   arc.state_vector_rate_of_change, arc.jacobian_array]
+
+    def index_of2(x, arry):
+        if x not in arry:
+            if 'wrk' in x:
+                work_arrays = ['r', 'i', 'l']
+                return len(arry) + next(i for i, v in enumerate(work_arrays)
+                                        if x.startswith(v))
+            return len(arry) + 1000
+        return arry.index(x)
+
+    save = len(ordered)
+    # finally, add anything else we've missed
+    for name in mapping:
+        if name not in ordered:
+            ordered.append(name)
+
+    ordered[save:] = sorted(ordered[save:], key=lambda x: index_of2(x, kernel_args))
+
+    return [mapping[x] for x in ordered]
+
+
 class PowerFunction(object):
     """
     A simple wrapper that contains the name of a power function for a given language

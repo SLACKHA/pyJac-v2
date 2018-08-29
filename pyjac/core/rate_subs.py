@@ -52,11 +52,16 @@ def inputs_and_outputs(conp, ktype=KernelType.species_rates, output_full_rop=Fal
         The output arguments to kernels generated in this file
     """
     if ktype == KernelType.species_rates:
-        input_args = ['phi', 'P_arr' if conp else 'V_arr']
-        output_args = ['dphi']
+        input_args = utils.kernel_argument_ordering(
+            [arc.state_vector, arc.pressure_array if conp else arc.volume_array])
+        output_args = [arc.state_vector_rate_of_change]
     elif ktype == KernelType.chem_utils:
-        input_args = ['phi']
-        output_args = ['h', 'cp', 'b'] if conp else ['u', 'cv', 'b']
+        input_args = [arc.state_vector]
+        output_args = utils.kernel_argument_ordering(
+            [arc.enthalpy_array, arc.constant_pressure_specific_heat,
+             arc.rate_const_thermo_coeff_array] if conp else [
+             arc.internal_energy_array, arc.constant_volume_specific_heat,
+             arc.rate_const_thermo_coeff_array])
     else:
         raise NotImplementedError()
 

@@ -58,8 +58,9 @@ def inputs_and_outputs(conp):
     output_args: list of str
         The output arguments to kernels generated in this file
     """
-    input_args = ['phi', 'P_arr' if conp else 'V_arr']
-    output_args = ['jac']
+    input_args = utils.kernel_argument_ordering(
+        [arc.pressure_array if conp else arc.volume_array, arc.state_vector])
+    output_args = [arc.jacobian_array]
     return input_args, output_args
 
 

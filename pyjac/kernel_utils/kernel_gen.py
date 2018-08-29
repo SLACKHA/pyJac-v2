@@ -388,6 +388,9 @@ class CallgenResult(TargetCheckingRecord):
             for key in data:
                 data[key].extend(self.work_arrays[:])
 
+        for key in data:
+            data[key] = utils.kernel_argument_ordering(data[key])
+
         return data
 
     @property
@@ -1631,7 +1634,8 @@ class kernel_generator(object):
 
         Parameters
         ----------
-        kernel_data: list of :class:`loopy.
+        kernel_data: list of :class:`loopy.KernelArgument`'s
+            The kernel data to use for signature generation
         vec_width: int [0]
             If non-zero, the vector width to use in kernel width fixing
         as_dummy_call: bool [False]
@@ -1656,14 +1660,16 @@ class kernel_generator(object):
                            else '')
             return ''
 
-        kdata = kernel_data[:]
-        insns = '\n'.join(_name_assign(arr) for arr in kernel_data)
-        name = self.name + ('_driver' if for_driver else '')
-
+        # data
+        kdata = utils.kernel_argument_ordering(kernel_data[:])
         if as_dummy_call:
             # add extra kernel args
             kdata.extend([x for x in self.extra_kernel_data
                           if isinstance(x, lp.KernelArgument)])
+        insns = '\n'.join(_name_assign(arr) for arr in kdata)
+
+        # name
+        name = self.name + ('_driver' if for_driver else '')
 
         # domains
         domains = ['{{[{iname}]: 0 <= {iname} < {size}}}'.format(

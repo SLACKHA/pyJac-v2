@@ -20,7 +20,9 @@ except ImportError:
 # local includes
 from pyjac.loopy_utils.loopy_utils import kernel_call
 from pyjac.core.array_creator import array_splitter, kint_type
+import pyjac.core.array_creator as arc
 from pyjac.utils import enum_to_string, listify
+from pyjac import utils
 from pyjac.core.enum_types import (KernelType, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
     select_elements, get_split_elements, sparsify
@@ -313,3 +315,21 @@ def test_get_comparable_nosplit(ndim, sparse):
             ansv = comparable(kc, kc.transformed_ref_ans[0].copy(), 0, True)
 
             assert np.array_equal(outv, ansv)
+
+
+def test_kernel_argument_ordering():
+    # test with mixed strings / loopy ValueArgs
+    args = [arc.pressure_array, arc.state_vector, arc.jacobian_array,
+            arc.problem_size, arc.work_size, 'rwrk', 'lwrk', 'iwrk']
+
+    assert utils.kernel_argument_ordering(args) == (
+        [arc.problem_size, arc.work_size, arc.pressure_array, arc.state_vector,
+         arc.jacobian_array, 'rwrk', 'iwrk', 'lwrk'])
+
+    # and pure strings
+    args = [arc.pressure_array, arc.state_vector, arc.jacobian_array,
+            arc.problem_size.name, arc.work_size.name, 'rwrk', 'lwrk', 'iwrk']
+
+    assert utils.kernel_argument_ordering(args) == (
+        [arc.problem_size.name, arc.work_size.name, arc.pressure_array,
+         arc.state_vector, arc.jacobian_array, 'rwrk', 'iwrk', 'lwrk'])

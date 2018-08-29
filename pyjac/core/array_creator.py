@@ -1664,6 +1664,59 @@ def _make_mask(map_arr, mask_size):
     return mask
 
 
+# various names used by the outside world
+pressure_array = 'P_arr'
+"""
+    The name of the pressure array
+"""
+
+volume_array = 'V_arr'
+"""
+    The name of the volume array
+"""
+
+state_vector = 'phi'
+"""
+    The name of the state vector array
+"""
+
+state_vector_rate_of_change = 'dphi'
+"""
+    The name of the state vector rate of change array
+"""
+
+jacobian_array = 'jac'
+"""
+    The name of the jacobian array
+"""
+
+enthalphy_array = 'h'
+"""
+    The name of the enthalpy array
+"""
+
+internal_energy_array = 'e'
+"""
+    The name of the enthalpy array
+"""
+
+constant_pressure_specific_heat = 'cp'
+"""
+    The name of the cp array
+"""
+
+constant_volume_specific_heat = 'cv'
+"""
+    The name of the cv array
+"""
+
+rate_const_thermo_coeff_array = 'b'
+"""
+    The name of the 'b' array utilized in calculation of the rate
+    constants
+"""
+
+
 class NameStore(object):
 
     """
@@ -1829,41 +1882,44 @@ class NameStore(object):
                     self.jac_col_inds = self.ccs_jac_col_ptr
 
         # state arrays
-        self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+        self.T_arr = creator(state_vector, shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 0)])
 
         # handle extra variable and P / V arrays
-        self.E_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+        self.E_arr = creator(state_vector, shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 1)])
         if self.conp:
-            self.P_arr = creator('P_arr', shape=(test_size,),
+            self.P_arr = creator(pressure_array, shape=(test_size,),
                                  dtype=np.float64, order=self.order)
             self.V_arr = self.E_arr
         else:
             self.P_arr = self.E_arr
-            self.V_arr = creator('V_arr', shape=(test_size,),
+            self.V_arr = creator(volume_array, shape=(test_size,),
                                  dtype=np.float64, order=self.order)
 
-        self.n_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+        self.n_arr = creator(state_vector, shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order)
         self.conc_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                 dtype=np.float64, order=self.order)
         self.conc_ns_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                    dtype=np.float64, order=self.order,
                                    fixed_indicies=[(1, rate_info['Ns'] - 1)])
-        self.n_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+        self.n_dot = creator(state_vector_rate_of_change,
+                             shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order)
-        self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+        self.T_dot = creator(state_vector_rate_of_change,
+                             shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 0)])
-        self.E_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+        self.E_dot = creator(state_vector_rate_of_change,
+                             shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
                              fixed_indicies=[(1, 1)])
 
         if self.jac_format == JacobianFormat.sparse and 'jac_inds' in rate_info:
-            self.jac = jac_creator('jac',
+            self.jac = jac_creator(jacobian_array,
                                    shape=(test_size, self.num_nonzero_jac_inds.size),
                                    order=self.order,
                                    dtype=np.float64,
@@ -1871,7 +1927,7 @@ class NameStore(object):
                                    col_inds=self.jac_col_inds)
         elif self.jac_type == JacobianType.finite_difference and \
                 'jac_inds' in rate_info:
-            self.jac = jac_creator('jac',
+            self.jac = jac_creator(jacobian_array,
                                    shape=(test_size, rate_info['Ns'] + 1,
                                           rate_info['Ns'] + 1),
                                    order=self.order,
@@ -1880,7 +1936,7 @@ class NameStore(object):
                                    col_inds=self.jac_col_inds,
                                    is_sparse=False)
         else:
-            self.jac = creator('jac',
+            self.jac = creator(jacobian_array,
                                shape=(test_size, rate_info['Ns'] + 1,
                                       rate_info['Ns'] + 1),
                                order=self.order,
@@ -2756,7 +2812,9 @@ class NameStore(object):
                              initializer=rate_info['thermo']['T_mid'],
                              shape=rate_info['thermo']['T_mid'].shape,
                              order=self.order)
-        for name in ['cp', 'cv', 'u', 'h', 'b', 'dcp', 'dcv', 'db']:
+        for name in [constant_pressure_specific_heat, constant_volume_specific_heat,
+                     internal_energy_array, enthalphy_array,
+                     rate_const_thermo_coeff_array, 'dcp', 'dcv', 'db']:
             setattr(self, name, creator(name,
                                         dtype=np.float64,
                                         shape=(test_size, rate_info['Ns']),
