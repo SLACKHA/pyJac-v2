@@ -303,7 +303,7 @@ work_size : size_t
 */
 void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 {{
-    size_t per_run = this->per_run(problem_size);
+    size_t per_run = this->d_per_run = this->per_run(problem_size);
     #ifndef PINNED
         #if CL_LEVEL >= 120
             // with CL 1.2, we have access to clEnqueueFillBuffer
