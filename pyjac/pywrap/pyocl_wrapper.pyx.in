@@ -3,6 +3,7 @@
 import cython
 import numpy as np
 cimport numpy as np
+from libcpp cimport bool as bool_t  # noqa
 
 '''[[[cog
 from textwrap import indent
@@ -18,8 +19,8 @@ cog.outl("""
 cdef extern from "{name}_main.oclh":
     cdef cppclass {kernel_name}:
         {kernel_name}() except +
-        {kernel_name}(size_t, size_t) except +
-        void resize(size_t, size_t) except +
+        {kernel_name}(size_t, size_t, bool_t) except +
+        void resize(size_t, size_t, bool_t) except +
         void operator()({args}) except +
         void finalize() except +
     """.format(name=wrappergen.name, kernel_name=kernel_name, args=kernel_args),
@@ -43,13 +44,15 @@ cog.outl("""
 cdef class Py{name}:
     cdef {name} kernel  # hold our kernel
 
-    def __cinit__(self, size_t problem_size, size_t work_size):
-        self.kernel.resize(problem_size, work_size)
+    def __cinit__(self, size_t problem_size, size_t work_size,
+                  bool_t do_not_compile=False):
+        self.kernel.resize(problem_size, work_size, do_not_compile)
 
     def __dealloc__(self):
         self.kernel.finalize()
 
-    def resize(self, np.uint_t problem_size, np.uint_t work_size):
+    def resize(self, np.uint_t problem_size, np.uint_t work_size,
+               bool_t do_not_compile=False):
         \"\"\"
         Resize the OpenCL memory buffers
 
@@ -60,8 +63,11 @@ cdef class Py{name}:
         work_size: unsigned int
             For CPUs, the number of cores to use.
             For GPUs, the number of thread-blocks to run.
+        do_not_compile: bool
+            If true, do not attempt to compile the OpenCL kernel (if this kernel has
+            not previously done so).
         \"\"\"
-        self.kernel.resize(problem_size, work_size)
+        self.kernel.resize(problem_size, work_size, do_not_compile)
 
     def __call__(self, {numpy_args}):
         self.kernel({args})

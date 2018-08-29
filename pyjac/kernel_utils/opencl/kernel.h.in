@@ -59,7 +59,26 @@ class Kernel
 public:
     Kernel();
     ~Kernel();
-    void resize(size_t problem_size, size_t work_size);
+    /*
+    Resize kernel's working data to fit the given sizes.
+
+    Parameters
+    ---------
+    problem_size : size_t
+        The number of initial conditions to execute in total
+    work_size : uint
+        The number of OpenCL groups to launch.
+        If using GPUs, this is the # of CUDA blocks to use
+        If for CPUs, this is the number of logical cores to use
+    do_not_compile : bool [False]
+        If true, the OpenCL kernel has already been compiled (e.g., via previous
+        kernel call) and does not need recompilation. False by default.
+
+        Note: If this kernel object has already been executed, the OpenCL kernel has
+            been compiled and will not be recompiled regardless of the status of
+            this flag.
+    */
+    void resize(size_t problem_size, size_t work_size, bool do_not_recompile=false);
     void finalize();
     virtual void compile() = 0;
 
@@ -168,8 +187,11 @@ protected:
         The number of OpenCL groups to launch.
         If using GPUs, this is the # of CUDA blocks to use
         If for CPUs, this is the number of logical cores to use
+    do_not_compile : bool [False]
+        If true, the OpenCL kernel has already been compiled (e.g., via previous
+        kernel call) and does not need recompilation. False by default
     */
-    {name}Kernel(size_t problem_size, size_t work_size);
+    {name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile=false);
     """.format(name=kernel.title()), dedent=False, trimblanklines=True)
 
     cog.out("""

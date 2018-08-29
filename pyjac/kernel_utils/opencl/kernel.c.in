@@ -63,8 +63,13 @@ cog.outl('const unsigned int Kernel::device_type = {};'.format(int(callgen.devic
 ]]]
 [[[end]]]*/
 
-void Kernel::resize(size_t problem_size, size_t work_size)
+void Kernel::resize(size_t problem_size, size_t work_size, bool do_not_compile)
 {
+    if (do_not_compile and !this->compiled)
+    {
+        // Assume that OpenCL kernel has previously been compiled (e.g., via a previous kernel call)
+        this->compiled = true;
+    }
     if (this->initialized && ((work_size != this->work_size) || (problem_size != this->problem_size)))
     {
         this->finalize_memory();
@@ -418,10 +423,11 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 
     # and write alternate constructor that allows memory initialization
     cog.out("""
-    {name}Kernel::{name}Kernel(size_t problem_size, size_t work_size)
+    {name}Kernel::{name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile)
     """.format(name=kernel.title()), dedent=True, trimblanklines=True)
     cog.out("""
 {{
+    this->compiled = !do_not_compile;
     this->init(problem_size, work_size);
     this->num_source = {num_source};
     this->max_per_run = {max_per_run};
