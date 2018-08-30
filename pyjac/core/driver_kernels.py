@@ -16,6 +16,7 @@ from string import Template
 import six
 import numpy as np
 import loopy as lp
+from pytools import UniqueNameGenerator
 
 from pyjac.utils import listify, stringify_args
 from pyjac.core.exceptions import InvalidInputSpecificationException
@@ -152,7 +153,6 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                              initializer=map_shape)
         mapstore = arc.MapStore(loopy_opts, mapper, test_size)
 
-        from pytools import UniqueNameGenerator
         # determine what other inames we need, if any
         namer = UniqueNameGenerator(set([mapstore.iname]))
         extra_inames = []
@@ -168,8 +168,14 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
 
         # bake in SIMD pre-split
         conditional_index = global_indicies[0]
-        if loopy_opts.is_simd:
-            conditional_index = indicies[0] + '_outer + ' + driver_index.name
+        if loopy_opts.pre_split:
+            if for_input:
+                # need to copy from non-vector input to local vector temporaries
+                extra_inames.append(('lane', '0 <= lane < {}'.format(
+                    loopy_opts.vector_width)))
+                global_indicies[1] += ' + lane'
+            conditional_index = '{} * {} + {}'.format(
+                global_indicies[0], loopy_opts.vector_width, global_indicies[1])
 
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies
@@ -178,9 +184,6 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                 # indexing (as we're doing a straight copy)
                 kwargs['ignore_lookups'] = True
             if arr_non_ic(arr):
-                if loopy_opts.is_simd:
-                    # need to use SIMD pre-split
-                    kwargs['replace_global_ind_only'] = True
                 return mapstore.apply_maps(arr, *inds, **kwargs)
             else:
                 return mapstore.apply_maps(arr, inds[0], **kwargs)
@@ -197,7 +200,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         buffers = []
         strs = []
         for arr in arrs:
-            arr_lp, arr_str = __build(arr, False, is_input_or_output=True)
+            arr_lp, arr_str = __build(arr, False, reshape_to_working_buffer=False)
             buffers.append(arr_lp)
             strs.append(arr_str)
 
@@ -222,6 +225,9 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                 problem_size=arc.problem_size.name,
                 name=arr.name))
             warnings.append('write_race(copy_{})'.format(arr.name))
+        if loopy_opts.is_simd:
+            warnings.append('vectorize_failed')
+            warnings.append('unrolled_vector_iname_conditional')
         instructions = '\n'.join(instructions)
 
         # and return the kernel info
@@ -239,7 +245,8 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
     instructions = driven.name + '()'
     # create mapstore
     call_name = driven.name
-    map_shape = np.arange(1, dtype=arc.kint_type)
+    repeats = loopy_opts.vector_width if loopy_opts.vector_width else 1
+    map_shape = np.arange(repeats, dtype=arc.kint_type)
     mapper = arc.creator(call_name, arc.kint_type, map_shape.shape, 'C',
                          initializer=map_shape)
     mapstore = arc.MapStore(loopy_opts, mapper, test_size)
@@ -254,7 +261,7 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
     func_call = k_gen.knl_info(name='driver',
                                instructions=instructions,
                                mapstore=mapstore,
-                               kernel_data=[arc.work_size],
+                               kernel_data=[arc.work_size, arc.problem_size],
                                var_name=arc.var_name,
                                extra_inames=copy_in.extra_inames[:],
                                manglers=[mangler],
@@ -295,7 +302,14 @@ def lockstep_driver_template(loopy_opts, driven):
 
     elif loopy_opts.lang == 'opencl':
         template = Template("""
-        for (${dtype} ${driver_index} = get_global_id(0); ${driver_index} < ${problem_size}; ${driver_index} += get_global_size(0))"""  # noqa
+        #ifndef DEEP
+            ${dtype} inc = get_global_size(0);
+            ${dtype} driver_index = get_global_id(0);
+        #else
+            ${dtype} inc = get_num_groups(0);
+            ${dtype} driver_index = get_group_id(0);
+        #endif
+        for (;${driver_index} < ${problem_size}; ${driver_index} += inc)"""  # noqa
         """
         {
             ${insns}
