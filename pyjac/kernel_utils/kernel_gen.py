@@ -2204,6 +2204,9 @@ class kernel_generator(object):
         if for_driver:
             # include header to base call
             headers.append(basename + utils.header_ext[self.lang])
+            if utils.can_vectorize_lang[self.lang]:
+                # add the vectorization header
+                headers.append('vectorization' + utils.header_ext[self.lang])
         else:
             # include sub kernels
             for x in result.dependencies:
