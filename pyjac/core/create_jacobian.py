@@ -281,7 +281,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     return val
 
 
-def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
+def reset_arrays(loopy_opts, namestore, test_size=None):
     """Resets the Jacobian array for use in the evaluations
 
     Parameters
@@ -294,9 +294,6 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
-    conp : bool [True]
-        If supplied, True for constant pressure jacobian. False for constant
-        volume [Default: True]
 
     Returns
     -------
