@@ -1695,7 +1695,7 @@ enthalphy_array = 'h'
     The name of the enthalpy array
 """
 
-internal_energy_array = 'e'
+internal_energy_array = 'u'
 """
     The name of the enthalpy array
 """
