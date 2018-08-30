@@ -174,8 +174,9 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                 extra_inames.append(('lane', '0 <= lane < {}'.format(
                     loopy_opts.vector_width)))
                 global_indicies[1] += ' + lane'
-            conditional_index = '{} * {} + {}'.format(
-                global_indicies[0], loopy_opts.vector_width, global_indicies[1])
+            conditional_index = '({} + {}) * {} + {}'.format(
+                indicies[0] + '_outer', driver_index.name, loopy_opts.vector_width,
+                global_indicies[1])
 
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies

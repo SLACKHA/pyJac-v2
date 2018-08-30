@@ -796,12 +796,12 @@ class kernel_generator(object):
             # if we're not testing, or in a driver function the kernel must only be
             # executed once, as the loop over the work-size has been lifted to the
             # driver kernels
-            test_size = 1
+            test_size = w_size.name
         elif for_driver:
             test_size = p_size.name
 
         if pre_split:
-            if self.vec_width:
+            if self.vec_width and self.for_testing:
                 # reduce the test size to avoid OOB errors in loopy
                 if for_driver:
                     from pytools import div_ceil
