@@ -1690,7 +1690,7 @@ jacobian_array = 'jac'
     The name of the jacobian array
 """
 
-enthalphy_array = 'h'
+enthalpy_array = 'h'
 """
     The name of the enthalpy array
 """
@@ -2813,7 +2813,7 @@ class NameStore(object):
                              shape=rate_info['thermo']['T_mid'].shape,
                              order=self.order)
         for name in [constant_pressure_specific_heat, constant_volume_specific_heat,
-                     internal_energy_array, enthalphy_array,
+                     internal_energy_array, enthalpy_array,
                      rate_const_thermo_coeff_array, 'dcp', 'dcv', 'db']:
             setattr(self, name, creator(name,
                                         dtype=np.float64,
