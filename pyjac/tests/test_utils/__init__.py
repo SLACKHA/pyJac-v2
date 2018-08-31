@@ -984,7 +984,7 @@ def reduce_oploop(base, add=None):
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=get_test_langs(), do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
-                sparse_only=False):
+                sparse_only=False, do_simd=True):
 
     platforms = load_platforms(owner.store.test_platforms, langs=langs)
     oploop = [('order', ['C', 'F']),
@@ -1013,11 +1013,13 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
         oploop += [('jac_type', [JacobianType.finite_difference])]
     else:
         oploop += [('jac_type', [JacobianType.exact])]
+    if do_simd:
+        oploop += [('is_simd', [True, False])]
 
     return reduce_oploop(platforms, oploop)
 
 
-def _should_skip_oploop(state, skip_test=None):
+def _should_skip_oploop(state, skip_test=None, skip_deep_simd=True):
     """
     A unified method to determine whether the :param:`state` is a viable
     configuration for initializing a :class:`loopy_options`
@@ -1029,6 +1031,9 @@ def _should_skip_oploop(state, skip_test=None):
     skip_test: six.callable
         Callable functions that take as the arguement the :param:`state` and
         return True IFF the state should be skipped
+    skip_deep_simd: bool [True]
+        If true, skip explicit-SIMD tests w/ deep vectorizations (not currently
+        implemented)
 
     Returns
     -------
@@ -1047,6 +1052,9 @@ def _should_skip_oploop(state, skip_test=None):
 
     if not (state.get('width', False) or state.get('depth', False)) \
             and state.get('is_simd', False):
+        return True
+
+    if skip_deep_simd and state.get('depth', False) and state.get('is_simd', False):
         return True
 
     if state['lang'] != 'opencl' and state.get('device_type', ''):
@@ -1073,6 +1081,9 @@ class OptionLoopWrapper(object):
         should be skipped
     yield_index: bool [False]
         If true, yield a tuple of the (index, state) of the oploop enumeration
+    from_get_oploop: bool [False]
+        If true, apply skips that wouldn't be necessarily applied if user-specified
+        (e.g., deep-vectorized SIMD)
 
     Notes
     -----
@@ -1086,13 +1097,14 @@ class OptionLoopWrapper(object):
     """
 
     def __init__(self, oploop_base, skip_test=None, yield_index=False,
-                 ignored_state_vals=['conp']):
+                 ignored_state_vals=['conp'], from_get_oploop=False):
         self.oploop = oploop_base.copy()
         self.state = next(oploop_base.copy()).copy()
         self.yield_index = yield_index
         self.skip_test = skip_test
         self.bad_platforms = set()
         self.ignored_state_vals = ignored_state_vals[:]
+        self.from_get_oploop = from_get_oploop
 
     @staticmethod
     def from_dict(oploop_base, skip_test=None, yield_index=False,
@@ -1139,11 +1151,13 @@ class OptionLoopWrapper(object):
         oploop = _get_oploop(owner, **oploop_kwds)
         return OptionLoopWrapper(oploop, skip_test=skip_test,
                                  yield_index=yield_index,
-                                 ignored_state_vals=ignored_state_vals)
+                                 ignored_state_vals=ignored_state_vals,
+                                 from_get_oploop=True)
 
     def send(self, ignored_arg):
         for i, state in enumerate(self.oploop):
-            if _should_skip_oploop(state, skip_test=self.skip_test):
+            if _should_skip_oploop(state, skip_test=self.skip_test,
+                                   skip_deep_simd=self.from_get_oploop):
                 continue
             # build loopy options
             try:

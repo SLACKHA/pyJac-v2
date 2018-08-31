@@ -8,7 +8,6 @@ import numpy as np
 import unittest
 import loopy as lp
 from nose.tools import nottest
-import six
 
 # local imports
 from pyjac.core.mech_interpret import read_mech_ct
