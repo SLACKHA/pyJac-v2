@@ -76,7 +76,7 @@ before_install:
 # install pyjac
 install:
   # currently need the newest loopy version
-  - pip install git+https://github.com/inducer/loopy.git
+  - pip install git+https://github.com/inducer/loopy.git@049424df12da70a5ae8d2411c6d12dc2269ff626
   # read from requirements -- install via conda if available
   - pip install -r requirements.txt
   - pip install -r optional-requirements.txt
