@@ -803,10 +803,6 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
     if sort_type:
         reacs = sort_reactions(reacs, sort_type)
 
-    # reassign the reaction's product / reactant / third body list
-    # to integer indexes for speed
-    utils.reassign_species_lists(reacs, specs)
-
     return (elems, specs, reacs)
 
 
@@ -1212,9 +1208,5 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
 
     if sort_type:
         reacs = sort_reactions(reacs, sort_type)
-
-    # reassign the reaction's product / reactant / third body list
-    # to integer indexes for speed
-    utils.reassign_species_lists(reacs, specs)
 
     return (elems, specs, reacs)
