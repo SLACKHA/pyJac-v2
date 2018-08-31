@@ -167,16 +167,35 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         global_indicies[0] += ' + ' + driver_index.name
 
         # bake in SIMD pre-split
+        vec_spec = None
+        split_spec = None
         conditional_index = global_indicies[0]
         if loopy_opts.pre_split:
-            if for_input:
-                # need to copy from non-vector input to local vector temporaries
-                extra_inames.append(('lane', '0 <= lane < {}'.format(
-                    loopy_opts.vector_width)))
-                global_indicies[1] += ' + lane'
-            conditional_index = '({} + {}) * {} + {}'.format(
-                indicies[0] + '_outer', driver_index.name, loopy_opts.vector_width,
+            # need put dependence of vector lane in
+            extra_inames.append(('lane', '0 <= lane < {}'.format(
+                loopy_opts.vector_width)))
+            global_indicies[0] += ' + lane'
+            conditional_index = '({} + {}) * {} + {} + lane'.format(
+                indicies[0] + '_outer',
+                driver_index.name, loopy_opts.vector_width,
                 global_indicies[1])
+
+            def vectorization_specializer(knl):
+                # first, unroll lane
+                knl = lp.tag_inames(knl, {'lane': 'unr'})
+                return knl
+
+            def split_specializer(knl):
+                # drop the vector iname and do a pure unroll
+                knl = lp.rename_iname(knl, indicies[0] + '_inner', 'lane',
+                                      existing_ok=True)
+                priorities = set(list(knl.loop_priority)[0]) - \
+                    set([indicies[0] + '_inner'])
+                priorities = set([tuple(priorities)])
+                return knl.copy(loop_priority=priorities)
+
+            vec_spec = vectorization_specializer
+            split_spec = split_specializer
 
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies
@@ -239,14 +258,20 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                               extra_inames=extra_inames,
                               kernel_data=buffers + working_buffers + [
                                 arc.work_size, arc.problem_size, driver_index],
-                              silenced_warnings=warnings)
+                              silenced_warnings=warnings,
+                              vectorization_specializer=vec_spec,
+                              split_specializer=split_spec)
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function
     instructions = driven.name + '()'
     # create mapstore
     call_name = driven.name
-    repeats = loopy_opts.vector_width if loopy_opts.vector_width else 1
+    repeats = 1
+    if loopy_opts.vector_width and not loopy_opts.is_simd:
+        # if we have a non-unity work size
+        repeats = loopy_opts.vector_width
+
     map_shape = np.arange(repeats, dtype=arc.kint_type)
     mapper = arc.creator(call_name, arc.kint_type, map_shape.shape, 'C',
                          initializer=map_shape)

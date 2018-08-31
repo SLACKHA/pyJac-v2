@@ -898,6 +898,9 @@ class kernel_generator(object):
             kernels[i] = self.array_split.split_loopy_arrays(
                 kernels[i], dont_split=dont_split)
 
+            if info.split_specializer:
+                kernels[i] = info.split_specializer(kernels[i])
+
             # and add a mangler
             # func_manglers.append(create_function_mangler(kernels[i]))
 
@@ -1124,6 +1127,9 @@ class kernel_generator(object):
         vec_width = self.vec_width
         if not vec_width:
             # set to default
+            vec_width = 1
+        elif self.loopy_opts.is_simd:
+            # SIMD has a vector width, but the launch size is still 1
             vec_width = 1
 
         # update callgen
@@ -3101,6 +3107,9 @@ class knl_info(object):
         arise in vectorization
     preambles : :class:`preamble.PreambleGen`
         A list of preamble generators to insert code into loopy / opencl
+    split_specializer : function
+        If specified, run this function to fixup an hanging ends after the
+        kernel splits are applied
     **kwargs: dict
         Any other keyword args to pass to :func:`loopy.make_kernel`
     """
@@ -3116,6 +3125,7 @@ class knl_info(object):
                  manglers=[],
                  preambles=[],
                  iname_domain_override=[],
+                 split_specializer=None,
                  **kwargs):
 
         def __listify(arr):
@@ -3137,6 +3147,7 @@ class knl_info(object):
         self.extra_subs = extra_subs
         self.can_vectorize = can_vectorize
         self.vectorization_specializer = vectorization_specializer
+        self.split_specializer = split_specializer
         self.manglers = manglers[:]
         self.preambles = preambles[:]
         self.iname_domain_override = iname_domain_override[:]

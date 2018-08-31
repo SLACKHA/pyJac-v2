@@ -30,7 +30,7 @@ class SubTest(TestClass):
                                        RateSpecialization.fixed)
         mod_test = get_run_source()
 
-        for i, loopy_opts in OptionLoopWrapper.from_get_oploop(
+        for kind, loopy_opts in OptionLoopWrapper.from_get_oploop(
                 self, do_ratespec=False, langs=get_test_langs(),
                 do_vector=True, yield_index=True):
 
