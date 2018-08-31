@@ -1798,7 +1798,8 @@ class kernel_generator(object):
         unpack: str
             The stringified pointer unpacking statement
         """
-        return '{}* {} = rwk + {};'.format(self.type_map[dtype], array, offset)
+        return '{}* __restrict__ {} = rwk + {};'.format(
+            self.type_map[dtype], array, offset)
 
     @classmethod
     def _remove_work_size(cls, text):
@@ -1986,7 +1987,9 @@ class kernel_generator(object):
             instructions = self.apply_barriers(instructions)
 
         # add pointer unpacking
-        instructions[0:0] = result.pointer_unpacks[:]
+        if not for_driver:
+            # driver places unpacks outside of loops
+            instructions[0:0] = result.pointer_unpacks[:]
 
         # add local declaration to beginning of instructions
         instructions[0:0] = [str(x) for x in local_decls]
@@ -2340,8 +2343,9 @@ class kernel_generator(object):
             for_driver=True)
 
         # slot instructions into template
-        result = result.copy(instructions=[subs_at_indent(
-            template, insns='\n'.join(result.instructions))])
+        result = result.copy(instructions=[
+            subs_at_indent(template, insns='\n'.join(result.instructions),
+                           unpacks='\n'.join(result.pointer_unpacks))])
 
         filename = self._to_file(path, result, for_driver=True)
 
@@ -2823,7 +2827,7 @@ class opencl_kernel_generator(kernel_generator):
         """
         Implement the pattern
         ```
-            __scope double* array = &rwk[offset]
+            __scope double __restrict__* array = &rwk[offset]
         ```
         for OpenCL
 
@@ -2843,22 +2847,22 @@ class opencl_kernel_generator(kernel_generator):
         """
 
         dtype = self.type_map[dtype]
-
         if scope == scopes.GLOBAL:
             scope_str = 'global'
         elif scope == scopes.LOCAL:
             scope_str = 'local'
         else:
             raise NotImplementedError
+        scope_str = '__{}'.format(scope_str)
 
         cast = ''
         if self.loopy_opts.is_simd:
             # convert to double4 etc.
             dtype += str(self.vec_width)
-            cast = '({}*)'.format(dtype)
+            cast = '({} {}*)'.format(scope_str, dtype)
 
-        return '__{} {}* {} = {}(rwk + {});'.format(
-            scope_str, cast, dtype, array, offset)
+        return '{} {}* __restrict__ {} = {}(rwk + {});'.format(
+            scope_str, dtype, array, cast, offset)
 
     def _special_kernel_subs(self, path, callgen):
         """
@@ -3216,6 +3220,8 @@ def _find_indent(template_str, key, value):
             # get whitespace
             whitespace = re.match(r'\s*', line).group()
             break
+    if whitespace is None:
+        raise Exception('Key {} not found in template: {}'.format(key, template_str))
     result = [line if i == 0 else whitespace + line for i, line in
               enumerate(textwrap.dedent(value).splitlines())]
     return '\n'.join(result)

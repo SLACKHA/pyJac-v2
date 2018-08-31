@@ -334,6 +334,7 @@ def lockstep_driver_template(loopy_opts, driven):
             ${dtype} inc = get_num_groups(0);
             ${dtype} driver_index = get_group_id(0);
         #endif
+        ${unpacks}
         for (;${driver_index} < ${problem_size}; ${driver_index} += inc)"""  # noqa
         """
         {
