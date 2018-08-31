@@ -5304,6 +5304,10 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # find and move last species to end
     specs = find_last_species(specs, last_spec=last_spec)
 
+    # reassign the reaction's product / reactant / third body list
+    # to integer indexes for speed
+    utils.reassign_species_lists(reacs, specs)
+
     # check for reactions with potentially bad derivatives
     bad_rxns = []
     for irxn, reac in enumerate(reacs):

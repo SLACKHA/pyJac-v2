@@ -751,15 +751,12 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
     if sort_type:
         pass  # stub for mechanism sorting
 
-    # reassign the reaction's product / reactant / third body list
-    # to integer indexes for speed
-    utils.reassign_species_lists(reacs, specs)
-
     # determine reaction type enums
     for reac in reacs:
         reac.finalize(len(specs))
     for spec in specs:
         spec.finalize()
+
     return (elems, specs, reacs)
 
 
@@ -1187,13 +1184,10 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
     if sort_type:
         pass  # stub for mechanism sorting
 
-    # reassign the reaction's product / reactant / third body list
-    # to integer indexes for speed
-    utils.reassign_species_lists(reacs, specs)
-
     # determine reaction type enums
     for reac in reacs:
         reac.finalize(len(specs))
     for spec in specs:
         spec.finalize()
+
     return (elems, specs, reacs)
