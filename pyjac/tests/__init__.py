@@ -87,6 +87,7 @@ def get_test_langs():
 
     return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
 
+
 def set_seed(seed=0):
     np.random.seed(seed)
 

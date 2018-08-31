@@ -1294,7 +1294,7 @@ class MapStore(object):
         try:
             affine = ' + ' + str(int(affine))
             return oldname + affine
-        except:
+        except (TypeError, ValueError):
             if affine is None:
                 affine = ''
             pass
