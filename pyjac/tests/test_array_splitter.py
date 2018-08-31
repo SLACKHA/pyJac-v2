@@ -22,7 +22,8 @@ def opts_loop(width=[VECTOR_WIDTH, None],
               order=['C', 'F'],
               is_simd=True,
               skip_non_vec=True,
-              langs=get_test_langs()):
+              langs=get_test_langs(),
+              skip_test=None):
 
     oploop = OrderedDict(
         [('width', width),
@@ -31,10 +32,13 @@ def opts_loop(width=[VECTOR_WIDTH, None],
          ('is_simd', is_simd),
          ('lang', langs)])
 
-    def skip_test(state):
-        return skip_non_vec and not (state['depth'] or state['width'])
+    def skip(state):
+        s = (skip_non_vec and not (state['depth'] or state['width']))
+        if skip_test is not None:
+            s = s or skip_test(state)
+        return s
 
-    for opts in OptionLoopWrapper.from_dict(oploop, skip_test=skip_test):
+    for opts in OptionLoopWrapper.from_dict(oploop, skip_test=skip):
         yield param(opts)
 
 
@@ -254,6 +258,61 @@ def test_lpy_array_splitter(opts):
 
             else:
                 return (Variable('i_inner'), 0, Variable('i_outer'))
+
+    # check dim
+    a1 = k.arg_dict['a1']
+    assert a1.shape == asplit.split_shape(a1_hold)[0]
+    # and indexing
+    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
+    # construct index
+    assert isinstance(assign, Subscript) and assign.index == __indexer()
+
+    # now test with evenly sized
+    a2 = k.arg_dict['a2']
+    assert a2.shape == asplit.split_shape(a2_hold)[0]
+    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
+    assert isinstance(assign, Subscript) and assign.index == __indexer()
+
+
+# currently only have SIMD for wide-vectorizations
+@parameterized(lambda: opts_loop(is_simd=True, skip_test=lambda x: not x['width']),
+               doc_func=_split_doc)
+def test_lpy_simd_array_splitter(opts):
+    from pymbolic.primitives import Subscript, Variable
+    # create array split
+    asplit = array_splitter(opts)
+
+    # create a test kernel
+    arg1 = lp.GlobalArg('a1', shape=(10, 10), order=opts.order)
+    arg2 = lp.GlobalArg('a2', shape=(16, 16), order=opts.order)
+
+    return lp.make_kernel(
+        ['{[i]: 0 <= i < 10}',
+         '{{[j_outer]: 0 <= j_outer < {}}}'.format(int(np.ceil(10 / VECTOR_WIDTH))),
+         '{{[j_inner]: 0 <= j_inner < {}}}'.format(VECTOR_WIDTH)],
+        """
+            a1[j_outer, i] = 1 {id=a1}
+            a2[j_outer, i] = 1 {id=a2}
+        """,
+        [arg1, arg2],
+        silenced_warnings=['no_device_in_pre_codegen_checks'],
+        target=lp.OpenCLTarget())
+
+    k = lp.split_iname(_create(opts.order, VECTOR_WIDTH * 2, VECTOR_WIDTH * 3),
+                       'j', VECTOR_WIDTH,
+                       inner_tag='l.0' if not opts.is_simd else 'vec')
+    a1_hold = k.arg_dict['a1'].copy()
+    a2_hold = k.arg_dict['a2'].copy()
+    k = asplit.split_loopy_arrays(k)
+
+    # ensure there's no loopy errors
+    lp.generate_code_v2(k).device_code()
+
+    def __indexer():
+        if opts.order == 'C':
+            return (Variable('j_outer'), Variable('i'), Variable('j_inner'))
+        else:
+            return (Variable('j_inner'), Variable('j_outer'), Variable('i'))
 
     # check dim
     a1 = k.arg_dict['a1']
