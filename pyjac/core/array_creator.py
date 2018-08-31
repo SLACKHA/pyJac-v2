@@ -193,7 +193,7 @@ class array_splitter(object):
         return shape, grow_axis, vec_axis, split_axis
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
-                                count, order='C', vec=False):
+                                count, order='C', vec=False, **kwargs):
         if count == 1:
             return kernel
 
@@ -290,8 +290,15 @@ class array_splitter(object):
                 # no split, just add an axis
                 outer_index = axis_idx
                 name = str(outer_index)
-                name = name[:name.index('_')]
-                inner_index = Variable(name + '_inner')
+                try:
+                    name = name[:name.index('_')]
+                    inner_index = Variable(name + '_inner')
+                except ValueError:
+                    # we've attempted to split the non-vector pre-split index
+                    # this should only ever happen in unit testing
+                    assert kwargs.get('ignore_split_rename_errors', False)
+                    inner_index = name
+
             else:
                 inner_index = simplify_using_aff(kernel, axis_idx % count)
                 outer_index = simplify_using_aff(kernel, axis_idx // count)
@@ -315,7 +322,7 @@ class array_splitter(object):
 
         return kernel
 
-    def split_loopy_arrays(self, kernel, dont_split=[]):
+    def split_loopy_arrays(self, kernel, dont_split=[], **kwargs):
         """
         Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
         to conform to this split pattern
@@ -327,6 +334,12 @@ class array_splitter(object):
         dont_split: list of str
             List of array names that should not be split (typically representing
             global inputs / outputs)
+
+        Keyword Arguments
+        -----------------
+        ignore_split_rename_errors: bool [False]
+            If True, ignore errors that would result from the vector index not being
+            the pre-split index, as expected.  Used in testing.
 
         Returns
         -------
@@ -345,7 +358,8 @@ class array_splitter(object):
 
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,
-                self.vector_width, self.data_order, self.is_simd)
+                self.vector_width, self.data_order, self.is_simd,
+                **kwargs)
 
         return kernel
 
