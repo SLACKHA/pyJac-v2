@@ -175,10 +175,9 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
             extra_inames.append(('lane', '0 <= lane < {}'.format(
                 loopy_opts.vector_width)))
             global_indicies[0] += ' + lane'
-            conditional_index = '({} + {}) * {} + {} + lane'.format(
+            conditional_index = '({} + {}) + lane'.format(
                 indicies[0] + '_outer',
-                driver_index.name, loopy_opts.vector_width,
-                global_indicies[1])
+                driver_index.name)
 
             def vectorization_specializer(knl):
                 # first, unroll lane

@@ -2842,6 +2842,8 @@ class opencl_kernel_generator(kernel_generator):
             The stringified pointer unpacking statement
         """
 
+        dtype = self.type_map[dtype]
+
         if scope == scopes.GLOBAL:
             scope_str = 'global'
         elif scope == scopes.LOCAL:
@@ -2849,8 +2851,14 @@ class opencl_kernel_generator(kernel_generator):
         else:
             raise NotImplementedError
 
-        return '__{} {}* {} = rwk + {};'.format(scope_str, self.type_map[dtype],
-                                                array, offset)
+        cast = ''
+        if self.loopy_opts.is_simd:
+            # convert to double4 etc.
+            dtype += str(self.vec_width)
+            cast = '({}*)'.format(dtype)
+
+        return '__{} {}* {} = {}(rwk + {});'.format(
+            scope_str, cast, dtype, array, offset)
 
     def _special_kernel_subs(self, path, callgen):
         """
