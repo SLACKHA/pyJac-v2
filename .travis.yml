@@ -5,7 +5,7 @@ dist: trusty
 # safelist
 branches:
   only:
-    - main
+    - master
 
 # language & environment and matrix spec
 language: python
