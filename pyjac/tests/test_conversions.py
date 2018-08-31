@@ -37,17 +37,21 @@ class SubTest(TestClass):
                                self.store.V.reshape(-1, 1),
                                self.store.Y[:, :-1]), axis=1)
 
-        args = {'phi': lambda x: np.array(Yphi, order=x, copy=True)}
+        args = {'phi': lambda x: np.array(Yphi, order=x, copy=True),
+                'mw_work': lambda x: np.zeros(self.store.test_size, order=x)}
 
         def __chainer(self, out_vals):
             self.kernel_args['mw_work'] = out_vals[-1][0]
 
         # first test w/o the splitting
+        compare_mask = [get_comparable(
+            (np.arange(self.store.test_size),), 1. / self.store.mw,
+            compare_axis=(0,))]
         kc = kernel_call('molecular_weight_inverse',
                          [1. / self.store.mw],
                          strict_name_match=True,
                          compare_axis=(0,),
-                         compare_mask=[[np.arange(self.store.test_size)]],
+                         compare_mask=compare_mask,
                          **args)
         mole_fractions = (self.store.mw * (
             self.store.Y[:, :-1] / self.store.gas.molecular_weights[:-1]).T).T
