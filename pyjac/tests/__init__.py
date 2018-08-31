@@ -349,7 +349,7 @@ class TestClass(unittest.TestCase):
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
             # and reassign
-            utils.reassign_species_lists(specs, reacs)
+            utils.reassign_species_lists(reacs, specs)
             # and finally check for a test platform
             platform = get_platform_file()
             try:
