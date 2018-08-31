@@ -78,7 +78,7 @@ def get_barrier(loopy_opts, local_memory=True, **loopy_kwds):
 
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
                          atomic=True, is_write_race=True,
-                         split_size=None):
+                         split_size=None, **kwargs):
     """
     Returns a deep specializer to enable deep vectorization using either
     atomic updates or a sequential (single-lane/thread) "dummy" deep
@@ -110,6 +110,8 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         If False, this kernel is guarenteed not to have a write race by nature
         of it's access pattern. Hence we only need to return a
         :class:`write_race_silencer` for non-atomic configurations
+    use_atomics: bool [None]
+        If supplied, override the results of :func:`use_atomics`
 
     Returns
     -------
@@ -124,7 +126,9 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         # no need to do anything
         return True, None
 
-    if use_atomics(loopy_opts) and atomic:
+    have_atomics = kwargs.get('use_atomics', use_atomics(loopy_opts))
+
+    if have_atomics and atomic:
         return True, atomic_deep_specialization(
             loopy_opts.depth, atomic_ids=atomic_ids,
             split_ids=split_ids, init_ids=init_ids,

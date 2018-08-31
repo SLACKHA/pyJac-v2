@@ -7,43 +7,35 @@ import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from parameterized import parameterized, param
 from unittest.case import SkipTest
-from optionloop import OptionLoop
 
 from pyjac.core.array_creator import array_splitter
 from pyjac.core.instruction_creator import get_deep_specializer
 from pyjac.loopy_utils.loopy_utils import kernel_call
-from pyjac.tests.test_utils import indexer, get_split_elements
+from pyjac.tests import get_test_langs
+from pyjac.tests.test_utils import indexer, get_split_elements, OptionLoopWrapper
 
 VECTOR_WIDTH = 8
-
-
-class dummy_loopy_opts(object):
-    def __init__(self, depth=None, width=None, order='C', is_simd=False):
-        self.depth = depth
-        self.width = width
-        self.order = order
-        self.is_simd = is_simd
 
 
 def opts_loop(width=[VECTOR_WIDTH, None],
               depth=[VECTOR_WIDTH, None],
               order=['C', 'F'],
               is_simd=True,
-              skip_non_vec=True):
+              skip_non_vec=True,
+              langs=get_test_langs()):
 
-    oploop = OptionLoop(OrderedDict(
+    oploop = OrderedDict(
         [('width', width),
          ('depth', depth),
          ('order', order),
-         ('is_simd', is_simd)]))
-    for state in oploop:
-        if state['depth'] and state['width']:
-            continue
-        if skip_non_vec and not (state['depth'] or state['width']):
-            continue
-        if state['is_simd'] and not (state['depth'] or state['width']):
-            state['is_simd'] = False
-        yield param(state)
+         ('is_simd', is_simd),
+         ('lang', langs)])
+
+    def skip_test(state):
+        return skip_non_vec and not (state['depth'] or state['width'])
+
+    for opts in OptionLoopWrapper.from_dict(oploop, skip_test=skip_test):
+        yield param(opts)
 
 
 def __get_ref_answer(base, asplit):
@@ -186,24 +178,21 @@ def _split_doc(func, num, params):
         name = name[name.index(test) + len(test):]
 
     p = params[0][0]
-    width = p['width']
-    depth = p['depth']
-    order = p['order']
+    width = p.width
+    depth = p.depth
+    order = p.order
     return "{} with: [width={}, depth={}, order={}]".format(
         name, width, depth, order)
 
 
 @parameterized(opts_loop,
                doc_func=_split_doc)
-def test_npy_array_splitter(state):
-    # create opts
-    opts = dummy_loopy_opts(**state)
-
+def test_npy_array_splitter(opts):
     # create array split
     asplit = array_splitter(opts)
 
     def _test(shape):
-        __internal(asplit, shape, order=state['order'], width=opts.width,
+        __internal(asplit, shape, order=opts.order, width=opts.width,
                    depth=opts.depth)
 
     # test with small square
@@ -233,19 +222,16 @@ def _create(order='C', loop_bound=10, size=10):
         target=lp.OpenCLTarget())
 
 
-@parameterized(opts_loop,
+@parameterized(lambda: opts_loop(is_simd=False),
                doc_func=_split_doc)
-def test_lpy_array_splitter(state):
+def test_lpy_array_splitter(opts):
     from pymbolic.primitives import Subscript, Variable, Product, Sum
-    # create opts
-    opts = dummy_loopy_opts(**state)
-
     # create array split
     asplit = array_splitter(opts)
 
-    k = lp.split_iname(_create(state['order'], VECTOR_WIDTH * 2, VECTOR_WIDTH * 3),
+    k = lp.split_iname(_create(opts.order, VECTOR_WIDTH * 2, VECTOR_WIDTH * 3),
                        'i', VECTOR_WIDTH,
-                       inner_tag='l.0' if not state['is_simd'] else 'vec')
+                       inner_tag='l.0' if not opts.is_simd else 'vec')
     a1_hold = k.arg_dict['a1'].copy()
     a2_hold = k.arg_dict['a2'].copy()
     k = asplit.split_loopy_arrays(k)
@@ -254,15 +240,15 @@ def test_lpy_array_splitter(state):
     lp.generate_code_v2(k).device_code()
 
     def __indexer():
-        if state['order'] == 'C':
-            if state['width']:
+        if opts.order == 'C':
+            if opts.width:
                 return (0, Variable('i_inner') +
                         Variable('i_outer') * VECTOR_WIDTH, 0)
             else:
-                return (0, Variable('i_outer'), Variable('i_inner'))
+                return (0, Variable('i_inner') + Variable('i_outer') * VECTOR_WIDTH)
         else:
-            if state['width']:
-                return (0, 0, Sum((
+            if opts.width:
+                return (0, Sum((
                     Variable('i_inner'), Product(
                         (Variable('i_outer'), VECTOR_WIDTH)))))
 
@@ -323,10 +309,7 @@ def test_atomic_deep_vec_with_small_split():
 
 @parameterized(opts_loop,
                doc_func=_split_doc)
-def test_get_split_shape(state):
-    # create opts
-    opts = dummy_loopy_opts(**state)
-
+def test_get_split_shape(opts):
     # create array split
     asplit = array_splitter(opts)
 
@@ -340,15 +323,15 @@ def test_get_split_shape(state):
 
         # next, the "grow" axis is either the first axis ("C") or the second axis
         # for "F"
-        grow = state['order'] == 'F'
+        grow = opts.order == 'F'
         assert gr == grow
 
         # and the vec_axis is in front if 'F' else in back
-        vec_axis = len(shape) if state['order'] == 'C' else 0
+        vec_axis = len(shape) if opts.order == 'C' else 0
         assert vec == vec_axis
 
         # and finally, the split axis
-        split_axis = 0 if state['width'] else len(shape) - 1
+        split_axis = 0 if opts.width else len(shape) - 1
         assert spl == split_axis
 
     # test with small square
@@ -369,9 +352,7 @@ def test_get_split_shape(state):
 
 @parameterized(lambda: opts_loop(skip_non_vec=False),
                doc_func=_split_doc)
-def test_indexer(state):
-    # create opts
-    opts = dummy_loopy_opts(**state)
+def test_indexer(opts):
     asplit = array_splitter(opts)
 
     def __test(splitter, shape):
@@ -384,7 +365,7 @@ def test_indexer(state):
 
         # loop over every index in the array
         check_axes = tuple(range(len(shape)))
-        it = np.nditer(arr, flags=['multi_index'], order=state['order'])
+        it = np.nditer(arr, flags=['multi_index'], order=opts.order)
         while not it.finished:
             # get indicies
             check_inds = tuple((x,) for x in it.multi_index)
@@ -406,9 +387,8 @@ def test_indexer(state):
 
 @parameterized(lambda: opts_loop(skip_non_vec=False),
                doc_func=_split_doc)
-def test_get_split_elements(state):
+def test_get_split_elements(opts):
     # create opts
-    opts = dummy_loopy_opts(**state)
     asplit = array_splitter(opts)
 
     def __test(shape, check_inds=None, check_axes=None, tiling=True):
@@ -422,18 +402,18 @@ def test_get_split_elements(state):
             # create the indicies to check
             check_inds = tuple(np.arange(x) for x in shape)
             check_axes = tuple(range(len(shape)))
-            ans = arr.flatten(state['order'])
+            ans = arr.flatten(opts.order)
         elif tiling:
             assert check_axes is not None
             assert check_inds is not None
             ans = kernel_call('', arr, check_axes, [check_inds])._get_comparable(
-                arr, 0, True).flatten(state['order'])
+                arr, 0, True).flatten(opts.order)
         else:
             slicer = [slice(None)] * arr.ndim
             assert all(check_inds[0].size == ci.size for ci in check_inds[1:])
             for i, ax in enumerate(check_axes):
                 slicer[ax] = check_inds[i]
-            ans = arr[slicer].flatten(state['order'])
+            ans = arr[slicer].flatten(opts.order)
 
         # and compare to the old (unsplit) matrix
         assert np.allclose(
