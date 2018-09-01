@@ -4,4 +4,5 @@ enum34 >= 1.1.6;python_version=='2.7'
 six
 pyyaml
 cgen
-git+https://github.com/pyeve/cerberus
+cogapp
+Cerberus > 1.1
