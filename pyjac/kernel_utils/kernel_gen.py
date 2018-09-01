@@ -2761,6 +2761,30 @@ class c_kernel_generator(kernel_generator):
 
         return callgen
 
+    def get_assumptions(self, test_size, for_driver=False):
+        """
+        Returns a list of assumptions on the loop domains
+        of generated subkernels
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+        for_driver: bool [False]
+            If this kernel is a driver function
+
+        Returns
+        -------
+
+        assumptions : list of str
+            List of assumptions to apply to the generated sub kernel
+        """
+
+        # we never need these for C
+        return []
+
 
 class autodiff_kernel_generator(c_kernel_generator):
 

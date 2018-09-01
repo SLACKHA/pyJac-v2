@@ -318,6 +318,7 @@ def lockstep_driver_template(loopy_opts, driven):
     if loopy_opts.lang == 'c':
         template = Template("""
         #pragma omp parallel for
+        ${unpacks}
         for (${dtype} ${driver_index} = 0; ${driver_index} < ${problem_size}; ${driver_index} += ${work_size})"""  # noqa
         """
         {
