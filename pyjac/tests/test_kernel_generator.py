@@ -548,6 +548,10 @@ class SubTest(TestClass):
                 if opts.lang == 'c':
                     assert ('void Kernel::threadset(unsigned int num_threads)'
                             in file_src)
+                elif opts.lang == 'opencl':
+                    assert re.search(
+                        r'build_options = [^\n]+-I{}'.format(tdir), file_src)
+                    assert re.search(opts.platform.vendor, file_src)
 
                 # and the validation output
                 assert all(x in file_src for x in
@@ -593,18 +597,36 @@ class SubTest(TestClass):
 
                 if opts.lang == 'opencl':
                     # check build options
-                    assert re.search(
-                        r'build_options = [^\n]+-I{}'.format(tdir), file_src)
-                    assert re.search(opts.platform.vendor, file_src)
+                    assert 'static const char* build_options;' in file_src
+                    assert r'static const char* platform_check;' in file_src
+                    assert r'static const unsigned int device_type;' in file_src
 
                     # check arguments
                     for x in jac_gen.in_arrays + jac_gen.out_arrays:
                         assert re.search(r'cl_mem d_{};'.format(x), file_src)
                     # and work arrays
                     for x in callgen.work_arrays:
-                        assert re.search(r'cl_mem d_{};'.format(x.name), file_src)
+                        if not isinstance(x, lp.ValueArg):
+                            try:
+                                name = x.name
+                            except AttributeError:
+                                name = x
+                            assert re.search(
+                                r'cl_mem d_{};'.format(name), file_src)
                 else:
                     assert 'CL_LEVEL' not in file_src
+
+                    for x in jac_gen.in_arrays + jac_gen.out_arrays:
+                        assert re.search(r'double\* d_{};'.format(x), file_src)
+                    # and work arrays
+                    for x in callgen.work_arrays:
+                        if not isinstance(x, lp.ValueArg):
+                            try:
+                                name = x.name
+                            except AttributeError:
+                                name = x
+                            assert re.search(
+                                r'double\* d_{};'.format(name), file_src)
 
 
 def test_remove_worksize():

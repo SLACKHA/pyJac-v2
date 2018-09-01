@@ -15,7 +15,7 @@ def get_include(callgen, file):
     """
     Return an inclusion string for this language / filename
     """
-    return '#include "{}";\n'.format(header_ext[callgen.lang])
+    return '#include "{}";\n'.format(file + header_ext[callgen.lang])
 
 
 def make_parameter_docs(callgen, argnames):
