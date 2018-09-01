@@ -1,4 +1,4 @@
-#include "ocl_errorcheck.oclh"
+#include "error_check.oclh"
 
 const char* getErrorString(cl_int error)
 {
