@@ -43,9 +43,6 @@ def test_ck_is_cti():
     assert not len([x for x in difflib.unified_diff(ck, cti)])
 
 
-@xfail(ct_version <= '2.3.0', msg=(
-       "fail until "
-       "https://github.com/Cantera/cantera/pull/497 is published in 2.4.0"))
 def test_mech_interpret_runs():
     """ test mechanism intpreter for both cantera and chemkin, and that results
         match"""
