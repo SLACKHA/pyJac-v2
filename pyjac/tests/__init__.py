@@ -73,7 +73,7 @@ def get_mechanism_file():
     Returns the user specied or default Cantera mechanism to test
     This can be set in :file:`test_setup.py` or via the command line
     """
-    return _get_test_input('gas', 'test.cti')
+    return _get_test_input('gas', os.path.join(script_dir, 'test.cti'))
 
 
 def get_test_langs():
@@ -373,15 +373,14 @@ class TestClass(unittest.TestCase):
         lp.set_caching_enabled(False)
         if not self.is_setup:
             utils.setup_logging()
-            # load equations
-            self.dirpath = os.path.dirname(os.path.realpath(__file__))
-            gasname = os.path.join(self.dirpath, 'test.cti')
             # first check test config
             gasname = get_mechanism_file()
             # load the gas
             gas = ct.Solution(gasname)
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
+            # and reassign
+            utils.reassign_species_lists(reacs, specs)
             # and finally check for a test platform
             platform = get_platform_file()
             try:
