@@ -1,12 +1,53 @@
 """
-A small collection of tools used in code-generation of various OpenCL files
+A small collection of tools used in code-generation by the Cogger
 """
 
 import re
+from textwrap import dedent
 
 import loopy as lp
 import numpy as np
-from pyjac.utils import partition, is_integer
+from pyjac.kernel_utils.kernel_gen import subs_at_indent
+from pyjac.utils import partition, is_integer, header_ext
+
+
+def get_include(callgen, file):
+    """
+    Return an inclusion string for this language / filename
+    """
+    return '#include "{}";\n'.format(header_ext[callgen.lang])
+
+
+def make_parameter_docs(callgen, argnames):
+    docs = []
+    for arg in argnames:
+        dtype, desc = callgen.get_docs(arg)
+        try:
+            name = arg.name
+        except AttributeError:
+            assert isinstance(arg, str)
+            name = arg
+        docs.append('{} : {}'.format(name, dtype))
+        docs.append('\t{}'.format(desc))
+    return '\n'.join(docs)
+
+
+def make_doc_str(callgen, argnames, func_desc):
+    """
+    Returns a documentation string for the given :param:`argnames` for the
+    function w/ description :param:`func_desc`
+    """
+    parameters = make_parameter_docs(callgen, argnames)
+    return dedent(subs_at_indent(
+        """
+        /*
+            ${func_desc}
+
+            Parameters
+            ----------
+            ${parameters}
+        */
+        """, parameters=parameters, func_desc=func_desc))
 
 
 def get_kernel_args(mem, args):

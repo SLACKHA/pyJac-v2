@@ -286,8 +286,34 @@ def kernel_arg_docs():
             'dphi': ('double', 'The time rate of change of the state-vector'),
             'jac': ('double', 'The Jacobian of the time-rate of change of '
                               'the state vector'),
-            'problem_size': ('size_t', 'The number of initial conditions to '
-                             'evaluate this kernel for')}
+            'problem_size': ('size_t', 'The total number of conditions to execute '
+                             'this kernel over')}
+
+
+# heh
+def langue_docs(lang):
+    if lang == 'opencl':
+        return {
+            'work_size': ('size_t', 'The number of OpenCL groups to launch.\n'
+                                    'If using GPUs, this is the # of CUDA blocks '
+                                    'to use.\n'
+                                    'If for CPUs, this is the number of logical '
+                                    'cores to use.\n'),
+            'do_not_compile': ('bool', 'If true, the OpenCL kernel has already been '
+                                       'compiled (e.g., via previous kernel call) '
+                                       'and does not need recompilation. False by '
+                                       'default.\n\n Note: If this kernel object '
+                                       'has already been executed, the OpenCL '
+                                       'kernel has been compiled and will not be '
+                                       'recompiled regardless of the status of '
+                                       'this flag.')
+        }
+    elif lang == 'c':
+        return {
+            'work_size': ('size_t', 'The number of OpenMP threds to use.\n'),
+            'do_not_compile': ('bool', 'Unused -- incuded for consistent '
+                               'signatures.\n')
+        }
 
 
 class CallgenResult(TargetCheckingRecord):
@@ -353,9 +379,13 @@ class CallgenResult(TargetCheckingRecord):
                  dev_mem_type=DeviceMemoryType.mapped, type_map={},
                  host_constants={}, source_names={}, platform='', build_options='',
                  device_type=None, input_data_path='', for_validation=False,
-                 binname=''):
+                 binname='', language_docs=None):
         if not docs:
             docs = kernel_arg_docs()
+        if not language_docs:
+            language_docs = langue_docs(lang)
+        docs.update(language_docs)
+
         ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
                                  input_args=input_args, output_args=output_args,
                                  cl_level=cl_level, docs=docs, local_size=local_size,
@@ -415,7 +445,7 @@ class CallgenResult(TargetCheckingRecord):
 
         Parameters
         ----------
-        arg: :class:`loopy.KernelArgument`
+        arg: :class:`loopy.KernelArgument` or str
             The argument to generate documentation for
 
         Returns
@@ -424,10 +454,16 @@ class CallgenResult(TargetCheckingRecord):
             The type and docstring of the argument
         """
 
-        if arg.name in self.docs:
-            return self.docs[arg.name]
+        try:
+            name = arg.name
+        except AttributeError:
+            assert isinstance(arg, str)
+            name = arg
+
+        if name in self.docs:
+            return self.docs[name]
         else:
-            return ('???', 'Unknown kernel argument {}.'.format(arg.name))
+            return ('???', 'Unknown kernel argument {}.'.format(name))
 
 
 class CompgenResult(TargetCheckingRecord):
@@ -1150,7 +1186,7 @@ class kernel_generator(object):
         with open(callout, 'wb') as file:
             pickle.dump(callgen, file)
 
-        infile = os.path.join(script_dir, self.lang, 'kernel.c.in')
+        infile = os.path.join(script_dir, 'common', 'kernel.c.in')
         filename = os.path.join(path, self.name + '_main' + utils.file_ext[
                 self.lang])
 
@@ -2535,8 +2571,7 @@ class kernel_generator(object):
                              target=target,
                              assumptions=' and '.join(assumptions),
                              default_offset=0,
-                             **info.kwargs
-                             )
+                             **info.kwargs)
         # fix parameters
         if info.parameters:
             knl = lp.fix_parameters(knl, **info.parameters)
