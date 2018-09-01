@@ -4,13 +4,15 @@ import tempfile
 import difflib
 import re
 
+import cantera as ct
 from cantera import __version__ as ct_version
 
 from pyjac.utils import reassign_species_lists
+from pyjac.core.create_jacobian import create_jacobian, find_last_species
 from pyjac.core.enum_types import reaction_sorting
 from pyjac.core.mech_interpret import read_mech, read_mech_ct
-from pyjac.tests.test_utils import xfail
-from pyjac.tests import script_dir
+from pyjac.tests.test_utils import xfail, OptionLoopWrapper
+from pyjac.tests import script_dir, TestClass, get_mechanism_file
 
 
 ck_file = os.path.join(script_dir, 'test.inp')
@@ -118,3 +120,43 @@ def test_mechanism_sorting():
             check(this_start, this_end, depth+1)
 
     check()
+
+
+class Tester(TestClass):
+    def test_heikki_issue(self):
+        # tests issue raised by heikki via email re: incorrect re-ordering of species
+        # post call to reassign_species_lists
+        mech = get_mechanism_file()
+        gas = ct.Solution(mech)
+        # read our species for MW's
+        _, specs, _ = read_mech_ct(gas=gas)
+
+        # find the last species
+        gas_map = find_last_species(specs, return_map=True)
+        del specs
+        # update the gas
+        specs = gas.species()[:]
+        gas = ct.Solution(thermo='IdealGas', kinetics='GasKinetics',
+                          species=[specs[x] for x in gas_map],
+                          reactions=gas.reactions())
+        del specs
+
+        _, base_specs, base_reacs = read_mech_ct(gas=gas)
+        # and reassign
+        reassign_species_lists(base_reacs, base_specs)
+
+        for opts in OptionLoopWrapper.from_get_oploop(self):
+            reacs, specs = create_jacobian(
+                opts.lang,
+                mech_name=mech,
+                vector_size=opts.vector_width,
+                wide=bool(opts.width),
+                deep=bool(opts.depth),
+                last_spec=base_specs[-1].name,
+                platform=opts.platform_name.lower(),
+                data_order=opts.order,
+                explicit_simd=opts.is_simd,
+                test_mech_interpret_vs_backend=True)
+
+            assert all(r1 == r2 for r1, r2 in zip(*(reacs, base_reacs)))
+            assert all(s1 == s2 for s1, s2 in zip(*(specs, base_specs)))

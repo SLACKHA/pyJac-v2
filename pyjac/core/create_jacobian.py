@@ -5185,7 +5185,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     use_atomic_doubles=True, use_atomic_ints=True, jac_type='exact',
                     jac_format='full', for_validation=False,
                     fd_order=1, fd_mode='forward', mem_limits='',
-                    work_size=None, explicit_simd=False
+                    work_size=None, explicit_simd=False, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5431,6 +5431,12 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # reassign the reaction's product / reactant / third body list
     # to integer indexes for speed
     utils.reassign_species_lists(reacs, specs)
+
+    # hidden optipn for testing issue where the backend would use the correctly
+    # ordered gas and the command line would improperly re-order the species after
+    # they had already been reassigned
+    if kwargs.pop('test_mech_interpret_vs_backend', False):
+        return reacs, specs
 
     # check for reactions with potentially bad derivatives
     bad_rxns = []
