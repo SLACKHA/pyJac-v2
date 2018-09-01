@@ -6,10 +6,11 @@ import re
 
 from cantera import __version__ as ct_version
 
-from pyjac.tests import script_dir
+from pyjac.utils import reassign_species_lists
+from pyjac.core.enum_types import reaction_sorting
 from pyjac.core.mech_interpret import read_mech, read_mech_ct
 from pyjac.tests.test_utils import xfail
-from pyjac.core.enum_types import reaction_sorting
+from pyjac.tests import script_dir
 
 
 ck_file = os.path.join(script_dir, 'test.inp')
@@ -49,6 +50,10 @@ def test_mech_interpret_runs():
     _, specs_ck, reacs_ck = read_mech(ck_file, None)
     _, specs_cti, reacs_cti = read_mech_ct(cti_file)
 
+    # reassign
+    reassign_species_lists(reacs_ck, specs_ck)
+    reassign_species_lists(reacs_cti, specs_cti)
+
     assert len(reacs_ck) == len(reacs_cti)
     for i in range(len(reacs_ck)):
         assert reacs_ck[i] == reacs_cti[i]
@@ -61,6 +66,10 @@ def test_equality_checking():
     """ test species and reaction equality checking"""
     _, specs_ck, reacs_ck = read_mech(ck_file, None)
     _, specs_cti, reacs_cti = read_mech_ct(cti_file)
+
+    # reassign
+    reassign_species_lists(reacs_ck, specs_ck)
+    reassign_species_lists(reacs_cti, specs_cti)
 
     assert reacs_ck[0] == reacs_cti[0]
     for i in range(1, len(reacs_ck)):

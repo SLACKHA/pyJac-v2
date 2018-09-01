@@ -146,14 +146,15 @@ class ReacInfo(object):
             assert type(self) == type(other)
             # check reactants
             assert len(self.reac) == len(other.reac)
-            assert all(self.reac[i] == other.reac[i] for i in range(len(self.reac)))
-            assert all(self.reac_nu[i] == other.reac_nu[i] for i in range(
-                len(self.reac)))
+            for i in range(len(self.reac)):
+                assert self.reac[i] in other.reac
+                ind = other.reac.index(self.reac[i])
+                assert self.reac_nu[i] == other.reac_nu[ind]
             # check products
-            assert len(self.prod) == len(other.prod)
-            assert all(self.prod[i] == other.prod[i] for i in range(len(self.prod)))
-            assert all(self.prod_nu[i] == other.prod_nu[i] for i in range(
-                len(self.prod)))
+            for i in range(len(self.prod)):
+                assert self.prod[i] in other.prod
+                ind = other.prod.index(self.prod[i])
+                assert self.prod_nu[i] == other.prod_nu[ind]
             # check arrhenius
             assert np.isclose(self.A, other.A)
             assert np.isclose(self.b, other.b)
