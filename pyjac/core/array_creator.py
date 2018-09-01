@@ -1408,6 +1408,11 @@ class creator(object):
             self.creator = self.__glob_arg_creator
 
     @property
+    def is_temporary(self):
+        return isinstance(self.initializer, np.ndarray) \
+            or self.initializer is not None
+
+    @property
     def size(self):
         if self.initializer is None:
             raise NotImplementedError
@@ -1505,7 +1510,8 @@ class creator(object):
                 return False
 
         # find the global ind if there
-        glob_ind = next((i for i, ind in enumerate(inds) if match(ind)), None)
+        if not self.is_temporary:
+            glob_ind = next((i for i, ind in enumerate(inds) if match(ind)), None)
         if glob_ind is not None:
             if wbi:
                 # convert index string to parallel iname only
