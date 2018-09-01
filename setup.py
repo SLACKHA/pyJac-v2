@@ -92,7 +92,7 @@ setup(
     # install_requires=['peppercorn'],
     install_requires=[
         'numpy',
-        'loo.py>=2016.2',
+        'loo.py>=2018.1',
         'six',
         'pyyaml',
         'cgen',
@@ -100,7 +100,6 @@ setup(
         'enum34;python_version<"3.4"'],
 
     tests_require=[
-          'pyopencl>=2015.2',
           'nose',
           'nose-exclude',
           'nose-testconfig',
@@ -110,7 +109,8 @@ setup(
           'cantera >= 2.3.0',
           'scipy',
           'tables',
-          'psutil'],
+          'psutil',
+          'pyopencl'],
 
     # use nose for tests
     test_suite='nose.collector',

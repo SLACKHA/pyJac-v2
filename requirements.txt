@@ -1,5 +1,5 @@
 numpy
-loo.py >= 2016.2
+loo.py >= 2018.1
 enum34 >= 1.1.6;python_version=='2.7'
 six
 pyyaml
