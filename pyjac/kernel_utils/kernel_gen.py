@@ -1092,7 +1092,7 @@ class kernel_generator(object):
         with open(callout, 'wb') as file:
             pickle.dump(callgen, file)
 
-        infile = os.path.join(script_dir, self.lang, 'kernel.h.in')
+        infile = os.path.join(script_dir, 'common', 'kernel.h.in')
         filename = os.path.join(path, self.name + '_main' + utils.header_ext[
                 self.lang])
 

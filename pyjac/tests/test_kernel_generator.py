@@ -22,7 +22,8 @@ from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_manager import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
     knl_info, make_kernel_generator
-from pyjac.utils import partition, temporary_directory, clean_dir
+from pyjac.utils import partition, temporary_directory, clean_dir, \
+    can_vectorize_lang, header_ext
 from pyjac.tests import TestClass, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper
 
@@ -439,12 +440,7 @@ class SubTest(TestClass):
                 assert 'char* platform = "{}";'.format(
                     opts.platform.vendor)
 
-    def test_call_generator(self):
-        oploop = OptionLoopWrapper.from_get_oploop(self,
-                                                   do_conp=False,
-                                                   do_vector=True,
-                                                   do_sparse=False)
-
+    def __get_call_kernel_generator(self, opts):
         # create some test kernels
 
         # first, make a (potentially) host constant
@@ -471,54 +467,64 @@ class SubTest(TestClass):
             """
         )
 
+        # create mapstore
+        domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                             initializer=np.arange(10, dtype=arc.kint_type))
+        mapstore = arc.MapStore(opts, domain, None)
+        # create global args
+        jac = arc.creator('jac', np.float64,
+                          (arc.problem_size.name, 10), opts.order)
+        spec = arc.creator('spec', np.float64,
+                           (arc.problem_size.name, 10), opts.order)
+        chem = arc.creator('chem', np.float64,
+                           (arc.problem_size.name, 10), opts.order)
+        namestore = type('', (object,),
+                         {'jac': jac, 'spec': spec, 'chem': chem})
+        # create array / array strings
+        jac_lp, jac_str = mapstore.apply_maps(jac, 'j', 'i')
+        spec_lp, spec_str = mapstore.apply_maps(spec, 'j', 'i')
+        chem_lp, chem_str = mapstore.apply_maps(chem, 'j', 'i')
+
+        # create kernel infos
+        jac_info = knl_info(
+            'jac_eval', jac_insns.format(jac=jac_str, spec=spec_str),
+            mapstore, kernel_data=[jac_lp, spec_lp, arc.work_size],
+            silenced_warnings=['write_race(0)'])
+        spec_info = knl_info(
+            'spec_eval', spec_insns.format(spec=spec_str, chem=chem_str),
+            mapstore, kernel_data=[spec_lp, chem_lp, arc.work_size],
+            silenced_warnings=['write_race(1)'])
+        chem_info = knl_info(
+            'chem_eval', chem_insns.format(
+                chem=chem_str),
+            mapstore, kernel_data=[chem_lp, const, arc.work_size],
+            silenced_warnings=['write_race(2)'])
+
+        # create generators
+        chem_gen = make_kernel_generator(
+             opts, KernelType.chem_utils, [chem_info],
+             namestore,
+             output_arrays=['chem'])
+        spec_gen = make_kernel_generator(
+             opts, KernelType.species_rates, [spec_info],
+             namestore, depends_on=[chem_gen],
+             input_arrays=['chem'], output_arrays=['spec'])
+        jac_gen = make_kernel_generator(
+             opts, KernelType.jacobian, [jac_info],
+             namestore, depends_on=[spec_gen],
+             input_arrays=['spec'], output_arrays=['jac'])
+
+        return jac_gen
+
+    def test_call_generator(self):
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+
         for opts in oploop:
             with temporary_directory() as tdir:
-                # create mapstore
-                domain = arc.creator('domain', arc.kint_type, (10,), 'C',
-                                     initializer=np.arange(10, dtype=arc.kint_type))
-                mapstore = arc.MapStore(opts, domain, None)
-                # create global args
-                jac = arc.creator('jac', np.float64,
-                                  (arc.problem_size.name, 10), opts.order)
-                spec = arc.creator('spec', np.float64,
-                                   (arc.problem_size.name, 10), opts.order)
-                chem = arc.creator('chem', np.float64,
-                                   (arc.problem_size.name, 10), opts.order)
-                namestore = type('', (object,),
-                                 {'jac': jac, 'spec': spec, 'chem': chem})
-                # create array / array strings
-                jac_lp, jac_str = mapstore.apply_maps(jac, 'j', 'i')
-                spec_lp, spec_str = mapstore.apply_maps(spec, 'j', 'i')
-                chem_lp, chem_str = mapstore.apply_maps(chem, 'j', 'i')
-
-                # create kernel infos
-                jac_info = knl_info(
-                    'jac_eval', jac_insns.format(jac=jac_str, spec=spec_str),
-                    mapstore, kernel_data=[jac_lp, spec_lp, arc.work_size],
-                    silenced_warnings=['write_race(0)'])
-                spec_info = knl_info(
-                    'spec_eval', spec_insns.format(spec=spec_str, chem=chem_str),
-                    mapstore, kernel_data=[spec_lp, chem_lp, arc.work_size],
-                    silenced_warnings=['write_race(1)'])
-                chem_info = knl_info(
-                    'chem_eval', chem_insns.format(
-                        chem=chem_str),
-                    mapstore, kernel_data=[chem_lp, const, arc.work_size],
-                    silenced_warnings=['write_race(2)'])
-
-                # create generators
-                chem_gen = make_kernel_generator(
-                     opts, KernelType.chem_utils, [chem_info],
-                     namestore,
-                     output_arrays=['chem'])
-                spec_gen = make_kernel_generator(
-                     opts, KernelType.species_rates, [spec_info],
-                     namestore, depends_on=[chem_gen],
-                     input_arrays=['chem'], output_arrays=['spec'])
-                jac_gen = make_kernel_generator(
-                     opts, KernelType.jacobian, [jac_info],
-                     namestore, depends_on=[spec_gen],
-                     input_arrays=['spec'], output_arrays=['jac'])
+                jac_gen = self.__get_call_kernel_generator(opts)
 
                 jac_gen._make_kernels()
                 callgen, record, result = jac_gen._generate_wrapping_kernel(tdir)
@@ -539,6 +545,10 @@ class SubTest(TestClass):
                 assert ('void JacobianKernel::operator()(double* h_jac, '
                         'double* h_spec)') in file_src
 
+                if opts.lang == 'c':
+                    assert ('void Kernel::threadset(unsigned int num_threads)'
+                            in file_src)
+
                 # and the validation output
                 assert all(x in file_src for x in
                            """// write output to file if supplied
@@ -558,25 +568,28 @@ class SubTest(TestClass):
                                                    do_vector=True,
                                                    do_sparse=False)
         for opts in oploop:
-            # create a species rates kernel generator for this state
-            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
-                                       conp=oploop.state['conp'])
             with temporary_directory() as tdir:
-                kgen._make_kernels()
-                callgen, record, result = kgen._generate_wrapping_kernel(tdir)
-                callgen = kgen._generate_driver_kernel(
+                jac_gen = self.__get_call_kernel_generator(opts)
+                jac_gen._make_kernels()
+                callgen, record, result = jac_gen._generate_wrapping_kernel(tdir)
+                callgen = jac_gen._generate_driver_kernel(
                     tdir, record, result, callgen)
-                _, callgen = kgen._generate_calling_program(
+                _, callgen = jac_gen._generate_calling_program(
                     tdir, 'dummy.bin', callgen, record, for_validation=True)
-                file = kgen._generate_calling_header(tdir, callgen)
+                file = jac_gen._generate_calling_header(tdir, callgen)
                 with open(file, 'r') as file:
                     file_src = file.read()
 
                 assert 'JacobianKernel();' in file_src
-                assert 'JacobianKernel(size_t problem_size, size_t work_groups);' \
-                    in file_src
-                assert ('void operator()(double* h_P_arr, double* h_phi, '
-                        'double* h_jac);') in file_src
+                assert ('JacobianKernel(size_t problem_size, size_t work_size, '
+                        'bool do_not_compile=false);') in file_src
+                assert 'void operator()(double* h_jac, double* h_spec);'
+
+                headers = ['mechanism', 'error_check', 'timer']
+                if can_vectorize_lang[opts.lang]:
+                    headers += ['vectorization']
+                assert all('#include "{}"'.format(header + header_ext[opts.lang])
+                           in file_src for header in headers)
 
                 if opts.lang == 'opencl':
                     # check build options
@@ -585,13 +598,13 @@ class SubTest(TestClass):
                     assert re.search(opts.platform.vendor, file_src)
 
                     # check arguments
-                    for x in kgen.in_arrays + kgen.out_arrays:
+                    for x in jac_gen.in_arrays + jac_gen.out_arrays:
                         assert re.search(r'cl_mem d_{};'.format(x), file_src)
                     # and work arrays
                     for x in callgen.work_arrays:
                         assert re.search(r'cl_mem d_{};'.format(x.name), file_src)
                 else:
-                    raise NotImplementedError
+                    assert 'CL_LEVEL' not in file_src
 
 
 def test_remove_worksize():
