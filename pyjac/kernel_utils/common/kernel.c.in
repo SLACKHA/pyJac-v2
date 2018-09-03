@@ -289,8 +289,7 @@ size_t Kernel::this_run(size_t offset)
     }
             """, trimblanklines=True)
 ]]]
-[[[end]]]
-*/
+[[[end]]]*/
 
 
 /*
@@ -442,7 +441,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
         check_err(clFinish(this->queue));
         """, dedent=True, trimblanklines=True)
 
-    cog.outl('/* Free Memory */')
+    cog.outl(indent('/* Free Memory */', stdindent))
 
     for arr in callgen.kernel_data[kernel]:
         if not isinstance(arr, lp.ValueArg):
@@ -528,14 +527,14 @@ void {kernel_name}::operator()({knl_args})
         #endif
     """.format(local_size=callgen.local_size), dedent=False, trimblanklines=True)
 
-    cog.outl(indent('// Memory Transfers into the kernel, if any', stdindent))
+    cog.outl(indent('// Memory Transfers into the kernel, if any', stdindent * 2))
     # write memory transfers in
     for arg in callgen.input_args[kernel]:
         if not isinstance(arg, lp.ValueArg):
             cog.outl(indent(kmem.copy(to_device=True, arr=arg), stdindent*2))
 
     # call kernel
-    cog.outl(indent('// run kernel', stdindent))
+    cog.outl(indent('// run kernel', stdindent * 2))
     if callgen.lang == 'opencl':
         cog.outl("""
         check_err(clEnqueueNDRangeKernel(queue, this->kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
@@ -546,7 +545,7 @@ void {kernel_name}::operator()({knl_args})
         {kernel}({args});
         """.format(kernel=kernel, args=args), dedent=False, trimblanklines=True)
 
-    cog.outl(indent('// Memory Transfers out', stdindent))
+    cog.outl(indent('// Memory Transfers out', stdindent * 2))
     # and finally write memory transfers out
     for arg in callgen.output_args[kernel]:
         if not isinstance(arg, lp.ValueArg):
