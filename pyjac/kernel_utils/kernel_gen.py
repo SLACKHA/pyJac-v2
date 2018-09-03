@@ -1857,14 +1857,14 @@ class kernel_generator(object):
         """
 
         replacers = [  # full replacement
-                     (re.compile(r'(, int const work_size_, )'), r', '),
+                     (re.compile(r'(, int const work_size, )'), r', '),
                      # rhs )
-                     (re.compile(r'(, int const work_size_\))'), r')'),
+                     (re.compile(r'(, int const work_size\))'), r')'),
                      # lhs (
-                     (re.compile(r'(\(int const work_size_, )'), r'('),
-                     (re.compile(r'(\(work_size_, )'), '('),
-                     (re.compile(r'(, work_size_, )'), ', '),
-                     (re.compile(r'(, work_size_\))'), ')')]
+                     (re.compile(r'(\(int const work_size, )'), r'('),
+                     (re.compile(r'(\(work_size, )'), '('),
+                     (re.compile(r'(, work_size, )'), ', '),
+                     (re.compile(r'(, work_size\))'), ')')]
         for r, s in replacers:
             text = r.sub(s, text)
         return text
@@ -2751,8 +2751,8 @@ class c_kernel_generator(kernel_generator):
             return []
 
         work_size = """
-        #ifndef work_size_
-            #define work_size_ (omp_get_num_threads())
+        #ifndef work_size
+            #define work_size (omp_get_num_threads())
         #endif
         """
 
@@ -2892,8 +2892,8 @@ class opencl_kernel_generator(kernel_generator):
             return []
 
         work_size = """
-        #ifndef work_size_
-            #define work_size_ (({int_type}) get_num_groups(0))
+        #ifndef work_size
+            #define work_size (({int_type}) get_num_groups(0))
         #endif
         """.format(int_type=self.type_map[to_loopy_type(arc.kint_type)])
 

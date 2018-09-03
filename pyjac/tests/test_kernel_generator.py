@@ -631,17 +631,17 @@ class SubTest(TestClass):
 
 def test_remove_worksize():
     assert kernel_generator._remove_work_size(
-        '(int const work_size_, int dummy)') == '(int dummy)'
+        '(int const work_size, int dummy)') == '(int dummy)'
     assert kernel_generator._remove_work_size(
-        '(int dummy, int const work_size_)') == '(int dummy)'
+        '(int dummy, int const work_size)') == '(int dummy)'
     assert kernel_generator._remove_work_size(
-        '(int dummy, int const work_size_, int dummy2)') == '(int dummy, int dummy2)'
+        '(int dummy, int const work_size, int dummy2)') == '(int dummy, int dummy2)'
     assert kernel_generator._remove_work_size(
-        'call(dummy, work_size_)') == 'call(dummy)'
+        'call(dummy, work_size)') == 'call(dummy)'
     assert kernel_generator._remove_work_size(
-        'call(work_size_, dummy)') == 'call(dummy)'
+        'call(work_size, dummy)') == 'call(dummy)'
     assert kernel_generator._remove_work_size(
-        'call(dummy, work_size_, dummy)') == 'call(dummy, dummy)'
+        'call(dummy, work_size, dummy)') == 'call(dummy, dummy)'
 
 
 def test_target_record():

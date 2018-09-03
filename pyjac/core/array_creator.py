@@ -445,7 +445,7 @@ problem_size = lp.ValueArg('problem_size', dtype=kint_type)
     input/output arrays used in drivers
 """
 
-work_size = lp.ValueArg('work_size_', dtype=kint_type)
+work_size = lp.ValueArg('work_size', dtype=kint_type)
 """
     The global work size of the generated kernel.
     Roughly speaking, this corresponds to:
