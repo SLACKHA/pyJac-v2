@@ -1941,6 +1941,7 @@ class kernel_generator(object):
 
         # split into bodies, preambles, etc.
         for i, k, in enumerate(kernels):
+            k = lp.preprocess_kernel(k)
             # drivers own all their own kernels
             i_own = for_driver or owner[k.name] == self
             # make kernel
@@ -2001,6 +2002,8 @@ class kernel_generator(object):
                             knl=fk.replace_with, passed_locals=local_decls))
                         extra_kernels[-1] = extra_kernels[-1].replace(
                             fk.dummy_call, knl_call[:-2])
+                # and add defn to preamble
+                preambles += [self._remove_work_size(lp_utils.get_header(k))]
 
             # get instructions
             insns = self._remove_work_size(self._get_kernel_call(k))
@@ -2031,8 +2034,8 @@ class kernel_generator(object):
         instructions[0:0] = [str(x) for x in local_decls]
 
         # add any target preambles
-        preambles = preambles + [x for x in self.target_preambles
-                                 if x not in preambles]
+        preambles = [x for x in self.target_preambles if x not in preambles] \
+            + preambles
         preambles = [textwrap.dedent(x) for x in preambles]
 
         # and place in codegen
