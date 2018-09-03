@@ -282,10 +282,10 @@ size_t Kernel::this_run(size_t offset)
 
     elif callgen.lang == 'c':
         cog.outl("""
-    Kernel::void init(size_t problem_size, size_t work_size)
+    void Kernel::init(size_t problem_size, size_t work_size)
     {
         this->threadset(work_size);
-        this->mem_init(problem_size);
+        this->mem_init(problem_size, work_size);
     }
             """, trimblanklines=True)
 ]]]
@@ -456,12 +456,12 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     """.format(name=kernel.title()), dedent=True, trimblanklines=True)
     cog.out("""
 {{
-    this->num_source = {num_source};
     this->max_per_run = {max_per_run};
     """.format(num_source=num_source, max_per_run=callgen.max_ic_per_run),
         dedent=False, trimblanklines=True)
     if callgen.lang == 'opencl':
         cog.outl("""
+    this->num_source = {num_source};
     this->kernel_path = "{binary_path}";
     """.format(binary_path=callgen.binname), dedent=False, trimblanklines=True)
 
@@ -542,7 +542,7 @@ void {kernel_name}::operator()({knl_args})
     elif callgen.lang == 'c':
         args = ', '.join([mem.get_name(False, arg) for arg in callgen.kernel_args[kernel]])
         cog.outl("""
-        {kernel}({args});
+        {kernel}_driver({args});
         """.format(kernel=kernel, args=args), dedent=False, trimblanklines=True)
 
     cog.outl(indent('// Memory Transfers out', stdindent * 2))

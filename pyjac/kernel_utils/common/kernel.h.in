@@ -92,8 +92,9 @@ public:
             static const char* platform_check;
             static const unsigned int device_type;
             """, trimblanklines=True, dedent=True)
-         else:
+         elif callgen.lang == 'c':
             cog.outl('void compile(){}')
+            cog.outl('void threadset(unsigned int num_threads);')
       ]]]
       [[[end]]]*/
 
@@ -136,7 +137,7 @@ protected:
                             callgen.lang.title())))
       ]]]
       [[[end]]]*/
-    void init(size_t problem_size, cl_uint work_size);
+    void init(size_t problem_size, size_t work_size);
 
     // memory initialization / release accomplished in sub-classes
     virtual void mem_init(size_t problem_size, size_t work_size) = 0;
