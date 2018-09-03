@@ -38,6 +38,9 @@ Global declarations for Cog:
     headers = ['mechanism', 'error_check', 'timer']
     if can_vectorize_lang[callgen.lang]:
         headers.append('vectorization')
+    if callgen.lang != 'opencl':
+        # include driver header
+        headers.append('{}_driver'.format(callgen.name))
 
     for header in headers:
         cog.outl(get_include(callgen, header))
