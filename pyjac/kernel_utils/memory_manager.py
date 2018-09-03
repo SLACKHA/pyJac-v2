@@ -152,7 +152,6 @@ class memory_limits(object):
                                else s for s in string_strides]
         self.dtype = dtype
         self.limit_int_overflow = limit_int_overflow
-        self.integer_warned = False
 
     def integer_limited_problem_size(self, arry, dtype=np.int32):
         """
@@ -246,19 +245,15 @@ class memory_limits(object):
             old = limit
             limit = np.minimum(limit, self.integer_limited_problem_size(
                     array, self.dtype))
-            if old != limit and not self.integer_warned:
+            if old != limit:
                 stype = str(mtype)
                 stype = stype[stype.index('.') + 3:]
-                logger.warn(
+                logger.info(
                     'Allocation of {} memory array {} '
                     'may result in integer overflow in indexing, and '
-                    'cause failure on execution, limiting per-run size. '
-                    'Note: only the first such array will be displayed '
-                    'there may be more arrays that would result in '
-                    'overflow.'
-                    .format(stype, array.name)
+                    'cause failure on execution, limiting per-run size to {}.'
+                    .format(stype, array.name, int(limit))
                     )
-                self.integer_warned = True
             return limit
 
         def __calculate_alloc_limit(limit):
