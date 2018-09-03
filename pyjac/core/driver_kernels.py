@@ -252,6 +252,8 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
             warnings.append('unrolled_vector_iname_conditional')
         instructions = '\n'.join(instructions)
 
+        priorities = ([arc.global_ind + '_outer'] if loopy_opts.pre_split else [
+            arc.global_ind]) + [arc.var_name]
         # and return the kernel info
         return k_gen.knl_info(name=name,
                               instructions=instructions,
@@ -262,7 +264,9 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                                 arc.work_size, arc.problem_size, driver_index],
                               silenced_warnings=warnings,
                               vectorization_specializer=vec_spec,
-                              split_specializer=split_spec)
+                              split_specializer=split_spec,
+                              loop_priority=set([tuple(priorities + [
+                                iname[0] for iname in extra_inames])]))
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function

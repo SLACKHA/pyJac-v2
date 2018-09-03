@@ -2595,9 +2595,10 @@ class kernel_generator(object):
         if self.user_specified_work_size:
             # fix work size
             knl = lp.fix_parameters(knl, **{w_size.name: self.work_size})
-        # prioritize and return
-        knl = lp.prioritize_loops(knl, [y for x in inames
-                                        for y in x.split(',')])
+        if not knl.loop_priority:
+            # prioritize and return
+            knl = lp.prioritize_loops(knl, [y for x in inames
+                                            for y in x.split(',')])
         # check manglers
         if info.manglers:
             knl = lp.register_function_manglers(knl, info.manglers)
