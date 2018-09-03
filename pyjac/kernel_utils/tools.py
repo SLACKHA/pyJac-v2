@@ -7,6 +7,8 @@ from textwrap import dedent
 
 import loopy as lp
 import numpy as np
+
+from pyjac.core.array_creator import work_size as w_size
 from pyjac.kernel_utils.kernel_gen import subs_at_indent
 from pyjac.utils import partition, is_integer, header_ext
 
@@ -119,7 +121,7 @@ def max_size(mem, args):
     problem_sizes, work_sizes = partition(max_size, is_integer)
     problem_size = '{} * problem_size'.format(max([int(x) for x in problem_sizes]))
     # make sure work sizes are what we expect
-    regex = re.compile(r'work_size\s*\*\s*(\d+)')
+    regex = re.compile(r'{}\s*\*\s*(\d+)'.format(w_size.name))
     assert all(regex.search(x) for x in work_sizes)
     # next, extract the work sizes
     work_size = [int(regex.search(x).group(1)) for x in work_sizes]
