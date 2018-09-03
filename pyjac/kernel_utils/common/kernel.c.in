@@ -32,7 +32,7 @@ Global declarations for Cog:
      from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
      mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
 
-     cog.outl(get_include(callgen, '{}_main.oclh'.format(callgen.name)))
+     cog.outl(get_include(callgen, '{}_main'.format(callgen.name)))
      cog.outl(get_include(callgen, 'read_initial_conditions'))
      cog.outl(get_include(callgen, 'write_data'))
      cog.outl(get_include(callgen, 'memcpy_2d'))
