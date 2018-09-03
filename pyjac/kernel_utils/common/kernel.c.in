@@ -540,7 +540,14 @@ void {kernel_name}::operator()({knl_args})
         check_err(clEnqueueNDRangeKernel(queue, this->kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
         """, dedent=False, trimblanklines=True)
     elif callgen.lang == 'c':
-        args = ', '.join([mem.get_name(False, arg) for arg in callgen.kernel_args[kernel]])
+        name_maps = {'problem_size': 'per_run'}
+        def get_name(arg):
+            name = arg.name if arg.name not in name_maps else \
+                name_maps[arg.name]
+            return type('', (object,), {'name': name})
+
+        args = ', '.join([kmem.get_name(True, get_name(arg))
+                          for arg in callgen.kernel_data[kernel]])
         cog.outl("""
         {kernel}_driver({args});
         """.format(kernel=kernel, args=args), dedent=False, trimblanklines=True)
