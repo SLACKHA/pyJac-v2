@@ -2116,7 +2116,8 @@ class kernel_generator(object):
             owner = next(x for x in generators if x.name == result.name)
             deps = owner._get_deps()
             codegen_results[i] = result.copy(
-                dependencies=[x.name for x in deps] + result.dependencies)
+                dependencies=[x.name for x in deps if x != owner.name] +
+                result.dependencies)
 
         return codegen_results
 
