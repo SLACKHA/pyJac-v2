@@ -46,6 +46,15 @@ def get_header_preamble(lang):
         The preamble to include
     """
     utils.check_lang(lang)
+    if lang == 'c':
+        return [textwrap.dedent("""
+#ifdef _OPENMP
+ #include <omp.h>
+#else
+ #define omp_get_num_threads() (1)
+#endif
+""".strip())]
+
     return []
 
 
