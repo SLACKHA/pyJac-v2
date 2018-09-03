@@ -171,30 +171,33 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         split_spec = None
         conditional_index = global_indicies[0]
         if loopy_opts.pre_split:
-            # need put dependence of vector lane in
-            extra_inames.append(('lane', '0 <= lane < {}'.format(
-                loopy_opts.vector_width)))
-            global_indicies[0] += ' + lane'
-            conditional_index = '({} + {}) + lane'.format(
-                indicies[0] + '_outer',
-                driver_index.name)
+            conditional_index = '({} + {})'.format(
+                indicies[0] + '_outer', driver_index.name, indicies[0] + '_inner')
+            if loopy_opts.is_simd:
+                # need put dependence of vector lane in
+                extra_inames.append(('lane', '0 <= lane < {}'.format(
+                    loopy_opts.vector_width)))
+                global_indicies[0] += ' + lane'
+                conditional_index = '({} + {}) + lane'.format(
+                    indicies[0] + '_outer',
+                    driver_index.name)
 
-            def vectorization_specializer(knl):
-                # first, unroll lane
-                knl = lp.tag_inames(knl, {'lane': 'unr'})
-                return knl
+                def vectorization_specializer(knl):
+                    # first, unroll lane
+                    knl = lp.tag_inames(knl, {'lane': 'unr'})
+                    return knl
 
-            def split_specializer(knl):
-                # drop the vector iname and do a pure unroll
-                knl = lp.rename_iname(knl, indicies[0] + '_inner', 'lane',
-                                      existing_ok=True)
-                priorities = set(list(knl.loop_priority)[0]) - \
-                    set([indicies[0] + '_inner'])
-                priorities = set([tuple(priorities)])
-                return knl.copy(loop_priority=priorities)
+                def split_specializer(knl):
+                    # drop the vector iname and do a pure unroll
+                    knl = lp.rename_iname(knl, indicies[0] + '_inner', 'lane',
+                                          existing_ok=True)
+                    priorities = set(list(knl.loop_priority)[0]) - \
+                        set([indicies[0] + '_inner'])
+                    priorities = set([tuple(priorities)])
+                    return knl.copy(loop_priority=priorities)
 
-            vec_spec = vectorization_specializer
-            split_spec = split_specializer
+                vec_spec = vectorization_specializer
+                split_spec = split_specializer
 
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies
@@ -267,8 +270,8 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
     # create mapstore
     call_name = driven.name
     repeats = 1
-    if loopy_opts.vector_width and not loopy_opts.is_simd:
-        # if we have a non-unity work size
+    if loopy_opts.depth:
+        # we need 'var_name' to have a non-unity size
         repeats = loopy_opts.vector_width
 
     map_shape = np.arange(repeats, dtype=arc.kint_type)
@@ -328,11 +331,17 @@ def lockstep_driver_template(loopy_opts, driven):
 
     elif loopy_opts.lang == 'opencl':
         template = Template("""
-        #ifndef DEEP
-            ${dtype} inc = get_global_size(0);
+        #if defined(WIDE) && !defined(EXPLICIT_SIMD)
+            // each group processes get_global_size(0) condtions
+            #define inc (get_global_size(0))
+            ${dtype} driver_index = get_global_id(0);
+        #elif defined(WIDE) && defined(EXPLICIT_SIMD)
+            // each group processes VECWIDTH condtions
+            #define inc (VECWIDTH * get_num_groups(0))
             ${dtype} driver_index = get_global_id(0);
         #else
-            ${dtype} inc = get_num_groups(0);
+            // each group processes a single condtion
+            #define inc (get_num_groups(0))
             ${dtype} driver_index = get_group_id(0);
         #endif
         ${unpacks}

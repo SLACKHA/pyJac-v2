@@ -521,7 +521,7 @@ void {kernel_name}::operator()({knl_args})
         cog.outl("""
         size_t global_work_size = this->work_size;
         size_t local_work_size = {local_size};
-        #if defined(DEEP) && !defined(EXPLICIT_SIMD)
+        #if !defined(EXPLICIT_SIMD)
             // need to multiply global worksize by local worksize
             // to get correct number of global items (as)
             global_work_size *= local_work_size;
