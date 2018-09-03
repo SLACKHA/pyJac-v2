@@ -298,7 +298,7 @@ def langue_docs(lang):
                                     'If using GPUs, this is the # of CUDA blocks '
                                     'to use.\n'
                                     'If for CPUs, this is the number of logical '
-                                    'cores to use.\n'),
+                                    'cores to use.'),
             'do_not_compile': ('bool', 'If true, the OpenCL kernel has already been '
                                        'compiled (e.g., via previous kernel call) '
                                        'and does not need recompilation. False by '
@@ -310,9 +310,9 @@ def langue_docs(lang):
         }
     elif lang == 'c':
         return {
-            'work_size': ('size_t', 'The number of OpenMP threds to use.\n'),
+            'work_size': ('size_t', 'The number of OpenMP threads to use.'),
             'do_not_compile': ('bool', 'Unused -- incuded for consistent '
-                               'signatures.\n')
+                               'signatures.')
         }
 
 
