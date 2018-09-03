@@ -39,13 +39,15 @@ class WrapperGen(ImmutableRecord, DocumentingRecord):
                                  docs=docs)
 
 
-def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, lang, libname,
+def generate_setup(lang, setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
                    ktype=KernelType.jacobian):
     """Helper method to fill in the template .in files
 
     Parameters
     ----------
+    lang : str
+        The language of the wrapper being generated
     setupfile : str
         Filename of the setup file template
     pyxfile : str
@@ -56,8 +58,6 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, lang, libna
         Build directory path
     out_dir : str
         Output directory path
-    lang : str
-        The language of the wrapper being generated
     libname : str
         Library name
     extra_include_dirs : Optional[list of str]
@@ -100,7 +100,7 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, lang, libna
     return outpath
 
 
-def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
+def generate_wrapper(lang, pyxfile, build_dir, ktype=KernelType.jacobian,
                      additional_inputs=[], additional_outputs=[],
                      nice_name=None):
     """
@@ -108,6 +108,8 @@ def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
 
     Parameters
     ----------
+    lang : str
+        The language of the wrapper being generated
     pyxfile : str
         Filename of the pyx file template
     build_dir : str
@@ -157,7 +159,7 @@ def generate_wrapper(pyxfile, build_dir, ktype=KernelType.jacobian,
         return args
 
     args = extend(outputs, extend(inputs))
-    wrapper = WrapperGen(name=nice_name, kernel_args=args)
+    wrapper = WrapperGen(name=nice_name, kernel_args=args, lang=lang)
 
     # dump wrapper
     with utils.temporary_directory() as tdir:
@@ -280,15 +282,15 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
     pyxfile = 'pyjacob_wrapper.pyx.in'
 
     # generate wrapper
-    wrapper = generate_wrapper(os.path.join(home_dir, pyxfile), build_dir,
+    wrapper = generate_wrapper(lang,os.path.join(home_dir, pyxfile), build_dir,
                                ktype=ktype, additional_outputs=additional_outputs,
                                additional_inputs=kwargs.pop('additional_inputs', []),
                                nice_name=kwargs.get('file_base', None))
 
     # generate setup
     setup = generate_setup(
-        os.path.join(home_dir, setupfile), wrapper,
-        home_dir, source_dir, build_dir, lang, lib,
+        lang, os.path.join(home_dir, setupfile), wrapper,
+        home_dir, source_dir, build_dir, lib,
         extra_include_dirs, libraries, libdirs,
         ktype=ktype)
 
