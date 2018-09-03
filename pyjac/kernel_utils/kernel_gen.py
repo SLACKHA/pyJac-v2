@@ -316,7 +316,51 @@ def langue_docs(lang):
         }
 
 
-class CallgenResult(TargetCheckingRecord):
+class DocumentingRecord(object):
+    """
+    Note, the base class is responsible for passing the 'docs' attribute to the
+    immutablerecord
+    """
+
+    @staticmethod
+    def init_docs(lang, docs=None, language_docs=None):
+        docs = {}
+        if not docs:
+            docs = kernel_arg_docs()
+        if not language_docs:
+            language_docs = langue_docs(lang)
+        docs.update(language_docs)
+        return docs
+
+    def get_docs(self, arg):
+        """
+        Returns the :attr:`docs` matching this :param:`arg`'s :attr:`name`,
+        if available, or else a default place-holder string.
+
+        Parameters
+        ----------
+        arg: :class:`loopy.KernelArgument` or str
+            The argument to generate documentation for
+
+        Returns
+        -------
+        (dtype, docstring): tuple of str
+            The type and docstring of the argument
+        """
+
+        try:
+            name = arg.name
+        except AttributeError:
+            assert isinstance(arg, str)
+            name = arg
+
+        if name in self.docs:
+            return self.docs[name]
+        else:
+            return ('???', 'Unknown kernel argument {}.'.format(name))
+
+
+class CallgenResult(TargetCheckingRecord, DocumentingRecord):
     """
     A convenience class that provides intermediate storage for generation of the
     calling program
@@ -380,12 +424,8 @@ class CallgenResult(TargetCheckingRecord):
                  host_constants={}, source_names={}, platform='', build_options='',
                  device_type=None, input_data_path='', for_validation=False,
                  binname='', language_docs=None):
-        if not docs:
-            docs = kernel_arg_docs()
-        if not language_docs:
-            language_docs = langue_docs(lang)
-        docs.update(language_docs)
 
+        docs = self.init_docs(lang, docs=docs, language_docs=language_docs)
         ImmutableRecord.__init__(self, name=name, work_arrays=work_arrays,
                                  input_args=input_args, output_args=output_args,
                                  cl_level=cl_level, docs=docs, local_size=local_size,
@@ -437,33 +477,6 @@ class CallgenResult(TargetCheckingRecord):
         Returns a dictionary kernel name-> complete list of kernel arguments
         """
         return self._get_data(False)
-
-    def get_docs(self, arg):
-        """
-        Returns the :attr:`docs` matching this :param:`arg`'s :attr:`name`,
-        if available, or else a default place-holder string.
-
-        Parameters
-        ----------
-        arg: :class:`loopy.KernelArgument` or str
-            The argument to generate documentation for
-
-        Returns
-        -------
-        (dtype, docstring): tuple of str
-            The type and docstring of the argument
-        """
-
-        try:
-            name = arg.name
-        except AttributeError:
-            assert isinstance(arg, str)
-            name = arg
-
-        if name in self.docs:
-            return self.docs[name]
-        else:
-            return ('???', 'Unknown kernel argument {}.'.format(name))
 
 
 class CompgenResult(TargetCheckingRecord):

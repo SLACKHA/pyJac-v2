@@ -6,18 +6,18 @@ import numpy
 sources = ['${wrapper}']
 includes = ['$buildpath/', '$homepath/'] + [${extra_include_dirs}]
 includes = [x for x in includes if x.strip()]
+name = "pyjac_${lang}"
 
-ext_modules = [Extension("pyjac_c",
-                         sources=sources,
-                         include_dirs=includes + [numpy.get_include()],
-                         extra_compile_args=[
-                             '-frounding-math', '-fsignaling-nans', '-fopenmp',
-                             '-std=c99'],
-                         language='c',
-                         extra_objects=['$libname', '-fopenmp']
-                         )]
+ext_module = Extension(name,
+                       sources=sources,
+                       include_dirs=includes + [numpy.get_include()],
+                       language="c++",
+                       extra_compile_args=['-frounding-math', '-fsignaling-nans'],
+                       extra_objects=['$libname'],
+                       libraries=[${libs}],
+                       library_dirs=[${libdirs}])
 
 setup(
-    name='pyjac_c',
-    ext_modules=cythonize(ext_modules, include_path=includes)
+    name=name,
+    ext_modules=cythonize(ext_module, include_path=includes)
 )

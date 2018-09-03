@@ -34,22 +34,29 @@ def make_parameter_docs(callgen, argnames):
     return '\n'.join(docs)
 
 
-def make_doc_str(callgen, argnames, func_desc):
+def make_doc_str(callgen, argnames, func_desc, comment_type='c'):
     """
     Returns a documentation string for the given :param:`argnames` for the
     function w/ description :param:`func_desc`
     """
+
+    if comment_type == 'c':
+        start = '/*'
+        end = '*/'
+    elif comment_type == 'python':
+        start = '"""'
+        end = start
     parameters = make_parameter_docs(callgen, argnames)
     return dedent(subs_at_indent(
         """
-        /*
-            ${func_desc}
+        ${start}
+        ${func_desc}
 
-            Parameters
-            ----------
-            ${parameters}
-        */
-        """, parameters=parameters, func_desc=func_desc))
+        Parameters
+        ----------
+        ${parameters}
+        ${end}
+        """, parameters=parameters, func_desc=func_desc, start=start, end=end))
 
 
 def get_kernel_args(mem, args):

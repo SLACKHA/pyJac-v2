@@ -14,11 +14,12 @@ from pyjac.libgen import generate_library
 from pyjac.core.enum_types import KernelType
 from pyjac.core.create_jacobian import inputs_and_outputs as jac_args
 from pyjac.core.rate_subs import inputs_and_outputs as rate_args
+from pyjac.kernel_utils.kernel_gen import DocumentingRecord
 from pyjac import siteconf as site
 from pyjac import utils
 
 
-class WrapperGen(ImmutableRecord):
+class WrapperGen(ImmutableRecord, DocumentingRecord):
     """
     A serializable class for python wrapper generation
 
@@ -28,13 +29,17 @@ class WrapperGen(ImmutableRecord):
         The name of the generated kernel
     kernel_args: list of str
         The input / output arguments of the kernel
+    lang: str
+        The language this wrapper is being generated for
     """
 
-    def __init__(self, name='', kernel_args=[]):
-        ImmutableRecord.__init__(self, name=name, kernel_args=kernel_args)
+    def __init__(self, name='', kernel_args=[], lang='c'):
+        docs = self.init_docs(lang)
+        ImmutableRecord.__init__(self, name=name, kernel_args=kernel_args, lang=lang,
+                                 docs=docs)
 
 
-def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
+def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, lang, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
                    ktype=KernelType.jacobian):
     """Helper method to fill in the template .in files
@@ -51,6 +56,8 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
         Build directory path
     out_dir : str
         Output directory path
+    lang : str
+        The language of the wrapper being generated
     libname : str
         Library name
     extra_include_dirs : Optional[list of str]
@@ -80,7 +87,8 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                  'extra_include_dirs': __arr_create(extra_include_dirs),
                  'libs': __arr_create(libraries),
                  'libdirs': __arr_create(libdirs),
-                 'wrapper': pyxfile
+                 'wrapper': pyxfile,
+                 'lang': utils.package_lang[lang]
                  }
     src = src.safe_substitute(file_data)
 
@@ -241,6 +249,7 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
 
     """
 
+    utils.check_lang(lang)
     source_dir = os.path.abspath(source_dir)
 
     if out_dir is None:
@@ -267,16 +276,8 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
         extra_include_dirs.extend(site.CL_INC_DIR)
         libraries.extend(site.CL_LIBNAME)
 
-    if lang == 'c':
-        setupfile = 'pyjacob_setup.py.in'
-        pyxfile = 'pyjacob_wrapper.pyx.in'
-    elif lang == 'opencl':
-        setupfile = 'pyocl_setup.py.in'
-        pyxfile = 'pyocl_wrapper.pyx.in'
-    else:
-        logger = logging.getLogger(__name__)
-        logger.error('Language {} not recognized'.format(lang))
-        raise NotImplementedError()
+    setupfile = 'pyjacob_setup.py.in'
+    pyxfile = 'pyjacob_wrapper.pyx.in'
 
     # generate wrapper
     wrapper = generate_wrapper(os.path.join(home_dir, pyxfile), build_dir,
@@ -287,7 +288,8 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
     # generate setup
     setup = generate_setup(
         os.path.join(home_dir, setupfile), wrapper,
-        home_dir, source_dir, build_dir, lib, extra_include_dirs, libraries, libdirs,
+        home_dir, source_dir, build_dir, lang, lib,
+        extra_include_dirs, libraries, libdirs,
         ktype=ktype)
 
     # and build / run
