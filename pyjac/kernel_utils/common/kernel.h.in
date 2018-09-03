@@ -18,7 +18,7 @@ Global declarations for Cog:
 
 /*[[[cog
     import six
-    from textwrap import indent
+    from textwrap import indent, dedent
     from six.moves import cPickle as pickle
     import loopy as lp
     from pyjac.utils import indent as stdindent
@@ -36,14 +36,24 @@ Global declarations for Cog:
 
     # headers
     headers = ['mechanism', 'error_check', 'timer']
+    wrappers = {}
     if can_vectorize_lang[callgen.lang]:
         headers.append('vectorization')
     if callgen.lang != 'opencl':
         # include driver header
         headers.append('{}_driver'.format(callgen.name))
+        wrappers[headers[-1]] = dedent(
+        """
+            {include}
+            // undefine work size in main to avoid name collisions
+            #undef work_size
+        """).strip()
 
     for header in headers:
-        cog.outl(get_include(callgen, header))
+        include = get_include(callgen, header)
+        if header in wrappers:
+            include = wrappers[header].format(include=include)
+        cog.outl(include)
 
   ]]]
   [[[end]]]*/
@@ -79,7 +89,8 @@ public:
     Kernel();
     ~Kernel();
     /*[[[cog
-         cog.outl(make_doc_str(callgen, ['problem_size, work_size', 'do_not_compile'],
+         cog.outl(make_doc_str(callgen, ['problem_size', 'work_size',
+                                         'do_not_compile'],
                   'Resize kernel\'s working data to fit the given sizes.'))
       ]]]
       [[[end]]]*/
