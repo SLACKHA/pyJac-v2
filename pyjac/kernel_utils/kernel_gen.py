@@ -2927,6 +2927,11 @@ class opencl_kernel_generator(kernel_generator):
     def __init__(self, *args, **kwargs):
         super(opencl_kernel_generator, self).__init__(*args, **kwargs)
 
+        self.barrier_templates = {
+            'global': 'barrier(CLK_GLOBAL_MEM_FENCE)',
+            'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
+        }
+
         # set atomic types
         self.type_map[to_loopy_type(np.float64, for_atomic=True,
                                     target=self.target)] = 'double'
