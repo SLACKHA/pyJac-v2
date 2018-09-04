@@ -210,12 +210,20 @@ def test_npy_array_splitter(opts):
     _test((16, 16, 16))
 
 
-def _create(order='C', loop_bound=10, size=10):
-    # create a test kernel
-    arg1 = lp.GlobalArg('a1', shape=(size, size), order=order)
-    arg2 = lp.GlobalArg('a2', shape=(16, 16), order=order)
+@parameterized(lambda: opts_loop(width=[None]),
+               doc_func=_split_doc)
+def test_lpy_deep_array_splitter(opts):
+    from pymbolic.primitives import Subscript, Variable
+    # create array split
+    asplit = array_splitter(opts)
 
-    return lp.make_kernel(
+    # create a test kernel
+    size = VECTOR_WIDTH * 3
+    loop_bound = VECTOR_WIDTH * 2
+    arg1 = lp.GlobalArg('a1', shape=(size, size), order=opts.order)
+    arg2 = lp.GlobalArg('a2', shape=(16, 16), order=opts.order)
+
+    k = lp.make_kernel(
         '{{[i]: 0 <= i < {}}}'.format(loop_bound),
         """
             a1[0, i] = 1 {id=a1}
@@ -225,16 +233,7 @@ def _create(order='C', loop_bound=10, size=10):
         silenced_warnings=['no_device_in_pre_codegen_checks'],
         target=lp.OpenCLTarget())
 
-
-@parameterized(lambda: opts_loop(is_simd=False),
-               doc_func=_split_doc)
-def test_lpy_array_splitter(opts):
-    from pymbolic.primitives import Subscript, Variable, Product, Sum
-    # create array split
-    asplit = array_splitter(opts)
-
-    k = lp.split_iname(_create(opts.order, VECTOR_WIDTH * 2, VECTOR_WIDTH * 3),
-                       'i', VECTOR_WIDTH,
+    k = lp.split_iname(k, 'i', VECTOR_WIDTH,
                        inner_tag='l.0' if not opts.is_simd else 'vec')
     a1_hold = k.arg_dict['a1'].copy()
     a2_hold = k.arg_dict['a2'].copy()
@@ -245,20 +244,9 @@ def test_lpy_array_splitter(opts):
 
     def __indexer():
         if opts.order == 'C':
-            if opts.width:
-                return (0, Variable('i_inner') +
-                        Variable('i_outer') * VECTOR_WIDTH, 0)
-            else:
-                return (0, Variable('i_inner') + Variable('i_outer') * VECTOR_WIDTH)
+            return (0, Variable('i_outer'), Variable('i_inner'))
         else:
-            if opts.width:
-                return (0, Sum((
-                    Variable('i_inner'), Product(
-                        (Variable('i_outer'), VECTOR_WIDTH)))))
-
-            else:
-                return (Variable('i_inner'), 0, Variable('i_outer'))
-
+            return (Variable('i_inner'), 0, Variable('i_outer'))
     # check dim
     a1 = k.arg_dict['a1']
     assert a1.shape == asplit.split_shape(a1_hold)[0]
@@ -275,9 +263,9 @@ def test_lpy_array_splitter(opts):
 
 
 # currently only have SIMD for wide-vectorizations
-@parameterized(lambda: opts_loop(is_simd=True, skip_test=lambda x: not x['width']),
+@parameterized(lambda: opts_loop(depth=[None]),
                doc_func=_split_doc)
-def test_lpy_simd_array_splitter(opts):
+def test_lpy_wide_array_splitter(opts):
     from pymbolic.primitives import Subscript, Variable
     # create array split
     asplit = array_splitter(opts)
