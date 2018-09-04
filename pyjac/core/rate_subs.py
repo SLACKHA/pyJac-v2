@@ -3303,7 +3303,9 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
                           name='eval_{}'.format(nicename),
                           parameters={'Ru': chem.RU},
                           var_name=loop_index,
-                          mapstore=mapstore)
+                          mapstore=mapstore,
+                          silenced_warnings=['write_race(low)',
+                                             'write_race(hi)'])
 
 
 def write_chem_utils(reacs, specs, loopy_opts, conp=True,
