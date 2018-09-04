@@ -27,7 +27,7 @@ from cogapp import Cog
 
 from pyjac.kernel_utils import file_writers as filew
 from pyjac.kernel_utils.memory_limits import memory_limits, \
-    memory_type, guarded_call, MemoryGenerationResult, get_string_strides
+    memory_type, MemoryGenerationResult, get_string_strides
 from pyjac.core.enum_types import DeviceMemoryType
 from pyjac import siteconf as site
 from pyjac import utils
@@ -2723,11 +2723,7 @@ class c_kernel_generator(kernel_generator):
     """
 
     def __init__(self, *args, **kwargs):
-
         super(c_kernel_generator, self).__init__(*args, **kwargs)
-
-        self.extern_defn_template = Template(
-            'extern ${type}* ${name}' + utils.line_end[self.lang])
 
     @property
     def target_preambles(self):
@@ -2850,19 +2846,7 @@ class opencl_kernel_generator(kernel_generator):
     def __init__(self, *args, **kwargs):
         super(opencl_kernel_generator, self).__init__(*args, **kwargs)
 
-        # opencl specific items
-        self.set_knl_arg_array_template = Template(
-            guarded_call(self.lang, 'clSetKernelArg(kernel, ${arg_index}, '
-                         '${arg_size}, ${arg_value})'))
-        self.set_knl_arg_value_template = Template(
-            guarded_call(self.lang, 'clSetKernelArg(kernel, ${arg_index}, '
-                         '${arg_size}, ${arg_value})'))
-        self.barrier_templates = {
-            'global': 'barrier(CLK_GLOBAL_MEM_FENCE)',
-            'local': 'barrier(CLK_LOCAL_MEM_FENCE)'
-        }
-
-        # these don't need to be volatile, as they are on the host side
+        # set atomic types
         self.type_map[to_loopy_type(np.float64, for_atomic=True,
                                     target=self.target)] = 'double'
         self.type_map[to_loopy_type(np.int32, for_atomic=True,
@@ -2967,44 +2951,6 @@ class opencl_kernel_generator(kernel_generator):
             )
 
         return callgen
-
-    def get_kernel_arg_setting(self):
-        """
-        Needed for OpenCL, this generates the code that sets the kernel args
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        knl_arg_set_str : str
-            The code that sets opencl kernel args
-        """
-
-        kernel_arg_sets = []
-        for i, arg in enumerate(self.kernel_data):
-            if not isinstance(arg, lp.ValueArg):
-                kernel_arg_sets.append(
-                    self.set_knl_arg_array_template.safe_substitute(
-                        arg_index=i,
-                        arg_size='sizeof({})'.format('d_' + arg.name),
-                        arg_value='&d_' + arg.name)
-                )
-            else:
-                # workaround for integer overflow of cl_uint
-                # TODO: need to put in detection for integer overlflow here
-                # or at least limits for maximum size of kernel before we switch
-                # over to a 64bit integer for index type
-                name = arg.name if arg not in self.arg_name_maps else \
-                    self.arg_name_maps[arg]
-                arg_set = self.set_knl_arg_value_template.safe_substitute(
-                        arg_index=i,
-                        arg_size='sizeof({})'.format(self.type_map[arg.dtype]),
-                        arg_value='&{}'.format(name))
-                kernel_arg_sets.append(arg_set)
-
-        return '\n'.join(kernel_arg_sets)
 
     def _get_cl_level(self):
         """
