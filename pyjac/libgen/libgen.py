@@ -140,9 +140,9 @@ def get_file_list(source_dir, lang, ktype, file_base=None):
 
     if lang == 'opencl':
         files += [file_base + x for x in ['_compiler', '_main']]
-        files += ['ocl_errorcheck']
+        files += ['error_check']
     elif lang == 'c':
-        files += [file_base + x for x in ['', '_main']]
+        files += [file_base + x for x in ['', '_main', '_driver']]
         files += ['error_check']
 
     return i_dirs, files
