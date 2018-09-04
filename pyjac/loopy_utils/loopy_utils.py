@@ -300,7 +300,7 @@ class loopy_options(object):
 
         If this property is True, utilize a pre-split.
         """
-        return self.width
+        return self.width and (self.is_simd or self.order == 'C')
 
     @property
     def vector_width(self):
