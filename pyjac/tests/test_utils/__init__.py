@@ -207,8 +207,8 @@ class indexer(object):
 
         Returns
         -------
-        split: list of :class:`np.ndarray`
-            The list of split indicies that correspond to the passed indicies for the
+        split: tuple of :class:`np.ndarray`
+            The  split indicies that correspond to the passed indicies for the
             split array
         """
 
@@ -235,7 +235,7 @@ class indexer(object):
                 if isinstance(inds[i], indexer.array_types):
                     rv[self.offset(ax)] = np.array(inds[i][:]).astype(arc.kint_type)
 
-        return rv
+        return tuple(rv)
 
     def __init__(self, splitter, ref_shape):
         """

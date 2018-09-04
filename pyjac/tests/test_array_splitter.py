@@ -57,7 +57,7 @@ def __get_ref_answer(base, asplit):
                 count += 1
 
         assert count == len(inds), 'Not all indicies used!'
-        return slicer
+        return tuple(slicer)
 
     # create answer
     # setup
@@ -472,7 +472,7 @@ def test_get_split_elements(opts):
             assert all(check_inds[0].size == ci.size for ci in check_inds[1:])
             for i, ax in enumerate(check_axes):
                 slicer[ax] = check_inds[i]
-            ans = arr[slicer].flatten(opts.order)
+            ans = arr[tuple(slicer)].flatten(opts.order)
 
         # and compare to the old (unsplit) matrix
         assert np.allclose(
