@@ -644,6 +644,18 @@ def test_remove_worksize():
         'call(dummy, work_size, dummy)') == 'call(dummy, dummy)'
 
 
+def test_remove_work_array_consts():
+    assert kernel_generator._remove_work_array_consts(
+        '(double const *__restrict__ rwk)') == '(double *__restrict__ rwk)'
+    assert kernel_generator._remove_work_array_consts(
+        '(__local double const *__restrict__ lwk)') == (
+            '(__local double *__restrict__ lwk)')
+    assert kernel_generator._remove_work_array_consts(
+        '(int const *__restrict__ iwk)') == '(int *__restrict__ iwk)'
+    assert kernel_generator._remove_work_array_consts(
+        '(long int const *__restrict__ iwk)') == '(long int *__restrict__ iwk)'
+
+
 def test_target_record():
     # make bad argument (i.e, one without the target set)
     import numpy as np

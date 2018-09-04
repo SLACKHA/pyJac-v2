@@ -43,6 +43,23 @@ from pyjac.core import driver_kernels as drivers
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
 
+rhs_work_name = 'rwk'
+"""
+Name of the generated work-array for generic double-precision work vectors
+"""
+
+local_work_name = 'lwk'
+"""
+Name of the generated work-array for generic double-precision work vectors in
+the __local address space
+"""
+
+int_work_name = 'iwk'
+"""
+Name of the generated work-array for generic integer work vectors
+"""
+
+
 class FakeCall(object):
     """
     In some cases, e.g. finite differnce jacobians, we need to place a dummy
@@ -1269,7 +1286,7 @@ class kernel_generator(object):
                 key: val for key, val in six.iteritems(kernel.temporary_variables)
                 if not set([key]) & names})
 
-    def __get_kernel_defn(self, knl, passed_locals=[]):
+    def __get_kernel_defn(self, knl, passed_locals=[], remove_work_const=False):
         """
         Returns the kernel definition string for this :class:`kernel_generator`,
         taking into account any migrated local variables
@@ -1286,6 +1303,9 @@ class kernel_generator(object):
             __local variables declared in the wrapping kernel scope, that must
             be passed into this kernel, as __local defn's in subfunctions
             are not well defined, `function qualifiers in OpenCL <https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/functionQualifiers.html>` # noqa
+        remove_work_const: bool [False]
+            If true, modify the returned kernel definition to remove const references
+            to work arrays
 
         Returns
         -------
@@ -1303,6 +1323,8 @@ class kernel_generator(object):
         defn_str = lp_utils.get_header(knl)
         if remove_working:
             defn_str = self._remove_work_size(defn_str)
+        if remove_work_const:
+            defn_str = self._remove_work_array_consts(defn_str)
         return defn_str[:defn_str.index(';')]
 
     def _get_kernel_call(self, knl=None, passed_locals=[]):
@@ -1663,18 +1685,18 @@ class kernel_generator(object):
             return wb, result
 
         # globals
-        wb, codegen = __generate(dargs, 'rwk')
+        wb, codegen = __generate(dargs, rhs_work_name)
         record = record.copy(kernel_data=record.kernel_data + [wb])
 
         if largs:
             # locals
-            wb, codegen = __generate(largs, 'lwk', scope=scopes.LOCAL,
+            wb, codegen = __generate(largs, local_work_name, scope=scopes.LOCAL,
                                      result=codegen)
             record = record.copy(kernel_data=record.kernel_data + [wb])
 
         if iargs:
             # integers
-            wb, codegen = __generate(iargs, 'iwk', result=codegen)
+            wb, codegen = __generate(iargs, int_work_name, result=codegen)
             record = record.copy(kernel_data=record.kernel_data + [wb])
 
         return record, codegen
@@ -1844,8 +1866,29 @@ class kernel_generator(object):
         unpack: str
             The stringified pointer unpacking statement
         """
-        return '{}* __restrict__ {} = rwk + {};'.format(
-            self.type_map[dtype], array, offset)
+        return '{}* __restrict__ {} = {} + {};'.format(
+            self.type_map[dtype], array, rhs_work_name, offset)
+
+    @classmethod
+    def _remove_work_array_consts(cls, text):
+        """
+        Hack -- TODO: need a way to specify that an array isn't constant even if
+        the kernel in question doesn't write to it in loopy.
+        """
+
+        replacers = [(
+            re.compile(r'(double const \*__restrict__ {})'.format(rhs_work_name)),
+            r'double *__restrict__ {}'.format(rhs_work_name)), (
+            re.compile(r'(__local double const \*__restrict__ {})'.format(
+                local_work_name)),
+            r'__local double *__restrict__ {}'.format(local_work_name)), (
+            re.compile(r'(int const \*__restrict__ {})'.format(int_work_name)),
+            r'int *__restrict__ {}'.format(int_work_name)), (
+            re.compile(r'(long int const \*__restrict__ {})'.format(int_work_name)),
+            r'long int *__restrict__ {}'.format(int_work_name))]
+        for r, s in replacers:
+            text = r.sub(s, text)
+        return text
 
     @classmethod
     def _remove_work_size(cls, text):
@@ -2001,7 +2044,8 @@ class kernel_generator(object):
 
             if i_own:
                 # only place the kernel defn in this file, IFF we own it
-                extra = self._remove_work_size(_get_func_body(cgr, {}))
+                extra = self._remove_work_array_consts(
+                    self._remove_work_size(_get_func_body(cgr, {})))
                 extra_kernels.append(extra)
                 if fake_calls:
                     # check to see if this kernel has a fake call to replace
@@ -2013,7 +2057,8 @@ class kernel_generator(object):
                         extra_kernels[-1] = extra_kernels[-1].replace(
                             fk.dummy_call, knl_call[:-2])
                 # and add defn to preamble
-                preambles += [self._remove_work_size(lp_utils.get_header(k))]
+                preambles += [self._remove_work_array_consts(
+                    self._remove_work_size(lp_utils.get_header(k)))]
 
             # get instructions
             insns = self._remove_work_size(self._get_kernel_call(k))
@@ -2250,7 +2295,8 @@ class kernel_generator(object):
             lines = file_src.safe_substitute(
                 defines='',
                 preamble='',
-                func_define=self.__get_kernel_defn(result.kernel),
+                func_define=self.__get_kernel_defn(
+                    result.kernel, remove_work_const=True),
                 body=instructions,
                 extra_kernels='\n'.join(result.extra_kernels))
 
@@ -2276,7 +2322,8 @@ class kernel_generator(object):
         preambles = '\n'.join(result.preambles + sorted(list(result.inits.values())))
         preambles = preambles.split('\n')
         preambles.extend([
-            self.__get_kernel_defn(result.kernel) + utils.line_end[self.lang]])
+            self.__get_kernel_defn(result.kernel, remove_work_const=True) +
+                utils.line_end[self.lang]])
 
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + name + utils.header_ext[
