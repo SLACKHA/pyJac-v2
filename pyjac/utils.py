@@ -923,7 +923,7 @@ def get_parser():
                              'code may allocate.  Useful for testing, or otherwise '
                              'limiting memory usage during runtime. '
                              'The keys of this file are the members of '
-                             ':class:`pyjac.kernel_utils.memory_manager.mem_type`')
+                             ':class:`pyjac.kernel_utils.memory_limits.mem_type`')
 
     args = parser.parse_args()
     return args

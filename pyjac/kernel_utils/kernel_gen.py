@@ -26,8 +26,8 @@ from pytools import ImmutableRecord
 from cogapp import Cog
 
 from pyjac.kernel_utils import file_writers as filew
-from pyjac.kernel_utils.memory_manager import memory_manager, memory_limits, \
-    memory_type, guarded_call, MemoryGenerationResult
+from pyjac.kernel_utils.memory_limits import memory_limits, \
+    memory_type, guarded_call, MemoryGenerationResult, get_string_strides
 from pyjac.core.enum_types import DeviceMemoryType
 from pyjac import siteconf as site
 from pyjac import utils
@@ -577,7 +577,7 @@ class kernel_generator(object):
             desired maximum amount of global / local / or constant memory that
             the generated pyjac code may allocate.  Useful for testing, or otherwise
             limiting memory usage during runtime. The keys of this file are the
-            members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+            members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
         for_testing: bool [False]
             If true, this kernel generator will be used for unit testing
         compiler: :class:`loopy.CCompiler` [None]
@@ -602,9 +602,6 @@ class kernel_generator(object):
         # kernel calls
         self.arg_name_maps = {p_size: 'per_run'}
 
-        self.mem = memory_manager(self.lang, self.loopy_opts.order,
-                                  self.array_split,
-                                  dev_type=self.loopy_opts.device_type)
         self.kernel_type = kernel_type
         self._name = name
         if name is not None:
@@ -1544,7 +1541,7 @@ class kernel_generator(object):
         # check if we're over our constant memory limit
         mem_limits = memory_limits.get_limits(
             self.loopy_opts, mem_types,
-            string_strides=self.mem.string_strides,
+            string_strides=get_string_strides()[0],
             input_file=self.mem_limits,
             limit_int_overflow=self.loopy_opts.limit_int_overflow)
 
@@ -1590,7 +1587,7 @@ class kernel_generator(object):
                 mem_types[memory_type.m_global].append(x)
 
             mem_limits = memory_limits.get_limits(
-                self.loopy_opts, mem_types, string_strides=self.mem.string_strides,
+                self.loopy_opts, mem_types, string_strides=get_string_strides()[0],
                 input_file=self.mem_limits,
                 limit_int_overflow=self.loopy_opts.limit_int_overflow)
 

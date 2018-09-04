@@ -22,8 +22,8 @@ from pyjac.core import array_creator as arc
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.enum_types import DeviceMemoryType
 from pyjac.kernel_utils.kernel_gen import CallgenResult
-from pyjac.kernel_utils.memory_tools import get_memory, DeviceNamer, HostNamer
-from pyjac.kernel_utils.memory_manager import host_langs
+from pyjac.kernel_utils.memory_tools import get_memory, DeviceNamer, HostNamer, \
+    host_langs
 from pyjac.libgen.libgen import get_toolchain, compile, link
 from pyjac.loopy_utils.loopy_utils import get_target
 from pyjac.tests import script_dir

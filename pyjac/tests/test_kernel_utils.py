@@ -15,9 +15,9 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from pytools.py_codegen import remove_common_indentation
 
 from pyjac.core.array_creator import array_splitter, problem_size, MapStore, \
-  creator, kint_type
-from pyjac.kernel_utils.memory_manager import memory_limits, memory_type, \
-  memory_manager
+    creator, kint_type
+from pyjac.kernel_utils.memory_limits import memory_limits, memory_type, \
+    get_string_strides
 from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
     _unSIMDable_arrays, knl_info, make_kernel_generator
 from pyjac.loopy_utils import loopy_options
@@ -87,7 +87,7 @@ def test_stride_limiter(dtype):
             temp.seek(0)
             limits = memory_limits.get_limits(
                 opt, {memory_type.m_global: [ary]}, temp.name,
-                memory_manager.get_string_strides()[0],
+                get_string_strides()[0],
                 dtype=dtype, limit_int_overflow=True)
         # and feed through stride limiter
         limit = limits.integer_limited_problem_size(ary, dtype=dtype)

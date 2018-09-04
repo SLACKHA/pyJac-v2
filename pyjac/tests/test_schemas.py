@@ -27,7 +27,7 @@ from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidOverrideException, \
     InvalidInputSpecificationException
 from pyjac.loopy_utils.loopy_utils import load_platform
-from pyjac.kernel_utils.memory_manager import memory_limits, memory_type
+from pyjac.kernel_utils.memory_limits import memory_limits, memory_type
 
 current_test_langs = ['c', 'opencl']
 """

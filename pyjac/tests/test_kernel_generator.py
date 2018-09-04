@@ -19,7 +19,7 @@ from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
-from pyjac.kernel_utils.memory_manager import memory_type
+from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
     knl_info, make_kernel_generator
 from pyjac.utils import partition, temporary_directory, clean_dir, \

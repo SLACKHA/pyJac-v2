@@ -4528,7 +4528,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
     kwargs: dict
         Arguements for the construction of the :class:`kernel_generator`
 
@@ -4885,7 +4885,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
     kwargs: dict
         Arguements for the construction of the :class:`kernel_generator`
 
@@ -5297,7 +5297,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
     work_size: int [None]
         If specified, this is the number of thermo-chemical states that pyJac
         should evaluate concurrently in the generated source code. This option is
