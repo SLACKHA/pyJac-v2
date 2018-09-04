@@ -270,15 +270,13 @@ class memory_limits(object):
             is_ic_dep = False
             is_ws_dep = False
             for s in array.shape:
-                ss = next((x.search(str(s)) for x in self.string_strides
-                           if x.search(str(s))), None)
-                if ss:
-                    if w_size.name in str(s):
-                        # mark as dependent on the work size
-                        is_ws_dep = True
-                    else:
-                        # mark as dependent on # of initial conditions
-                        is_ic_dep = True
+                if w_size.name in str(s):
+                    # mark as dependent on the work size
+                    is_ws_dep = True
+                elif p_size.name in str(s):
+                    # mark as dependent on # of initial conditions
+                    is_ic_dep = True
+                if is_ic_dep or is_ws_dep:
                     # get the floor div (if any)
                     floor_div = re.search(r'// (\d+)', str(s))
                     if floor_div:
