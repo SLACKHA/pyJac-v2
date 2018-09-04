@@ -1827,15 +1827,22 @@ class kernel_generator(object):
         for arg in args:
             # split the shape into the work-item and other dimensions
             isizes, ssizes = utils.partition(arg.shape, lambda x: isinstance(x, int))
+            bump = 1
+            if self.loopy_opts.width and not self.array_split._have_split():
+                # each problem index needs `vector-width` indicies, and hasn't been
+                # split (or otherwise already have the appropriate size, e.g.,
+                # double4)
+                bump = self.vec_width
             # store offset and increment size
             offsets[arg.name] = (
                 arg.dtype, '{} * {}'.format(size_per_work_item, work_size))
+
             if len(ssizes) >= 1 and str(ssizes[0]) == w_size.name:
                 # check we have a work size in ssizes
-                size_per_work_item += int(np.prod(isizes))
+                size_per_work_item += int(np.prod(isizes) * bump)
             elif not len(ssizes):
                 # static size
-                static_size += int(np.prod(isizes))
+                static_size += int(np.prod(isizes) * bump)
             else:
                 raise NotImplementedError
 
