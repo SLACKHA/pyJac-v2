@@ -175,6 +175,10 @@ class memory_limits(object):
             without integer overflow in addressing
         """
 
+        if not any(s.search(str(x)) for x in arry.shape
+                   for s in self.string_strides):
+            return np.iinfo(dtype).max
+
         # convert problem_size -> 1 in order to determine max per-run size
         # from array shape
         def floatify(val):
@@ -343,7 +347,7 @@ class memory_limits(object):
 
     @staticmethod
     def get_limits(loopy_opts, arrays, input_file='',
-                   string_strides=[p_size.name, w_size.name],
+                   string_strides=[p_size.name],
                    dtype=np.int32, limit_int_overflow=False):
         """
         Utility method to load shared / constant memory limits from a file or
@@ -1085,7 +1089,7 @@ class memory_manager(object):
 
     @staticmethod
     def get_string_strides():
-        string_strides = [p_size.name, w_size.name]
+        string_strides = [p_size.name]
         # convert string strides to regex, and include the div/mod form
         ss_size = len(string_strides)
         div_mod_strides = []
