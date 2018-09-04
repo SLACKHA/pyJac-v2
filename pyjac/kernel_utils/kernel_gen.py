@@ -2323,7 +2323,7 @@ class kernel_generator(object):
         preambles = preambles.split('\n')
         preambles.extend([
             self.__get_kernel_defn(result.kernel, remove_work_const=True) +
-                utils.line_end[self.lang]])
+            utils.line_end[self.lang]])
 
         with filew.get_header_file(
             os.path.join(path, self.file_prefix + name + utils.header_ext[
@@ -2771,6 +2771,40 @@ class c_kernel_generator(kernel_generator):
 
     def __init__(self, *args, **kwargs):
         super(c_kernel_generator, self).__init__(*args, **kwargs)
+
+
+    def get_inames(self, test_size, for_driver=False):
+        """
+        Returns the inames and iname_ranges for subkernels created using
+        this C kernel-generator
+
+        Parameters
+        ----------
+        test_size : int or str
+            In testing, this should be the integer size of the test data
+            For production, this should the 'test_size' (or the corresponding)
+            for the variable test size passed to the kernel
+        for_driver : bool [False]
+            If True, utilize the entire test size
+
+        Returns
+        -------
+        inames : list of str
+            The string inames to add to created subkernels by default
+        iname_domains : list of str
+            The iname domains to add to created subkernels by default
+        """
+
+        # Currently C has no vectorization capabilities, and unless we're in a driver
+        # function, we should only be executing the kernel once, hence:
+
+        if not (for_driver or self.for_testing):
+            return [global_ind], ['0 <= {} < 1'.format(global_ind)]
+
+        if not self.for_testing:
+            test_size = p_size.name
+
+        return [global_ind],  ['0 <= {} < {}'.format(global_ind, test_size)]
 
     @property
     def target_preambles(self):
