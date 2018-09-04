@@ -286,6 +286,10 @@ size_t Kernel::this_run(size_t offset)
     {
         this->threadset(work_size);
         this->mem_init(problem_size, work_size);
+        // mark initialized
+        this->initialized = true;
+        this->problem_size = problem_size;
+        this->work_size = work_size;
     }
             """, trimblanklines=True)
 ]]]

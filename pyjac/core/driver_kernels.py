@@ -252,6 +252,13 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
             warnings.append('unrolled_vector_iname_conditional')
         instructions = '\n'.join(instructions)
 
+        kwargs = {}
+        if loopy_opts.lang == 'c':
+            # override the number of copies in this function to 1
+            # (i.e., 1 per-thread)
+            kwargs['iname_domain_override'] = [(arc.global_ind, '0 <= {} < 1'.format(
+                arc.global_ind))]
+
         priorities = ([arc.global_ind + '_outer'] if loopy_opts.pre_split else [
             arc.global_ind]) + [arc.var_name]
         # and return the kernel info
@@ -266,7 +273,8 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                               vectorization_specializer=vec_spec,
                               split_specializer=split_spec,
                               loop_priority=set([tuple(priorities + [
-                                iname[0] for iname in extra_inames])]))
+                                iname[0] for iname in extra_inames])]),
+                              **kwargs)
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function
