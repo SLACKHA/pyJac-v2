@@ -25,10 +25,27 @@ from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 
 
-driver_index = lp.ValueArg('driver_index', dtype=arc.kint_type)
+driver_offset = lp.ValueArg('driver_offset', dtype=arc.kint_type)
 """
-The index to be used as an offset in the driver loop
+The offset to be used in the driver loop
 """
+
+
+def get_problem_index(loopy_opts, global_ind=arc.global_ind, lane_iname='lane'):
+    """
+    Returns the correct unique identifier for a conditional expression limiting
+    the problem size for driver copies
+    """
+
+    conditional_index = global_ind + ' + ' + driver_offset.name
+    if loopy_opts.pre_split:
+        conditional_index = '({} * {} + {} + {})'.format(
+            global_ind + '_outer',
+            loopy_opts.vector_width,
+            global_ind + '_inner',
+            driver_offset.name)
+
+    return conditional_index
 
 
 def get_driver(loopy_opts, namestore, inputs, outputs, driven,
@@ -164,40 +181,12 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         indicies = [arc.global_ind, mapstore.iname] + [
             ex[0] for ex in extra_inames]
         global_indicies = indicies[:]
-        global_indicies[0] += ' + ' + driver_index.name
+        global_indicies[0] += ' + ' + driver_offset.name
 
         # bake in SIMD pre-split
         vec_spec = None
         split_spec = None
-        conditional_index = global_indicies[0]
-        if loopy_opts.pre_split:
-            conditional_index = '({} + {})'.format(
-                indicies[0] + '_outer', driver_index.name, indicies[0] + '_inner')
-            if loopy_opts.is_simd:
-                # need put dependence of vector lane in
-                extra_inames.append(('lane', '0 <= lane < {}'.format(
-                    loopy_opts.vector_width)))
-                global_indicies[0] += ' + lane'
-                conditional_index = '({} + {}) + lane'.format(
-                    indicies[0] + '_outer',
-                    driver_index.name)
-
-                def vectorization_specializer(knl):
-                    # first, unroll lane
-                    knl = lp.tag_inames(knl, {'lane': 'unr'})
-                    return knl
-
-                def split_specializer(knl):
-                    # drop the vector iname and do a pure unroll
-                    knl = lp.rename_iname(knl, indicies[0] + '_inner', 'lane',
-                                          existing_ok=True)
-                    priorities = set(list(knl.loop_priority)[0]) - \
-                        set([indicies[0] + '_inner'])
-                    priorities = set([tuple(priorities)])
-                    return knl.copy(loop_priority=priorities)
-
-                vec_spec = vectorization_specializer
-                split_spec = split_specializer
+        conditional_index = get_problem_index(loopy_opts)
 
         def __build(arr, local, **kwargs):
             inds = global_indicies if not local else indicies
@@ -268,10 +257,11 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                               var_name=arc.var_name,
                               extra_inames=extra_inames,
                               kernel_data=buffers + working_buffers + [
-                                arc.work_size, arc.problem_size, driver_index],
+                                arc.work_size, arc.problem_size, driver_offset],
                               silenced_warnings=warnings,
                               vectorization_specializer=vec_spec,
                               split_specializer=split_spec,
+                              unrolled_vector=True,
                               loop_priority=set([tuple(priorities + [
                                 iname[0] for iname in extra_inames])]),
                               **kwargs)
@@ -334,7 +324,7 @@ def lockstep_driver_template(loopy_opts, driven):
         template = Template("""
         ${unpacks}
         #pragma omp parallel for
-        for (${dtype} ${driver_index} = 0; ${driver_index} < ${problem_size}; ${driver_index} += ${work_size})"""  # noqa
+        for (${dtype} ${driver_offset} = 0; ${driver_offset} < ${problem_size}; ${driver_offset} += ${work_size})"""  # noqa
         """
         {
             ${insns}
@@ -346,18 +336,15 @@ def lockstep_driver_template(loopy_opts, driven):
         #if defined(WIDE) && !defined(EXPLICIT_SIMD)
             // each group processes get_global_size(0) condtions
             #define inc (get_global_size(0))
-            ${dtype} driver_index = get_global_id(0);
         #elif defined(WIDE) && defined(EXPLICIT_SIMD)
             // each group processes VECWIDTH condtions
-            #define inc (VECWIDTH * get_num_groups(0))
-            ${dtype} driver_index = get_global_id(0);
+            #define inc (VECWIDTH * get_global_size(0))
         #else
             // each group processes a single condtion
             #define inc (get_num_groups(0))
-            ${dtype} driver_index = get_group_id(0);
         #endif
         ${unpacks}
-        for (;${driver_index} < ${problem_size}; ${driver_index} += inc)"""  # noqa
+        for (${dtype} driver_offset = 0; ${driver_offset} < ${problem_size}; ${driver_offset} += inc)"""  # noqa
         """
         {
             ${insns}
@@ -367,7 +354,7 @@ def lockstep_driver_template(loopy_opts, driven):
     from loopy.types import to_loopy_type
     return template.safe_substitute(
         dtype=driven.type_map[to_loopy_type(arc.kint_type)],
-        driver_index=driver_index.name,
+        driver_offset=driver_offset.name,
         problem_size=arc.problem_size.name,
         work_size=arc.work_size.name)
 
