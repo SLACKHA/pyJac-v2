@@ -877,9 +877,13 @@ class kernel_generator(object):
         domains = ['0 <= {} < {}'.format(gind, test_size)]
 
         if pre_split:
+            lind = global_ind + '_inner'
             # add dummy j_inner domain
-            inames += [global_ind + '_inner']
-            domains += ['0 <= {} < {}'.format(inames[-1], self.vec_width)]
+            inames[-1] = (gind, lind)
+            domains[-1] = ('0 <= {lind} < {vw} and '
+                           '0 <= {lind} + {vw}{gind} < {vw}*{end}'.format(
+                            lind=lind, gind=gind, vw=self.vec_width,
+                            end=test_size))
 
         return inames, domains
 
@@ -2612,6 +2616,10 @@ class kernel_generator(object):
         iname_arr = []
         # generate iname strings
         for iname, irange in zip(*(inames, iname_range)):
+            if isinstance(iname, tuple):
+                # multi-domain
+                iname = ', '.join(iname)
+
             iname_arr.append(Template(
                 '{[${iname}]:${irange}}').safe_substitute(
                 iname=iname,
@@ -2648,8 +2656,13 @@ class kernel_generator(object):
             knl = lp.fix_parameters(knl, **{w_size.name: self.work_size})
         if not knl.loop_priority:
             # prioritize and return
-            knl = lp.prioritize_loops(knl, [y for x in inames
-                                            for y in x.split(',')])
+            priority = []
+            for iname in inames:
+                if isinstance(iname, tuple):
+                    priority.extend(iname)
+                else:
+                    priority.append(iname)
+            knl = lp.prioritize_loops(knl, priority)
         # check manglers
         if info.manglers:
             knl = lp.register_function_manglers(knl, info.manglers)
