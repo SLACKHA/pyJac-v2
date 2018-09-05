@@ -82,13 +82,19 @@ def platform_is_gpu(platform):
     return None
 
 
-def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False):
+def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False,
+                   remove_empty=True):
     template = '{}' if not use_quotes else '"{}"'
     if kwd:
+        if remove_empty:
+            arglist = {k: v for k, v in six.iteritems(arglist)
+                       if bool(k) and bool(v)}
         template = template + '=' + template
         return joiner.join(template.format(str(k), str(v))
                            for k, v in six.iteritems(arglist))
     else:
+        if remove_empty:
+            arglist = [x for x in arglist if x]
         return joiner.join(template.format(str(a)) for a in arglist)
 
 

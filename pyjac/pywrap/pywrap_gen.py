@@ -2,7 +2,6 @@
 """
 import sys
 import os
-from string import Template
 import logging
 import multiprocessing
 
@@ -39,6 +38,42 @@ class WrapperGen(ImmutableRecord, DocumentingRecord):
                                  docs=docs)
 
 
+class SetupGen(ImmutableRecord):
+    """
+    A serializable class for python setup.py generation
+
+    Attributes
+    ----------
+    lang: str
+        The generated language
+    package_lang : str
+        The short-name of the language/wrapper being generated
+    wrapper : str
+        Filename / path to the generated pyx file
+    build_dir : str
+        Build directory path
+    name : str
+        The base-name the generated python wrapper should take
+    libname : str
+        The path to the generated library
+    include_dirs : Optional[list of str]
+        Optional; if supplied, extra include directions for the python wrapper
+    libraries : Optional[list of str]
+        Optional; if supplied extra libraries to use
+    libdirs : Optional[list of str]
+        Optional; if supplied, library directories
+
+    """
+
+    def __init__(self, name='', libname='', include_dirs=[], package_lang='c',
+                 wrapper='', lang='', build_dir='', libraries=[],
+                 libdirs=[]):
+        ImmutableRecord.__init__(self, name=name, lang=lang, libname=libname,
+                                 include_dirs=include_dirs, libraries=libraries,
+                                 package_lang=package_lang, wrapper=wrapper,
+                                 build_dir=build_dir, libdirs=libdirs)
+
+
 def generate_setup(lang, setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
                    ktype=KernelType.jacobian):
@@ -73,31 +108,36 @@ def generate_setup(lang, setupfile, pyxfile, home_dir, build_dir, out_dir, libna
         The path to the generated setup.py file
     """
 
-    # load and create the setup file
-    with open(setupfile, 'r') as file:
-        src = Template(file.read())
+    setup = SetupGen(name='pyjac',
+                     libname=libname,
+                     include_dirs=extra_include_dirs,
+                     package_lang=utils.package_lang[lang],
+                     wrapper=pyxfile,
+                     lang=lang,
+                     build_dir=build_dir,
+                     libraries=libraries,
+                     libdirs=libdirs)
+    # serialize
+    # dump wrapper
+    with utils.temporary_directory() as tdir:
+        setupgen = os.path.join(tdir, 'setupgen.pickle')
+        with open(setupgen, 'wb') as file:
+            pickle.dump(setup, file)
 
-    def __arr_create(arr):
-        return ', '.join(["'{}'".format(x) for x in arr])
+        infile = setupfile
+        outfile = os.path.basename(infile[:infile.rindex('.in')])
+        outfile = os.path.join(out_dir, outfile)
+        # and cogify
+        try:
+            Cog().callableMain([
+                        'cogapp', '-e', '-d', '-Dsetupgen={}'.format(setupgen),
+                        '-o', outfile, infile])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.error('Error generating python setup file: {}'.format(outfile))
+            raise
 
-    file_data = {'homepath': home_dir,
-                 'buildpath': build_dir,
-                 'libname': libname,
-                 'outpath': out_dir,
-                 'extra_include_dirs': __arr_create(extra_include_dirs),
-                 'libs': __arr_create(libraries),
-                 'libdirs': __arr_create(libdirs),
-                 'wrapper': pyxfile,
-                 'lang': utils.package_lang[lang]
-                 }
-    src = src.safe_substitute(file_data)
-
-    outpath = os.path.basename(setupfile[:setupfile.rindex('.in')])
-    outpath = os.path.join(out_dir, outpath)
-    with open(outpath, 'w') as file:
-        file.write(src)
-
-    return outpath
+    return outfile
 
 
 def generate_wrapper(lang, pyxfile, build_dir, ktype=KernelType.jacobian,
@@ -282,7 +322,7 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
     pyxfile = 'pyjacob_wrapper.pyx.in'
 
     # generate wrapper
-    wrapper = generate_wrapper(lang,os.path.join(home_dir, pyxfile), build_dir,
+    wrapper = generate_wrapper(lang, os.path.join(home_dir, pyxfile), build_dir,
                                ktype=ktype, additional_outputs=additional_outputs,
                                additional_inputs=kwargs.pop('additional_inputs', []),
                                nice_name=kwargs.get('file_base', None))

@@ -98,6 +98,9 @@ class SubTest(TestClass):
             # use a "weird" (non-evenly divisibly by vector width) test-size to
             # properly test the copy-in / copy-out
             test_size = self.store.test_size - 37
+            if test_size <= 0:
+                test_size = self.store.test_size - 1
+                assert test_size > 0
             # and make
             with temporary_build_dirs() as (build, obj, lib):
 
