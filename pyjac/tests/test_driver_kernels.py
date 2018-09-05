@@ -7,6 +7,7 @@ from string import Template
 # external
 from nose.plugins.attrib import attr
 import numpy as np
+import psutil
 
 # internal
 from pyjac.core import array_creator as arc
@@ -15,7 +16,7 @@ from pyjac.core import instruction_creator as ic
 from pyjac.core.enum_types import RateSpecialization, KernelType, DriverType
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.kernel_utils import kernel_gen as k_gen
-from pyjac.tests import TestClass, get_test_langs
+from pyjac.tests import TestClass, get_test_langs, _get_test_input
 from pyjac.tests.test_utils import get_run_source, OptionLoopWrapper, \
     temporary_build_dirs
 from pyjac import utils
@@ -146,6 +147,9 @@ class SubTest(TestClass):
                     [pjoin(lib, inp + '.npy') for inp in inputs], use_quotes=True)
                 str_outputs = utils.stringify_args(
                     [pjoin(lib, inp + '.npy') for inp in outputs], use_quotes=True)
+
+                num_threads = _get_test_input(
+                    'num_threads', psutil.cpu_count(logical=False))
                 with open(test, 'w') as file:
                     file.write(mod_test.safe_substitute(
                         package='pyjac_{lang}'.format(
@@ -158,7 +162,8 @@ class SubTest(TestClass):
                         loose_atol=0,
                         rtol=0,
                         atol=0,
-                        non_array_args='{}, {}'.format(self.store.test_size, 1),
+                        non_array_args='{}, {}'.format(
+                            self.store.test_size, num_threads),
                         kernel_name=generator.name.title(),))
 
                 try:
