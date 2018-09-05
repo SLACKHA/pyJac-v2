@@ -95,6 +95,9 @@ class SubTest(TestClass):
                 driver_type=DriverType.lockstep,
                 barriers=barriers)
 
+            # use a "weird" (non-evenly divisibly by vector width) test-size to
+            # properly test the copy-in / copy-out
+            test_size = self.store.test_size - 37
             # and make
             with temporary_build_dirs() as (build, obj, lib):
 
@@ -115,12 +118,12 @@ class SubTest(TestClass):
                 import loopy as lp
                 for arr in kernel_data:
                     if not isinstance(arr, lp.ValueArg):
-                        __save((self.store.test_size,) + arr.shape[1:], arr.name,
+                        __save((test_size,) + arr.shape[1:], arr.name,
                                arr.name in outputs)
 
                 # and a parameter
-                param = np.zeros((self.store.test_size,))
-                param[:] = np.arange(self.store.test_size)
+                param = np.zeros((test_size,))
+                param[:] = np.arange(test_size)
 
                 # build code
                 generator.generate(build,
@@ -163,7 +166,7 @@ class SubTest(TestClass):
                         rtol=0,
                         atol=0,
                         non_array_args='{}, {}'.format(
-                            self.store.test_size, num_threads),
+                            test_size, num_threads),
                         kernel_name=generator.name.title(),))
 
                 try:
@@ -176,11 +179,11 @@ class SubTest(TestClass):
                 # calculate answers
                 ns = base_jac_shape[1]
                 # pressure is added to phi
-                phi = numpy_arrays[1].reshape((self.store.test_size, ns),
+                phi = numpy_arrays[1].reshape((test_size, ns),
                                               order=loopy_opts.order)
                 p_arr = numpy_arrays[0]
                 phi = phi + p_arr[:, np.newaxis]
-                jac = numpy_arrays[2].reshape((self.store.test_size, ns, ns),
+                jac = numpy_arrays[2].reshape((test_size, ns, ns),
                                               order=loopy_opts.order)
                 # and the diagonal of the jacobian has the updated pressure added
                 jac[:, range(ns), range(ns)] += phi[:, range(ns)]
