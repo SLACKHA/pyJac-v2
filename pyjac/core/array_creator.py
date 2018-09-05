@@ -352,7 +352,7 @@ class array_splitter(object):
 
         return kernel
 
-    def __split_iname_access(self, knl, arry, split_axis):
+    def __split_iname_access(self, knl, arrays):
         """
         Warning -- should be called _only_ on non-split arrays when :attr:`pre_split`
         is True
@@ -366,10 +366,8 @@ class array_splitter(object):
         ----------
         knl: :class:`loopy.LoopKernel`
             The kernel to split iname access for
-        arry: :class:`loopy.ArrayArg`
-            The array to split iname access for
-        split_axis: int
-            The axes in which the iname is expected to be
+        arrays: :list of class:`loopy.ArrayArg`
+            The array(s) to split iname access for
 
         Returns
         -------
@@ -389,9 +387,11 @@ class array_splitter(object):
         from pymbolic.mapper import IdentityMapper
         from loopy.symbolic import get_dependencies
 
+        names = set(arrays)
+
         class SubstMapper(IdentityMapper):
             def map_subscript(self, expr, *args, **kwargs):
-                if expr.aggregate.name == arry.name:
+                if expr.aggregate.name in names:
                     # get old index
                     old = var(owner.pre_split + '_outer')
                     new = var(owner.pre_split + '_outer') * owner.vector_width + \
@@ -404,12 +404,17 @@ class array_splitter(object):
         insns = []
         mapper = SubstMapper()
         for insn in knl.instructions:
-            if get_dependencies(insn.assignee) & set([arry.name]):
-                insn = insn.copy(assignee=mapper(insn.assignee),
-                                 within_inames=insn.within_inames | set([new_var]))
-            if get_dependencies(insn.expression) & set([arry.name]):
-                insn = insn.copy(expression=mapper(insn.expression),
-                                 within_inames=insn.within_inames | set([new_var]))
+            try:
+                if get_dependencies(insn.assignee) & names:
+                    insn = insn.copy(assignee=mapper(insn.assignee),
+                                     within_inames=insn.within_inames | set([
+                                        new_var]))
+                if get_dependencies(insn.expression) & names:
+                    insn = insn.copy(expression=mapper(insn.expression),
+                                     within_inames=insn.within_inames | set([
+                                        new_var]))
+            except AttributeError:
+                pass
             insns.append(insn)
 
         return knl.copy(instructions=insns)
@@ -442,18 +447,17 @@ class array_splitter(object):
         if not self._have_split():
             return kernel
 
+        if self.pre_split and dont_split:
+            # we still have to split potential iname accesses in this array
+            # to maintain correctness
+            kernel = self.__split_iname_access(kernel, dont_split)
+
         for array_name, arr in [(x.name, x) for x in kernel.args
                                 if isinstance(x, lp.ArrayArg)
-                                and self._should_split(x)]:
+                                and self._should_split(x)
+                                and x.name not in dont_split]:
 
             split_axis, vec_axis = self.split_and_vec_axes(arr)
-            if arr.name in dont_split:
-                if self.pre_split:
-                    # we still have to split potential iname accesses in this array
-                    # to maintain correctness
-                    kernel = self.__split_iname_access(kernel, arr, split_axis)
-                continue
-
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,
                 self.vector_width, self.data_order, self.is_simd,
