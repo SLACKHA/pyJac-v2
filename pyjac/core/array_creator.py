@@ -856,7 +856,8 @@ class MapStore(object):
 
         # unit tests operate on the whole array
         if not self.is_unit_test:
-            self.reshape_to_working_buffer = True
+            self.initial_condition_dimension = \
+                self.loopy_opts.initial_condition_dimsize
 
     def _is_map(self):
         """
@@ -1373,7 +1374,7 @@ class MapStore(object):
                             self.working_buffer_index),
                         reshape_to_working_buffer=kwargs.pop(
                             'reshape_to_working_buffer',
-                            self.reshape_to_working_buffer),
+                            self.initial_condition_dimension),
                         **kwargs)
 
     def copy(self):
@@ -1587,17 +1588,17 @@ class creator(object):
         use_local_name: bool [False]
             If True, append '_local" to the created variable to avoid duplicate
             argument names in the driver functions.
-        reshape_to_working_buffer: bool [None]
+        reshape_to_working_buffer: str [None]
             If True, and :param:`working_buffer_index` is supplied, the created array
             will be reshaped to the working buffer size.
             If False, the created array will not be reshaped (but the indicies may
             be changed).
-            If not specified, defaults to bool(:param:`working_buffer_index`)
+            If not specified, defaults to `work_size`
         """
         # figure out whether to use private memory or not
         wbi = kwargs.pop('working_buffer_index', None)
         use_local_name = kwargs.pop('use_local_name', False)
-        reshape = kwargs.pop('reshape_to_working_buffer', bool(wbi))
+        reshape = kwargs.pop('reshape_to_working_buffer', work_size)
         inds = self.__get_indicies(*indicies)
 
         # handle working buffer request
@@ -1621,7 +1622,7 @@ class creator(object):
                              for i, s in enumerate(inds))
             # and reshape the array
             if reshape:
-                shape = tuple(s if i != glob_ind else work_size.name
+                shape = tuple(s if i != glob_ind else reshape
                               for i, s in enumerate(self.shape))
             else:
                 shape = self.shape[:]

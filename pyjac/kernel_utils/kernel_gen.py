@@ -859,12 +859,13 @@ class kernel_generator(object):
             # if we're not testing, or in a driver function the kernel must only be
             # executed once, as the loop over the work-size has been lifted to the
             # driver kernels
-            test_size = w_size.name
+            test_size = self.loopy_opts.initial_condition_loopsize
+
         elif for_driver:
             test_size = p_size.name
 
         if pre_split:
-            if self.vec_width and self.for_testing:
+            if self.for_testing:
                 # reduce the test size to avoid OOB errors in loopy
                 if for_driver:
                     from pytools import div_ceil
@@ -877,13 +878,13 @@ class kernel_generator(object):
         domains = ['0 <= {} < {}'.format(gind, test_size)]
 
         if pre_split:
+            # add/fixup dummy j_inner domain
             lind = global_ind + '_inner'
-            # add dummy j_inner domain
             inames[-1] = (gind, lind)
             domains[-1] = ('0 <= {lind} < {vw} and '
-                           '0 <= {lind} + {vw}{gind} < {vw}*{end}'.format(
-                            lind=lind, gind=gind, vw=self.vec_width,
-                            end=test_size))
+                           '0 <= {lind} + {vw}{gind} < {end}'.format(
+                            lind=lind, gind=gind, end=test_size,
+                            vw=self.vec_width))
 
         return inames, domains
 
@@ -1825,6 +1826,17 @@ class kernel_generator(object):
             buffer into local pointers
         """
 
+        regex = re.compile(r'{}((?:\s*\*\s*)(\d+))?'.format(w_size.name))
+
+        def _get_size(ssize):
+            match = regex.search(str(ssize))
+            if match:
+                multiplier = match.groups()[-1]
+                if multiplier:
+                    return int(multiplier)
+                return 1
+            raise NotImplementedError
+
         size_per_work_item = 0
         static_size = 0
         offsets = {}
@@ -1832,24 +1844,16 @@ class kernel_generator(object):
         for arg in args:
             # split the shape into the work-item and other dimensions
             isizes, ssizes = utils.partition(arg.shape, lambda x: isinstance(x, int))
-            bump = 1
-            if self.loopy_opts.width and not self.array_split._have_split():
-                # each problem index needs `vector-width` indicies, and hasn't been
-                # split (or otherwise already have the appropriate size, e.g.,
-                # double4)
-                bump = self.vec_width
             # store offset and increment size
             offsets[arg.name] = (
                 arg.dtype, '{} * {}'.format(size_per_work_item, work_size))
 
-            if len(ssizes) >= 1 and str(ssizes[0]) == w_size.name:
+            if len(ssizes) >= 1:
                 # check we have a work size in ssizes
-                size_per_work_item += int(np.prod(isizes) * bump)
+                size_per_work_item += int(np.prod(isizes) * _get_size(ssizes[0]))
             elif not len(ssizes):
                 # static size
-                static_size += int(np.prod(isizes) * bump)
-            else:
-                raise NotImplementedError
+                static_size += int(np.prod(isizes))
 
         return size_per_work_item, static_size, offsets
 

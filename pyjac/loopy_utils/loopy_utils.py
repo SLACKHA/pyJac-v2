@@ -305,6 +305,27 @@ class loopy_options(object):
         return self.width and arc.array_splitter._have_split_static(self)
 
     @property
+    def initial_condition_dimsize(self):
+        """
+        Return the necessary IC dimension size based on this :class:`loopy_options`
+        """
+        if self.width and not self.pre_split:
+            return '{}*{}'.format(arc.work_size.name, self.width)
+
+        return arc.work_size.name
+
+    @property
+    def initial_condition_loopsize(self):
+        """
+        Return the necessary loop bound for the global index of innder kernel loops
+        based on this :class:`loopy_options`
+        """
+        if self.width:
+            return '{}*{}'.format(arc.work_size.name, self.width)
+
+        return arc.work_size.name
+
+    @property
     def vector_width(self):
         """
         Returns the vector width for this :class:`loopy_options` or None if
