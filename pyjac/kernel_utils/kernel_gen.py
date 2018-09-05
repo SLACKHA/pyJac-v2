@@ -957,7 +957,8 @@ class kernel_generator(object):
                 info.var_name,
                 kernels[i],
                 vecspec=info.vectorization_specializer,
-                can_vectorize=info.can_vectorize)
+                can_vectorize=info.can_vectorize,
+                unrolled_vector=info.unrolled_vector)
 
             dont_split = kwargs.get('dont_split', [])
 
@@ -2681,7 +2682,8 @@ class kernel_generator(object):
     @classmethod
     def apply_specialization(cls, loopy_opts, inner_ind, knl,
                              vecspec=None, can_vectorize=True,
-                             get_specialization=False):
+                             get_specialization=False,
+                             unrolled_vector=False):
         """
         Applies wide / deep vectorization and/or ILP loop unrolling
         to a loopy kernel
@@ -2703,6 +2705,9 @@ class kernel_generator(object):
         get_specialization : bool [False]
             If True, the specialization will not be _applied_ to the kernel, instead
             a dictionary mapping inames -> tags will be returned
+        unrolled_vector : bool [False]
+            If True, apply 'unr' instead of 'vec' for explicit-SIMD inames.
+            Useful for driver kernels
 
         Returns
         -------
@@ -2743,7 +2748,9 @@ class kernel_generator(object):
         # apply specified optimizations
         if to_split and can_vectorize:
             # and assign the l0 axis to the correct variable
-            tag = 'vec' if loopy_opts.is_simd else 'l.0'
+            tag = 'l.0'
+            if loopy_opts.is_simd:
+                tag = 'vec' if not unrolled_vector else 'unr'
             if get_specialization:
                 specialization[to_split + '_inner'] = tag
             elif loopy_opts.pre_split:
@@ -2791,7 +2798,6 @@ class c_kernel_generator(kernel_generator):
 
     def __init__(self, *args, **kwargs):
         super(c_kernel_generator, self).__init__(*args, **kwargs)
-
 
     def get_inames(self, test_size, for_driver=False):
         """
@@ -3248,6 +3254,8 @@ class knl_info(object):
     split_specializer : function
         If specified, run this function to fixup an hanging ends after the
         kernel splits are applied
+    unrolled_vector : bool [False]
+        If true, apply 'unr' instead of 'vec' to any resulting explicit-SIMD iname
     **kwargs: dict
         Any other keyword args to pass to :func:`loopy.make_kernel`
     """
@@ -3264,6 +3272,7 @@ class knl_info(object):
                  preambles=[],
                  iname_domain_override=[],
                  split_specializer=None,
+                 unrolled_vector=False,
                  **kwargs):
 
         def __listify(arr):
@@ -3290,6 +3299,7 @@ class knl_info(object):
         self.preambles = preambles[:]
         self.iname_domain_override = iname_domain_override[:]
         self.kwargs = kwargs.copy()
+        self.unrolled_vector = unrolled_vector
 
 
 def create_function_mangler(kernel, return_dtypes=()):
