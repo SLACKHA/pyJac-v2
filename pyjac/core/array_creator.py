@@ -350,6 +350,7 @@ class array_splitter(object):
 
         assert self.pre_split
         owner = self
+        new_var = self.pre_split + '_inner'
 
         from pymbolic import var, substitute
         from pymbolic.mapper import IdentityMapper
@@ -361,7 +362,7 @@ class array_splitter(object):
                     # get old index
                     old = var(owner.pre_split + '_outer')
                     new = var(owner.pre_split + '_outer') * owner.vector_width + \
-                        var(owner.pre_split + '_inner')
+                        var(new_var)
                     expr.index = substitute(expr.index, {old: new})
 
                 return super(SubstMapper, self).map_subscript(
@@ -371,9 +372,11 @@ class array_splitter(object):
         mapper = SubstMapper()
         for insn in knl.instructions:
             if get_dependencies(insn.assignee) & set([arry.name]):
-                insn = insn.copy(assignee=mapper(insn.assignee))
+                insn = insn.copy(assignee=mapper(insn.assignee),
+                                 within_inames=insn.within_inames | set([new_var]))
             if get_dependencies(insn.expression) & set([arry.name]):
-                insn = insn.copy(expression=mapper(insn.expression))
+                insn = insn.copy(expression=mapper(insn.expression),
+                                 within_inames=insn.within_inames | set([new_var]))
             insns.append(insn)
 
         return knl.copy(instructions=insns)
@@ -411,10 +414,12 @@ class array_splitter(object):
                                 and self._should_split(x)]:
 
             split_axis, vec_axis = self.split_and_vec_axes(arr)
-            if self.pre_split and dont_split:
-                # we still have to split potential iname accesses in this array
-                # to maintain correctness
-                kernel = self.__split_iname_access(kernel, arr, split_axis)
+            if arr.name in dont_split:
+                if self.pre_split:
+                    # we still have to split potential iname accesses in this array
+                    # to maintain correctness
+                    kernel = self.__split_iname_access(kernel, arr, split_axis)
+                continue
 
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,

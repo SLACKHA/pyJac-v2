@@ -274,24 +274,24 @@ def test_lpy_wide_array_splitter(opts):
     arg1 = lp.GlobalArg('a1', shape=(10, 10), order=opts.order)
     arg2 = lp.GlobalArg('a2', shape=(16, 16), order=opts.order)
 
-    return lp.make_kernel(
+    k = lp.make_kernel(
         ['{[i]: 0 <= i < 10}',
          '{{[j_outer]: 0 <= j_outer < {}}}'.format(int(np.ceil(10 / VECTOR_WIDTH))),
          '{{[j_inner]: 0 <= j_inner < {}}}'.format(VECTOR_WIDTH)],
         """
+        for i, j_outer, j_inner
             a1[j_outer, i] = 1 {id=a1}
             a2[j_outer, i] = 1 {id=a2}
+        end
         """,
         [arg1, arg2],
         silenced_warnings=['no_device_in_pre_codegen_checks'],
         target=lp.OpenCLTarget())
 
-    k = lp.split_iname(_create(opts.order, VECTOR_WIDTH * 2, VECTOR_WIDTH * 3),
-                       'j', VECTOR_WIDTH,
-                       inner_tag='l.0' if not opts.is_simd else 'vec')
     a1_hold = k.arg_dict['a1'].copy()
     a2_hold = k.arg_dict['a2'].copy()
     k = asplit.split_loopy_arrays(k)
+    k = lp.tag_inames(k, {'j_inner': 'l.0' if not opts.is_simd else 'vec'})
 
     # ensure there's no loopy errors
     lp.generate_code_v2(k).device_code()
@@ -313,6 +313,52 @@ def test_lpy_wide_array_splitter(opts):
     # now test with evenly sized
     a2 = k.arg_dict['a2']
     assert a2.shape == asplit.split_shape(a2_hold)[0]
+    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
+    assert isinstance(assign, Subscript) and assign.index == __indexer()
+
+
+@parameterized(lambda: opts_loop(depth=[None]),
+               doc_func=_split_doc)
+def test_lpy_iname_presplit(opts):
+    """
+    Tests that inames access to pre-split inames in non-split loopy arrays are
+    correctly handled
+    """
+    from pymbolic.primitives import Subscript, Variable
+    # create array split
+    asplit = array_splitter(opts)
+
+    # create a test kernel
+    arg1 = lp.GlobalArg('a1', shape=(20, 10), order=opts.order)
+    arg2 = lp.GlobalArg('a2', shape=(16, 16), order=opts.order)
+
+    k = lp.make_kernel(
+        ['{[i]: 0 <= i < 10}',
+         '{{[j_outer]: 0 <= j_outer < {}}}'.format(int(np.ceil(10 / VECTOR_WIDTH))),
+         '{{[j_inner]: 0 <= j_inner < {}}}'.format(VECTOR_WIDTH)],
+        """
+            a1[j_outer, i] = 1 {id=a1}
+            a2[j_outer, i] = 1 {id=a2}
+        """,
+        [arg1, arg2],
+        silenced_warnings=['no_device_in_pre_codegen_checks'],
+        target=lp.OpenCLTarget())
+
+    k = asplit.split_loopy_arrays(k, dont_split=['a1', 'a2'])
+
+    # ensure there's no loopy errors
+    lp.generate_code_v2(k).device_code()
+
+    def __indexer():
+        return (Variable('j_outer') * VECTOR_WIDTH + Variable('j_inner'),
+                Variable('i'))
+
+    # check indexing
+    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
+    # construct index
+    assert isinstance(assign, Subscript) and assign.index == __indexer()
+
+    # now test with evenly sized
     assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
     assert isinstance(assign, Subscript) and assign.index == __indexer()
 
