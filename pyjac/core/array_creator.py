@@ -40,7 +40,12 @@ class array_splitter(object):
         self.vector_width = self.depth if bool(self.depth) else self.width
         self.data_order = loopy_opts.order
         self.is_simd = loopy_opts.is_simd
-        self.pre_split = loopy_opts.pre_split
+        self.pre_split = None
+        if loopy_opts.pre_split:
+            if self.width:
+                self.pre_split = global_ind
+            else:
+                self.pre_split = var_name
 
     @property
     def _is_simd_split(self):
@@ -290,15 +295,7 @@ class array_splitter(object):
                 # no split, just add an axis
                 outer_index = axis_idx
                 name = str(outer_index)
-                try:
-                    name = name[:name.index('_')]
-                    inner_index = Variable(name + '_inner')
-                except ValueError:
-                    # we've attempted to split the non-vector pre-split index
-                    # this should only ever happen in unit testing
-                    assert kwargs.get('ignore_split_rename_errors', False)
-                    inner_index = name
-
+                inner_index = Variable(self.pre_split + '_inner')
             else:
                 inner_index = simplify_using_aff(kernel, axis_idx % count)
                 outer_index = simplify_using_aff(kernel, axis_idx // count)
@@ -321,6 +318,65 @@ class array_splitter(object):
             kernel = lp.tag_array_axes(kernel, [array_name], tag)
 
         return kernel
+
+    def __split_iname_access(self, knl, arry, split_axis):
+        """
+        Warning -- should be called _only_ on non-split arrays when :attr:`pre_split`
+        is True
+
+        This is a helper array to ensure that indexing of non-split arrays
+        stay correct if we're using a pre-split.  Essentially, if we don't split
+        the arrays, the pre-split index will never make it into the array, and hence
+        the assumed iname splitting won't work.
+
+        Parameters
+        ----------
+        knl: :class:`loopy.LoopKernel`
+            The kernel to split iname access for
+        arry: :class:`loopy.ArrayArg`
+            The array to split iname access for
+        split_axis: int
+            The axes in which the iname is expected to be
+
+        Returns
+        -------
+        split_knl: :class:`loopy.LoopKernel`
+            The kernel with iname access to the array's split
+
+        Raises
+        ------
+        AssertionError
+        """
+
+        assert self.pre_split
+        owner = self
+
+        from pymbolic import var, substitute
+        from pymbolic.mapper import IdentityMapper
+        from loopy.symbolic import get_dependencies
+
+        class SubstMapper(IdentityMapper):
+            def map_subscript(self, expr, *args, **kwargs):
+                if expr.aggregate.name == arry.name:
+                    # get old index
+                    old = var(owner.pre_split + '_outer')
+                    new = var(owner.pre_split + '_outer') * owner.vector_width + \
+                        var(owner.pre_split + '_inner')
+                    expr.index = substitute(expr.index, {old: new})
+
+                return super(SubstMapper, self).map_subscript(
+                    expr, *args, **kwargs)
+
+        insns = []
+        mapper = SubstMapper()
+        for insn in knl.instructions:
+            if get_dependencies(insn.assignee) & set([arry.name]):
+                insn = insn.copy(assignee=mapper(insn.assignee))
+            if get_dependencies(insn.expression) & set([arry.name]):
+                insn = insn.copy(expression=mapper(insn.expression))
+            insns.append(insn)
+
+        return knl.copy(instructions=insns)
 
     def split_loopy_arrays(self, kernel, dont_split=[], **kwargs):
         """
@@ -352,9 +408,13 @@ class array_splitter(object):
 
         for array_name, arr in [(x.name, x) for x in kernel.args
                                 if isinstance(x, lp.ArrayArg)
-                                and self._should_split(x) and
-                                x.name not in dont_split]:
+                                and self._should_split(x)]:
+
             split_axis, vec_axis = self.split_and_vec_axes(arr)
+            if self.pre_split and dont_split:
+                # we still have to split potential iname accesses in this array
+                # to maintain correctness
+                kernel = self.__split_iname_access(kernel, arr, split_axis)
 
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,
