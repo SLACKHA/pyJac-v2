@@ -24,9 +24,10 @@ except ImportError:
 from pyjac import utils
 from pyjac.core.enum_types import (RateSpecialization, JacobianType, JacobianFormat,
                                    KernelType)
-from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
+from pyjac.core import array_creator as arc
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
+from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.schemas import build_and_validate
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
@@ -300,7 +301,8 @@ class loopy_options(object):
 
         If this property is True, utilize a pre-split.
         """
-        return self.width and (self.is_simd or self.order == 'C')
+
+        return self.width and arc.array_splitter._have_split_static(self)
 
     @property
     def vector_width(self):
@@ -892,7 +894,7 @@ class kernel_call(object):
 
         Parameters
         ----------
-        array_splitter: :class:`core.instruction_creator.array_splitter`
+        array_splitter: :class:`pyjac.core.array_creator.array_splitter`
             The array splitter of the owning
             :class:`kernek_utils.kernel_gen.kernel.kernel_generator`, used to
             operate on numpy arrays if necessary

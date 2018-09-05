@@ -37,7 +37,7 @@ class array_splitter(object):
     def __init__(self, loopy_opts):
         self.depth = loopy_opts.depth
         self.width = loopy_opts.width
-        self.vector_width = self.depth if bool(self.depth) else self.width
+        self.vector_width = loopy_opts.vector_width
         self.data_order = loopy_opts.order
         self.is_simd = loopy_opts.is_simd
         self.pre_split = None
@@ -55,6 +55,19 @@ class array_splitter(object):
         """
 
         return self._have_split() and not self._have_split(with_simd_as=False)
+
+    @staticmethod
+    def __determine_split(data_order, vector_width, width, depth, is_simd):
+        """
+        The internal workings of the :func:`_have_split` methods, consolodated.
+        Not intended to be called directly
+        """
+
+        if vector_width:
+            if is_simd:
+                return True
+            return ((data_order == 'C' and width) or (data_order == 'F' and depth))
+        return False
 
     def _have_split(self, with_simd_as=None):
         """
@@ -74,13 +87,34 @@ class array_splitter(object):
         """
 
         is_simd = self.is_simd if with_simd_as is None else with_simd_as
+        return self.__determine_split(
+            self.data_order, self.vector_width, self.width, self.depth, is_simd)
 
-        if self.vector_width:
-            if is_simd:
-                return True
-            return ((self.data_order == 'C' and self.width) or (
-                     self.data_order == 'F' and self.depth))
-        return False
+    @staticmethod
+    def _have_split_static(loopy_opts, with_simd_as=None):
+        """
+        Like :func:`_have_split`, but a static method for easy calling
+
+        Parameters
+        ----------
+        loopy_opts: :class:`loopy_options`
+            The options object that would be used to construct this splitter.
+        with_simd_as: bool [None]
+            If specified, calculate whether we have a split if :attr:`is_simd` was
+            set to the given value
+
+        Returns
+        -------
+        have_split: bool
+            True IFF this vectorization pattern will result in a split for any
+            array
+
+        """
+
+        is_simd = loopy_opts.is_simd if with_simd_as is None else with_simd_as
+        return array_splitter.__determine_split(
+            loopy_opts.order, loopy_opts.vector_width, loopy_opts.width,
+            loopy_opts.depth, is_simd)
 
     def _should_split(self, array):
         """
@@ -294,7 +328,6 @@ class array_splitter(object):
             if self.pre_split:
                 # no split, just add an axis
                 outer_index = axis_idx
-                name = str(outer_index)
                 inner_index = Variable(self.pre_split + '_inner')
             else:
                 inner_index = simplify_using_aff(kernel, axis_idx % count)
