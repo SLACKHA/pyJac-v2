@@ -14,7 +14,7 @@ from loopy.kernel.data import AddressSpace as scopes
 
 from pyjac.core.enum_types import JacobianFormat, JacobianType
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
-from pyjac.utils import listify
+from pyjac.utils import listify, partition
 
 
 class array_splitter(object):
@@ -447,16 +447,21 @@ class array_splitter(object):
         if not self._have_split():
             return kernel
 
+        arrays = [(x.name, x) for x in kernel.args
+                  if isinstance(x, lp.ArrayArg)
+                  and x.name not in dont_split]
+
+        to_split, not_to_split = partition(
+            arrays, lambda x: self._should_split(x[1]))
+
+        # add to don't split list for iname access handling
+        dont_split += [x[0] for x in not_to_split]
         if self.pre_split and dont_split:
             # we still have to split potential iname accesses in this array
             # to maintain correctness
             kernel = self.__split_iname_access(kernel, dont_split)
 
-        for array_name, arr in [(x.name, x) for x in kernel.args
-                                if isinstance(x, lp.ArrayArg)
-                                and self._should_split(x)
-                                and x.name not in dont_split]:
-
+        for array_name, arr in to_split:
             split_axis, vec_axis = self.split_and_vec_axes(arr)
             kernel = self._split_array_axis_inner(
                 kernel, array_name, split_axis, vec_axis,
