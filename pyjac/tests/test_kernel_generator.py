@@ -21,9 +21,9 @@ from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
 from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
-    knl_info, make_kernel_generator
+    knl_info, make_kernel_generator, CallgenResult
 from pyjac.utils import partition, temporary_directory, clean_dir, \
-    can_vectorize_lang, header_ext
+    can_vectorize_lang, header_ext, file_ext
 from pyjac.tests import TestClass, get_test_langs
 from pyjac.tests.test_utils import OptionLoopWrapper
 
@@ -420,15 +420,20 @@ class SubTest(TestClass):
                                                    do_conp=False,
                                                    do_vector=False,
                                                    do_sparse=False)
+
         for opts in oploop:
+            callgen = CallgenResult(source_names=[
+                'adistinctivetestname', 'andyetanothertestname'])
             # create a species rates kernel generator for this state
             kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
                                        conp=oploop.state['conp'])
             with temporary_directory() as tdir:
-                comp = kgen._generate_compiling_program(
-                    tdir, ['adistinctivetestname', 'andyetanothertestname'])
+                comp = kgen._generate_compiling_program(tdir, callgen)
 
-                with open(comp, 'r') as file:
+                file = os.path.join(
+                    tdir, kgen.name + '_compiler' + file_ext[opts.lang])
+
+                with open(file, 'r') as file:
                     comp = file.read()
                 # test filenames
                 assert '"adistinctivetestname", "andyetanothertestname"' in comp
