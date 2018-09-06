@@ -234,7 +234,7 @@ class SubTest(TestClass):
             def __check_local_unpacks(result, args):
                 for i, arg in enumerate(args):
                     # get offset
-                    offsets = result.pointer_offsets[arg.name][1]
+                    offsets = result.pointer_offsets[arg.name][2]
                     new = kgen._get_local_unpacks(result, [arg])
                     if not new.pointer_unpacks:
                         assert isinstance(arg, lp.TemporaryVariable)
@@ -308,18 +308,16 @@ class SubTest(TestClass):
 
             # check we have generated our own kernels
             for kernel in kgen.kernels:
-                if owner[kernel.name] == kgen:
-                    assert re.search(
-                        r'\b' + kernel.name + r'\b', result.extra_kernels)
-                else:
-                    assert not re.search(
-                        r'\b' + kernel.name + r'\b', result.extra_kernels)
+                extra_kernels = '\n'.join(result.extra_kernels)
+                assert bool(re.search(
+                    r'\b' + kernel.name + r'\b', extra_kernels)) == (
+                    owner[kernel.name] == kgen)
 
             # check that we have the instruction call to _all_ kernels
             all_kernels = rec_kernel(kgen)
             for kernel in all_kernels:
                 assert re.search(
-                    r'\b' + kernel.name + r'\b', result.instructions)
+                    r'\b' + kernel.name + r'\b', '\n'.join(result.instructions))
 
     def test_init_deduplication(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,
