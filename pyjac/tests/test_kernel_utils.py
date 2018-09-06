@@ -8,7 +8,6 @@ from string import Template
 
 import loopy as lp
 import numpy as np
-from optionloop import OptionLoop
 from parameterized import parameterized
 from loopy.kernel.data import AddressSpace as scopes
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
@@ -20,8 +19,7 @@ from pyjac.kernel_utils.memory_limits import memory_limits, memory_type, \
     get_string_strides
 from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
     _unSIMDable_arrays, knl_info, make_kernel_generator
-from pyjac.loopy_utils import loopy_options
-from pyjac.tests.test_utils import xfail
+from pyjac.tests.test_utils import xfail, OptionLoopWrapper
 from pyjac.core.enum_types import KernelType
 
 
@@ -31,19 +29,14 @@ def opts_loop(langs=['opencl'],
               order=['C', 'F'],
               is_simd=None):
 
-    oploop = OptionLoop(OrderedDict(
-        [('lang', langs),
-         ('width', width),
-         ('depth', depth),
-         ('order', order),
-         ('device_type', 'CPU'),
-         ('is_simd', is_simd)]))
-    for state in oploop:
-        if state['depth'] and state['width']:
-            continue
-        if state['is_simd'] and not (state['depth'] or state['width']):
-            state['is_simd'] = False
-        yield loopy_options(**state)
+    return OptionLoopWrapper.from_dict(
+        OrderedDict(
+            [('lang', langs),
+             ('width', width),
+             ('depth', depth),
+             ('order', order),
+             ('device_type', 'CPU'),
+             ('is_simd', is_simd)]))
 
 
 @parameterized([(np.int32,), (np.int64,)])
@@ -98,6 +91,7 @@ def test_stride_limiter(dtype):
         # sub out 'i', 'j' and 'problem_size'
         repl = {'i': str(dim_size - 1),
                 'j': str(limit - 1),
+                'j_inner': str(opt.vector_width),
                 'problem_size': str(limit)}
         pattern = re.compile(r'\b(' + '|'.join(repl.keys()) + r')\b')
         index = pattern.sub(lambda x: repl[x.group()], index)
@@ -125,7 +119,8 @@ def test_get_kernel_input_and_output():
                          '<> a = b[i] + c[i]',
                          [lp.GlobalArg('b', shape=(2,)),
                           lp.TemporaryVariable('c', shape=(2,), scope=scopes.GLOBAL)
-                          ])
+                          ],
+                         silenced_warnings=['read_no_write(c)'])
     assert find_inputs_and_outputs(knl) == set(['b', 'c'])
 
 
@@ -139,7 +134,7 @@ def test_unsimdable():
         # make a kernel via the mapstore / usual methods
         base = creator('base', dtype=kint_type, shape=(10,), order=opt.order,
                        initializer=np.arange(10, dtype=kint_type))
-        mstore = MapStore(opt, base, self.store.test_size)
+        mstore = MapStore(opt, base, store.test_size)
 
         def __create_var(name, size=(test_size, 10)):
             return creator(name, kint_type, size, opt.order)
