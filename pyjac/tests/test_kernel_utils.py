@@ -19,7 +19,7 @@ from pyjac.kernel_utils.memory_limits import memory_limits, memory_type, \
     get_string_strides
 from pyjac.kernel_utils.kernel_gen import find_inputs_and_outputs, \
     _unSIMDable_arrays, knl_info, make_kernel_generator
-from pyjac.tests.test_utils import xfail, OptionLoopWrapper
+from pyjac.tests.test_utils import OptionLoopWrapper
 from pyjac.core.enum_types import KernelType
 
 
@@ -27,7 +27,8 @@ def opts_loop(langs=['opencl'],
               width=[4, None],
               depth=[4, None],
               order=['C', 'F'],
-              is_simd=None):
+              is_simd=None,
+              skip_test=None):
 
     return OptionLoopWrapper.from_dict(
         OrderedDict(
@@ -36,7 +37,8 @@ def opts_loop(langs=['opencl'],
              ('depth', depth),
              ('order', order),
              ('device_type', 'CPU'),
-             ('is_simd', is_simd)]))
+             ('is_simd', is_simd)]),
+        skip_test=skip_test)
 
 
 @parameterized([(np.int32,), (np.int64,)])
@@ -124,17 +126,17 @@ def test_get_kernel_input_and_output():
     assert find_inputs_and_outputs(knl) == set(['b', 'c'])
 
 
-@xfail(msg="Loopy currently doesn't allow vector inames in conditionals, have "
-           "to rethink this test.")
 def test_unsimdable():
     from loopy.kernel.array import (VectorArrayDimTag)
     inds = ('j', 'i')
     test_size = 16
-    for opt in opts_loop(is_simd=True):
+    for opt in opts_loop(is_simd=True,
+                         skip_test=lambda state:
+                         state['depth'] and state['is_simd']):
         # make a kernel via the mapstore / usual methods
         base = creator('base', dtype=kint_type, shape=(10,), order=opt.order,
                        initializer=np.arange(10, dtype=kint_type))
-        mstore = MapStore(opt, base, store.test_size)
+        mstore = MapStore(opt, base, 8192)
 
         def __create_var(name, size=(test_size, 10)):
             return creator(name, kint_type, size, opt.order)
@@ -211,10 +213,12 @@ def test_unsimdable():
             continue
 
         # check that we've vectorized all arrays
-        assert all(len(arr.shape) == 3 for arr in kgen.kernels[0].args)
+        assert all(len(arr.shape) == 3 for arr in kgen.kernels[0].args
+                   if isinstance(arr, lp.ArrayArg))
 
         # get the split axis
         _, _, vec_axis, _ = kgen.array_split.split_shape(affine_lp)
 
         assert all(isinstance(arr.dim_tags[vec_axis], VectorArrayDimTag)
-                   for arr in kgen.kernels[0].args if arr.name not in cant_simd)
+                   for arr in kgen.kernels[0].args if arr.name not in cant_simd
+                   and isinstance(arr, lp.ArrayArg))
