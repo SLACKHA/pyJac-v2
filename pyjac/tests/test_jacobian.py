@@ -380,7 +380,7 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         is_skip = editor.skip_on_missing is not None and \
             f == editor.skip_on_missing
 
-        if is_skip and any(x is None for x in info):
+        if is_skip and any(x is None for x in utils.listify(info)):
             # empty map (e.g. no PLOG)
             __raise(f)
         infos.extend([x for x in utils.listify(info) if x is not None])
