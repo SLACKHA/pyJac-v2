@@ -1461,7 +1461,7 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
             concs_str=concs_str,
             power_func=power_func)
 
-        rop_instructions = k_gen.subs_at_indent(rop_instructions,
+        rop_instructions = utils.subs_at_indent(rop_instructions,
                                                 rop_temp_eval=roptemp_eval)
 
         # and finally extra inames

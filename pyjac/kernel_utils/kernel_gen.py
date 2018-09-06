@@ -2319,7 +2319,7 @@ class kernel_generator(object):
         filename = os.path.join(path, self.file_prefix + name + utils.file_ext[
             self.lang])
         with filew.get_file(filename, self.lang, include_own_header=True) as file:
-            instructions = _find_indent(file_str, 'body', '\n'.join(
+            instructions = utils._find_indent(file_str, 'body', '\n'.join(
                 result.instructions))
             lines = file_src.safe_substitute(
                 defines='',
@@ -2470,8 +2470,8 @@ class kernel_generator(object):
 
         # slot instructions into template
         result = result.copy(instructions=[
-            subs_at_indent(template, insns='\n'.join(result.instructions),
-                           unpacks='\n'.join(result.pointer_unpacks))])
+            utils.subs_at_indent(template, insns='\n'.join(result.instructions),
+                                 unpacks='\n'.join(result.pointer_unpacks))])
 
         filename = self._to_file(path, result, for_driver=True)
 
@@ -2617,7 +2617,7 @@ class kernel_generator(object):
 
         def subs_preprocess(key, value):
             # find the instance of ${key} in kernel_str
-            result = _find_indent(skeleton, key, value)
+            result = utils._find_indent(skeleton, key, value)
             return Template(result).safe_substitute(var_name=info.var_name)
 
         kernel_str = Template(skeleton).safe_substitute(
@@ -3383,61 +3383,3 @@ def create_function_mangler(kernel, return_dtypes=()):
             dtypes.append(arg.dtype)
     mg = MangleGen(kernel.name, tuple(dtypes), return_dtypes)
     return mg.__call__
-
-
-def _find_indent(template_str, key, value):
-    """
-    Finds and returns a formatted value containing the appropriate
-    whitespace to put 'value' in place of 'key' for template_str
-
-    Parameters
-    ----------
-    template_str : str
-        The string to sub into
-    key : str
-        The key in the template string
-    value : str
-        The string to format
-
-    Returns
-    -------
-    formatted_value : str
-        The properly indented value
-    """
-
-    # find the instance of ${key} in kernel_str
-    whitespace = None
-    for i, line in enumerate(template_str.split('\n')):
-        if key in line:
-            # get whitespace
-            whitespace = re.match(r'\s*', line).group()
-            break
-    if whitespace is None:
-        raise Exception('Key {} not found in template: {}'.format(key, template_str))
-    result = [line if i == 0 else whitespace + line for i, line in
-              enumerate(textwrap.dedent(value).splitlines())]
-    return '\n'.join(result)
-
-
-def subs_at_indent(template_str, **kwargs):
-    """
-    Substitutes keys of :params:`kwargs` for values in :param:`template_str`
-    ensuring that the indentation of the value is the same as that of the key
-    for all lines present in the value
-
-    Parameters
-    ----------
-    template_str : str
-        The string to sub into
-    kwargs: dict
-        The dictionary of keys -> values to substituted into the template
-    Returns
-    -------
-    formatted_value : str
-        The formatted string
-    """
-
-    return Template(template_str).safe_substitute(
-        **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
-                             value if isinstance(value, str) else str(value))
-            for key, value in six.iteritems(kwargs)})

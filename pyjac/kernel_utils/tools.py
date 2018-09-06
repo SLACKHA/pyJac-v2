@@ -7,8 +7,7 @@ from textwrap import dedent
 
 import loopy as lp
 import numpy as np
-from pyjac.kernel_utils.kernel_gen import subs_at_indent
-from pyjac.utils import partition, is_integer, header_ext
+from pyjac.utils import partition, is_integer, header_ext, subs_at_indent
 
 
 def get_include(callgen, file):

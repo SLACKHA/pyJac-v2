@@ -13,6 +13,9 @@ import subprocess
 from contextlib import contextmanager
 import shutil
 import tempfile
+from string import Template
+import re
+import textwrap
 
 import six
 from six.moves import reduce
@@ -721,6 +724,64 @@ def check_order(order):
         logger.error("Invalid data-ordering ('{}') supplied, allowed values are 'C'"
                      " and 'F'".format(order))
         raise exceptions.InvalidInputSpecificationException('order')
+
+
+def _find_indent(template_str, key, value):
+    """
+    Finds and returns a formatted value containing the appropriate
+    whitespace to put 'value' in place of 'key' for template_str
+
+    Parameters
+    ----------
+    template_str : str
+        The string to sub into
+    key : str
+        The key in the template string
+    value : str
+        The string to format
+
+    Returns
+    -------
+    formatted_value : str
+        The properly indented value
+    """
+
+    # find the instance of ${key} in kernel_str
+    whitespace = None
+    for i, line in enumerate(template_str.split('\n')):
+        if key in line:
+            # get whitespace
+            whitespace = re.match(r'\s*', line).group()
+            break
+    if whitespace is None:
+        raise Exception('Key {} not found in template: {}'.format(key, template_str))
+    result = [line if i == 0 else whitespace + line for i, line in
+              enumerate(textwrap.dedent(value).splitlines())]
+    return '\n'.join(result)
+
+
+def subs_at_indent(template_str, **kwargs):
+    """
+    Substitutes keys of :params:`kwargs` for values in :param:`template_str`
+    ensuring that the indentation of the value is the same as that of the key
+    for all lines present in the value
+
+    Parameters
+    ----------
+    template_str : str
+        The string to sub into
+    kwargs: dict
+        The dictionary of keys -> values to substituted into the template
+    Returns
+    -------
+    formatted_value : str
+        The formatted string
+    """
+
+    return Template(template_str).safe_substitute(
+        **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
+                             value if isinstance(value, str) else str(value))
+            for key, value in six.iteritems(kwargs)})
 
 
 def get_parser():
