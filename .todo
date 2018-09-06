@@ -4,23 +4,27 @@ Beta release tasks:
   🗹 Get the rest of the write race warnings
   🗹 Get the new ambiguous dependency warnings as well
   ☐ Make platform specification completely independent of pyopencl -- currently, it requires the opencl platform to be installed on the generating machine, but it should only require a platform file.
-    ☐ In progress, need to do a full test on a machine w/o pyopencl installed
+    🗹 In progress, need to do a full test on a machine w/o pyopencl installed
   ☐ Documentation
 Improvements:
-  ☐ Make libgen use codepy, since we depend on it already
+  🗹 Make libgen use codepy, since we depend on it already
   ☐ Fusion of similar kernels (e.g., the different Troe / SRI / Lindemann falloff derivative variants)
   ☐ Preload of commonly reused data into __local mem for deep-vectorizations on GPUs
     ☐ Note: the utility of this is limited at the moment, as NVIDIA doesn't yet support atomics
       hence, this will become more pressing when CUDA support is enabled
-  ☐ New targets: ISPC, CUDA
+  ☐ New targets: ISPC, CUDA, Vectorized OpenMP
 Add-ons:
   ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.), particularly
     for sparse matrices
 Codegen:
-  🗹 Find a way to unify kernels, such that a single library / pywrapper exposes
+  ☐ Find a way to unify kernels, such that a single library / pywrapper exposes
     all available code
-  ☐ Reimplement wrapper generation using Cog
+      🗹 In progress -- we have the ability to generate different classes that can call
+         each respective kernel, but we don't (yet) put a class for each possiblty kernel
+         in the calling program
+  🗹 Reimplement wrapper generation using Cog
     ☐ Make the wrapper a C++ interface, such that we can embed useful info (species ordering, etc.), as well as simplify kernel exection / memory allocation
+      🗹 In progress, need to add more information variables / array creators
     🗹 Serialize the pre-initialize memory manager, and load in Cog generation to simplify this
     ☐ Leave stubs for extension to CUDA / ISPC / etc.
     🗹 Unit tests of code-gen should be make to accompany
@@ -47,7 +51,7 @@ Near-term plans:
   🗹 Change data pre-allocation for non-inputs / outputs to only use vector-size * num_threads * array size
     🗹 Along these lines, allow for fixed-size allocations / fully implement "interface" mode for Hekki
   ☐ Switch to int64 to avoid overflow limiting
-    ☐ This is currently possible, but I haven't tested yet.
+    🗹 This is currently possible, but I haven't tested yet.
   ☐ Unify the command-line flags w/ the oploops for the test-matrix to make that more sane
   ☐ In this vein, change the text matrix to an object that can be coerced from yaml input directly via ceberus
   ☐ Simplify split vector size division to right-shift and test
