@@ -17,10 +17,9 @@ def test_get_update_instruction():
     map_np = np.arange(12, dtype=arc.kint_type)
     map_domain = creator('map', map_np.dtype, map_np.shape, 'C', initializer=map_np)
 
-    mask_np = np.arange(12, dtype=arc.kint_type)
-
     # and a dummy loopy options and mapstore
-    loopy_opts = type('', (object,), {'use_working_buffer': False})
+    loopy_opts = type('', (object,), {
+        'use_working_buffer': False, 'pre_split': False})
     mapstore = MapStore(loopy_opts, map_domain, True)
 
     # add a new domain
