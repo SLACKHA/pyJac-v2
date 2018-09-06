@@ -984,7 +984,7 @@ def reduce_oploop(base, add=None):
 def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
                 langs=get_test_langs(), do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
-                sparse_only=False, do_simd=True):
+                sparse_only=False, do_simd=True, **kwargs):
 
     platforms = load_platforms(owner.store.test_platforms, langs=langs)
     oploop = [('order', ['C', 'F']),
@@ -1015,6 +1015,10 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
         oploop += [('jac_type', [JacobianType.exact])]
     if do_simd:
         oploop += [('is_simd', [True, False])]
+
+    for key in sorted(kwargs.keys()):
+        # enable user to pass in additional args
+        oploop += [(key, utils.listify(kwargs[key]))]
 
     return reduce_oploop(platforms, oploop)
 
