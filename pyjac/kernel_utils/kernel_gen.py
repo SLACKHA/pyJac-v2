@@ -2676,10 +2676,11 @@ class kernel_generator(object):
             # prioritize and return
             priority = []
             for iname in inames:
-                if isinstance(iname, tuple):
-                    priority.extend(iname)
-                else:
-                    priority.append(iname)
+                try:
+                    iname = iname.split(',')
+                except AttributeError:
+                    pass
+                priority.extend(iname)
             knl = lp.prioritize_loops(knl, priority)
         # check manglers
         if info.manglers:
