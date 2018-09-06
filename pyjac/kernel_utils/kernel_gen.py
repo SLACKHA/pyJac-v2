@@ -1667,8 +1667,9 @@ class kernel_generator(object):
             # get the pointer unpackings
             size_per_wi, static, offsets = self._get_working_buffer(args)
             unpacks = []
-            for k, (dtype, v) in six.iteritems(offsets):
-                unpacks.append(self._get_pointer_unpack(k, v, dtype, scope))
+            for k, (dtype, size, offset) in six.iteritems(offsets):
+                unpacks.append(self._get_pointer_unpack(
+                    k, size, offset, dtype, scope))
             if not result:
                 result = CodegenResult(pointer_unpacks=unpacks,
                                        pointer_offsets=offsets)
@@ -1821,9 +1822,11 @@ class kernel_generator(object):
         static_size: int
             The size (in number of values of dtype of :param:`args`) of the working
             buffer (independent of # of work-group items)
-        offsets: dict of str -> str
-            A mapping of kernel argument names to string indicies to unpack working
-            buffer into local pointers
+        offsets: dict of str -> (dtype, size, offset)
+            A mapping of kernel argument names to:
+                - the stringified dtype
+                - the calculated size of the argument, and
+                - offset in the working buffer for this argument's local pointer
         """
 
         regex = re.compile(r'{}((?:\s*\*\s*)(\d+))?'.format(w_size.name))
@@ -1841,35 +1844,46 @@ class kernel_generator(object):
         static_size = 0
         offsets = {}
         work_size = self.work_size
+
+        def _offset():
+            return '{} * {}'.format(size_per_work_item, work_size)
+
         for arg in args:
+            buffer_size = None
+            offset = None
             # split the shape into the work-item and other dimensions
             isizes, ssizes = utils.partition(arg.shape, lambda x: isinstance(x, int))
-            # store offset and increment size
-            offsets[arg.name] = (
-                arg.dtype, '{} * {}'.format(size_per_work_item, work_size))
-
             if len(ssizes) >= 1:
                 # check we have a work size in ssizes
-                size_per_work_item += int(np.prod(isizes) * _get_size(ssizes[0]))
+                buffer_size = int(np.prod(isizes) * _get_size(ssizes[0]))
+                # offset must be calculated _before_ updating size_per_work_item
+                offset = _offset()
+                size_per_work_item += buffer_size
             elif not len(ssizes):
                 # static size
-                static_size += int(np.prod(isizes))
+                buffer_size = int(np.prod(isizes))
+                offset = _offset()
+                static_size += buffer_size
+
+            # store offset and increment size
+            offsets[arg.name] = (arg.dtype, buffer_size, offset)
 
         return size_per_work_item, static_size, offsets
 
-    def _get_pointer_unpack(self, array, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
         """
         A method stub to implement the pattern:
         ```
             double* array = &rwk[offset]
         ```
-        per target.  By default this returns the pointer unpack for C, but it may
-        be overridden in subclasses
+        per target.  Overridden in subclasses
 
         Parameters
         ----------
         array: str
             The array name
+        size: str
+            The size of the array
         offset: str
             The stringified offset
         dtype: :class:`loopy.LoopyType`
@@ -1882,8 +1896,7 @@ class kernel_generator(object):
         unpack: str
             The stringified pointer unpacking statement
         """
-        return '{}* __restrict__ {} = {} + {};'.format(
-            self.type_map[dtype], array, rhs_work_name, offset)
+        raise NotImplementedError
 
     @classmethod
     def _remove_work_array_consts(cls, text):
@@ -2010,6 +2023,13 @@ class kernel_generator(object):
 
         # split into bodies, preambles, etc.
         for i, k, in enumerate(kernels):
+            if self.lang == 'c':
+                # todo: hack -- until we have a proper OpenMP target in Loopy, we
+                # need to set the inner work-size dimension to 1
+                # (to avoid an explicit work-size loop)
+                if self.lang == 'c':
+                    k = lp.fix_parameters(k, **{w_size.name: 1})
+
             k = lp.preprocess_kernel(k)
             # drivers own all their own kernels
             i_own = for_driver or owner[k.name] == self
@@ -2375,8 +2395,8 @@ class kernel_generator(object):
         unpacks = {x.name + arc.local_name_suffix:
                    wrapper.pointer_offsets[x.name] for x in args
                    if isinstance(x, lp.ArrayArg)}
-        unpacks = [self._get_pointer_unpack(k, v, dtype, scopes.GLOBAL)
-                   for k, (dtype, v) in six.iteritems(unpacks)]
+        unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL)
+                   for k, (dtype, size, offset) in six.iteritems(unpacks)]
         return CodegenResult(pointer_unpacks=unpacks)
 
     def _generate_driver_kernel(self, path, wrapper_memory, wrapper_result,
@@ -2836,6 +2856,41 @@ class c_kernel_generator(kernel_generator):
 
         return [global_ind],  ['0 <= {} < {}'.format(global_ind, test_size)]
 
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+        """
+        A method stub to implement the pattern:
+        ```
+            double* array = &rwk[offset]
+        ```
+        per target.  By default this returns the pointer unpack for C, but it may
+        be overridden in subclasses
+
+        Parameters
+        ----------
+        array: str
+            The array name
+        size: str
+            The size of the array
+        offset: str
+            The stringified offset
+        dtype: :class:`loopy.LoopyType`
+            The array type
+        scope: :class:`loopy.AddressSpace`
+            The memory scope
+
+        Returns
+        -------
+        unpack: str
+            The stringified pointer unpacking statement
+        """
+        return ('{dtype}* __restrict__ {array} = {work} + {offset} + '
+                '{size} * omp_get_thread_num();'.format(
+                    dtype=self.type_map[dtype],
+                    array=array,
+                    work=rhs_work_name,
+                    offset=offset,
+                    size=size))
+
     @property
     def target_preambles(self):
         """
@@ -2997,7 +3052,7 @@ class opencl_kernel_generator(kernel_generator):
 
         return [work_size]
 
-    def _get_pointer_unpack(self, array, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
         """
         Implement the pattern
         ```
@@ -3009,10 +3064,14 @@ class opencl_kernel_generator(kernel_generator):
         ----------
         array: str
             The array name
+        size: str
+            The size of the array
         offset: str
             The stringified offset
         dtype: :class:`loopy.LoopyType`
             The array type
+        scope: :class:`loopy.AddressSpace`
+            The memory scope
 
         Returns
         -------
