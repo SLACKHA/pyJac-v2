@@ -320,9 +320,10 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     # get kw args this function expects
     def __get_arg_dict(check, **in_args):
         try:
+            # py2-3 compat
             arg_count = check.func_code.co_argcount
             args = check.func_code.co_varnames[:arg_count]
-        except:
+        except AttributeError:
             arg_count = check.__code__.co_argcount
             args = check.__code__.co_varnames[:arg_count]
 
@@ -337,10 +338,8 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     info = func(ad_opts, namestore,
                 test_size=self.store.test_size,
                 **__get_arg_dict(func, **kwargs))
-    try:
-        infos.extend(info)
-    except:
-        infos.append(info)
+
+    infos.extend(utils.listify(info))
 
     # create a dummy kernel generator
     knl = k_gen.make_kernel_generator(
@@ -408,20 +407,14 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         info = f(ad_opts, single_name,
                  test_size=1,
                  **__get_arg_dict(f, **kwargs))
-        try:
-            for i in info:
-                if f == func and have_match and kernel_call.name != i.name:
-                    continue
-                if i is None:
-                    continue
-                single_info.append(i)
-        except:
-            if f == func and have_match and kernel_call.name != info.name:
+
+        for i in utils.listify(info):
+            if f == func and have_match and kernel_call.name != i.name:
                 continue
-            if info is None:
+            if i is None:
                 # empty map (e.g. no PLOG)
                 continue
-            single_info.append(info)
+            single_info.append(i)
 
     single_knl = k_gen.make_kernel_generator(
         kernel_type=KernelType.species_rates,
@@ -439,8 +432,6 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
 
     kernel_call.set_state(single_knl.array_split, ad_opts.order)
 
-    # add dummy 'j' arguement
-    kernel_call.kernel_args['j'] = -1
     # and place output
     kernel_call.kernel_args[editor.output.name] = np.zeros(
         editor.output.shape,
@@ -453,8 +444,6 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
             # setup the kernel call
             # reset the state
             kernel_call.set_state(single_knl.array_split, ad_opts.order)
-            # add dummy 'j' arguement
-            kernel_call.kernel_args['j'] = -1
             # and place output
             kernel_call.kernel_args[editor.output.name] = np.zeros(
                 editor.output.shape,
