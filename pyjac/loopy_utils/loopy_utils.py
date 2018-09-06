@@ -309,7 +309,7 @@ class loopy_options(object):
         """
         Return the necessary IC dimension size based on this :class:`loopy_options`
         """
-        if self.width and not self.pre_split:
+        if self.width:
             return '{}*{}'.format(arc.work_size.name, self.width)
 
         return arc.work_size.name
