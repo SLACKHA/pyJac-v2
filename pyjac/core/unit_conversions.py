@@ -111,7 +111,9 @@ def mass_to_mole_factions(loopy_opts, namestore, conp=True, test_size=None):
                                can_vectorize=can_vectorize,
                                vectorization_specializer=vec_spec,
                                parameters={'W_ns_inv': 1. / np.float64(
-                                                namestore.mw_arr[-1])})
+                                                namestore.mw_arr[-1])},
+                               silenced_warnings=['write_race(final)',
+                                                  'write_race(init)'])
 
     # now convert to moles
     mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
