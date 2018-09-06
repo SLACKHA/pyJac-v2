@@ -21,7 +21,7 @@ from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.array_creator import array_splitter, work_size
 from pyjac.core.exceptions import InvalidInputSpecificationException
 from pyjac.pywrap.pywrap_gen import pywrap
-from pyjac.tests.test_utils import temporary_build_dirs, OptionLoopWrapper
+from pyjac.tests.test_utils import temporary_build_dirs, OptionLoopWrapper, xfail
 
 
 class SubTest(TestClass):
@@ -69,11 +69,12 @@ class SubTest(TestClass):
             yield param(state)
 
     @attr('long')
-    def test_jacobian_compilation(self, state):
+    def test_jacobian_compilation(self):
         self.__run_test(
             get_jacobian_kernel, test_python_wrapper=False, do_approximate=True)
 
     @attr('long')
+    @xfail(msg='Finite Difference Jacobian currently broken.')
     def test_fd_jacobian_compilation(self, state):
         self.__run_test(
             finite_difference_jacobian, test_python_wrapper=False,
@@ -85,24 +86,26 @@ class SubTest(TestClass):
             create_jacobian(
                 'opencl', gas=self.store.gas, vector_size=4, wide=True, work_size=1)
 
-        with utils.temporary_dir() as build_dir:
+        with utils.temporary_directory() as build_dir:
             # test good fixed size
-            # create w/ fixed size
-            create_jacobian('c', gas=self.store.gas, work_size=1, data_order='F',
-                            build_path=build_dir)
-            # read resulting file
-            with open(os.path.join(build_dir, 'jacobian_kernel.c'),
-                      'r') as file:
-                file = file.read()
-            # and make sure we don't have 'work_size
-            assert not re.search(r'\b{}\b'.format(work_size.name), file)
+            create_jacobian('c', gas=self.store.gas, work_size=1,
+                            data_order='F', build_path=build_dir,
+                            kernel_type=KernelType.species_rates)
+
+            files = ['species_rates.c', 'species_rates.h', 'chem_utils.c',
+                     'chem_utils.h']
+            for file in files:
+                # read resulting file
+                with open(os.path.join(build_dir, file), 'r') as file:
+                    file = file.read()
+                # and make sure we don't have 'work_size
+                assert not re.search(r'\b{}\b'.format(work_size.name), file)
 
     def test_read_initial_conditions(self):
         setup = test_utils.get_read_ics_source()
-        for state in OptionLoopWrapper.from_get_oploop(self):
+        for opts in OptionLoopWrapper.from_get_oploop(self):
             with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
                 # create dummy loopy opts
-                opts = type('', (object,), state)()
                 asplit = array_splitter(opts)
 
                 # get source

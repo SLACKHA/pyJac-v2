@@ -1315,7 +1315,7 @@ class kernel_generator(object):
         if knl is None:
             raise Exception('Must call _generate_wrapping_kernel first')
 
-        remove_working = not self.user_specified_work_size
+        remove_working = True
 
         if passed_locals:
             knl = self.__migrate_locals(knl, passed_locals)
