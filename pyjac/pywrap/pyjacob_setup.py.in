@@ -5,7 +5,7 @@ import numpy
 
 """[[[cog
     from six.moves import cPickle as pickle
-    from pyjac.utils import stringify_args
+    from pyjac.utils import stringify_args, listify
 
     # unserialize the setupgen object
     with open(setupgen, 'rb') as file:
@@ -13,7 +13,7 @@ import numpy
 
     cog.outl('sources = ["{}"]'.format(setupgen.wrapper))
     cog.outl('includes = [{}]'.format(stringify_args(
-        [setupgen.build_dir, setupgen.include_dirs], use_quotes=True)))
+        [setupgen.build_dir] + listify(setupgen.include_dirs), use_quotes=True)))
     cog.outl('name = "pyjac_{}"'.format(setupgen.package_lang))
     if setupgen.package_lang == 'c':
         # include openmp
