@@ -328,7 +328,7 @@ def lockstep_driver_template(loopy_opts, driven):
             // order to get correct values from omp_get_num_threads()
             ${unpacks}
             #pragma omp for
-            for (${dtype} ${driver_offset} = 0; ${driver_offset} < ${problem_size}; ${driver_offset} += ${work_size})"""  # noqa
+            for (${dtype} ${driver_offset} = 0; ${driver_offset} < ${problem_size}; ${driver_offset} += 1)"""  # noqa
             """
             {
                 ${insns}
