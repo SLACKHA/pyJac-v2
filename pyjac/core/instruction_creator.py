@@ -530,6 +530,9 @@ def with_conditional_jacobian(func):
             If True, this Jacobian entry exists so do not wrap in a conditonal
         return_arg: bool [True]
             If True, return the created :loopy:`GlobalArg`
+        warn: bool [True]
+            If True, warn if an indirect access will be made w/o supplying
+            :param:`index_insn`
         **kwargs: dict
             Any other arguements will be passed to the :func:`mapstore.apply_maps`
             call
@@ -554,11 +557,13 @@ def with_conditional_jacobian(func):
         index_insn = kwargs.pop('index_insn', is_sparse) and insn != ''
         deps = kwargs.pop('deps', '')
         deps = deps.split(':')
+        warn = kwargs.pop('warn', True)
 
         created_index = _conditional_jacobian.created_index
         if not index_insn and is_sparse:
-            logger.warn('Using a sparse jacobian without precomputing the index'
-                        ' will result in extra indirect lookups.')
+            method = logger.warn if warn else logger.debug
+            method('Using a sparse jacobian without precomputing the index'
+                   ' will result in extra indirect lookups.')
 
         # if we want to precompute the index, do so
         if precompute:

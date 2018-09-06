@@ -1800,7 +1800,7 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     # and create post instructions
     _, dTdot_de_str = jac_create(
-        mapstore, namestore.jac, global_ind, 0, 1, entry_exists=True)
+        mapstore, namestore.jac, global_ind, 0, 1, entry_exists=True, warn=False)
     post_instructions = Template("""
         ${jac_str} = ${jac_str} + Ru * ${T_str} * sum / ${param_str} \
             {id=jac, dep=${deps}, nosync=up:jac_split}
@@ -2032,7 +2032,8 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
 
     # instructions
     _, dTdot_dT_str = jac_create(
-        mapstore, namestore.jac, global_ind, 0, 0)
+        mapstore, namestore.jac, global_ind, 0, 0,
+        warn=False)
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
 
@@ -3308,7 +3309,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
     _, dTdot_dnj_str = jac_create(
         mapstore, namestore.jac, global_ind, 0, var_name, affine={
             var_name: 2,
-        }, entry_exists=True, index_insn=False)
+        }, entry_exists=True, index_insn=False, warn=False)
 
     P_lp, P_str = mapstore.apply_maps(
         namestore.P_arr, global_ind)
