@@ -865,13 +865,6 @@ class kernel_generator(object):
             test_size = p_size.name
 
         if pre_split:
-            if self.for_testing:
-                # reduce the test size to avoid OOB errors in loopy
-                if for_driver:
-                    from pytools import div_ceil
-                    test_size = div_ceil(test_size, self.vec_width)
-                else:
-                    test_size = int(test_size / self.vec_width)
             gind += '_outer'
 
         inames = [gind]
