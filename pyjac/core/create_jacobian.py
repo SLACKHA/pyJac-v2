@@ -646,7 +646,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     fall_deps = ':kf*' if rxn_type != reaction_type.thd else ''
     mod_update = Template("""
     if ${thd_type_str} != ${unity}
-        mod = mod * ${P_str} * rt_inv$ - ${pres_mod_str} \
+        mod = mod * ${P_str} * rt_inv - ${pres_mod_str} \
             {id=mod_up, dep=mod_mix:mod_spec${fall_deps}}
     end
     """).safe_substitute(**locals()) if conp and rxn_type == reaction_type.thd\
