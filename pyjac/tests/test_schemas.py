@@ -16,7 +16,7 @@ from pytools.py_codegen import remove_common_indentation
 
 # internal
 from pyjac.core.enum_types import KernelType, JacobianFormat, JacobianType
-from pyjac.utils import func_logger, enum_to_string, listify, is_iterable
+from pyjac.utils import enum_to_string, listify, is_iterable
 from pyjac.tests.test_utils import xfail
 from pyjac.tests import script_dir as test_mech_dir
 from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, \
@@ -38,7 +38,6 @@ current_test_langs = ['c', 'opencl']
 """
 
 
-@func_logger
 def runschema(schema, source, should_fail=False, includes=[]):
 
     # add common

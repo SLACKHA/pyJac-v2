@@ -19,7 +19,6 @@ from pytools import ImmutableRecord
 from pyjac.core.array_creator import problem_size as p_size
 from pyjac.core.array_creator import work_size as w_size
 from pyjac import utils
-from pyjac.utils import func_logger
 from pyjac.schemas import build_and_validate, parse_bytestr
 from pyjac.core.exceptions import ValidationError, \
     InvalidInputSpecificationException
@@ -42,7 +41,6 @@ class memory_type(Enum):
         return self.value
 
 
-@func_logger
 def load_memory_limits(input_file, schema='common_schema.yaml'):
     """
     Conviencence method for loading inputs from memory limits file

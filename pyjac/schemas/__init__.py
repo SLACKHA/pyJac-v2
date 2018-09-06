@@ -9,7 +9,7 @@ import yaml
 from cerberus import Validator
 
 # internal
-from pyjac.utils import func_logger, langs, stringify_args, listify
+from pyjac.utils import langs, stringify_args, listify
 from pyjac.core.exceptions import ValidationError, validation_error_to_string
 
 # define path to schemas
@@ -70,7 +70,6 @@ class CustomValidator(Validator):
             self._error(field, message.format(
                 *tuple(stringify_args(x) for x in args)))
 
-    @func_logger
     def _validate_isvecsize(self, isvecsize, field, value):
         """ Test that the specified value is a proper vector size
 
@@ -84,7 +83,6 @@ class CustomValidator(Validator):
             'Value(s) {} not valid vector size.'
             'Must be a power of two (or the value three, for OpenCL)')
 
-    @func_logger
     def _validate_isvectype(self, isvectype, field, value):
         """ Test that the specified value is a proper vector width
 
@@ -97,7 +95,6 @@ class CustomValidator(Validator):
             'Value(s) {} not valid vector vectorization types.'
             'Allowed values are: {}.')
 
-    @func_logger
     def _validate_isvalidlang(self, isvalidlang, field, value):
         """ Test that the specified value is a proper vector width
 
@@ -111,7 +108,6 @@ class CustomValidator(Validator):
             'Allowed values are: {}.')
         return True
 
-    @func_logger
     def _validate_type_bytestr(self, value):
         """
         Enables validation for `bytestr` schema attribute.
@@ -121,7 +117,6 @@ class CustomValidator(Validator):
         parse_bytestr(self, value)
         return True
 
-    @func_logger
     def _validate_is_platform(self, is_platform, field, value):
         """ Test that the specified value is an ok platform
 
@@ -139,7 +134,6 @@ def __prefixify(file, dirname=schema_dir):
     return file
 
 
-@func_logger
 def build_schema(schema, includes=['common_schema.yaml'],
                  validatorclass=CustomValidator, allow_unknown=False,
                  update=False):
@@ -196,7 +190,6 @@ def build_schema(schema, includes=['common_schema.yaml'],
     return validatorclass(schema, allow_unknown=allow_unknown, update=update)
 
 
-@func_logger(allowed_errors=(IOError, OSError, ValidationError))
 def validate(validator, source, filename=''):
     """
     Validates the passed source file from the pre-built schema, and returns the
@@ -227,7 +220,6 @@ def validate(validator, source, filename=''):
     return validator.validated(sourcedict)
 
 
-@func_logger(allowed_errors=(IOError, OSError, ValidationError))
 def build_and_validate(schema, source, validator=CustomValidator, includes=[],
                        allow_unknown=False, update=False):
     """

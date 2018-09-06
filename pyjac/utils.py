@@ -126,62 +126,6 @@ def partition(tosplit, predicate):
                   ([], []))
 
 
-def func_logger(*args, **kwargs):
-    # This wrapper is to be used to provide a simple function decorator that logs
-    # function exit / entrance, as well as optional logging of arguements, etc.
-
-    cname = kwargs.pop('name', '')
-    log_args = kwargs.pop('log_args', False)
-    allowed_errors = kwargs.pop('allowed_errors', [])
-
-    assert not len(kwargs), 'Unknown keyword args passed to @func_logger: {}'.format(
-        stringify_args(kwargs, True))
-
-    def decorator(func):
-        """
-        A decorator that wraps the passed in function and logs
-        exceptions should one occur
-        """
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            logger = logging.getLogger(__name__)
-            try:
-                name = func.__name__
-                if cname:
-                    name = cname + '::' + name
-                msg = 'Entering function {}'.format(name)
-                if log_args:
-                    msg += ', with arguments: {} and keyword args: {}'.format(
-                        stringify_args(args),
-                        stringify_args(kwargs, True))
-                logger.debug(msg)
-                return func(*args, **kwargs)
-            except Exception as e:
-                # we've explicitly allowed these
-                log = logger.exception
-                if any(isinstance(e, a) for a in allowed_errors):
-                    log = logger.debug
-                    err = 'Allowed error of type {} in '.format(str(e))
-                else:
-                    err = "There was an unhandled exception in "
-                # log the exception
-                err += func.__name__
-                log(err)
-                # re-raise the exception
-                raise e
-            finally:
-                logging.debug('Exiting function {}'.format(name))
-        return wrapper
-    if len(args):
-        assert len(args) == 1, (
-            ('Unknown arguements passed to @func_logger: {}.'
-             ' Was expecting a function and possible keywords.'.format(
-                stringify_args(args))))
-        return decorator(args[0])
-    return decorator
-
-
 file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
 """dict: source code file extensions based on language"""
 
