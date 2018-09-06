@@ -696,7 +696,7 @@ def sparsify(array, col_inds, row_inds, order):
     inds = sparse_to_dense_indices(col_inds, row_inds, order, as_inds=False)
     index_tuple = [slice(None) for x in six.moves.range(array.ndim)]
     index_tuple[-len(inds):] = inds
-    return array[index_tuple]
+    return array[tuple(index_tuple)]
 
 
 def dense_to_sparse_indicies(mask, axes, col_inds, row_inds, order, tiling=True):
