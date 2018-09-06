@@ -510,7 +510,7 @@ def set_adept_editor(knl,
 
     # load template
     with open(adept_edit_script + '.in', 'r') as file:
-        src = Template(file.read())
+        src = file.read()
 
     def __get_size_and_stringify(variable):
         sizes = variable.shape
@@ -655,18 +655,19 @@ def set_adept_editor(knl,
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
-        file.write(src.substitute(
+        file.write(utils.subs_at_indent(
+            src,
             problem_size=problem_size,
             ad_indep_name='ad_' + independent_variable.name,
-            indep=indep,
-            indep_name=independent_variable.name,
+            # indep=indep,
+            # indep_name=independent_variable.name,
             indep_size=indep_size,
             ad_dep_name='ad_' + dependent_variable.name,
-            dep=dep,
-            dep_name=dependent_variable.name,
+            # dep=dep,
+            # dep_name=dependent_variable.name,
             dep_size=dep_size,
             jac_base_offset=jac_base_offset,
-            jac_size=jac_size,
+            # jac_size=jac_size,
             jac_name=output.name,
             function_defn=header,
             kernel_calls='\n'.join(kernel_calls),

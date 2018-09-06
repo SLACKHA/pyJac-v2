@@ -58,10 +58,7 @@ class editor(object):
                                   (problem_size, dep_size, indep_size),
                                   order=order)
         self.output = self.output(*['i', 'j', 'k'])[0]
-        try:
-            self.do_not_set = do_not_set[:]
-        except:
-            self.do_not_set = [do_not_set]
+        self.do_not_set = utils.listify(do_not_set)
         self.skip_on_missing = skip_on_missing
 
     def set_single_kernel(self, single_kernel):
