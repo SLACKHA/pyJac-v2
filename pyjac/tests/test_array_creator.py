@@ -611,9 +611,10 @@ def test_working_buffer_creations():
         inp = arc.creator('b', arc.kint_type, (10, 10), lp_opt.order)
 
         mstore = arc.MapStore(lp_opt, c, 8192, 'i')
-        arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i',
-                                            reshape_to_working_buffer=True,
-                                            working_buffer_index='k')
+        arr_lp, arr_str = mstore.apply_maps(
+            arr, 'j', 'i',
+            reshape_to_working_buffer=arc.work_size.name,
+            working_buffer_index='k')
 
         assert isinstance(arr_lp, lp.ArrayArg) and \
             __shape_compare(arr_lp.shape, (arc.work_size.name, 10))

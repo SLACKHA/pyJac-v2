@@ -855,6 +855,7 @@ class MapStore(object):
             self.working_buffer_index = global_index
 
         # unit tests operate on the whole array
+        self.initial_condition_dimension = None
         if not self.is_unit_test:
             self.initial_condition_dimension = \
                 self.loopy_opts.initial_condition_dimsize
@@ -1598,7 +1599,8 @@ class creator(object):
         # figure out whether to use private memory or not
         wbi = kwargs.pop('working_buffer_index', None)
         use_local_name = kwargs.pop('use_local_name', False)
-        reshape = kwargs.pop('reshape_to_working_buffer', work_size)
+        reshape = kwargs.pop('reshape_to_working_buffer',
+                             work_size.name if wbi else None)
         inds = self.__get_indicies(*indicies)
 
         # handle working buffer request
