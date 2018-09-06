@@ -13,6 +13,7 @@ implementing a wrapper around the given kernels that:
 
 import sys
 import re
+import textwrap
 
 
 def __get_file(filename, text_in=None):
@@ -34,7 +35,7 @@ def substitute(filename, text_in=None):
     # first replace what will become the inner kernel with the single indexed
     # version
 
-    lines = """${base_kernels}""".splitlines(True)
+    lines = textwrap.dedent("""${base_kernels}""").splitlines(True)
 
     first_body = None
     index = 0

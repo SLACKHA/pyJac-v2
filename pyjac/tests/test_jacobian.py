@@ -379,17 +379,11 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
                  **__get_arg_dict(f, **kwargs))
         is_skip = editor.skip_on_missing is not None and \
             f == editor.skip_on_missing
-        try:
-            if is_skip and any(x is None for x in info):
-                __raise(f)
-            infos.extend([x for x in info if x is not None])
-        except:
-            if info is None:
-                # empty map (e.g. no PLOG)
-                if is_skip:
-                    __raise(f)
-                continue
-            infos.append(info)
+
+        if is_skip and any(x is None for x in info):
+            # empty map (e.g. no PLOG)
+            __raise(f)
+        infos.extend([x for x in utils.listify(info) if x is not None])
 
     for i in infos:
         for arg in i.kernel_data:
