@@ -841,8 +841,8 @@ def select_elements(arr, mask, axes, tiling=True):
                 index = [slice(None) for x in six.moves.range(arr.ndim)]
                 for i, ax in enumerate(axes):
                     index[ax] = mask[i]
-                mask = tuple(index)
-            return arr[mask].squeeze()
+                mask = index
+            return arr[tuple(mask)].squeeze()
         # next try iterable
 
         # multiple axes
