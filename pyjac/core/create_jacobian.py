@@ -26,7 +26,7 @@ from pyjac.core import mech_interpret as mech
 from pyjac.core import rate_subs as rate
 from pyjac.core import mech_auxiliary as aux
 from pyjac.core.enum_types import (JacobianType, JacobianFormat,
-                                   FiniteDifferenceMode)
+                                   FiniteDifferenceMode, RateSpecialization)
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.loopy_utils import load_platform
@@ -5180,12 +5180,13 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     vector_size=None, wide=False, deep=False, ilp=None, unr=None,
                     build_path='./out/', last_spec=None,
                     kernel_type=KernelType.jacobian, platform='',
-                    data_order='C', rate_specialization='full',
+                    data_order='C', rate_specialization=RateSpecialization.full,
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
-                    use_atomic_doubles=True, use_atomic_ints=True, jac_type='exact',
-                    jac_format='full', for_validation=False,
-                    fd_order=1, fd_mode='forward', mem_limits='',
+                    use_atomic_doubles=True, use_atomic_ints=True,
+                    jac_type=JacobianType.exact,
+                    jac_format=JacobianFormat.full, for_validation=False,
+                    fd_order=1, fd_mode=FiniteDifferenceMode.forward, mem_limits='',
                     work_size=None, explicit_simd=False, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.
