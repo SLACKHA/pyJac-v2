@@ -187,8 +187,11 @@ class MemoryManager(object):
             subs[problem_size.name] = num_ics
         return calc.buffer_size(arr, subs)
 
-    def non_ic_size(self, arr):
-        return StrideCalculator(self.type_map).non_ic_size(arr)
+    def non_ic_size(self, arr, subs=None):
+        kwargs = {}
+        if subs:
+            kwargs['subs'] = subs
+        return StrideCalculator(self.type_map).non_ic_size(arr, **kwargs)
 
     def get_name(self, device, arr, **kwargs):
         namer = self.device_namer if device else self.host_namer

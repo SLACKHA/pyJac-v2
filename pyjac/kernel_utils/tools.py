@@ -134,3 +134,13 @@ def max_size(mem, args):
         return '({})'.format(problem_size)
     work_size = '{} * work_size'.format(max(work_size))
     return '({0} > {1} ? {0} : {1})'.format(problem_size, work_size)
+
+
+def get_num_bytes(mem, arg):
+    """
+    Return the size (in bytes) of an argument -- note, there _must_ not be any
+    string sizes in the arguments' shape.  Intended to determine the size of the
+    __local buffer for deep arrays
+    """
+
+    return int(mem.non_ic_size(arg, subs={})) * arg.dtype.itemsize

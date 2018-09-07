@@ -170,7 +170,8 @@ protected:
 
     # define kernel args
     for arg in callgen.kernel_data[kernel]:
-        if not isinstance(arg, lp.ValueArg):
+        if not (isinstance(arg, lp.ValueArg) or
+                arg.address_space == lp.AddressSpace.LOCAL):
             cog.outl(indent(mem.define(True, arg), stdindent))
     cog.out("""
     #ifdef PINNED
