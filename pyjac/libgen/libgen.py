@@ -88,6 +88,9 @@ def get_toolchain(lang, shared=True, executable=True):
 
         compile_flags += shared_flags[lang]
         linkflags += shared_exec_flags[lang]
+    if run_dirs[lang]:
+        for rdir in utils.listify(run_dirs[lang]):
+            linkflags += ['-Wl,-rpath,{}'.format(rdir)]
     so_ext = lib_ext(shared)
 
     return GCCToolchain(cc=cmd_compile[lang],
