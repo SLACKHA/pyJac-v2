@@ -26,7 +26,8 @@ from pyjac.tests.test_utils import temporary_build_dirs, OptionLoopWrapper, xfai
 
 class SubTest(TestClass):
 
-    def __run_test(self, method, test_python_wrapper=True, **oploop_keywords):
+    def __run_test(self, method, test_python_wrapper=True,
+                   ktype=KernelType.species_rates, **oploop_keywords):
         wrapper = OptionLoopWrapper.from_get_oploop(
             self, shared=[True, False], ignored_state_vals=['conp', 'shared'],
             **oploop_keywords)
@@ -44,12 +45,12 @@ class SubTest(TestClass):
                 # compile
                 generate_library(opts.lang, build_dir, obj_dir=obj_dir,
                                  out_dir=lib_dir, shared=wrapper.state['shared'],
-                                 ktype=KernelType.species_rates)
+                                 ktype=ktype)
                 if test_python_wrapper:
                     package = 'pyjac_{}'.format(utils.package_lang[opts.lang])
                     # test wrapper generation
                     pywrap(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                           ktype=KernelType.species_rates)
+                           ktype=ktype)
 
                     imp = test_utils.get_import_source()
                     with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
@@ -71,14 +72,15 @@ class SubTest(TestClass):
     @attr('long')
     def test_jacobian_compilation(self):
         self.__run_test(
-            get_jacobian_kernel, test_python_wrapper=False, do_approximate=True)
+            get_jacobian_kernel, ktype=KernelType.Jacobian,
+            test_python_wrapper=False, do_approximate=True)
 
     @attr('long')
     @xfail(msg='Finite Difference Jacobian currently broken.')
     def test_fd_jacobian_compilation(self, state):
         self.__run_test(
             finite_difference_jacobian, test_python_wrapper=False,
-            do_finite_difference=True)
+            ktype=KernelType.Jacobian, do_finite_difference=True)
 
     def test_fixed_work_size(self):
         # test bad fixed size
