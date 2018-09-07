@@ -684,8 +684,8 @@ def test_remove_work_array_consts():
     assert kernel_generator._remove_work_array_consts(
         '(double const *__restrict__ rwk)') == '(double *__restrict__ rwk)'
     assert kernel_generator._remove_work_array_consts(
-        '(__local double const *__restrict__ lwk)') == (
-            '(__local double *__restrict__ lwk)')
+        '(__local volatile double const *__restrict__ lwk)') == (
+            '(__local volatile double *__restrict__ lwk)')
     assert kernel_generator._remove_work_array_consts(
         '(int const *__restrict__ iwk)') == '(int *__restrict__ iwk)'
     assert kernel_generator._remove_work_array_consts(

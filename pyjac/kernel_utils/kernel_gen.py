@@ -1901,9 +1901,9 @@ class kernel_generator(object):
         replacers = [(
             re.compile(r'(double const \*__restrict__ {})'.format(rhs_work_name)),
             r'double *__restrict__ {}'.format(rhs_work_name)), (
-            re.compile(r'(__local double const \*__restrict__ {})'.format(
+            re.compile(r'(__local volatile double const \*__restrict__ {})'.format(
                 local_work_name)),
-            r'__local double *__restrict__ {}'.format(local_work_name)), (
+            r'__local volatile double *__restrict__ {}'.format(local_work_name)), (
             re.compile(r'(int const \*__restrict__ {})'.format(int_work_name)),
             r'int *__restrict__ {}'.format(int_work_name)), (
             re.compile(r'(long int const \*__restrict__ {})'.format(int_work_name)),
