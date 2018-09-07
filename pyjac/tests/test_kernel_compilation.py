@@ -1,12 +1,8 @@
 import os
-from collections import OrderedDict
 import shutil
-from string import Template
 import re
 
-from optionloop import OptionLoop
 import numpy as np
-from parameterized import param
 from nose.tools import assert_raises
 from nose.plugins.attrib import attr
 
@@ -63,17 +59,11 @@ class SubTest(TestClass):
     def test_specrates_compilation(self):
         self.__run_test(get_specrates_kernel, test_python_wrapper=True)
 
-    def __test_cases():
-        for state in OptionLoop(OrderedDict(
-                [('lang', ['opencl', 'c']),
-                 (('jac_type'), ['exact', 'approximate', 'finite_difference'])])):
-            yield param(state)
-
-    @attr('long')
+    @attr('verylong')
     def test_jacobian_compilation(self):
         self.__run_test(
             get_jacobian_kernel, ktype=KernelType.jacobian,
-            test_python_wrapper=False, do_approximate=True)
+            test_python_wrapper=True, do_approximate=True)
 
     @attr('long')
     @xfail(msg='Finite Difference Jacobian currently broken.')
@@ -103,6 +93,20 @@ class SubTest(TestClass):
                 # and make sure we don't have 'work_size
                 assert not re.search(r'\b{}\b'.format(work_size.name), file)
 
+    def __write_with_subs(self, file, inpath, outpath, renamer=None, **subs):
+        with open(os.path.join(inpath, file), 'r') as read:
+            src = read.read()
+
+        src = utils.subs_at_indent(src, **subs)
+
+        if renamer:
+            file = renamer(file)
+
+        with open(os.path.join(outpath, file), 'w') as outfile:
+            outfile.write(src)
+
+        return os.path.join(outpath, file)
+
     def test_read_initial_conditions(self):
         setup = test_utils.get_read_ics_source()
         for opts in OptionLoopWrapper.from_get_oploop(self):
@@ -110,35 +114,44 @@ class SubTest(TestClass):
                 # create dummy loopy opts
                 asplit = array_splitter(opts)
 
-                # get source
-                path = os.path.realpath(
-                    os.path.join(self.store.script_dir, os.pardir,
-                                 'kernel_utils', 'common',
-                                 'read_initial_conditions.c.in'))
+                header_ext = utils.header_ext[opts.lang]
+                file_ext = utils.file_ext[opts.lang]
 
-                with open(path, 'r') as file:
-                    ric = Template(file.read())
-                # subs
-                ric = ric.safe_substitute(mechanism='mechanism.h',
-                                          vectorization='vectorization.h')
-                # write
-                with open(os.path.join(
-                        build_dir, 'read_initial_conditions.c'), 'w') as file:
-                    file.write(ric)
+                # write initial condition file
+                ric = self.__write_with_subs(
+                    'read_initial_conditions.c.in',
+                    os.path.realpath(
+                        os.path.join(self.store.script_dir, os.pardir,
+                                     'kernel_utils', 'common')),
+                    build_dir,
+                    renamer=lambda x: x[:x.index('.')] + file_ext,
+                    mechanism='mechanism' + header_ext,
+                    vectorization='vectorization' + header_ext)
+
                 # write header
                 write_aux(build_dir, opts, self.store.specs, self.store.reacs)
-                # write setup
                 with open(os.path.join(build_dir, 'setup.py'), 'w') as file:
-                    file.write(setup.safe_substitute(buildpath=build_dir))
+                    file.write(setup.safe_substitute(buildpath=build_dir,
+                                                     obj_dir=obj_dir))
+
+                # and compile
+                from pyjac.libgen import compile, get_toolchain
+                toolchain = get_toolchain(opts.lang)
+                compile(opts.lang, toolchain, [ric], obj_dir=obj_dir)
+
                 # copy read ics header to final dest
-                shutil.copyfile(os.path.join(self.store.script_dir, os.pardir,
-                                             'kernel_utils', 'common',
-                                             'read_initial_conditions.h'),
-                                os.path.join(build_dir, 'read_initial_conditions.h'))
-                # copy wrapper
-                shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
-                                             'read_ic_wrapper.pyx'),
-                                os.path.join(build_dir, 'read_ic_wrapper.pyx'))
+                read_ic_header = os.path.join(
+                    self.store.script_dir, os.pardir,
+                    'kernel_utils', 'common',
+                    'read_initial_conditions.h')
+                utils.copy_with_extension(
+                    opts.lang, read_ic_header, build_dir, header=True)
+                # write wrapper
+                self.__write_with_subs(
+                    'read_ic_wrapper.pyx',
+                    os.path.join(self.store.script_dir, 'test_utils'),
+                    build_dir,
+                    header_ext=header_ext)
                 # setup
                 utils.run_with_our_python(
                     [os.path.join(build_dir, 'setup.py'),
@@ -153,10 +166,11 @@ class SubTest(TestClass):
                 # is the pressure
 
                 # save phi, param in correct order
-                phi = (self.store.phi_cp if opts.conp else self.store.phi_cv)
+                conp = True
+                phi = (self.store.phi_cp if conp else self.store.phi_cv)
                 save_phi, = asplit.split_numpy_arrays(phi)
                 save_phi = save_phi.flatten(opts.order)
-                param = self.store.P if opts.conp else self.store.V
+                param = self.store.P if conp else self.store.V
                 save_phi.tofile(os.path.join(lib_dir, 'phi_test.npy'))
                 param.tofile(os.path.join(lib_dir, 'param_test.npy'))
 

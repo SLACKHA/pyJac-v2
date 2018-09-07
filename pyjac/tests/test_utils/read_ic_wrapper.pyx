@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as np
 from cpython cimport bool
 
-cdef extern from "read_initial_conditions.h":
+cdef extern from "read_initial_conditions${header_ext}":
     void read_initial_conditions (const char *filename, unsigned int NUM,
                          double *phi_host, double *param_host,
                          const char order);
