@@ -3080,8 +3080,12 @@ class opencl_kernel_generator(kernel_generator):
         dtype = self.type_map[dtype]
         if scope == scopes.GLOBAL:
             scope_str = 'global'
+            volatile = ''
+            work_str = rhs_work_name
         elif scope == scopes.LOCAL:
             scope_str = 'local'
+            volatile = ' volatile'
+            work_str = local_work_name
         else:
             raise NotImplementedError
         scope_str = '__{}'.format(scope_str)
@@ -3092,8 +3096,8 @@ class opencl_kernel_generator(kernel_generator):
             dtype += str(self.vec_width)
             cast = '({} {}*)'.format(scope_str, dtype)
 
-        return '{} {}* __restrict__ {} = {}(rwk + {});'.format(
-            scope_str, dtype, array, cast, offset)
+        return '{}{} {}* __restrict__ {} = {}({} + {});'.format(
+            scope_str, volatile, dtype, array, cast, work_str, offset)
 
     def _special_kernel_subs(self, path, callgen):
         """

@@ -23,7 +23,7 @@ from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup, \
     PreambleGen
 from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
-    knl_info, make_kernel_generator, CallgenResult
+    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name
 from pyjac.utils import partition, temporary_directory, clean_dir, \
     can_vectorize_lang, header_ext, file_ext
 from pyjac.tests import TestClass, get_test_langs
@@ -245,6 +245,10 @@ class SubTest(TestClass):
                     # and scope, if needed
                     if arg.address_space == scopes.LOCAL:
                         assert 'local' in unpack
+                        assert local_work_name in unpack
+                        assert 'volatile' in unpack
+                    else:
+                        assert rhs_work_name in unpack
                     # and in offset
                     assert arg.name in offsets
 
