@@ -130,24 +130,33 @@ def get_file_list(source_dir, lang, ktype, file_base=None):
     i_dirs = [source_dir]
     files = ['read_initial_conditions', 'timer']
 
-    # look for right code in the directory
-    if ktype == KernelType.jacobian:
-        file_base = 'jacobian'
-    elif ktype == KernelType.species_rates:
-        file_base = 'species_rates'
-    elif ktype == KernelType.chem_utils:
-        file_base = 'chem_utils'
-    elif ktype == KernelType.dummy:
+    # determine which files to compile
+    deps = {KernelType.jacobian: [KernelType.species_rates, KernelType.chem_utils],
+            KernelType.species_rates: [KernelType.chem_utils],
+            KernelType.chem_utils: []}
+
+    file_bases = {KernelType.jacobian: 'jacobian',
+                  KernelType.species_rates: 'species_rates',
+                  KernelType.chem_utils: 'chem_utils',
+                  KernelType.dummy: file_base}
+
+    if ktype == KernelType.dummy:
         assert file_base is not None
         pass
 
-    if lang == 'opencl':
-        files += [file_base + x for x in ['_compiler', '_main']]
-        files += ['error_check']
-    elif lang == 'c':
-        files += [file_base + x for x in ['', '_main', '_driver']]
-        files += ['error_check']
+    modifiers = {'opencl': ['_compiler', '_main'],
+                 'c': ['', '_main', '_driver']}
 
+    # handle base kernel type
+    files += [file_bases[ktype] + x for x in modifiers[lang]]
+
+    # and add dependencies
+    if lang != 'opencl':
+        for dep in deps[ktype]:
+            files += [file_bases[dep]]
+
+    # error checking
+    files += ['error_check']
     return i_dirs, files
 
 
