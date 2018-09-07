@@ -728,6 +728,45 @@ def subs_at_indent(template_str, **kwargs):
             for key, value in six.iteritems(kwargs)})
 
 
+def copy_with_extension(lang, file, topath, frompath=None, header=False):
+    """
+    Copies :param:`file` to :param:`topath`, while changing the extension to
+    match that of the given :param:`lang`
+
+    Parameters
+    ----------
+    lang : str
+        The language to determine the extension of
+    file : str
+        Either the full path to the file, or the filename to copy
+    topath : str
+        The path to copy the modified file to
+    frompath : str [None]
+        If specified, :param:`file` is a filename, and is located at
+        :param:`frompath`
+    header : bool [False]
+        If true, this file is a header (and we should use the header extensions)
+
+
+    Returns
+    -------
+    None
+    """
+
+    if frompath:
+        file = os.path.join(frompath, file)
+
+    base_name = os.path.basename(file)
+    outfile = os.path.join(topath, base_name)
+
+    # replace extension
+    ext = header_ext[lang] if header else file_ext[lang]
+    outfile = outfile[:outfile.rindex('.')] + ext
+
+    # and copy
+    shutil.copyfile(file, outfile)
+
+
 def get_parser():
     """
 
