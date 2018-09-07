@@ -2145,10 +2145,10 @@ class kernel_generator(object):
             deps += [x for x in dep._get_deps() if x not in deps]
         return deps
 
-    def _constant_deduplication(self, record, result):
+    def _deduplicate(self, record, result):
         """
-        Handles de-duplication of constant array data in subkernels of the top-level
-        wrapping kernel
+        Handles de-duplication of constant array data and preambles in
+        subkernels of the top-level wrapping kernel
 
         Parameters
         ----------
@@ -2160,23 +2160,27 @@ class kernel_generator(object):
         Returns
         -------
         results: list of :class:`CodegenResult`
-            The code-generation results for sub-kernels, with constants deduplicated.
-            Note that the modified version of :param:`result` is stored in
-            results[0]
+            The code-generation results for sub-kernels, with constants & preambles
+            deduplicated. Note that the modified version of :param:`result` is
+            stored in results[0]
         """
 
         results = []
         # generate wrapper for deps
         deps = self._get_deps(include_self=True)
-        # cleanup duplicate inits
+        # cleanup duplicate inits / premables
         init_list = {}
+        preamble_list = []
         for kgen in reversed(deps):
             _, _, dr = kgen._generate_wrapping_kernel('', record, result)
             # remove shared inits
             dr = dr.copy(inits={k: v for k, v in six.iteritems(dr.inits)
                                 if k not in init_list})
-            # update inits
+            dr = dr.copy(preambles=[v for v in dr.preambles
+                                    if v not in preamble_list])
+            # update
             init_list.update(dr.inits)
+            preamble_list.extend(dr.preambles)
             # and store
             results.append(dr)
 
@@ -2190,7 +2194,7 @@ class kernel_generator(object):
         ----------
         codegen_results:  list of :class:`CodegenResult`
             The (almost) finalized codegen results, listified by
-            :func:`_constant_deduplication`
+            :func:`_deduplicate`
 
         Returns
         -------
@@ -2267,8 +2271,8 @@ class kernel_generator(object):
 
         source_names = []
         if is_owner and self.depends_on:
-            # remove duplicate constant definitions
-            codegen_results = self._constant_deduplication(record, result)
+            # remove duplicate constant/preamble definitions
+            codegen_results = self._deduplicate(record, result)
             # and set dependencies
             codegen_results = self._set_dependencies(codegen_results)
         elif is_owner:

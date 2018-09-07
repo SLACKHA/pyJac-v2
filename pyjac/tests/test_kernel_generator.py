@@ -398,7 +398,7 @@ class SubTest(TestClass):
             result = gen1._merge_kernels(record, result)
 
             # and de-duplicate
-            results = gen1._constant_deduplication(record, result)
+            results = gen1._deduplicate(record, result)
 
             # check inits
             inits = {}
