@@ -1088,6 +1088,9 @@ class OptionLoopWrapper(object):
     from_get_oploop: bool [False]
         If true, apply skips that wouldn't be necessarily applied if user-specified
         (e.g., deep-vectorized SIMD)
+    skip_deep_simd: bool [None]
+        If true, skip deep-SIMD vectorization tests, defaults to value of
+        :param:`from_get_oploop`
 
     Notes
     -----
@@ -1101,7 +1104,8 @@ class OptionLoopWrapper(object):
     """
 
     def __init__(self, oploop_base, skip_test=None, yield_index=False,
-                 ignored_state_vals=['conp'], from_get_oploop=False):
+                 ignored_state_vals=['conp'], from_get_oploop=False,
+                 skip_deep_simd=None):
         self.oploop = oploop_base.copy()
         self.state = next(oploop_base.copy()).copy()
         self.yield_index = yield_index
@@ -1109,10 +1113,12 @@ class OptionLoopWrapper(object):
         self.bad_platforms = set()
         self.ignored_state_vals = ignored_state_vals[:]
         self.from_get_oploop = from_get_oploop
+        self.skip_deep_simd = skip_deep_simd if skip_deep_simd is not None else \
+            from_get_oploop
 
     @staticmethod
     def from_dict(oploop_base, skip_test=None, yield_index=False,
-                  ignored_state_vals=['conp']):
+                  ignored_state_vals=['conp'], skip_deep_simd=False):
         """
         A convenience method that returns a :class:`OptionLoopWrapper` from the
         list of tuples provided (i.e., that may be turned into an option loop)
@@ -1121,16 +1127,17 @@ class OptionLoopWrapper(object):
         ----------
         oploop_base: dict
             The options that may be converted into an :class:`OptionLoop`
-
         Returns
         -------
         wrapper: :class:`OptionLoopWrapper`
             The constructed wrapper
         """
 
-        return OptionLoopWrapper(OptionLoop(oploop_base), skip_test=skip_test,
+        return OptionLoopWrapper(OptionLoop(oploop_base),
+                                 skip_test=skip_test,
                                  yield_index=yield_index,
-                                 ignored_state_vals=ignored_state_vals)
+                                 ignored_state_vals=ignored_state_vals,
+                                 skip_deep_simd=skip_deep_simd)
 
     @staticmethod
     def from_get_oploop(owner, skip_test=None, yield_index=False,

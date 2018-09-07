@@ -10,7 +10,6 @@ from collections import OrderedDict
 import numpy as np
 from parameterized import parameterized, param
 from unittest.case import SkipTest
-from optionloop import OptionLoop
 try:
     from scipy.sparse import csr_matrix, csc_matrix, coo_matrix
 except ImportError:
@@ -25,7 +24,7 @@ from pyjac.utils import enum_to_string, listify
 from pyjac import utils
 from pyjac.core.enum_types import (KernelType, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
-    select_elements, get_split_elements, sparsify
+    select_elements, get_split_elements, sparsify, OptionLoopWrapper
 from pyjac.tests import set_seed
 
 set_seed()
@@ -126,6 +125,26 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
             i += 1
 
 
+# dummy option loop
+def opts_loop(langs=['opencl'],
+              width=[4, None],
+              depth=[4, None],
+              order=['C', 'F'],
+              simd=True,
+              sparse=False):
+
+    return OptionLoopWrapper.from_dict(OrderedDict(
+        [('lang', langs),
+         ('width', width),
+         ('depth', depth),
+         ('order', order),
+         ('device_type', 'CPU'),
+         ('is_simd', [True, False] if simd else [False]),
+         ('jac_format', [JacobianFormat.sparse, JacobianFormat.full] if sparse else
+                        [JacobianFormat.full])]),
+         skip_deep_simd=True)
+
+
 @parameterized([param(
     (1024, 4, 4), [np.arange(4), np.arange(4)], (1, 2)),
                 param(
@@ -137,43 +156,14 @@ def test_select_elements(shape, mask, axes, tiling=True):
     # create array
     arr = np.arange(1, np.prod(shape) + 1).reshape(shape)
 
-    dummy_opts = type('', (object,), {
-        'depth': None,
-        'width': None,
-        'order': 'C',
-        'is_simd': False})
-    asplit = array_splitter(dummy_opts)
-
-    assert np.array_equal(
-        select_elements(arr, mask, axes, tiling=tiling).flatten(order='C'),
-        # despite the name, this can actually be used for both split & non-split
-        # elements and forms a nice test-case answer here
-        get_split_elements(arr, asplit, arr.shape, mask, axes, tiling=tiling))
-
-
-# dummy option loop
-def opts_loop(langs=['opencl'],
-              width=[4, None],
-              depth=[4, None],
-              order=['C', 'F'],
-              simd=True,
-              sparse=False):
-
-    oploop = OptionLoop(OrderedDict(
-        [('lang', langs),
-         ('width', width),
-         ('depth', depth),
-         ('order', order),
-         ('device_type', 'CPU'),
-         ('is_simd', [True, False] if simd else [False]),
-         ('jac_format', [JacobianFormat.sparse, JacobianFormat.full] if sparse else
-                        [JacobianFormat.full])]))
-    for state in oploop:
-        if state['depth'] and state['width']:
-            continue
-        if state['is_simd'] and not (state['depth'] or state['width']):
-            state['is_simd'] = False
-        yield type('', (object,), state)
+    for opts in opts_loop(width=[None], depth=[None], simd=False):
+        asplit = array_splitter(opts)
+        assert np.array_equal(
+            select_elements(arr, mask, axes, tiling=tiling).flatten(
+                order=opts.order),
+            # despite the name, this can actually be used for both split & non-split
+            # elements and forms a nice test-case answer here
+            get_split_elements(arr, asplit, arr.shape, mask, axes, tiling=tiling))
 
 
 def compare_patterns(shape):
