@@ -3,6 +3,7 @@ from collections import OrderedDict
 import shutil
 from tempfile import NamedTemporaryFile
 import re
+import textwrap
 
 import numpy as np
 import loopy as lp
@@ -18,7 +19,8 @@ from pyjac.core.enum_types import JacobianFormat, KernelType
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core import array_creator as arc
-from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
+from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup, \
+    PreambleGen
 from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
     knl_info, make_kernel_generator, CallgenResult
@@ -36,6 +38,21 @@ def rec_kernel(gen, kernels=[]):
     for dep in gen.depends_on:
         kernels += rec_kernel(dep)
     return kernels
+
+
+class dummy_preamble(PreambleGen):
+    def __init__(self):
+        dtype = 'int' if arc.kint_type == np.int32 else 'long int'
+        super(dummy_preamble, self).__init__(
+            'dummy', textwrap.dedent("""
+            {dtype} dummy({dtype} val, {dtype} one)
+            {{
+                return val;
+            }}""").format(dtype=dtype),
+            (arc.kint_type, arc.kint_type), arc.kint_type)
+
+    def get_descriptor(self, func_match):
+        return 'dummy_func'
 
 
 class SubTest(TestClass):
@@ -319,7 +336,7 @@ class SubTest(TestClass):
                 assert re.search(
                     r'\b' + kernel.name + r'\b', '\n'.join(result.instructions))
 
-    def test_init_deduplication(self):
+    def test_deduplication(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,
                                                    do_conp=False,
                                                    do_vector=False,
@@ -345,16 +362,19 @@ class SubTest(TestClass):
             'nonshared', shape=nonshared.shape, initializer=nonshared,
             read_only=True, address_space=scopes.GLOBAL)
 
+        # and a preamble generator function -> fastpowi_PreambleGen
+        pre = [dummy_preamble()]
+
         # and finally two kernels (one for each generator)
         # kernel 0 contains the non-shared temporary
         instructions0 = (
             """
-                {arg} = shared[i] + nonshared[i]
+                {arg} = shared[i] + dummy(nonshared[i], 1)
             """
         )
         instructions1 = (
             """
-                {arg} = {arg} + shared[i] + nonshared_top[i]
+                {arg} = {arg} + shared[i] + dummy(nonshared_top[i], 1)
             """
         )
 
@@ -371,17 +391,21 @@ class SubTest(TestClass):
 
             # create kernel infos
             knl0 = knl_info('knl0', instructions0.format(arg=arg_str), mapstore,
-                            kernel_data=[arg_lp, shared, nonshared, arc.work_size])
+                            kernel_data=[arg_lp, shared, nonshared, arc.work_size],
+                            preambles=pre)
             knl1 = knl_info('knl1', instructions1.format(arg=arg_str), mapstore,
                             kernel_data=[arg_lp, shared, nonshared_top,
-                                         arc.work_size])
+                                         arc.work_size],
+                            preambles=pre)
             # create generators
             gen0 = make_kernel_generator(
-                 opts, KernelType.chem_utils, [knl0],
-                 type('', (object,), {'jac': ''}))
+                 opts, KernelType.dummy, [knl0],
+                 type('', (object,), {'jac': ''}),
+                 name=knl0.name)
             gen1 = make_kernel_generator(
-                 opts, KernelType.chem_utils, [knl1],
-                 type('', (object,), {'jac': ''}), depends_on=[gen0])
+                 opts, KernelType.dummy, [knl1],
+                 type('', (object,), {'jac': ''}), depends_on=[gen0],
+                 name=knl1.name)
 
             # make kernels
             gen1._make_kernels()
@@ -400,16 +424,25 @@ class SubTest(TestClass):
             # and de-duplicate
             results = gen1._deduplicate(record, result)
 
-            # check inits
+            # check inits & preambles
             inits = {}
+            preambles = []
             for result in results:
                 for k, v in six.iteritems(result.inits):
                     assert k not in inits
                     inits[k] = v
+                for p in result.preambles:
+                    assert p not in preambles
+                    preambles.append(p)
 
             assert 'shared' in inits
+            # ensure that the init is defined in the lowest kernel
+            k0 = next(x for x in results if x.name == knl0.name)
+            assert 'shared' in k0.inits
             assert 'nonshared' in inits
             assert 'nonshared_top' in inits
+            assert pre[0].code in preambles
+            assert pre[0].code in k0.preambles
 
     def test_compilation_generator(self):
         # currently separate compiler code only exists for OpenCL
