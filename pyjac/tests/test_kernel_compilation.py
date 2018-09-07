@@ -24,9 +24,15 @@ class SubTest(TestClass):
 
     def __run_test(self, method, test_python_wrapper=True,
                    ktype=KernelType.species_rates, **oploop_keywords):
+        kwargs = {}
+        if not test_python_wrapper:
+            kwargs['shared'] = [True, False]
+        oploop_keywords.update(kwargs)
+        ignored_state_vals = ['conp'] + list(kwargs.keys())
+
         wrapper = OptionLoopWrapper.from_get_oploop(
-            self, shared=[True, False], ignored_state_vals=['conp', 'shared'],
-            **oploop_keywords)
+            self, ignored_state_vals=ignored_state_vals,
+            do_conp=False, **oploop_keywords)
         for opts in wrapper:
             with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
                 # write files
@@ -56,7 +62,7 @@ class SubTest(TestClass):
                                      out_dir=lib_dir, shared=wrapper.state['shared'],
                                      ktype=ktype)
 
-    @attr('long')
+    @attr('verylong')
     def test_specrates_compilation(self):
         self.__run_test(get_specrates_kernel, test_python_wrapper=True)
 
@@ -64,7 +70,8 @@ class SubTest(TestClass):
     def test_jacobian_compilation(self):
         self.__run_test(
             get_jacobian_kernel, ktype=KernelType.jacobian,
-            test_python_wrapper=True, do_approximate=True)
+            # approximate doesn't change much about the code while sparse does!
+            test_python_wrapper=True, do_approximate=False, do_sparse=True)
 
     @attr('long')
     @xfail(msg='Finite Difference Jacobian currently broken.')
