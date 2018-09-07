@@ -18,7 +18,6 @@ Global declarations for Cog:
     cog.outl('#include "{}_main.oclh"'.format(compgen.name))
 ]]]
 [[[end]]]*/
-#include "ocl_errorcheck.oclh"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
