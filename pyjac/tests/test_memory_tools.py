@@ -514,7 +514,7 @@ def test_strided_copy():
                                 '#include "memcpy_2d.oclh"',
                                 '#include "vectorization.oclh"',
                                 '#include <CL/cl.h>',
-                                '#include "ocl_errorcheck.oclh"'])
+                                '#include "error_check.oclh"'])
             elif lang == 'c':
                 lang_headers.extend([
                     '#include "memcpy_2d.h"',
