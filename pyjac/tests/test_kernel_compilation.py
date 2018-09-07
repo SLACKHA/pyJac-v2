@@ -38,10 +38,6 @@ class SubTest(TestClass):
                 kgen.generate(build_dir)
                 # write header
                 write_aux(build_dir, opts, self.store.specs, self.store.reacs)
-                # compile
-                generate_library(opts.lang, build_dir, obj_dir=obj_dir,
-                                 out_dir=lib_dir, shared=wrapper.state['shared'],
-                                 ktype=ktype)
                 if test_python_wrapper:
                     package = 'pyjac_{}'.format(utils.package_lang[opts.lang])
                     # test wrapper generation
@@ -54,6 +50,11 @@ class SubTest(TestClass):
 
                     utils.run_with_our_python([
                         os.path.join(lib_dir, 'test_import.py')])
+                else:
+                    # compile
+                    generate_library(opts.lang, build_dir, obj_dir=obj_dir,
+                                     out_dir=lib_dir, shared=wrapper.state['shared'],
+                                     ktype=ktype)
 
     @attr('long')
     def test_specrates_compilation(self):
