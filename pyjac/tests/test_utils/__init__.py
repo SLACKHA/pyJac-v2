@@ -6,13 +6,13 @@ from string import Template
 from collections import OrderedDict
 import shutil
 import logging
-from multiprocessing import cpu_count
 import subprocess
 import sys
 from functools import wraps
 import collections
 import tempfile
 
+import psutil
 from nose import SkipTest
 
 from pyjac.loopy_utils.loopy_utils import (
@@ -1338,9 +1338,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                       atol=1e-8, rtol=1e-5, loose_rtol=1e-4, loose_atol=1,
                       **oploop_kwds):
 
-    build_dir = self.store.build_dir
-    obj_dir = self.store.obj_dir
-    lib_dir = self.store.lib_dir
     home_dir = self.store.script_dir
 
     def __cleanup():
@@ -1372,182 +1369,174 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             yield_index=True, ignored_state_vals=exceptions)
 
     for i, opts in oploops:
-        # clean old files
-        __cleanup()
+        with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
+            conp = oploops.state['conp']
 
-        conp = oploops.state['conp']
+            # generate kernel
+            kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp,
+                              **call_kwds)
 
-        # generate kernel
-        kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp,
-                          **call_kwds)
+            # generate
+            kgen.generate(
+                build_dir, data_filename=os.path.join(os.getcwd(), 'data.bin'))
 
-        # generate
-        kgen.generate(
-            build_dir, data_filename=os.path.join(os.getcwd(), 'data.bin'))
+            # write header
+            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
 
-        # write header
-        write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+            # generate wrapper
+            pywrap(opts.lang, build_dir, build_dir=obj_dir,
+                   obj_dir=obj_dir, out_dir=lib_dir,
+                   platform=str(opts.platform), ktype=ktype)
 
-        # generate wrapper
-        pywrap(opts.lang, build_dir, build_dir=obj_dir,
-               obj_dir=obj_dir, out_dir=lib_dir,
-               platform=str(opts.platform), ktype=ktype)
+            # get arrays
+            phi = np.array(
+                self.store.phi_cp if conp else self.store.phi_cv,
+                order=opts.order, copy=True)
 
-        # get arrays
-        phi = np.array(
-            self.store.phi_cp if conp else self.store.phi_cv,
-            order=opts.order, copy=True)
-        param = np.array(P if conp else V, copy=True)
+            # set to some minumum to avoid issues w/ Adept comparison of fmin/fmax
+            phi[np.where(phi == 0)] = 1e-300
+            param = np.array(P if conp else V, copy=True)
 
-        # save args to dir
-        def __saver(arr, name, namelist):
-            myname = os.path.join(lib_dir, name + '.npy')
-            # need to split inputs / answer
-            np.save(myname, kgen.array_split.split_numpy_arrays(
-                arr)[0].flatten('K'))
-            namelist.append(myname)
+            def namify(name):
+                return os.path.join(lib_dir, name + '.npy')
 
-        args = []
-        __saver(phi, 'phi', args)
-        __saver(param, 'param', args)
+            # save args to dir
+            def __saver(arr, name, namelist):
+                myname = namify(name)
+                # need to split inputs / answer
+                np.save(myname, arr.flatten('K'))
+                namelist.append(name)
 
-        # and now the test values
-        tests = []
-        if six.callable(test_arr):
-            test = np.array(test_arr(conp), copy=True, order=opts.order)
-        else:
-            test = np.array(test_arr, copy=True, order=opts.order)
-        ref_shape = test.shape[:]
-        __saver(test, test_arr_name, tests)
+            args = []
+            __saver(phi, arc.state_vector, args)
+            __saver(param, arc.pressure_array if conp else arc.volume_array, args)
 
-        # find where the reduced pressure term for non-Lindemann falloff / chemically
-        # activated reactions is zero
+            # sort args
+            args = [namify(arg) for arg in utils.kernel_argument_ordering(args)]
 
-        # get split arrays
-        test, = kgen.array_split.split_numpy_arrays(test)
-
-        def __get_looser_tols(ravel_ind, copy_inds,
-                              looser_tols=np.empty((0,))):
-            # fill other ravel locations with tiled test size
-            stride = 1
-            size = np.prod([test.shape[i] for i in range(test.ndim)
-                           if i not in copy_inds])
-            for i in [x for x in range(test.ndim) if x not in copy_inds]:
-                repeats = int(np.ceil(size / (test.shape[i] * stride)))
-                ravel_ind[i] = np.tile(np.arange(test.shape[i], dtype=arc.kint_type),
-                                       (repeats, stride)).flatten(
-                                            order='F')[:size]
-                stride *= test.shape[i]
-
-            # and use multi_ravel to convert to linear for dphi
-            # for whatever reason, if we have two ravel indicies with multiple values
-            # we need to need to iterate and stitch them together
-            if ravel_ind.size:
-                copy = ravel_ind.copy()
-                new_tols = []
-                if copy_inds.size > 1:
-                    # check all copy inds are same shape
-                    assert np.all(ravel_ind[copy_inds[0]].shape == y.shape
-                                  for y in ravel_ind[copy_inds[1:]])
-                for index in np.ndindex(ravel_ind[copy_inds[0]].shape):
-                    # create copy w/ replaced index
-                    copy[copy_inds] = [np.array(
-                        ravel_ind[copy_inds][i][index], dtype=arc.kint_type)
-                        for i in range(copy_inds.size)]
-                    # and store the raveled indicies
-                    new_tols.append(np.ravel_multi_index(
-                        copy, test.shape, order=opts.order))
-
-                # concat
-                new_tols = np.concatenate(new_tols)
-
-                # get unique
-                new_tols = np.unique(new_tols)
-
-                # and force to int for indexing
-                looser_tols = np.asarray(
-                    np.union1d(looser_tols, new_tols), dtype=arc.kint_type)
-            return looser_tols
-
-        looser_tols = np.empty((0,))
-        if looser_tol_finder is not None:
-            # pull user specified first
-            looser_tols = __get_looser_tols(*looser_tol_finder(
-                test, opts.order, kgen.array_split._have_split(),
-                conp))
-
-        # add more loose tolerances where Pr is zero
-        last_zeros = np.where(self.store.ref_Pr == 0)[0]
-        if last_zeros.size:
-            if kgen.array_split._have_split():
-                ravel_ind = indexer(kgen.array_split, ref_shape)(
-                    (last_zeros,), axes=(0,))
-                # and list
-                ravel_ind = np.array(ravel_ind)
-
-                # just choose the initial condition indicies
-                if opts.order == 'C':
-                    # wide split, take first and last index
-                    copy_inds = np.array([0, test.ndim - 1], dtype=arc.kint_type)
-                elif opts.order == 'F':
-                    # deep split, take just the IC index at 1
-                    copy_inds = np.array([1], dtype=arc.kint_type)
+            # and now the test values
+            tests = []
+            if six.callable(test_arr):
+                test = np.array(test_arr(conp), copy=True, order=opts.order)
             else:
-                ravel_ind = np.array(
-                    [last_zeros] + [np.arange(test.shape[i], dtype=arc.kint_type)
-                                    for i in range(1, test.ndim)])
-                copy_inds = np.array([0])
-            looser_tols = __get_looser_tols(ravel_ind, copy_inds,
-                                            looser_tols=looser_tols)
-        else:
+                test = np.array(test_arr, copy=True, order=opts.order)
+            __saver(test, test_arr_name, tests)
+
+            # sort tests
+            tests = utils.kernel_argument_ordering(tests)
+            tests = [namify(arg) for arg in utils.kernel_argument_ordering(tests)]
+
+            # find where the reduced pressure term for non-Lindemann falloff /
+            # chemically activated reactions is zero
+
+            def __get_looser_tols(ravel_ind, copy_inds,
+                                  looser_tols=np.empty((0,))):
+                # fill other ravel locations with tiled test size
+                stride = 1
+                size = np.prod([test.shape[i] for i in range(test.ndim)
+                               if i not in copy_inds])
+                for i in [x for x in range(test.ndim) if x not in copy_inds]:
+                    repeats = int(np.ceil(size / (test.shape[i] * stride)))
+                    ravel_ind[i] = np.tile(np.arange(test.shape[i],
+                                           dtype=arc.kint_type),
+                                           (repeats, stride)).flatten(
+                                                order='F')[:size]
+                    stride *= test.shape[i]
+
+                # and use multi_ravel to convert to linear for dphi
+                # for whatever reason, if we have two ravel indicies with multiple
+                # values we need to need to iterate and stitch them together
+                if ravel_ind.size:
+                    copy = ravel_ind.copy()
+                    new_tols = []
+                    if copy_inds.size > 1:
+                        # check all copy inds are same shape
+                        assert np.all(ravel_ind[copy_inds[0]].shape == y.shape
+                                      for y in ravel_ind[copy_inds[1:]])
+                    for index in np.ndindex(ravel_ind[copy_inds[0]].shape):
+                        # create copy w/ replaced index
+                        copy[copy_inds] = [np.array(
+                            ravel_ind[copy_inds][i][index], dtype=arc.kint_type)
+                            for i in range(copy_inds.size)]
+                        # and store the raveled indicies
+                        new_tols.append(np.ravel_multi_index(
+                            copy, test.shape, order=opts.order))
+
+                    # concat
+                    new_tols = np.concatenate(new_tols)
+
+                    # get unique
+                    new_tols = np.unique(new_tols)
+
+                    # and force to int for indexing
+                    looser_tols = np.asarray(
+                        np.union1d(looser_tols, new_tols), dtype=arc.kint_type)
+                return looser_tols
+
             looser_tols = np.empty((0,))
-            copy_inds = np.empty((0,))
+            if looser_tol_finder is not None:
+                # pull user specified first
+                looser_tols = __get_looser_tols(*looser_tol_finder(
+                    test, opts.order, kgen.array_split._have_split(),
+                    conp))
 
-        # number of devices is:
-        #   number of threads for CPU
-        #   1 for GPU
-        num_devices = int(cpu_count() / 2)
-        if platform_is_gpu(opts.platform):
-            num_devices = 1
+            # add more loose tolerances where Pr is zero
+            last_zeros = np.where(self.store.ref_Pr == 0)[0]
+            if last_zeros.size:
+                ravel_ind = np.array(
+                    [last_zeros] +
+                    [np.arange(test.shape[i], dtype=arc.kint_type)
+                     for i in range(1, test.ndim)])
+                copy_inds = np.array([0])
+                looser_tols = __get_looser_tols(ravel_ind, copy_inds,
+                                                looser_tols=looser_tols)
+            else:
+                looser_tols = np.empty((0,))
+                copy_inds = np.empty((0,))
 
-        # and save the data.bin file in case of testing
-        db = np.concatenate((
-            np.expand_dims(phi[:, 0], axis=1),
-            np.expand_dims(param, axis=1),
-            phi[:, 1:]), axis=1)
-        with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
-            db.flatten(order=opts.order).tofile(file,)
+            # number of devices is:
+            #   number of threads for CPU
+            #   1 for GPU
+            num_devices = _get_test_input(
+                'num_threads', psutil.cpu_count(logical=False))
+            if platform_is_gpu(opts.platform):
+                num_devices = 1
 
-        looser_tols_str = '[]'
-        if looser_tols.size:
-            looser_tols_str = ', '.join(np.char.mod('%i', looser_tols))
-        # write the module tester
-        with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
-            file.write(mod_test.safe_substitute(
-                package='pyjac_{lang}'.format(
-                    lang=utils.package_lang[opts.lang]),
-                input_args=', '.join('"{}"'.format(x) for x in args),
-                test_arrays=', '.join('"{}"'.format(x) for x in tests),
-                looser_tols='[{}]'.format(looser_tols_str),
-                loose_rtol=loose_rtol,
-                loose_atol=loose_atol,
-                atol=atol,
-                rtol=rtol,
-                non_array_args='{}, {}'.format(
-                    self.store.test_size, num_devices),
-                call_name=call_name,
-                output_files=''))
+            # and save the data.bin file in case of testing
+            db = np.concatenate((
+                np.expand_dims(phi[:, 0], axis=1),
+                np.expand_dims(param, axis=1),
+                phi[:, 1:]), axis=1)
+            with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
+                db.flatten(order=opts.order).tofile(file,)
 
-        try:
-            utils.run_with_our_python([os.path.join(lib_dir, 'test.py')])
-            # cleanup
-            for x in args + tests:
-                os.remove(x)
-            os.remove(os.path.join(lib_dir, 'test.py'))
-        except subprocess.CalledProcessError:
-            logger = logging.getLogger(__name__)
-            logger.debug(oploops)
-            assert False, '{} error'.format(kgen.name)
+            looser_tols_str = '[]'
+            if looser_tols.size:
+                looser_tols_str = ', '.join(np.char.mod('%i', looser_tols))
+
+            # write the module tester
+            with open(os.path.join(lib_dir, 'test.py'), 'w') as file:
+                file.write(mod_test.safe_substitute(
+                    package='pyjac_{lang}'.format(
+                        lang=utils.package_lang[opts.lang]),
+                    input_args=utils.stringify_args(args, use_quotes=True),
+                    test_arrays=utils.stringify_args(tests, use_quotes=True),
+                    looser_tols='[{}]'.format(looser_tols_str),
+                    loose_rtol=loose_rtol,
+                    loose_atol=loose_atol,
+                    atol=atol,
+                    rtol=rtol,
+                    non_array_args='{}, {}'.format(
+                        self.store.test_size, num_devices),
+                    output_files='',
+                    kernel_name=kgen.name.title()))
+
+            try:
+                utils.run_with_our_python([os.path.join(lib_dir, 'test.py')])
+            except subprocess.CalledProcessError:
+                logger = logging.getLogger(__name__)
+                logger.debug(oploops.state)
+                assert False, '{} error'.format(kgen.name)
 
 
 def with_check_inds(check_inds={}, custom_checks={}):
