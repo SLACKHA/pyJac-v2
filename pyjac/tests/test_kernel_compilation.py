@@ -72,7 +72,7 @@ class SubTest(TestClass):
     @attr('long')
     def test_jacobian_compilation(self):
         self.__run_test(
-            get_jacobian_kernel, ktype=KernelType.Jacobian,
+            get_jacobian_kernel, ktype=KernelType.jacobian,
             test_python_wrapper=False, do_approximate=True)
 
     @attr('long')
@@ -80,7 +80,7 @@ class SubTest(TestClass):
     def test_fd_jacobian_compilation(self, state):
         self.__run_test(
             finite_difference_jacobian, test_python_wrapper=False,
-            ktype=KernelType.Jacobian, do_finite_difference=True)
+            ktype=KernelType.jacobian, do_finite_difference=True)
 
     def test_fixed_work_size(self):
         # test bad fixed size
