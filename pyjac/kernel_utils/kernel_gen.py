@@ -1274,14 +1274,13 @@ class kernel_generator(object):
 
         assert all(x.address_space == scopes.LOCAL for x in ldecls)
         names = set([x.name for x in ldecls])
-        from loopy.kernel.data import AddressSpace
 
         def __argify(temp):
             assert isinstance(temp, lp.TemporaryVariable)
             return lp.ArrayArg(
                 **{k: v for k, v in six.iteritems(vars(temp))
                    if k in ['name', 'shape', 'dtype', 'dim_tags']},
-                address_space=AddressSpace.LOCAL)
+                address_space=scopes.LOCAL)
         return kernel.copy(
             args=kernel.args[:] + [__argify(x) for x in ldecls],
             temporary_variables={
@@ -2215,7 +2214,8 @@ class kernel_generator(object):
 
         return codegen_results
 
-    def _generate_wrapping_kernel(self, path, record=None, result=None):
+    def _generate_wrapping_kernel(self, path, record=None, result=None,
+                                  kernels=None):
         """
         Generates a wrapper around the various subkernels in this
         :class:`kernel_generator` (rather than working through loopy's fusion)
@@ -2249,15 +2249,22 @@ class kernel_generator(object):
         is_owner = record is None
 
         # process arguments
-        kernels = self.kernels
+        if kernels is None:
+            kernels = self.kernels
         if is_owner:
             record = self._process_args(kernels)
             # process memory
             record, mem_limits = self._process_memory(record)
 
-            # update subkernels for host constants
-            kernels = self._migrate_host_constants(kernels, record.host_constants)
+        # update subkernels for host constants
+        kernels = self._migrate_host_constants(kernels, record.host_constants)
 
+        # update passed locals
+        if self.loopy_opts.depth:
+            kernels = [self.__migrate_locals(knl, record.local)
+                       for knl in kernels]
+
+        if is_owner:
             # generate working buffer
             record, result = self._compress_to_working_buffer(record)
 
@@ -2270,7 +2277,7 @@ class kernel_generator(object):
                                    pointer_offsets=result.pointer_offsets.copy())
 
         # get the instructions, preambles and kernel
-        result = self._merge_kernels(record, result, kernels=self.kernels)
+        result = self._merge_kernels(record, result, kernels=kernels)
 
         source_names = []
         if is_owner and self.depends_on:
