@@ -778,7 +778,7 @@ class kernel_generator(object):
             file_prefix = 'ad_'
         return file_prefix
 
-    def apply_barriers(self, instructions):
+    def apply_barriers(self, instructions, barriers=None):
         """
         A method stud that can be overriden to apply synchonization barriers
         to vectorized code
@@ -788,6 +788,9 @@ class kernel_generator(object):
 
         instructions: list of str
             The instructions for this kernel
+        barriers: list of (int, int)
+            The integer indicies between which to insert instructions
+            If not supplied, :attr:`barriers` will be used
 
         Returns
         -------
@@ -2472,6 +2475,13 @@ class kernel_generator(object):
                 self.name + '()', kernels[1], wrapper_result.kernel)],
             for_driver=True)
 
+        if self.loopy_opts.depth:
+            # insert barriers between:
+            # first copy and kernel call
+            barriers = [(0, 1, 'global')]
+            result = result.copy(instructions=self.apply_barriers(
+                result.instructions, barriers))
+
         # slot instructions into template
         result = result.copy(instructions=[
             utils.subs_at_indent(template, insns='\n'.join(result.instructions),
@@ -3233,7 +3243,7 @@ class opencl_kernel_generator(kernel_generator):
         return callgen.copy(source_names=callgen.source_names + [filename],
                             binname=result.outname)
 
-    def apply_barriers(self, instructions):
+    def apply_barriers(self, instructions, barriers=None):
         """
         An override of :method:`kernel_generator.apply_barriers` that
         applies synchronization barriers to OpenCL kernels
@@ -3243,6 +3253,10 @@ class opencl_kernel_generator(kernel_generator):
 
         instructions: list of str
             The instructions for this kernel
+        barriers: list of (int, int)
+            The integer indicies between which to insert instructions
+            If not supplied, :attr:`barriers` will be used
+
         Returns
         -------
 
@@ -3250,7 +3264,9 @@ class opencl_kernel_generator(kernel_generator):
             The instruction list with the barriers inserted
         """
 
-        barriers = self.barriers[:]
+        if barriers is None:
+            barriers = self.barriers[:]
+
         instructions = list(enumerate(instructions))
         for barrier in barriers:
             # find insert index (the second barrier ind)
