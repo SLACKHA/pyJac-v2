@@ -410,22 +410,30 @@ class SubTest(TestClass):
                  type('', (object,), {'jac': ''}), depends_on=[gen0],
                  name=knl1.name)
 
-            # make kernels
-            gen1._make_kernels()
+            def __get_result(gen, record=None):
+                # make kernels
+                gen._make_kernels()
 
-            # process the arguements
-            record = gen1._process_args()
+                if not record:
+                    # process the arguements
+                    record, _ = gen._process_args()
 
-            # test that process memory works
-            record, mem_limits = gen1._process_memory(record)
+                    # test that process memory works
+                    record, mem_limits = gen._process_memory(record)
 
-            # and generate working buffers
-            recordnew, result = gen1._compress_to_working_buffer(record)
+                # and generate working buffers
+                recordnew, result = gen._compress_to_working_buffer(record)
 
-            result = gen1._merge_kernels(record, result)
+                result = gen._merge_kernels(record, result)
+
+                return result, record
+
+            result1, record = __get_result(gen1)
+            result2, _ = __get_result(gen0)
+            results = [result1, result2]
 
             # and de-duplicate
-            results = gen1._deduplicate(record, result)
+            results = gen1._deduplicate(record, results)
 
             # check inits & preambles
             inits = {}
