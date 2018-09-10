@@ -73,7 +73,7 @@ class SubTest(TestClass):
             # approximate doesn't change much about the code while sparse does!
             test_python_wrapper=True, do_approximate=False, do_sparse=True)
 
-    @attr('long')
+    @attr('verylong')
     @xfail(msg='Finite Difference Jacobian currently broken.')
     def test_fd_jacobian_compilation(self, state):
         self.__run_test(

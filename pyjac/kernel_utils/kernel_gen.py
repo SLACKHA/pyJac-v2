@@ -1079,26 +1079,6 @@ class kernel_generator(object):
         # and any other deps
         self.__copy_deps(common_dir, path)
 
-    def _get_pass(self, argv, include_type=True, is_host=True, postfix=''):
-        """
-        Simple helper method to get the string for passing an arguement
-        to a method (or for the method definition)
-
-        Parameters
-        ----------
-        argv : :class:`loopy.KernelArgument`
-            The arguement to pass
-        include_type : bool
-            If True, include the C-type in the pass string [Default:True]
-        postfix : str
-            Optional postfix to append to the variable name [Default:'']
-        """
-        prefix = 'h_' if is_host else 'd_'
-        return '{type}{prefix}{name}'.format(
-            type=self.type_map[argv.dtype] + '* ' if include_type else '',
-            prefix=prefix,
-            name=argv.name + postfix)
-
     def _generate_calling_header(self, path, callgen):
         """
         Creates the header file for this kernel
@@ -1251,6 +1231,19 @@ class kernel_generator(object):
 
         return callgen
 
+    @classmethod
+    def _temporary_to_arg(cls, temp):
+        """
+        Returns the :class:`loopy.ArrayArg` version of the
+        :class:`loopy.TemporaryVariable` :param:`temp`
+        """
+
+        assert isinstance(temp, lp.TemporaryVariable)
+        return lp.ArrayArg(
+            **{k: v for k, v in six.iteritems(vars(temp))
+               if k in ['name', 'shape', 'dtype', 'dim_tags']},
+            address_space=scopes.LOCAL)
+
     def _migrate_locals(self, kernel, ldecls):
         """
         Migrates local variables in :param:`ldecls` to the arguements of the
@@ -1275,14 +1268,8 @@ class kernel_generator(object):
         assert all(x.address_space == scopes.LOCAL for x in ldecls)
         names = set([x.name for x in ldecls])
 
-        def __argify(temp):
-            assert isinstance(temp, lp.TemporaryVariable)
-            return lp.ArrayArg(
-                **{k: v for k, v in six.iteritems(vars(temp))
-                   if k in ['name', 'shape', 'dtype', 'dim_tags']},
-                address_space=scopes.LOCAL)
         return kernel.copy(
-            args=kernel.args[:] + [__argify(x) for x in ldecls],
+            args=kernel.args[:] + [self._temporary_to_arg(x) for x in ldecls],
             temporary_variables={
                 key: val for key, val in six.iteritems(kernel.temporary_variables)
                 if not set([key]) & names})

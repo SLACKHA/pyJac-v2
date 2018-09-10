@@ -108,8 +108,13 @@ class SubTest(TestClass):
             for kernel in kernels:
                 arrays, values = partition(kernel.args, lambda x: isinstance(
                     x, ArrayBase))
+                local, arrays = partition(
+                    arrays, lambda x: x.address_space == scopes.LOCAL)
                 assert all(any(kgen._compare_args(a1, a2)
                            for a2 in record.args) for a1 in arrays)
+                if local:
+                    assert all(any(kgen._compare_args(a1, kgen._temporary_to_arg(a2))
+                               for a2 in record.local) for a1 in local)
                 assert all(val in record.valueargs for val in values)
                 assert not any(read in kernel.get_written_variables()
                                for read in record.readonly)
@@ -141,14 +146,15 @@ class SubTest(TestClass):
                                                    do_vector=False,
                                                    do_sparse=True)
         for opts in oploop:
-            # create a species rates kernel generator for this state
+            # create a jacobian kernel generator for this state so that we have
+            # a large number of arrays to test
             kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
                                        conp=oploop.state['conp'])
             # make kernels
             kgen._make_kernels()
 
             # process the arguements
-            record = kgen._process_args()
+            record, _ = kgen._process_args()
 
             # test that process memory works
             _, mem_limits = kgen._process_memory(record)
@@ -213,14 +219,15 @@ class SubTest(TestClass):
                                                    do_vector=True,
                                                    do_sparse=False)
         for opts in oploop:
-            # create a species rates kernel generator for this state
+            # create a jacobian kernel generator for this state so that we have
+            # a large number of arrays to test
             kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
                                        conp=oploop.state['conp'])
             # make kernels
             kgen._make_kernels()
 
             # process the arguements
-            record = kgen._process_args()
+            record, _ = kgen._process_args()
 
             # test that process memory works
             record, mem_limits = kgen._process_memory(record)
