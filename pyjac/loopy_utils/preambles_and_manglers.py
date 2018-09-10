@@ -1,4 +1,6 @@
 from string import Template
+import textwrap
+
 import numpy as np
 
 from pyjac import utils as utils
@@ -283,8 +285,8 @@ class jac_indirect_lookup(PreambleGen):
     name = 'jac_indirect'
 
     def __init__(self, array, target):
-        self.code = Template("""
-    int ${name}(int start, int end, int match)
+        self.code = Template(textwrap.dedent("""
+    inline int ${name}(int start, int end, int match)
     {
         int result = -1;
         for (int i = start; i < end; ++i)
@@ -294,7 +296,7 @@ class jac_indirect_lookup(PreambleGen):
         }
         return result;
     }
-    """).safe_substitute(name=jac_indirect_lookup.name, array=array.name)
+    """)).safe_substitute(name=jac_indirect_lookup.name, array=array.name)
         from loopy.kernel.data import AddressSpace as scopes
         from loopy.kernel.data import TemporaryVariable
 
