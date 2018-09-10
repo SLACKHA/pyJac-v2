@@ -306,14 +306,52 @@ class SubTest(TestClass):
                                                    do_vector=True,
                                                    do_sparse=False)
         for opts in oploop:
+            def _get_kernel_gens():
+                # two kernels (one for each generator)
+                instructions0 = (
+                    """
+                        {arg} = 1
+                    """
+                )
+                instructions1 = (
+                    """
+                        {arg} = 2
+                    """
+                )
+
+                # create mapstore
+                domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                                     initializer=np.arange(10, dtype=arc.kint_type))
+                mapstore = arc.MapStore(opts, domain, None)
+                # create global arg
+                arg = arc.creator('arg', np.float64, (arc.problem_size.name, 10),
+                                  opts.order)
+                # create array / array string
+                arg_lp, arg_str = mapstore.apply_maps(arg, 'j', 'i')
+
+                # create kernel infos
+                knl0 = knl_info('knl0', instructions0.format(arg=arg_str), mapstore,
+                                kernel_data=[arg_lp, arc.work_size])
+                knl1 = knl_info('knl1', instructions1.format(arg=arg_str), mapstore,
+                                kernel_data=[arg_lp, arc.work_size])
+                # create generators
+                gen0 = make_kernel_generator(
+                     opts, KernelType.dummy, [knl0],
+                     type('', (object,), {'jac': ''}),
+                     name=knl0.name)
+                gen1 = make_kernel_generator(
+                     opts, KernelType.dummy, [knl0, knl1],
+                     type('', (object,), {'jac': ''}), depends_on=[gen0],
+                     name=knl1.name)
+                return gen0, gen1
+
             # create a species rates kernel generator for this state
-            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
-                                       conp=oploop.state['conp'])
+            kgen = _get_kernel_gens()[1]
             # make kernels
             kgen._make_kernels()
 
             # process the arguements
-            record = kgen._process_args()
+            record, _ = kgen._process_args()
 
             # test that process memory works
             record, mem_limits = kgen._process_memory(record)
