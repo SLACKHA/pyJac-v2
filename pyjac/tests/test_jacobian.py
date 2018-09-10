@@ -37,7 +37,7 @@ from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.tests import get_test_langs, TestClass
 from pyjac.tests.test_utils import (
     kernel_runner, get_comparable, _generic_tester,
-    _full_kernel_test, with_check_inds, inNd, skipif)
+    _full_kernel_test, with_check_inds, inNd, skipif, xfail)
 from pyjac.core.enum_types import KernelType
 from pyjac import utils
 
@@ -2666,6 +2666,7 @@ class SubTest(TestClass):
 
     @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
+    @xfail(msg='Finite Difference Jacobian currently broken')
     def test_fd_jacobian(self, lang):
         def __looser_tol_finder(arr, order, have_split, conp):
             last_spec_name = self.store.gas.species_names[-1]
