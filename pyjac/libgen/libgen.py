@@ -151,7 +151,7 @@ def get_file_list(source_dir, lang, ktype, file_base=None):
     files += [file_bases[ktype] + x for x in modifiers[lang]]
 
     # and add dependencies
-    if lang != 'opencl':
+    if lang != 'opencl' and ktype != KernelType.dummy:
         for dep in deps[ktype]:
             files += [file_bases[dep]]
 
