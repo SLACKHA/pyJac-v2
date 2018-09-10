@@ -422,7 +422,7 @@ def get_context(device='0'):
     return ctx
 
 
-def get_header(knl):
+def get_header(knl, codegen_result=None):
     """
     Returns header definition code for a :class:`loopy.LoopKernel`
 
@@ -430,6 +430,9 @@ def get_header(knl):
     ----------
     knl : :class:`loopy.LoopKernel`
         The kernel to generate a header definition for
+    codegen_result : :class:`loopy.CodeGenerationResult`
+        If supplied, the pre-generated code-gen result for this kernel (speeds up
+        header generation)
 
     Returns
     -------
@@ -440,7 +443,7 @@ def get_header(knl):
     The kernel's Target and name should be set for proper functioning
     """
 
-    return str(lp.generate_header(knl)[0])
+    return str(lp.generate_header(knl, codegen_result=codegen_result)[0])
 
 
 def __set_editor(knl, script):

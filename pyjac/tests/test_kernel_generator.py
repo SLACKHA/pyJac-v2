@@ -101,12 +101,11 @@ class SubTest(TestClass):
             kgen._make_kernels()
 
             # and process the arguements
-            record = kgen._process_args()
+            record, kernels = kgen._process_args()
 
             # and check
             # 1) that all arguments in all kernels are in the args
-            for kernel in kgen.kernels + [
-                    knl for dep in kgen.depends_on for knl in dep.kernels]:
+            for kernel in kernels:
                 arrays, values = partition(kernel.args, lambda x: isinstance(
                     x, ArrayBase))
                 assert all(any(kgen._compare_args(a1, a2)

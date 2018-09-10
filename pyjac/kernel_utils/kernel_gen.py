@@ -1251,7 +1251,7 @@ class kernel_generator(object):
 
         return callgen
 
-    def __migrate_locals(self, kernel, ldecls):
+    def _migrate_locals(self, kernel, ldecls):
         """
         Migrates local variables in :param:`ldecls` to the arguements of the
         given :param:`kernel`
@@ -1320,7 +1320,7 @@ class kernel_generator(object):
         remove_working = True
 
         if passed_locals:
-            knl = self.__migrate_locals(knl, passed_locals)
+            knl = self._migrate_locals(knl, passed_locals)
         defn_str = lp_utils.get_header(knl)
         if remove_working:
             defn_str = self._remove_work_size(defn_str)
@@ -1416,6 +1416,9 @@ class kernel_generator(object):
         record: :class:`MemoryGenerationResult`
             A record of the processed arguments, :see:`MemoryGenerationResult`
             The list of global arguments for the top-level wrapping kernel
+        kernels: list of :class:`loopy.LoopKernel`
+            The (potentially) updated kernels w/ local definitions hoisted as
+            necessary
         """
 
         if not kernels:
@@ -1515,7 +1518,7 @@ class kernel_generator(object):
                       if x in knl.temporary_variables.values()]
                 if lt:
                     # convert kernel's local temporarys to local args
-                    kernels[i] = self.__migrate_locals(knl, lt)
+                    kernels[i] = self._migrate_locals(knl, lt)
                     # and add to list
                     local.extend([x for x in lt if x not in local])
                     # and remove from temps
@@ -1526,8 +1529,9 @@ class kernel_generator(object):
         # __constant
         constants, temps = utils.partition(temps, lambda x: x.read_only)
 
-        return MemoryGenerationResult(args=args, local=local, readonly=readonly,
-                                      constants=constants, valueargs=valueargs)
+        return (MemoryGenerationResult(args=args, local=local, readonly=readonly,
+                                       constants=constants, valueargs=valueargs),
+                kernels)
 
     def _process_memory(self, record):
         """
@@ -1997,6 +2001,7 @@ class kernel_generator(object):
 
         # figure out ownership
         owner = self._get_kernel_ownership()
+        deps = self._get_deps(include_self=True)
 
         def _get_func_body(cgr, subs={}):
             """
@@ -2018,31 +2023,35 @@ class kernel_generator(object):
 
         # split into bodies, preambles, etc.
         for i, k, in enumerate(kernels):
+            # todo: hack -- until we have a proper OpenMP target in Loopy, we
+            # need to set the inner work-size dimension to 1
+            # (to avoid an explicit work-size loop)
             if self.lang == 'c':
-                # todo: hack -- until we have a proper OpenMP target in Loopy, we
-                # need to set the inner work-size dimension to 1
-                # (to avoid an explicit work-size loop)
-                if self.lang == 'c':
-                    k = lp.fix_parameters(k, **{w_size.name: 1})
+                k = lp.fix_parameters(k, **{w_size.name: 1})
 
-            k = lp.preprocess_kernel(k)
             # drivers own all their own kernels
-            i_own = for_driver or owner[k.name] == self
+            i_own = for_driver or (k.name in owner and owner[k.name] == self)
+            dep_own = for_driver or (k.name in owner and owner[k.name] in deps)
             # make kernel
-            cgr = lp.generate_code_v2(k)
-            # grab preambles
-            for _, preamble in cgr.device_preambles:
-                preamble = textwrap.dedent(preamble)
-                if preamble and preamble not in preambles:
-                    preambles.append(preamble)
+            cgr = None
+            dp = None
+            if i_own:
+                # only generate code for kernels we actually own to avoid duplication
+                cgr = lp.generate_code_v2(k)
+                # grab preambles
+                for _, preamble in cgr.device_preambles:
+                    preamble = textwrap.dedent(preamble)
+                    if preamble and preamble not in preambles:
+                        preambles.append(preamble)
 
-            # now scan device program
-            assert len(cgr.device_programs) == 1
-            cgr = cgr.device_programs[0]
+                # now scan device program
+                assert len(cgr.device_programs) == 1
+                dp = cgr.device_programs[0]
+
             init_list = {}
-            if i_own and isinstance(cgr.ast, cgen.Collection):
+            if i_own and isinstance(dp.ast, cgen.Collection):
                 # look for preambles
-                for item in cgr.ast.contents:
+                for item in dp.ast.contents:
                     # initializers go in the preamble
                     if isinstance(item, cgen.Initializer):
                         def _rec_check_name(decl):
@@ -2063,12 +2072,11 @@ class kernel_generator(object):
                     elif not (isinstance(item, cgen.Line)
                               or isinstance(item, cgen.FunctionBody)):
                         raise NotImplementedError(type(item))
+                # and add to inits
+                inits.update(init_list)
             else:
                 # no preambles / initializers
-                assert not i_own or isinstance(cgr.ast, cgen.FunctionBody)
-
-            # and add to inits
-            inits.update(init_list)
+                assert (not i_own) or isinstance(dp.ast, cgen.FunctionBody)
 
             # we need to place the call in the instructions and the extra kernels
             # in their own array
@@ -2076,7 +2084,7 @@ class kernel_generator(object):
             if i_own:
                 # only place the kernel defn in this file, IFF we own it
                 extra = self._remove_work_array_consts(
-                    self._remove_work_size(_get_func_body(cgr, {})))
+                    self._remove_work_size(_get_func_body(dp, {})))
                 extra_kernels.append(extra)
                 if fake_calls:
                     # check to see if this kernel has a fake call to replace
@@ -2089,11 +2097,13 @@ class kernel_generator(object):
                             fk.dummy_call, knl_call[:-2])
                 # and add defn to preamble
                 preambles += [self._remove_work_array_consts(
-                    self._remove_work_size(lp_utils.get_header(k)))]
+                    self._remove_work_size(
+                        lp_utils.get_header(k, codegen_result=cgr)))]
 
             # get instructions
-            insns = self._remove_work_size(self._get_kernel_call(k))
-            instructions.append(insns)
+            if i_own or dep_own:
+                insns = self._remove_work_size(self._get_kernel_call(k))
+                instructions.append(insns)
 
         # determine vector width
         vec_width = self.loopy_opts.depth
@@ -2147,7 +2157,7 @@ class kernel_generator(object):
             deps += [x for x in dep._get_deps() if x not in deps]
         return deps
 
-    def _deduplicate(self, record, result):
+    def _deduplicate(self, record, results):
         """
         Handles de-duplication of constant array data and preambles in
         subkernels of the top-level wrapping kernel
@@ -2167,26 +2177,23 @@ class kernel_generator(object):
             stored in results[0]
         """
 
-        results = []
-        # generate wrapper for deps
-        deps = self._get_deps(include_self=True)
         # cleanup duplicate inits / premables
         init_list = {}
         preamble_list = []
-        for kgen in reversed(deps):
-            _, _, dr = kgen._generate_wrapping_kernel('', record, result)
+        out = []
+        for result in reversed(results):
             # remove shared inits
-            dr = dr.copy(inits={k: v for k, v in six.iteritems(dr.inits)
-                                if k not in init_list})
-            dr = dr.copy(preambles=[v for v in dr.preambles
-                                    if v not in preamble_list])
+            result = result.copy(inits={k: v for k, v in six.iteritems(result.inits)
+                                        if k not in init_list})
+            result = result.copy(preambles=[v for v in result.preambles
+                                            if v not in preamble_list])
             # update
-            init_list.update(dr.inits)
-            preamble_list.extend(dr.preambles)
+            init_list.update(result.inits)
+            preamble_list.extend(result.preambles)
             # and store
-            results.append(dr)
+            out.append(result)
 
-        return results
+        return out
 
     def _set_dependencies(self, codegen_results):
         """
@@ -2213,6 +2220,9 @@ class kernel_generator(object):
                 result.dependencies)
 
         return codegen_results
+
+    def _have_arg(knl, arg):
+        return arg.name in knl.arg_dict
 
     def _generate_wrapping_kernel(self, path, record=None, result=None,
                                   kernels=None):
@@ -2247,30 +2257,28 @@ class kernel_generator(object):
 
         # whether this is the top-level kernel
         is_owner = record is None
-
-        # process arguments
-        if kernels is None:
-            kernels = self.kernels
+        assert (kernels is not None) != is_owner
         if is_owner:
-            record = self._process_args(kernels)
+            kernels = self.kernels
+            record, kernels = self._process_args(kernels)
             # process memory
             record, mem_limits = self._process_memory(record)
 
-        # update subkernels for host constants
-        kernels = self._migrate_host_constants(kernels, record.host_constants)
+            # update subkernels for host constants
+            if record.host_constants:
+                kernels = self._migrate_host_constants(
+                    kernels, record.host_constants)
 
-        # update passed locals
-        if self.loopy_opts.depth:
-            kernels = [self.__migrate_locals(knl, record.local)
-                       for knl in kernels]
-
-        if is_owner:
             # generate working buffer
             record, result = self._compress_to_working_buffer(record)
 
             # add work size
             record = record.copy(kernel_data=record.kernel_data + [self._with_target(
                 w_size)])
+
+            # finally, preprocess kernels such that code-gen in dependencies is
+            # faster
+            kernels = [lp.preprocess_kernel(k) for k in kernels]
         else:
             # create a new codegen result that contains only our pointer unpacks
             result = CodegenResult(pointer_unpacks=result.pointer_unpacks.copy(),
@@ -2278,12 +2286,19 @@ class kernel_generator(object):
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=kernels)
-
         source_names = []
         if is_owner and self.depends_on:
+            results = [result]
+            # generate wrapper for deps
+            deps = self._get_deps(include_self=False)
+            # generate subkernels
+            for kgen in deps:
+                _, _, dr = kgen._generate_wrapping_kernel('', record, result,
+                                                          kernels=kernels)
+                results.append(dr)
             # remove duplicate constant/preamble definitions
-            codegen_results = self._deduplicate(record, result)
-            # and set dependencies
+            codegen_results = self._deduplicate(record, results)
+            # and set sub-kernel dependencies
             codegen_results = self._set_dependencies(codegen_results)
         elif is_owner:
             codegen_results = [result]
@@ -2455,7 +2470,7 @@ class kernel_generator(object):
             args=kernels[1].args + wrapper_memory.kernel_data)
 
         # process arguments
-        record = self._process_args(knl_info)
+        record, kernels = self._process_args(kernels)
 
         # process memory
         record, mem_limits = self._process_memory(record)
