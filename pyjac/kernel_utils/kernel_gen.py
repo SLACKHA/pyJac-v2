@@ -2501,6 +2501,8 @@ class kernel_generator(object):
             # insert barriers between:
             # first copy and kernel call
             barriers = [(0, 1, 'global')]
+            # and the kernel call / copy-out
+            barriers += [(1, 2, 'global')]
             result = result.copy(instructions=self.apply_barriers(
                 result.instructions, barriers))
 
@@ -3286,8 +3288,10 @@ class opencl_kernel_generator(kernel_generator):
             The instruction list with the barriers inserted
         """
 
+        # first, recursively apply barriers
         if barriers is None:
-            barriers = self.barriers[:]
+            barriers = [b for d in reversed(self._get_deps(include_self=True))
+                        for b in d.barriers]
 
         instructions = list(enumerate(instructions))
         for barrier in barriers:
