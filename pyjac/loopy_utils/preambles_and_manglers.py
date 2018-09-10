@@ -286,7 +286,7 @@ class jac_indirect_lookup(PreambleGen):
 
     def __init__(self, array, target):
         self.code = Template(textwrap.dedent("""
-    inline int ${name}(int start, int end, int match)
+    static inline int ${name}(int start, int end, int match)
     {
         int result = -1;
         for (int i = start; i < end; ++i)
