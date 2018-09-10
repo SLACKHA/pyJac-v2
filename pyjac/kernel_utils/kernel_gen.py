@@ -2268,8 +2268,17 @@ class kernel_generator(object):
             kernels = [lp.preprocess_kernel(k) for k in kernels]
         else:
             # create a new codegen result that contains only our pointer unpacks
-            result = CodegenResult(pointer_unpacks=result.pointer_unpacks.copy(),
-                                   pointer_offsets=result.pointer_offsets.copy())
+
+            # get our arguments
+            our_record, _ = self._process_args(self.kernels)
+            our_args = set([x.name for x in our_record.args + our_record.local])
+            pointer_offsets = {k: v for k, v in six.iteritems(
+                result.pointer_offsets) if k in our_args}
+            pointer_unpacks = [x for x in result.pointer_unpacks if any(
+                re.search(r'\b' + y + r'\b', x) for y in pointer_offsets)]
+
+            result = CodegenResult(pointer_unpacks=pointer_unpacks,
+                                   pointer_offsets=pointer_offsets)
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=kernels)
