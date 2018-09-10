@@ -1366,7 +1366,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
     oploops = OptionLoopWrapper.from_get_oploop(
             self, do_conp=True, do_vector=utils.can_vectorize_lang[lang],
             langs=[lang], **oploop_kwds, skip_test=__skip_test,
-            yield_index=True, ignored_state_vals=exceptions)
+            yield_index=True, ignored_state_vals=exceptions,
+            do_sparse=ktype == KernelType.Jacobian)
 
     for i, opts in oploops:
         with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
