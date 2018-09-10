@@ -93,12 +93,12 @@ def get_toolchain(lang, shared=True, executable=True):
             linkflags += ['-Wl,-rpath,{}'.format(rdir)]
     so_ext = lib_ext(shared)
 
-    return GCCToolchain(cc=cmd_compile[lang],
-                        cflags=flags[lang] + compile_flags,
-                        ldflags=linkflags,
-                        include_dirs=includes[lang],
-                        library_dirs=lib_dirs[lang],
-                        libraries=libs[lang],
+    return GCCToolchain(cc=cmd_compile[lang][:],
+                        cflags=(flags[lang] + compile_flags)[:],
+                        ldflags=linkflags[:],
+                        include_dirs=includes[lang][:],
+                        library_dirs=lib_dirs[lang][:],
+                        libraries=libs[lang][:],
                         so_ext=so_ext,
                         o_ext='.o',
                         defines=[],
