@@ -59,6 +59,12 @@ int_work_name = 'iwk'
 Name of the generated work-array for generic integer work vectors
 """
 
+time_array = lp.ArrayArg('t', dtype=np.float64, shape=(p_size.name,),
+                         address_space=scopes.GLOBAL)
+"""
+The time array that we prepend to our function signatures for compatibility
+"""
+
 
 class FakeCall(object):
     """
@@ -1363,7 +1369,7 @@ class kernel_generator(object):
             args=', '.join(args)
             )
 
-    def _compare_args(self, arg1, arg2):
+    def _compare_args(self, arg1, arg2, allow_shape_mismatch=False):
         """
         Convenience method to test equality of :class:`loopy.KernelArgument`s
 
@@ -1374,9 +1380,16 @@ class kernel_generator(object):
         def __atomify(arg):
             return self._with_target(arg, for_atomic=True)
 
-        return arg1 == arg2 or (__atomify(arg1) == __atomify(arg2))
+        def __shapify(arg1, arg2):
+            a1 = self._with_target(arg1, for_atomic=True)
+            a2 = self._with_target(arg2, for_atomic=True)
+            a1 = a1.copy(shape=a2.shape, dim_tags=a2.dim_tags)
+            return a1 == a2
 
-    def _process_args(self, kernels=[]):
+        return arg1 == arg2 or (__atomify(arg1) == __atomify(arg2)) or (
+            allow_shape_mismatch and __shapify(arg1, arg2))
+
+    def _process_args(self, kernels=[], allowed_conflicts=[]):
         """
         Processes the arguements for all kernels in this generator (and subkernels
         from dependencies) to:
@@ -1386,17 +1399,19 @@ class kernel_generator(object):
 
         Notes
         -----
-        First, note that the :class:`loopy.GlobalArg` is our own temporary
-        work-around, and should be replaced after the upcoming kernel-call PR is
-        merged into master.
-
-        Second, the returned list of local arguments will be non-empty IFF the
-        kernel generator's :attr:`hoist_locals`
+        - The list of local arguments in the returned :class:`MemoryGenerationResult`
+        `record` will be non-empty IFF the kernel generator's :attr:`hoist_locals`
+        is true
+        - If :param:`allowed_conflicts` is supplied, we are assumed to be in a driver
+        kernel, and only the 'global' (i.e., `problem_size`'d) variable will be kept,
+        as the `work_size`'d variable is assumed to be a local copy
 
         Parameters
         ----------
         kernels: list of :class:`loopy.LoopKernel`
             The kernels to process
+        allowed_conflicts: list of str
+            The names of arguments that are allowed to conflict between kernels.
 
         Returns
         -------
@@ -1426,38 +1441,52 @@ class kernel_generator(object):
             for x in args:
                 if x.name == name and not any(x == y for y in same_name):
                     same_name.append(x)
+
+            def __raise():
+                raise Exception('Cannot resolve different arguements of '
+                                'same name: {}'.format(', '.join(
+                                    str(x) for x in same_name)))
+
+            # check allowed_conflicts
+            if len(same_name) != 1 and same_name[0].name in allowed_conflicts:
+                # find the version of same name that contains the work size,
+                # as this is the 'local' version
+                work_sized = next((x for x in same_name
+                                  if any(w_size.name in str(y) for y in x.shape)),
+                                  None)
+                if not work_sized:
+                    __raise()
+
+                # and remove
+                same_name.remove(work_sized)
+
             if len(same_name) != 1:
                 # need to see if differences are resolvable
                 atomic = next((x for x in same_name if
                                isinstance(x.dtype, AtomicNumpyType)), None)
 
-                def __raise():
-                    raise Exception('Cannot resolve different arguements of '
-                                    'same name: {}'.format(', '.join(
-                                        str(x) for x in same_name)))
+                if atomic is not None:
+                    other = next(x for x in same_name if x != atomic)
+                    # check that all other properties are the same
+                    if not self._compare_args(other, atomic,
+                                              other.name in allowed_conflicts):
+                        __raise()
 
-                if atomic is None or len(same_name) > 2:
-                    # if we don't have an atomic, or we have multiple different
-                    # args of the same name...
-                    __raise()
+                    # otherwise, they're the same and the only difference is the
+                    # the atomic - so remove the non-atomic
+                    same_name.remove(other)
 
-                other = next(x for x in same_name if x != atomic)
+                    # Hence, we try to copy all the other kernels with this arg in it
+                    # with the atomic arg
+                    for i, knl in enumerate(self.kernels):
+                        if other in knl.args:
+                            kernels[i] = knl.copy(args=[
+                                x if x != other else atomic for x in knl.args])
 
-                # check that all other properties are the same
-                if not self._compare_args(other, atomic):
-                    __raise()
-
-                # otherwise, they're the same and the only difference is the
-                # the atomic.
-
-                # Hence, we try to copy all the other kernels with this arg in it
-                # with the atomic arg
-                for i, knl in enumerate(self.kernels):
-                    if other in knl.args:
-                        kernels[i] = knl.copy(args=[
-                            x if x != other else atomic for x in knl.args])
-
-                same_name.remove(other)
+            if len(same_name) != 1:
+                # if we don't have an atomic, or we have multiple different
+                # args of the same name...
+                __raise()
 
             same_name = same_name.pop()
             kernel_data.append(same_name)
@@ -2208,8 +2237,50 @@ class kernel_generator(object):
 
         return codegen_results
 
-    def _have_arg(knl, arg):
-        return arg.name in knl.arg_dict
+    def _set_kernel_data(self, record, for_driver=False):
+        """
+        Updates the :param:`record` to contain the correct :param:`kernel_data`
+
+        Parameters
+        ----------
+        path : str
+            The output path to write files to
+        record: :class:`MemoryGenerationResult` [None]
+            If not None, this wrapping kernel is being generated as a sub-kernel
+            (and hence, should reuse the owning kernel's record)
+        result: :class:`CodegenResult` [None]
+            If not None, this wrapping kernel is being generated as a sub-kernel
+            (and hence, should reuse the owning kernel's results)
+
+        Returns
+        -------
+        record: :class:`MemoryGenerationResult`
+            The resulting memory object
+        """
+
+        # our working data for the driver consists of:
+        # 1. The dummy 'time' array
+        # 2. All working data for the underlying kernels
+        # 3. The global kernel args
+        # 4. the problem size variable (if for_driver)
+
+        # first, find kernel args global kernel args (by name)
+        kernel_data = [x for x in record.args if x.name in set(
+            self.in_arrays + self.out_arrays)]
+
+        # and add problem size
+        if for_driver:
+            kernel_data.append(self._with_target(p_size))
+        else:
+            # add the time array w/ local size
+            kernel_data += [time_array.copy(
+                shape=(self.loopy_opts.initial_condition_dimsize,),
+                order=self.loopy_opts.order)]
+        # update
+        kernel_data = record.kernel_data + kernel_data
+        # and sort
+        kernel_data = utils.kernel_argument_ordering(kernel_data)
+        return record.copy(kernel_data=kernel_data)
 
     def _generate_wrapping_kernel(self, path, record=None, result=None,
                                   kernels=None):
@@ -2259,6 +2330,9 @@ class kernel_generator(object):
             # generate working buffer
             record, result = self._compress_to_working_buffer(record)
 
+            # get the kernel arguments for this :class:`kernel_generator`
+            record = self._set_kernel_data(record)
+
             # add work size
             record = record.copy(kernel_data=record.kernel_data + [self._with_target(
                 w_size)])
@@ -2267,10 +2341,13 @@ class kernel_generator(object):
             # faster
             kernels = [lp.preprocess_kernel(k) for k in kernels]
         else:
-            # create a new codegen result that contains only our pointer unpacks
 
             # get our arguments
             our_record, _ = self._process_args(self.kernels)
+            # set correct kernel data for this record
+            our_record = self._set_kernel_data(our_record)
+
+            # create a new codegen result that contains only our pointer unpacks
             our_args = set([x.name for x in our_record.args + our_record.local])
             pointer_offsets = {k: v for k, v in six.iteritems(
                 result.pointer_offsets) if k in our_args}
@@ -2410,9 +2487,10 @@ class kernel_generator(object):
             The code-generation result with the updated pointer unpacks
         """
 
+        ignored = [time_array.name]
         unpacks = {x.name + arc.local_name_suffix:
                    wrapper.pointer_offsets[x.name] for x in args
-                   if isinstance(x, lp.ArrayArg)}
+                   if isinstance(x, lp.ArrayArg) and x.name not in ignored}
         unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL)
                    for k, (dtype, size, offset) in six.iteritems(unpacks)]
         return CodegenResult(pointer_unpacks=unpacks)
@@ -2466,26 +2544,18 @@ class kernel_generator(object):
             args=kernels[1].args + wrapper_memory.kernel_data)
 
         # process arguments
-        record, kernels = self._process_args(kernels)
+        record, kernels = self._process_args(
+            kernels, allowed_conflicts=self.in_arrays + self.out_arrays)
 
         # process memory
         record, mem_limits = self._process_memory(record)
 
-        # our working data for the driver consists of:
-        # 1. All working data for the underlying kernels
-        # 2. The global kernel args
-        # 3. the problem size variable
-
-        # first, find kernel args global kernel args (by name)
-        kernel_data = [x for x in record.args if x.name in set(
-            self.in_arrays + self.out_arrays)]
-        # and add problem size
-        kernel_data.append(self._with_target(p_size))
-        record = record.copy(kernel_data=kernel_data + wrapper_memory.kernel_data)
+        # set kernel data
+        record = self._set_kernel_data(record, for_driver=True)
 
         # next, we need to determine where in the working buffer the arrays
         # we need in the driver live
-        result = self._get_local_unpacks(wrapper_result, kernel_data)
+        result = self._get_local_unpacks(wrapper_result, record.kernel_data)
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(
@@ -2516,13 +2586,9 @@ class kernel_generator(object):
                 max_ic_per_run / self.vec_width) * self.vec_width
 
         # get work arrays for driver
-        work_arrays = []
-        for x in record.kernel_data:
-            if isinstance(x, lp.ValueArg):
-                if x != w_size:
-                    work_arrays.append(x)
-            elif x not in kernel_data:
-                work_arrays.append(x)
+        work_arrays = [x for x in record.kernel_data if x.name in
+                       [rhs_work_name, local_work_name, int_work_name,
+                        p_size.name]]
 
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],
