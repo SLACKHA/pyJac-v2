@@ -126,18 +126,35 @@ class SubTest(TestClass):
             # check that all constants are temporary variables
             assert all(isinstance(x, lp.TemporaryVariable) for x in record.constants)
 
+            def __in_shape(shape, variable=arc.work_size):
+                return any(variable.name in str(x) for x in shape)
+
+            def __new_shape(shape, variable=arc.work_size,
+                            replacement=arc.problem_size):
+                return tuple(x if variable.name not in str(x)
+                             else str(x).replace(variable.name, replacement.name)
+                             for x in shape)
+
             # now, insert a bad duplicate argument and make sure we get an error
-            i_arg, arg = next((i, arg) for i, arg in enumerate(kgen.kernels[0].args)
-                              if isinstance(arg, ArrayBase))
-            new = arg.__class__(shape=tuple([x + 1 for x in arg.shape]),
+            arg = next(arg for arg in kgen.kernels[0].args
+                       if isinstance(arg, ArrayBase)
+                       and __in_shape(arg.shape))
+
+            new = arg.__class__(shape=__new_shape(arg.shape),
                                 name=arg.name,
                                 order=opts.order,
-                                address_space=arg.address_space)
+                                address_space=arg.address_space,
+                                dtype=arg.dtype)
             kgen.kernels[0] = kgen.kernels[0].copy(
                 args=kgen.kernels[0].args + [new])
 
             with assert_raises(Exception):
                 kgen._process_args()
+
+            # and now test with allowed conflict
+            newrecord, _ = kgen._process_args(allowed_conflicts=[new.name])
+            assert any(arc.problem_size.name in str(y) for y in next(
+                x for x in newrecord.args if x.name == new.name).shape)
 
     def test_process_memory(self):
         # test sparse in order to ensure the Jacobian preambles aren't removed

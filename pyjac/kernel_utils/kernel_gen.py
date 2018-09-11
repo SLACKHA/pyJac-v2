@@ -1376,7 +1376,7 @@ class kernel_generator(object):
 
         return arg1 == arg2 or (__atomify(arg1) == __atomify(arg2))
 
-    def _process_args(self, kernels=[]):
+    def _process_args(self, kernels=[], allowed_conflicts=[]):
         """
         Processes the arguements for all kernels in this generator (and subkernels
         from dependencies) to:
@@ -1386,17 +1386,19 @@ class kernel_generator(object):
 
         Notes
         -----
-        First, note that the :class:`loopy.GlobalArg` is our own temporary
-        work-around, and should be replaced after the upcoming kernel-call PR is
-        merged into master.
-
-        Second, the returned list of local arguments will be non-empty IFF the
-        kernel generator's :attr:`hoist_locals`
+        - The list of local arguments in the returned :class:`MemoryGenerationResult`
+        `record` will be non-empty IFF the kernel generator's :attr:`hoist_locals`
+        is true
+        - If :param:`allowed_conflicts` is supplied, we are assumed to be in a driver
+        kernel, and only the 'global' (i.e., `problem_size`'d) variable will be kept,
+        as the `work_size`'d variable is assumed to be a local copy
 
         Parameters
         ----------
         kernels: list of :class:`loopy.LoopKernel`
             The kernels to process
+        allowed_conflicts: list of str
+            The names of arguments that are allowed to conflict between kernels.
 
         Returns
         -------
@@ -1436,28 +1438,40 @@ class kernel_generator(object):
                                     'same name: {}'.format(', '.join(
                                         str(x) for x in same_name)))
 
-                if atomic is None or len(same_name) > 2:
-                    # if we don't have an atomic, or we have multiple different
-                    # args of the same name...
+                if atomic is not None:
+                    other = next(x for x in same_name if x != atomic)
+                    # check that all other properties are the same
+                    if not self._compare_args(other, atomic):
+                        __raise()
+
+                    # otherwise, they're the same and the only difference is the
+                    # the atomic - so remove the non-atomic
+                    same_name.remove(other)
+
+                    # Hence, we try to copy all the other kernels with this arg in it
+                    # with the atomic arg
+                    for i, knl in enumerate(self.kernels):
+                        if other in knl.args:
+                            kernels[i] = knl.copy(args=[
+                                x if x != other else atomic for x in knl.args])
+
+            # check allowed_conflicts
+            if len(same_name) != 1 and same_name[0].name in allowed_conflicts:
+                # find the version of same name that contains the work size,
+                # as this is the 'local' version
+                work_sized = next((x for x in same_name
+                                  if any(w_size.name in str(y) for y in x.shape)),
+                                  None)
+                if not work_sized:
                     __raise()
 
-                other = next(x for x in same_name if x != atomic)
+                # and remove
+                same_name.remove(work_sized)
 
-                # check that all other properties are the same
-                if not self._compare_args(other, atomic):
-                    __raise()
-
-                # otherwise, they're the same and the only difference is the
-                # the atomic.
-
-                # Hence, we try to copy all the other kernels with this arg in it
-                # with the atomic arg
-                for i, knl in enumerate(self.kernels):
-                    if other in knl.args:
-                        kernels[i] = knl.copy(args=[
-                            x if x != other else atomic for x in knl.args])
-
-                same_name.remove(other)
+            if len(same_name) != 1:
+                # if we don't have an atomic, or we have multiple different
+                # args of the same name...
+                __raise()
 
             same_name = same_name.pop()
             kernel_data.append(same_name)
