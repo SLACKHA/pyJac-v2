@@ -1748,7 +1748,8 @@ class kernel_generator(object):
 
         # assign to non-readonly to prevent removal
         def _name_assign(arr, use_atomics=True):
-            if arr.name not in readonly and not isinstance(arr, lp.ValueArg):
+            if arr.name not in readonly and not isinstance(arr, lp.ValueArg) and \
+                    arr.name not in [time_array.name]:
                 return arr.name + '[{ind}] = 0 {atomic}'.format(
                     ind=', '.join(['0'] * len(arr.shape)),
                     atomic='{atomic}'
@@ -1885,7 +1886,8 @@ class kernel_generator(object):
 
         return size_per_work_item, static_size, offsets
 
-    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
+                            set_null=False):
         """
         A method stub to implement the pattern:
         ```
@@ -1905,6 +1907,8 @@ class kernel_generator(object):
             The array type
         scope: :class:`loopy.AddressSpace`
             The memory scope
+        set_null: bool [False]
+            If True, set the unpacked pointer to NULL
 
         Returns
         -------
@@ -2469,7 +2473,7 @@ class kernel_generator(object):
 
         return filename
 
-    def _get_local_unpacks(self, wrapper, args):
+    def _get_local_unpacks(self, wrapper, args, null_args=[]):
         """
         Converts pointer unpacks from :param:`wrapper` to '_local' versions
         for the driver kernel
@@ -2480,6 +2484,8 @@ class kernel_generator(object):
             The code-generation object for the wrapped kernel
         args: list of :class:`loopy.ArrayArgs`
             The args to convert
+        null_args: list of str
+            The names of args to "unpack" as NULL
 
         Returns
         -------
@@ -2487,11 +2493,17 @@ class kernel_generator(object):
             The code-generation result with the updated pointer unpacks
         """
 
-        ignored = [time_array.name]
-        unpacks = {x.name + arc.local_name_suffix:
-                   wrapper.pointer_offsets[x.name] for x in args
-                   if isinstance(x, lp.ArrayArg) and x.name not in ignored}
-        unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL)
+        def _name(arg):
+            return arg.name + arc.local_name_suffix
+
+        unpacks = {_name(x): wrapper.pointer_offsets[x.name] for x in args
+                   if isinstance(x, lp.ArrayArg)}
+        for null in null_args:
+            unpacks[null.name] = (null.dtype, 0, 0)
+
+        unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL,
+                                            set_null=any(k == null.name for null
+                                                         in null_args))
                    for k, (dtype, size, offset) in six.iteritems(unpacks)]
         return CodegenResult(pointer_unpacks=unpacks)
 
@@ -2555,7 +2567,15 @@ class kernel_generator(object):
 
         # next, we need to determine where in the working buffer the arrays
         # we need in the driver live
-        result = self._get_local_unpacks(wrapper_result, record.kernel_data)
+        result = self._get_local_unpacks(wrapper_result, record.kernel_data,
+                                         null_args=[time_array])
+
+        # add the sub-kernel's work arrays
+        work_arrays = [x for x in wrapper_memory.kernel_data if x.name in
+                       [rhs_work_name, local_work_name, int_work_name,
+                        w_size.name]]
+        record = record.copy(kernel_data=utils.kernel_argument_ordering(
+            record.kernel_data + work_arrays))
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(
@@ -2584,11 +2604,6 @@ class kernel_generator(object):
         if self.vec_width != 0:
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
-
-        # get work arrays for driver
-        work_arrays = [x for x in record.kernel_data if x.name in
-                       [rhs_work_name, local_work_name, int_work_name,
-                        p_size.name]]
 
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],
@@ -2950,7 +2965,8 @@ class c_kernel_generator(kernel_generator):
 
         return [global_ind],  ['0 <= {} < {}'.format(global_ind, test_size)]
 
-    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
+                            set_null=False):
         """
         A method stub to implement the pattern:
         ```
@@ -2971,12 +2987,20 @@ class c_kernel_generator(kernel_generator):
             The array type
         scope: :class:`loopy.AddressSpace`
             The memory scope
+        set_null: bool [False]
+            If True, set the unpacked pointer to NULL
 
         Returns
         -------
         unpack: str
             The stringified pointer unpacking statement
         """
+
+        if set_null:
+            return '{dtype}* __restrict__ {array} = NULL;'.format(
+                dtype=self.type_map[dtype],
+                array=array)
+
         return ('{dtype}* __restrict__ {array} = {work} + {offset} + '
                 '{size} * omp_get_thread_num();'.format(
                     dtype=self.type_map[dtype],
@@ -3146,7 +3170,8 @@ class opencl_kernel_generator(kernel_generator):
 
         return [work_size]
 
-    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
+                            set_null=False):
         """
         Implement the pattern
         ```
@@ -3166,6 +3191,8 @@ class opencl_kernel_generator(kernel_generator):
             The array type
         scope: :class:`loopy.AddressSpace`
             The memory scope
+        set_null: bool [False]
+            If True, set the unpacked pointer to NULL
 
         Returns
         -------
@@ -3192,8 +3219,16 @@ class opencl_kernel_generator(kernel_generator):
             dtype += str(self.vec_width)
             cast = '({} {}*)'.format(scope_str, dtype)
 
-        return '{}{} {}* __restrict__ {} = {}({} + {});'.format(
-            scope_str, volatile, dtype, array, cast, work_str, offset)
+        if set_null:
+            return '{scope}{volatile} {dtype}* __restrict__ {array} = 0;'.format(
+                scope=scope_str, volatile=volatile,
+                dtype=dtype, array=array)
+
+        return ('{scope}{volatile} {dtype}* __restrict__ {array}'
+                ' = {cast}({work_str} + {offset});').format(
+            scope=scope_str, volatile=volatile,
+            dtype=dtype, array=array, cast=cast,
+            work_str=work_str, offset=offset)
 
     def _special_kernel_subs(self, path, callgen):
         """
