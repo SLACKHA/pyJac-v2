@@ -1648,8 +1648,7 @@ class kernel_generator(object):
         record: :class:`MemoryGenerationResult`
             The memory record that holds the kernel arguments
         for_driver: bool [False]
-            If True, only variables not in :attr:`input_arrays` or
-            :attr:`output_arrays` should be compressed.
+            If True, include kernel arguments in the resulting working buffers
 
         Returns
         -------
@@ -1671,14 +1670,21 @@ class kernel_generator(object):
             # include host constants in integer workspace
             iargs += record.host_constants
 
-        if for_driver:
-            # filter out any args we shouldn't be compressing
-            dargs = [x for x in dargs if x.name not in set(self.mem.host_arrays)]
-
         # and create buffers for all
         assert dargs, 'No kernel data!'
 
         def __generate(args, name, scope=scopes.GLOBAL, result=None):
+            # first, we sort by kernel argument ordering so any potentially
+            # duplicated kernel args are placed at the end and can be safely
+            # extracted in the driver
+            args = list(reversed(utils.kernel_argument_ordering(args)))
+
+            # exclude arguments that are in our own kernel args
+            # note: driver work array contains kernel args in the form of the local
+            # copies
+            if not for_driver:
+                args = [x for x in args if x not in record.kernel_data]
+
             # get the pointer unpackings
             size_per_wi, static, offsets = self._get_working_buffer(args)
             unpacks = []
@@ -2331,11 +2337,11 @@ class kernel_generator(object):
                 kernels = self._migrate_host_constants(
                     kernels, record.host_constants)
 
-            # generate working buffer
-            record, result = self._compress_to_working_buffer(record)
-
             # get the kernel arguments for this :class:`kernel_generator`
             record = self._set_kernel_data(record)
+
+            # generate working buffer
+            record, result = self._compress_to_working_buffer(record)
 
             # add work size
             record = record.copy(kernel_data=record.kernel_data + [self._with_target(
@@ -2565,17 +2571,41 @@ class kernel_generator(object):
         # set kernel data
         record = self._set_kernel_data(record, for_driver=True)
 
-        # next, we need to determine where in the working buffer the arrays
-        # we need in the driver live
-        result = self._get_local_unpacks(wrapper_result, record.kernel_data,
-                                         null_args=[time_array])
-
+        # and compress
+        driver_memory, driver_result = self._compress_to_working_buffer(
+            wrapper_memory.copy(), for_driver=True)
+        # and add work data
         # add the sub-kernel's work arrays
-        work_arrays = [x for x in wrapper_memory.kernel_data if x.name in
+        work_arrays = [x for x in driver_memory.kernel_data if x.name in
                        [rhs_work_name, local_work_name, int_work_name,
                         w_size.name]]
+        # and remove the duplicates / smaller work arrays
+        dupl = {}
+        for arry in work_arrays:
+            if isinstance(arry, lp.ValueArg):
+                continue
+            if arry.name not in dupl:
+                dupl[arry.name] = arry
+            elif arry.name in [rhs_work_name, local_work_name, int_work_name]:
+                def _size(a):
+                    from pymbolic import substitute
+                    from pymbolic.primitives import Product
+                    assert len(a.shape) == 1
+                    if isinstance(a.shape[0], Product):
+                        return substitute(a.shape[0], **{w_size.name: 1})
+                    return a.shape[0]
+
+                if _size(arry) > _size(dupl[arry.name]):
+                    dupl[arry.name] = arry
+        work_arrays = list(dupl.values())
+
+        # next, we need to determine where in the working buffer the arrays
+        # we need in the driver live
+        result = self._get_local_unpacks(driver_result, record.kernel_data,
+                                         null_args=[time_array])
+
         record = record.copy(kernel_data=utils.kernel_argument_ordering(
-            record.kernel_data + work_arrays))
+            record.kernel_data + work_arrays + [self._with_target(w_size)]))
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(
