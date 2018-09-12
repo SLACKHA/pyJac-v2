@@ -20,7 +20,7 @@ except ImportError:
 from pyjac.loopy_utils.loopy_utils import kernel_call
 from pyjac.core.array_creator import array_splitter, kint_type
 import pyjac.core.array_creator as arc
-from pyjac.utils import enum_to_string, listify
+from pyjac.utils import enum_to_string, listify, to_enum
 from pyjac import utils
 from pyjac.core.enum_types import (KernelType, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
@@ -40,6 +40,28 @@ set_seed()
                 (KernelType.jacobian, 'jacobian')])
 def test_enum_to_string(enum, string):
     assert enum_to_string(enum) == string
+
+
+@parameterized([(JacobianType, 'exact', JacobianType.exact),
+                (JacobianType, 'approximate', JacobianType.approximate),
+                (JacobianType, 'finite_difference', JacobianType.finite_difference),
+                (JacobianType, JacobianType.exact, JacobianType.exact),
+                (JacobianType, JacobianType.approximate, JacobianType.approximate),
+                (JacobianType, JacobianType.finite_difference,
+                    JacobianType.finite_difference),
+                (JacobianFormat, 'sparse', JacobianFormat.sparse),
+                (JacobianFormat, 'full', JacobianFormat.full),
+                (JacobianFormat, JacobianFormat.sparse, JacobianFormat.sparse),
+                (JacobianFormat, JacobianFormat.full, JacobianFormat.full),
+                (KernelType, 'chem_utils', KernelType.chem_utils),
+                (KernelType, 'species_rates', KernelType.species_rates),
+                (KernelType, 'jacobian', KernelType.jacobian),
+                (KernelType, KernelType.chem_utils, KernelType.chem_utils),
+                (KernelType, KernelType.species_rates, KernelType.species_rates),
+                (KernelType, KernelType.jacobian, KernelType.jacobian)
+                ])
+def test_to_enum(enum, string, answer):
+    assert to_enum(string, enum) == answer
 
 
 @parameterized([('a', ['a']),

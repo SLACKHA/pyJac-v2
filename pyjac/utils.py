@@ -88,9 +88,6 @@ def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False,
                    remove_empty=True):
     template = '{}' if not use_quotes else '"{}"'
     if kwd:
-        if remove_empty:
-            arglist = {k: v for k, v in six.iteritems(arglist)
-                       if bool(k) and bool(v)}
         template = template + '=' + template
         return joiner.join(template.format(str(k), str(v))
                            for k, v in six.iteritems(arglist))
@@ -392,6 +389,7 @@ def to_enum(enum, enum_type):
             logger = logging.getLogger()
             logger.error('Enum {} is not of type {}'.format(enum, enum_type))
             raise exceptions.InvalidInputSpecificationException(enum)
+        return enum
 
 
 def is_iterable(value):
