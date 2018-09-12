@@ -306,9 +306,8 @@ def test_override():
                 order: ['F']
                 gpuorder: ['C']
                 conp: ['conp']
-                vecsize: [2, 4]
-                gpuvecsize: [128]
-                vectype: ['wide']
+                width: [2, 4]
+                gpuwidth: [128]
                 models: ['C2H4']
             """))
         file.flush()
@@ -318,9 +317,8 @@ def test_override():
     assert data['order'] == ['F']
     assert data['gpuorder'] == ['C']
     assert data['conp'] == ['conp']
-    assert data['vecsize'] == [2, 4]
-    assert data['gpuvecsize'] == [128]
-    assert data['vectype'] == ['wide']
+    assert data['width'] == [2, 4]
+    assert data['gpuwidth'] == [128]
     assert data['models'] == ['C2H4']
 
     # now test embedded overrides
@@ -334,7 +332,6 @@ def test_override():
             platform-list:
               - lang: c
                 name: openmp
-                vectype: ['par']
             test-list:
               - test-type: performance
                 # limit to intel
@@ -346,10 +343,8 @@ def test_override():
                         order: [F]
                         gpuorder: [C]
                         conp: [conp]
-                        vecsize: [2, 4]
-                        gpuvecsize: [128]
-                        gpuvectype: [wide]
-                        vectype: [wide]
+                        depth: [2, 4]
+                        gpudepth: [128]
                         models: [C2H4]
             """))
         file.flush()
@@ -362,10 +357,8 @@ def test_override():
     assert data['order'] == ['F']
     assert data['gpuorder'] == ['C']
     assert data['conp'] == ['conp']
-    assert data['vecsize'] == [2, 4]
-    assert data['gpuvecsize'] == [128]
-    assert data['gpuvectype'] == ['wide']
-    assert data['vectype'] == ['wide']
+    assert data['depth'] == [2, 4]
+    assert data['gpudepth'] == [128]
     assert data['models'] == ['C2H4']
 
 

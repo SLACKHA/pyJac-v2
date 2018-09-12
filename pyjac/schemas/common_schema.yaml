@@ -89,25 +89,23 @@ override:
             schema:
                 type: string
                 allowed: ['conp', 'conv']
-        vecsize:
+        width:
             type: list
             schema:
-                type: integer
+                isvecsize: True
+        depth:
+            type: list
+            schema:
+                isvecsize: True
         # vector size overrides for GPUs
-        gpuvecsize:
+        gpuwidth:
             type: list
             schema:
-                type: integer
-        vectype:
+                isvecsize: True
+        gpudepth:
             type: list
             schema:
-                type: string
-                allowed: ['par', 'wide', 'deep']
-        gpuvectype:
-            type: list
-            schema:
-                type: string
-                allowed: ['par', 'wide', 'deep']
+                isvecsize: True
         # allow exclusion of models
         models:
             type: list
