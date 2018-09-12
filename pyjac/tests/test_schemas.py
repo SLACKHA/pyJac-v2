@@ -226,7 +226,6 @@ def test_duplicate_tests_fails():
         platform-list:
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -248,7 +247,6 @@ def test_duplicate_tests_fails():
         platform-list:
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -272,7 +270,6 @@ def test_duplicate_tests_fails():
         platform-list:
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -708,8 +705,7 @@ def test_load_memory_limits():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
         memory-limits:
           - global: 5 Gb
             platforms: [nvidia]
@@ -735,8 +731,7 @@ def test_load_memory_limits():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
         memory-limits:
           - global: 5 Gb
           - global: 10 Gb
@@ -761,8 +756,7 @@ def test_load_memory_limits():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
         test-list:
           - test-type: performance
             eval-type: jacobian
