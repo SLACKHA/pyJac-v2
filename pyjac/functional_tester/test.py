@@ -25,8 +25,7 @@ import tables
 from pyjac.core.mech_interpret import read_mech_ct
 from pyjac.core import array_creator as arc
 from pyjac.tests.test_jacobian import _get_ad_jacobian
-from pyjac.tests.test_utils import parse_split_index, _run_mechanism_tests, runner, \
-    inNd
+from pyjac.tests.test_utils import _run_mechanism_tests, runner, inNd
 from pyjac.tests import test_utils, get_matrix_file, _get_test_input
 from pyjac.core.enum_types import (KernelType, RateSpecialization)
 from pyjac.libgen import generate_library
@@ -237,9 +236,11 @@ class hdf5_store(object):
         # check for limits
         if num_conditions:
             ref_ans_shape[0] = num_conditions
-        # get the reference answer in order to get shape, etc.
-        shape, grow_axis, vec_axis, _ = asplit.split_shape(
-            type('', (object,), {'shape': ref_ans_shape}))
+
+        # with the new version, all data is stored in 'C' or 'F' order in the
+        # non-split format
+        grow_axis = 0
+        shape = ref_ans_shape[:]
 
         # and set the enlargable shape for the pytables array
         eshape = tuple(shape[i] if i != grow_axis else 0
@@ -253,9 +254,6 @@ class hdf5_store(object):
         num_conds = shape[grow_axis]
         # and cut down by vec width to respect chunk size
         chunk_size = self.chunk_size
-        if vec_axis is not None:
-            assert chunk_size % shape[vec_axis] == 0
-            chunk_size = int(chunk_size / shape[vec_axis])
         # open the data as a memmap to avoid loading it all into memory
         file = np.memmap(filename, mode='r', dtype=ref_ans.dtype,
                          shape=shape, order=order)
@@ -411,20 +409,13 @@ class validation_runner(runner, hdf5_store):
         out = []
         ic_mask = np.arange(offset, offset + this_run)
         for i, arr in enumerate(outputs):
-            mask = parse_split_index(
-                arr, [ic_mask], order, ref_ndim=answers[i].ndim, axis=(0,))
-            # next find the grow dimension
-            _, grow_dim, split_dim, _ = asplit.split_shape(arr)
-            # we need to slice on the grow dim to pull into memory
-            # create empty slices in other dimensions -- vecsize dim is full by
-            # defn
+            # the outputs are now un-split, and in original order
             inds = [slice(None) for x in range(arr.ndim)]
-            inds[grow_dim] = np.unique(mask[grow_dim])
+            inds[0] = np.unique(ic_mask)
             out.append(arr[tuple(inds)])
 
         # simply need to reference and split answers
         answers = [x[offset:offset + this_run, :] for x in answers]
-        answers = asplit.split_numpy_arrays(answers)
         return answers, out
 
     def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
@@ -469,7 +460,7 @@ class validation_runner(runner, hdf5_store):
                                as_executable=True)
 
         # store phi array to file
-        np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
+        np.array(phi, order=state['order'], copy=True).flatten('K').tofile(phi_path)
 
         num_conditions = self.num_conditions
         limited_num_conditions = self.have_limit(state, limits)
@@ -700,26 +691,16 @@ class spec_rate_eval(eval):
         rev_ind = next(
             i for i, x in enumerate(self.output_names) if 'rop_rev' in x)
 
-        # pull order
-        order = state['order']
-
         # multiply fwd/rev ROP by pressure rates to compare w/ Cantera
         # fwd
-        fwd_masked = parse_split_index(output[fwd_ind], self.thd_map, order)
-        output[fwd_ind][fwd_masked] *= output[pmod_ind][parse_split_index(
-            output[pmod_ind], np.arange(self.thd_map.size, dtype=arc.kint_type),
-            order)]
-        # rev
-        rev_masked = parse_split_index(output[rev_ind], self.rev_to_thd_map,
-                                       order)
+        output[fwd_ind][self.thd_map] *= output[pmod_ind][
+            np.arange(self.thd_map.size, dtype=arc.kint_type)]
+        # reverse ROP
         # thd to rev map already in thd index list, so don't need to do arange
-        output[rev_ind][rev_masked] *= output[pmod_ind][parse_split_index(
-            output[pmod_ind], self.thd_to_rev_map, order)]
+        output[rev_ind][self.rev_to_thd_map] *= output[pmod_ind][self.rev_to_thd_map]
 
-        # simple test to get IC index
-        mask_dummy = parse_split_index(answers[0], np.array([this_run]),
-                                       order=order, axis=(0,))
-        IC_axis = next(i for i, ax in enumerate(mask_dummy) if ax != slice(None))
+        # IC index fixed at zero now
+        IC_axis = 0
 
         # load output
         for name, out, check_arr in zip(*(self.output_names, output, answers)):
@@ -734,24 +715,14 @@ class spec_rate_eval(eval):
                 size = int(np.prod(arr.shape) / this_run)
                 if inds is None:
                     inds = np.arange(size, dtype=arc.kint_type)
-                mask = parse_split_index(arr, inds, order, axis=(1,))
+                mask = tuple(slice(None) if i != 1 else inds
+                             for i in range(arr.ndim))
                 # get maximum relative error locations
                 if locs is None:
                     locs = np.argmax(err_compare[mask], axis=IC_axis)
-                if locs.ndim >= 2:
-                    # C-split, need to convert to two 1-d arrays
-                    lrange = np.arange(locs[0].size, dtype=arc.kint_type)
-                    fixed = [np.zeros(size, dtype=arc.kint_type),
-                             np.zeros(size, dtype=arc.kint_type)]
-                    for i, x in enumerate(locs):
-                        # find max in err_locs
-                        ind = np.argmax(err_compare[x, [i], lrange])
-                        fixed[0][i] = x[ind]
-                        fixed[1][i] = ind
-                    mask = (fixed[0], mask[1], fixed[1])
-                else:
-                    mask = tuple(
-                        x if i != IC_axis else locs for i, x in enumerate(mask))
+
+                mask = tuple(
+                    x if i != IC_axis else locs for i, x in enumerate(mask))
                 return locs, mask
 
             err_locs, err_mask = __get_locs_and_mask(err_compare)
