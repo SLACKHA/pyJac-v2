@@ -1064,6 +1064,10 @@ def _should_skip_oploop(state, skip_test=None, skip_deep_simd=True):
     if state['lang'] != 'opencl' and state.get('device_type', ''):
         return True
 
+    if state.get('rate_spec', None) == 'fixed' and state.get('split_kernels', None):
+        # not a valid configuration
+        return True
+
     if skip_test and skip_test(state):
         return True
 
@@ -1164,6 +1168,30 @@ class OptionLoopWrapper(object):
                                  yield_index=yield_index,
                                  ignored_state_vals=ignored_state_vals,
                                  from_get_oploop=True)
+
+    @staticmethod
+    def from_oploop(oploop_base, skip_test=None, yield_index=False,
+                    ignored_state_vals=['conp'], skip_deep_simd=True):
+        """
+        A convenience method that returns a :class:`OptionLoopWrapper` from base
+        :class:`OptionLoop` provided
+
+        Parameters
+        ----------
+        oploop_base: :class:`OptionLoop`
+            The base :class:`OptionLoop`
+
+        Returns
+        -------
+        wrapper: :class:`OptionLoopWrapper`
+            The constructed wrapper
+        """
+
+        return OptionLoopWrapper(oploop_base,
+                                 skip_test=skip_test,
+                                 yield_index=yield_index,
+                                 ignored_state_vals=ignored_state_vals,
+                                 skip_deep_simd=skip_deep_simd)
 
     def send(self, ignored_arg):
         for i, state in enumerate(self.oploop):
@@ -1978,55 +2006,60 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         # begin iterations
         from collections import defaultdict
         done_parallel = defaultdict(lambda: False)
-        op = oploop.copy()
         bad_platforms = set()
         old_state = None
-        for i, state in enumerate(op):
+
+        class parallel_skipper(object):
+            # this is simple parallelization, don't need to repeat for
+            # different vector sizes, simply choose one and go
+
+            def __init__(self):
+                self.done_parallel = {}
+
+            def __call__(self, state):
+                par_check = tuple(state[x] for x in state if x != 'vecsize')
+                if done_parallel[par_check]:
+                    return True
+                # else mark done if we're running a parallel check
+                if not (state['width'] or state['depth']):
+                    done_parallel[par_check] = True
+                return False
+
+        def model_skipper(state):
+            # we've decided to skip this model for this configuration
+            return 'models' in state and mech_name not in state['models']
+
+        def platform_skipper(state):
+            return platform in bad_platforms
+
+        wrapper = OptionLoopWrapper.from_oploop(
+            oploop.copy(), ignored_state_vals=['conp', 'split_kernels'])
+        for i, opts in wrapper:
             # check for regen
-            regen = old_state is None or __needs_regen(old_state, state.copy())
+            regen = old_state is None or __needs_regen(
+                old_state, wrapper.state.copy())
             # remove any old builds
             if regen:
                 __cleanup()
-            lang = state['lang']
-            vecsize = state['vecsize']
-            order = state['order']
-            wide = state['wide']
-            deep = state['deep']
-            platform = state['platform']
-            rate_spec = state['rate_spec']
-            split_kernels = state['split_kernels']
-            conp = state['conp']
-            par_check = tuple(state[x] for x in state if x != 'vecsize')
-            sparse = state['sparse']
-            jac_type = state['jac_type']
-
-            if 'models' in state and mech_name not in state['models']:
-                # we've decided to skip this model for this configuration
-                continue
-
-            if platform in bad_platforms:
-                continue
-            if not (deep or wide) and done_parallel[par_check]:
-                # this is simple parallelization, don't need to repeat for
-                # different vector sizes, simply choose one and go
-                continue
-            elif not (deep or wide):
-                # mark done
-                done_parallel[par_check] = True
-
-            if rate_spec == 'fixed' and split_kernels:
-                continue  # not a thing!
-
-            if deep and wide:
-                # can't do both simultaneously
-                continue
+            lang = opts.lang
+            vecsize = opts.vector_width
+            order = opts.order
+            wide = bool(opts.width)
+            deep = bool(opts.depth)
+            platform = opts.platform_name
+            rate_spec = opts.rate_spec
+            split_kernels = wrapper.state['split_kernels']
+            conp = wrapper.state['conp']
+            sparse = opts.jac_format
+            jac_type = opts.jac_type
 
             # get the filename
-            data_output = run.get_filename(state.copy())
+            data_output = run.get_filename(wrapper.state.copy())
 
             # if already run, continue
             data_output = os.path.join(this_dir, data_output)
-            if run.check_file(data_output, state.copy(), mech_info['limits']):
+            if run.check_file(data_output, wrapper.state.copy(),
+                              mech_info['limits']):
                 continue
 
             # store phi path
@@ -2052,8 +2085,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                                         rtype == KernelType.species_rates
                                         and for_validation),
                                     conp=conp,
-                                    use_atomic_doubles=state['use_atomic_doubles'],
-                                    use_atomic_ints=state['use_atomic_ints'],
+                                    use_atomic_doubles=opts.use_atomic_doubles,
+                                    use_atomic_ints=opts.use_atomic_ints,
                                     jac_format=sparse,
                                     jac_type=jac_type,
                                     for_validation=for_validation,
@@ -2068,18 +2101,11 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                 logger.info('Skipping bad platform: {}'.format(e.message))
                 continue
 
-            # get an array splitter
-            width = state['vecsize'] if state['wide'] else None
-            depth = state['vecsize'] if state['deep'] else None
-            order = state['order']
-            asplit = array_splitter(type('', (object,), {
-                'width': width, 'depth': depth, 'order': order}))
-
-            run.run(state.copy(), asplit, dirs, phi_path, data_output,
+            run.run(wrapper.state.copy(), dirs, phi_path, data_output,
                     mech_info['limits'])
 
             # store the old state
-            old_state = state.copy()
+            old_state = wrapper.state.copy()
 
         # cleanup any answers / arrays created by the runner for this
         # mechanism
