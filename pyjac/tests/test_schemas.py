@@ -402,25 +402,24 @@ def test_get_test_matrix():
     assert max_vec_width == 8
     from collections import defaultdict
 
-    def vecsize_check(state, want, seen):
+    def width_check(state, want, seen):
+        print(state)
         if state['lang'] == 'c':
-            assert state['vecsize'] is None
-            assert state['wide'] is False
-            assert state['deep'] is False
+            assert state['width'] is None
+            assert state['depth'] is None
         else:
-            seen['vecsize'].add(state['vecsize'])
+            seen['width'].add(state['width'])
 
-    def check_final_vecsizes(seen):
-        return sorted(seen['vecsize']) == [2, 4, 8]
+    def check_final_widths(seen):
+        return sorted(seen['width']) == [2, 4, 8]
 
     # check we have reasonable values
     base = {'platform': ['intel', 'openmp'],
-            'wide': [True, False],
-            'vecsize': vecsize_check,
+            'width': width_check,
             'conp': [True, False],
             'order': ['C', 'F'],
             'num_cores': num_cores_default()[0]}
-    run(base, loop, final_checks=check_final_vecsizes)
+    run(base, loop, final_checks=check_final_widths)
 
     # repeat for jacobian
     _, loop, _ = get_test_matrix('.', KernelType.jacobian,
@@ -433,7 +432,7 @@ def test_get_test_matrix():
                        enum_to_string(JacobianFormat.full)],
         'jac_type': [enum_to_string(JacobianType.exact)],
         'use_atomic_doubles': [True, False]})  # true for OpenMP by default
-    run(jacbase, loop, final_checks=check_final_vecsizes)
+    run(jacbase, loop, final_checks=check_final_widths)
 
     # next, do species performance
     _, loop, _ = get_test_matrix('.', KernelType.species_rates,
@@ -442,7 +441,7 @@ def test_get_test_matrix():
                                  raise_on_missing=True)
     want = base.copy()
     want.update({'order': ['F']})
-    run(want, loop, final_checks=check_final_vecsizes)
+    run(want, loop, final_checks=check_final_widths)
 
     # and finally, the Jacobian performance
     _, loop, _ = get_test_matrix('.', KernelType.jacobian,
@@ -456,20 +455,19 @@ def test_get_test_matrix():
     def update_jactype(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
             assert state['num_cores'] == 1
-            assert state['vecsize'] is None
-            assert state['wide'] is False
-            assert state['depth'] is False
+            assert state['width'] is None
+            assert state['depth'] is None
             assert state['order'] == 'C'
             assert state['conp'] is True
         else:
-            assert state['vecsize'] == 4
+            assert state['width'] == 4
 
     want.update({'platform': ['intel'],
                  'jac_type': update_jactype})
 
-    def check_final_vecsizes(seen):
-        return len(seen['vecsize'] - set([4, None])) == 0
-    run(want, loop, final_checks=check_final_vecsizes)
+    def check_final_widths(seen):
+        return len(seen['width'] - set([4, None])) == 0
+    run(want, loop, final_checks=check_final_widths)
 
     # test gpu vs cpu specs
     with NamedTemporaryFile('w', suffix='.yaml') as file:
@@ -481,21 +479,19 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide]
-            vecsize: [128]
+            width: [128]
           - name: intel
             lang: opencl
-            vectype: [wide]
-            vecsize: [4]
+            width: [4]
         test-list:
           - test-type: performance
             eval-type: jacobian
             exact:
                 sparse:
-                    gpuvecsize: [64]
+                    gpuwidth: [64]
                     order: ['F']
                 full:
-                    vecsize: [2]
+                    width: [2]
                     gpuorder: ['C']
         """))
         file.flush()
@@ -511,16 +507,16 @@ def test_get_test_matrix():
         if state['jac_type'] == enum_to_string(JacobianType.exact):
             if state['jac_format'] == enum_to_string(JacobianFormat.sparse):
                 if platform_is_gpu(state['platform']):
-                    assert state['vecsize'] == 64
+                    assert state['width'] == 64
                 else:
-                    assert state['vecsize'] == 4
+                    assert state['width'] == 4
                     assert state['order'] == 'F'
             else:
                 if platform_is_gpu(state['platform']):
                     assert state['order'] == 'C'
-                    assert state['vecsize'] == 128
+                    assert state['width'] == 128
                 else:
-                    assert state['vecsize'] == 2
+                    assert state['width'] == 2
 
     want = {'jac_format': sparsetest}
     run(want, loop)
@@ -538,8 +534,7 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide]
-            vecsize: [128]
+            width: [128]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -576,8 +571,7 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide]
-            vecsize: [128]
+            width: [128]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -606,18 +600,17 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
             finite_difference:
                 both:
-                    vectype: [par]
-                    gpuvectype: [wide]
+                    width: []
+                    depth: []
+                    gpuwidth: [128]
         """))
         file.flush()
 
@@ -629,9 +622,9 @@ def test_get_test_matrix():
     def modeltest(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
             if state['platform'] == 'openmp':
-                assert not bool(state['vecsize'])
+                assert not bool(state['width'])
             else:
-                assert state['vecsize'] == 128
+                assert state['width'] == 128
 
     want = {'models': modeltest}
     run(want, loop)
@@ -647,7 +640,6 @@ def test_get_test_matrix():
             platform-list:
               - lang: c
                 name: openmp
-                vectype: ['par']
             test-list:
               - test-type: performance
                 # limit to intel
@@ -659,10 +651,8 @@ def test_get_test_matrix():
                         order: [F]
                         gpuorder: [C]
                         conp: [conp]
-                        vecsize: [2, 4]
-                        gpuvecsize: [128]
-                        gpuvectype: [wide]
-                        vectype: [wide]
+                        width: [2, 4]
+                        gpuwidth: [128]
                         models: []
             """))
         file.flush()
@@ -672,8 +662,7 @@ def test_get_test_matrix():
                                      raise_on_missing=True)
 
     want = {'platform': ['openmp'],
-            'wide': [False],
-            'vecsize': [None],
+            'width': [None],
             'conp': [True, False],
             'order': ['C', 'F'],
             'models': ['CH4'],

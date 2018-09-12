@@ -72,8 +72,6 @@ test-list:
         # limit number of cores
         num_cores: [1]
         # use only parallel FD-evaluation
-        vecsize: []
-        vectype: ['par']
         # C-order only
         order: ['C']
         # conp-only
@@ -82,4 +80,4 @@ test-list:
     exact:
       both:
         # only test vector width of 4
-        vecsize: [4]
+        width: [4]
