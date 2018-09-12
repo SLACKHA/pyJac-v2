@@ -1847,7 +1847,6 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
     from pyjac.tests.test_utils import get_test_matrix as tm
     from pyjac.tests.test_utils import data_bin_writer as dbw
     from pyjac.core.mech_interpret import read_mech_ct
-    from pyjac.core.array_creator import array_splitter
     from pyjac.core.create_jacobian import find_last_species, create_jacobian
     import cantera as ct
 
@@ -2030,10 +2029,14 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
             return 'models' in state and mech_name not in state['models']
 
         def platform_skipper(state):
-            return platform in bad_platforms
+            return state['platform'] in bad_platforms
+
+        parallel_skip = parallel_skipper()
 
         wrapper = OptionLoopWrapper.from_oploop(
-            oploop.copy(), ignored_state_vals=['conp', 'split_kernels'])
+            oploop.copy(), ignored_state_vals=['conp', 'split_kernels'],
+            skip_test=lambda state: any(call(state) for call in [
+                parallel_skip, model_skipper, platform_skipper]))
         for i, opts in wrapper:
             # check for regen
             regen = old_state is None or __needs_regen(
