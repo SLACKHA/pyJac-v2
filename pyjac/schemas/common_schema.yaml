@@ -64,6 +64,10 @@ variable-platform:
         atomic_ints:
             type: boolean
             default: True
+        is_simd:
+            type: list
+            schema:
+                type: boolean
 
 # overrides for individual tests
 override:

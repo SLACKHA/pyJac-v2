@@ -6,12 +6,12 @@ the given example specifications against them.
 # system
 from os.path import isfile, join
 from collections import OrderedDict
+from tempfile import NamedTemporaryFile
 
 # external
 import six
 import cantera as ct
 from nose.tools import assert_raises
-from tempfile import NamedTemporaryFile
 from pytools.py_codegen import remove_common_indentation
 
 # internal
@@ -25,7 +25,7 @@ from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidOverrideException, \
-    InvalidInputSpecificationException
+    InvalidInputSpecificationException, ValidationError
 from pyjac.loopy_utils.loopy_utils import load_platform
 from pyjac.kernel_utils.memory_limits import memory_limits, memory_type
 
@@ -81,6 +81,7 @@ def test_load_test_platforms():
     assert amd['lang'] == 'opencl'
     assert amd['use_atomic_doubles'] is True
     assert amd['use_atomic_ints'] is True
+    assert amd['is_simd'] == [True]
 
     def __fuzz_equal(arr):
         return arr == [2, 4, None] or arr == [2, 4]
@@ -127,6 +128,25 @@ def test_load_codegen():
     assert platform.width == 4
     assert not platform.depth
     assert platform.use_atomic_doubles is True
+    assert platform.is_simd
+
+
+def test_bad_simd_specification_in_codegen():
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        platform:
+            name: portable
+            lang: opencl
+            # deep vectorization
+            vectype: deep
+            # use a vector size of 4
+            vecsize: 4
+            is_simd: True
+        """))
+        file.seek(0)
+
+        with assert_raises(ValidationError):
+            build_and_validate('codegen_platform.yaml', file.name)
 
 
 def test_matrix_schema_specification():
@@ -200,7 +220,7 @@ def test_load_platforms_from_matrix():
 
 def test_duplicate_tests_fails():
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -214,7 +234,7 @@ def test_duplicate_tests_fails():
             eval-type: jacobian
           - test-type: performance
             eval-type: both
-        """)
+        """))
         file.seek(0)
 
         with assert_raises(DuplicateTestException):
@@ -222,7 +242,7 @@ def test_duplicate_tests_fails():
             load_tests(tests, file.name)
 
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -239,14 +259,14 @@ def test_duplicate_tests_fails():
                     num_cores: [1]
                 full:
                     num_cores: [1]
-        """)
+        """))
         file.seek(0)
 
         tests = build_and_validate('test_matrix_schema.yaml', file.name)
         load_tests(tests, file.name)
 
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -263,7 +283,7 @@ def test_duplicate_tests_fails():
                     num_cores: [1]
                 full:
                     num_cores: [1]
-        """)
+        """))
         file.seek(0)
 
         with assert_raises(OverrideCollisionException):
@@ -462,7 +482,7 @@ def test_get_test_matrix():
 
     # test gpu vs cpu specs
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -486,7 +506,7 @@ def test_get_test_matrix():
                 full:
                     vecsize: [2]
                     gpuorder: ['C']
-        """)
+        """))
         file.flush()
 
         _, loop, _ = get_test_matrix('.', KernelType.jacobian,

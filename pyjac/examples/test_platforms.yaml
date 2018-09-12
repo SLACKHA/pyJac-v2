@@ -15,6 +15,8 @@ platform-list:
     vecsize: [2, 4]
     atomic_doubles: True
     atomic_ints: True
+    # use explicit-SIMD vectorization (when available)
+    is_simd: [True]
   # a CPU platform using C and no vectorizations
   - name: openmp
     lang: c

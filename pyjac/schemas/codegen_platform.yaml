@@ -41,6 +41,14 @@ platform:
         atomic_ints:
             type: boolean
             default: True
+        # If true, this platform should use explicit-SIMD vectorization, if available
+        is_simd:
+            type: boolean
+            default: False
+            dependencies:
+                # can curretly only be specified for wide-vectorizations
+                vectype:
+                    - wide
 
 # optional memory limits
 memory-limits:

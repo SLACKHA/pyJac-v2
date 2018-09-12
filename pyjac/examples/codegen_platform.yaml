@@ -18,6 +18,7 @@ platform:
     # Atomics are present in the POCL runtime
     atomic_doubles: True
     atomic_ints: True
+    is_simd: True
 
 # limit memory usage
 memory-limits:

@@ -160,6 +160,9 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                 inner_loop.append(('use_atomic_doubles', p['atomic_doubles']))
             if 'atomic_ints' in p:
                 inner_loop.append(('use_atomic_ints', p['atomic_ints']))
+            # check for is_simd
+            if 'is_simd' in p:
+                inner_loop.append(('is_simd', p['is_simd']))
 
             # and store platform
             inner_loop.append(('platform', p['name']))
@@ -211,6 +214,8 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                                               use_atomic_doubles))
                                 plist.append(('use_atomic_ints',
                                               use_atomic_ints))
+                                if dev_type == cl.device_type.CPU:
+                                    plist.append(('is_simd', [True, False]))
                                 platform_list.append(plist)
                     for p in platform_list:
                         # create option loop and add
