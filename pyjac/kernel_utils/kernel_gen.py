@@ -1674,6 +1674,7 @@ class kernel_generator(object):
         assert dargs, 'No kernel data!'
 
         def __generate(args, name, scope=scopes.GLOBAL, result=None):
+            copy = args[:]
             # first, we sort by kernel argument ordering so any potentially
             # duplicated kernel args are placed at the end and can be safely
             # extracted in the driver
@@ -1684,6 +1685,16 @@ class kernel_generator(object):
             # copies
             if not for_driver:
                 args = [x for x in args if x not in record.kernel_data]
+
+            if not (len(args) or for_driver):
+                if result is None:
+                    result = CodegenResult()
+                # we've filtered out all the arguments in this kernel, return a dummy
+                return self._with_target(
+                    lp.ArrayArg(name, shape=(1,),
+                                order=self.loopy_opts.order,
+                                dtype=copy[0].dtype,
+                                address_space=scope), for_atomic=False), result
 
             # get the pointer unpackings
             size_per_wi, static, offsets = self._get_working_buffer(args)
@@ -1924,6 +1935,20 @@ class kernel_generator(object):
         raise NotImplementedError
 
     @classmethod
+    def _remove_const_array(cls, text, arry):
+        """
+        Similar to :func:`_remove_work_array_consts`, but for removing const defn
+        of the given :param:`array`
+        """
+
+        replacers = [(re.compile(r'double\s*const\s*\*__restrict__\s*{}'.format(
+                      re.escape(arry))),
+                      r'double *__restrict__ {}'.format(arry))]
+        for r, s in replacers:
+            text = r.sub(s, text)
+        return text
+
+    @classmethod
     def _remove_work_array_consts(cls, text):
         """
         Hack -- TODO: need a way to specify that an array isn't constant even if
@@ -1942,6 +1967,19 @@ class kernel_generator(object):
             r'long int *__restrict__ {}'.format(int_work_name))]
         for r, s in replacers:
             text = r.sub(s, text)
+        return text
+
+    def deconstify(self, text, readonly=None):
+        """
+        Convenience method to run :param:`text` through :func:`_remove_const_array`
+        for all of :attr`in_arrays`and :attr:`out_arrays`
+        """
+        if readonly is None:
+            readonly = []
+        deconst = [arr for arr in self.in_arrays + self.out_arrays
+                   if arr not in readonly]
+        for arr in deconst:
+            text = self._remove_const_array(text, arr)
         return text
 
     @classmethod
@@ -2549,21 +2587,36 @@ class kernel_generator(object):
         else:
             raise NotImplementedError
 
+        our_arg_names = self.in_arrays + self.out_arrays
+
         kernels = self._make_kernels(knl_info, for_driver=True,
                                      # mark input / output arrays as un-simdable
                                      # to trigger correct scatter / gather copy
                                      # if necessary
-                                     dont_split=self.in_arrays + self.out_arrays)
+                                     dont_split=our_arg_names)
+
+        def localfy(kernel):
+            """
+            Return a copy of the kernel w/ our argument names converted to 'local'
+            equivalensts
+            """
+            return kernel.copy(args=[
+                x if x.name not in our_arg_names
+                else x.copy(name=x.name + arc.local_name_suffix)
+                for x in kernel.args])
 
         # now we must modify the driver kernel, such that it expects the appropriate
         # data
         assert kernels[1].name == 'driver'
         kernels[1] = kernels[1].copy(
-            args=kernels[1].args + wrapper_memory.kernel_data)
+            args=kernels[1].args + [x for x in wrapper_memory.kernel_data
+                                    if x not in kernels[1].args])
+        # and rename to pass local arrays
+        kernels[1] = localfy(kernels[1])
 
         # process arguments
         record, kernels = self._process_args(
-            kernels, allowed_conflicts=self.in_arrays + self.out_arrays)
+            kernels, allowed_conflicts=our_arg_names)
 
         # process memory
         record, mem_limits = self._process_memory(record)
@@ -2610,8 +2663,18 @@ class kernel_generator(object):
         # get the instructions, preambles and kernel
         result = self._merge_kernels(
             record, result, kernels=kernels, fake_calls=[FakeCall(
-                self.name + '()', kernels[1], wrapper_result.kernel)],
+                self.name + '()', kernels[1], localfy(wrapper_result.kernel))],
             for_driver=True)
+
+        # remove constants from output args in result
+        result.extra_kernels[1] = self.deconstify(
+            result.extra_kernels[1], wrapper_memory.readonly)
+        # and the header
+        for i in range(len(result.preambles)):
+            if 'driver(' in result.preambles[i]:
+                result.preambles[i] = self.deconstify(result.preambles[i],
+                                                      wrapper_memory.readonly)
+                break
 
         if self.loopy_opts.depth:
             # insert barriers between:
@@ -2634,6 +2697,9 @@ class kernel_generator(object):
         if self.vec_width != 0:
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
+
+        work_arrays = utils.kernel_argument_ordering(
+            [self._with_target(p_size)] + work_arrays)
 
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],
