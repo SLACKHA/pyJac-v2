@@ -492,16 +492,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             clean = plookup.copy()
             # get default number of cores
             cores = default_num_cores[:]
-            # get default vector widths
-            widths = plookup['width']
-            is_wide = widths is not None
-            depths = plookup['depth']
-            is_deep = depths is not None
-            if is_deep and not is_wide:
-                widths = depths[:]
-            # sanity check
-            if is_wide or is_deep:
-                assert widths is not None
             # special gpu handling for cores
             is_gpu = False
             # test platform type
@@ -509,26 +499,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 # set cores to 1
                 is_gpu = True
                 cores = [1]
-
-            def apply_vectypes(lookup, widths, is_wide=is_wide, is_deep=is_deep):
-                if is_wide or is_deep:
-                    # set vec widths
-                    use_par = None in widths or (is_wide and is_deep)
-                    lookup['vecsize'] = [x for x in widths[:] if x is not None]
-                    base = [True] if not use_par else [True, False]
-                    if is_wide:
-                        lookup['wide'] = base[:]
-                        base.pop()
-                    if is_deep:
-                        lookup['deep'] = base[:]
-                else:
-                    lookup['vecsize'] = [None]
-                    lookup['wide'] = [False]
-                    lookup['deep'] = [False]
-                del lookup['width']
-                del lookup['depth']
-
-            apply_vectypes(plookup, widths)
 
             # default is both conp / conv
             conp = [True, False]
@@ -559,7 +529,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 icores = cores[:]
                 iorder = order[:]
                 iconp = conp[:]
-                ivecsizes = widths[:] if widths is not None else [None]
                 imodels = tuple(models.keys())
                 # load overides
                 overrides = get_overrides(test, ttype, jtype, stype)
@@ -602,19 +571,22 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                                 iconp.append(False)
                             override_log('conp', iconp_save,
                                          iconp)
-                        elif override == 'vecsize' and not is_gpu:
-                            override_log('vecsize', ivecsizes,
+                        elif override == 'width' and not is_gpu:
+                            override_log('width', plookup['width'],
                                          overrides[override])
-                            outplat['vecsize'] = listify(overrides[override])
-                        elif override == 'gpuvecsize' and is_gpu:
-                            override_log('gpuvecsize', ivecsizes,
+                            outplat['width'] = listify(overrides[override])
+                        elif override == 'gpuwidth' and is_gpu:
+                            override_log('gpuwidth', plookup['width'],
                                          overrides[override])
-                            outplat['vecsize'] = listify(overrides[override])
-                        elif override == 'vectype' and not is_gpu:
-                            # we have to do this at the end
-                            ivectypes_override = overrides[override]
-                        elif override == 'gpuvectype' and is_gpu:
-                            ivectypes_override = overrides[override]
+                            outplat['width'] = listify(overrides[override])
+                        elif override == 'depth' and not is_gpu:
+                            override_log('depth', plookup['depth'],
+                                         overrides[override])
+                            outplat['depth'] = listify(overrides[override])
+                        elif override == 'gpudepth' and is_gpu:
+                            override_log('gpudepth', plookup['depth'],
+                                         overrides[override])
+                            outplat['depth'] = listify(overrides[override])
                         elif override == 'models':
                             # check that all models are valid
                             for model in overrides[override]:
@@ -625,25 +597,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                             override_log('models', stringify_args(imodels),
                                          stringify_args(overrides[override]))
                             imodels = tuple(overrides[override])
-
-                    if ivectypes_override is not None:
-                        c = clean.copy()
-                        apply_vectypes(c, outplat['vecsize'],
-                                       is_wide='wide' in ivectypes_override,
-                                       is_deep='deep' in ivectypes_override)
-                        # and copy into working
-                        outplat['wide'] = c['wide'] if 'wide' in c else [False]
-                        outplat['deep'] = c['deep'] if 'deep' in c else [False]
-                        outplat['vecsize'] = c['vecsize']
-                        old = ['']
-                        if is_wide:
-                            old += ['wide']
-                        if is_deep:
-                            old += ['deep']
-                        elif not is_wide:
-                            old += ['par']
-                        override_log('vecsize', old,
-                                     ivectypes_override)
 
                 # and finally, convert back to an option loop format
                 out_params.append([
