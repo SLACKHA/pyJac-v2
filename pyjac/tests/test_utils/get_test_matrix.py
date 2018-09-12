@@ -472,7 +472,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                  enum_to_string(JacobianType.finite_difference)] if (
                     test_type == KernelType.jacobian and not for_validation) else [
                  enum_to_string(JacobianType.exact)]
-    split_kernels = [False]
+    rop_net_kernels = [False]
 
     # and default # of cores, this may be overriden
     default_num_cores, can_override_cores = num_cores_default()
@@ -660,9 +660,9 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                     ('num_cores', icores),
                     ('order', iorder),
                     ('rate_spec', rate_spec),
-                    ('split_kernels', split_kernels),
+                    ('rop_net_kernels', rop_net_kernels),
                     ('conp', iconp),
-                    ('sparse', [stype]),
+                    ('jac_format', [stype]),
                     ('jac_type', [jtype]),
                     ('models', [imodels])] +
                     [(key, value) for key, value in six.iteritems(

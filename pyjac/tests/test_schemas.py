@@ -438,8 +438,8 @@ def test_get_test_matrix():
                                  raise_on_missing=True)
     jacbase = base.copy()
     jacbase.update({
-        'sparse': [enum_to_string(JacobianFormat.sparse),
-                   enum_to_string(JacobianFormat.full)],
+        'jac_format': [enum_to_string(JacobianFormat.sparse),
+                       enum_to_string(JacobianFormat.full)],
         'jac_type': [enum_to_string(JacobianType.exact)],
         'use_atomic_doubles': [True, False]})  # true for OpenMP by default
     run(jacbase, loop, final_checks=check_final_vecsizes)
@@ -518,7 +518,7 @@ def test_get_test_matrix():
 
     def sparsetest(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.exact):
-            if state['sparse'] == enum_to_string(JacobianFormat.sparse):
+            if state['jac_format'] == enum_to_string(JacobianFormat.sparse):
                 if platform_is_gpu(state['platform']):
                     assert state['vecsize'] == 64
                 else:
@@ -531,7 +531,7 @@ def test_get_test_matrix():
                 else:
                     assert state['vecsize'] == 2
 
-    want = {'sparse': sparsetest}
+    want = {'jac_format': sparsetest}
     run(want, loop)
 
     # test model override
