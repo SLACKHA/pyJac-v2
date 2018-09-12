@@ -43,13 +43,12 @@ memory-limits:
 platform-list:
   - name: intel
     lang: opencl
-    vectype: [wide, par]
-    # use a vector width of 2, 4 & 8
-    vecsize: [2, 4, 8]
+    # use a wide-vectorization w/ vector-width of 2, 4 & 8
+    # note: a parallel case will be added by default
+    width: [2, 4, 8]
     atomic_doubles: False
   - name: openmp
     lang: c
-    vectype: [par]
 
 # test list
 test-list:

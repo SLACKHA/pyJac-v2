@@ -32,13 +32,18 @@ variable-platform:
             type: string
             isvalidlang: True
             required: True
-        # vectorization type
-        vectype:
+        # wide-vectorization sizes
+        width:
             type: list
             schema:
-                type: string
-                isvectype: True
-            required: True
+                isvecsize: True
+            required: False
+        # deep-vectorization sizes
+        depth:
+            type: list
+            schema:
+                isvecsize: True
+            required: False
         # order
         order:
             type: list
@@ -47,14 +52,6 @@ variable-platform:
                 allowed: ['C', 'F']
             nullable: True
             default: ['C', 'F']
-        # vector size
-        vecsize:
-            type: list
-            schema:
-                type: integer
-                isvecsize: True
-            # can only be specifed for wide / deep vecs
-            dependencies: vectype
         # If True, the platform / language support atomics for deep-vectorization
         atomic_doubles:
             type: boolean

@@ -119,36 +119,26 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
             # set lang
             inner_loop.append(('lang', allowed_langs))
 
-            # get vectorization type and size
-            vectype = listify('par' if (
-                'vectype' not in p or not can_vectorize_lang[allowed_langs])
-                else p['vectype'])
-            # check if we have a vectorization
-            if not (len(vectype) == 1 and vectype[0] == 'par'):
-                # try load the vecsize, fail on missing
-                try:
-                    vecsize = [x for x in listify(p['vecsize'])]
-                except TypeError:
-                    raise Exception(
-                        'Platform {} has non-parallel vectype(s) {} but no supplied '
-                        'vector size.'.format(
-                            p['name'], [x for x in vectype if x != 'par']))
+            def _get(vecsize, hit):
+                if not hit:
+                    return vecsize + [None]
+                return vecsize
 
-                add_none = 'par' in vectype
-                for v in [x.lower() for x in vectype]:
-                    def _get(add_none):
-                        if add_none:
-                            return vecsize + [None]
-                        return vecsize
-                    if v == 'wide':
-                        inner_loop.append(('width', _get(add_none)))
-                        add_none = False
-                    elif v == 'deep':
-                        inner_loop.append(('depth', _get(add_none)))
-                        add_none = False
-                    elif v != 'par':
-                        raise Exception('Platform {} has invalid supplied vectype '
-                                        '{}'.format(p['name'], v))
+            def _add_vectype(key, hit=None):
+                hit = False if hit is None else hit
+                if key in p:
+                    assert can_vectorize_lang[allowed_langs], (
+                        'Cannot vectorize language: {}.'
+                        'Remove `{}` specification from platform!'.format(
+                            allowed_langs, key))
+                    # see if the user specified a parallel case
+                    hit = any(not x for x in p[key]) or hit
+                    inner_loop.append((key, _get(p[key], hit)))
+                    hit = True
+                return hit
+
+            hit_parallel = _add_vectype('width')
+            _add_vectype('depth', hit_parallel)
 
             # fill in missing vectypes
             for x in ['width', 'depth']:

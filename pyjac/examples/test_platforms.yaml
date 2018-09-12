@@ -10,9 +10,9 @@ platform-list:
   # a CPU platform using AMD-OpenCL, wide/deep vectorizations and atomics
   - name: amd
     lang: opencl
-    vectype: [wide, deep, par]
-    # use a vector width of 2 & 4
-    vecsize: [2, 4]
+    # note, a non-vectorized case will be added automatically
+    width: [2, 4]
+    depth: [2, 4]
     atomic_doubles: True
     atomic_ints: True
     # use explicit-SIMD vectorization (when available)
@@ -21,13 +21,11 @@ platform-list:
   - name: openmp
     lang: c
     # only test C-ordered
-    # order: ['C']
-    vectype: [par]
+    order: ['C']
     # a GPU platform using OpenCL, wide vectorizations and a vector width of 64
     # without atomic (doubles)
   - name: nvidia
     lang: opencl
-    vectype: [wide]
-    vecsize: [64, 128, 256]
+    width: [64, 128, 256]
     atomic_doubles: False
     atomic_ints: True

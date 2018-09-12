@@ -12,26 +12,21 @@ platform:
             type: string
             isvalidlang: True
             required: True
-        # vectorization type
-        vectype:
-            type: string
-            isvectype: True
-            # default is parallel
-            default: par
         # order
         order:
             type: string
             nullable: True
             allowed: ['C', 'F']
-        # vector width
-        vecsize:
+        width:
             type: integer
             isvecsize: True
-            dependencies:
-                # can only be specifed for wide / deep vecs
-                vectype:
-                    - wide
-                    - deep
+            excludes:
+                depth
+        depth:
+            type: integer
+            isvecsize: True
+            excludes:
+                width
         # If True, the platform / language support atomics for deep-vectorization
         atomic_doubles:
             type: boolean
@@ -47,8 +42,7 @@ platform:
             default: False
             dependencies:
                 # can curretly only be specified for wide-vectorizations
-                vectype:
-                    - wide
+                width
 
 # optional memory limits
 memory-limits:

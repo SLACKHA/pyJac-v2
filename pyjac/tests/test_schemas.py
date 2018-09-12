@@ -98,7 +98,7 @@ def test_load_test_platforms():
     # nvidia
     nvidia = next(p for p in platforms if 'nvidia' in p['platform'].lower())
     assert nvidia['lang'] == 'opencl'
-    assert nvidia['width'] == [64, 128, 256]
+    assert nvidia['width'] == [64, 128, 256, None]
     assert nvidia['depth'] is None
     assert nvidia['use_atomic_doubles'] is False
     assert nvidia['use_atomic_ints'] is True
@@ -138,9 +138,7 @@ def test_bad_simd_specification_in_codegen():
             name: portable
             lang: opencl
             # deep vectorization
-            vectype: deep
-            # use a vector size of 4
-            vecsize: 4
+            depth: 4
             is_simd: True
         """))
         file.seek(0)

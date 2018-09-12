@@ -12,9 +12,7 @@ platform:
     name: portable
     lang: opencl
     # use a wide vectorization
-    vectype: wide
-    # use a vector size of 4
-    vecsize: 4
+    width: 4
     # Atomics are present in the POCL runtime
     atomic_doubles: True
     atomic_ints: True
