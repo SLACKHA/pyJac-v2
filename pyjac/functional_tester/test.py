@@ -23,7 +23,8 @@ import tables
 
 # Local imports
 from pyjac.core.mech_interpret import read_mech_ct
-from pyjac.tests.test_jacobian import _get_fd_jacobian
+from pyjac.core import array_creator as arc
+from pyjac.tests.test_jacobian import _get_ad_jacobian
 from pyjac.tests.test_utils import parse_split_index, _run_mechanism_tests, runner, \
     inNd
 from pyjac.tests import test_utils, get_matrix_file, _get_test_input
@@ -562,7 +563,7 @@ class spec_rate_eval(eval):
             try:
                 gas.reaction(x).efficiencies
                 self.thd_map.append(x)
-            except:
+            except AttributeError:
                 pass
         self.thd_map = np.array(self.thd_map, dtype=arc.kint_type)
         self.rop_fwd_test = np.zeros((num_conditions, self.fwd_map.size))
@@ -1057,7 +1058,7 @@ class jacobian_eval(eval):
 
         # pregenerated kernel for speed
         self.store = __get_state(0, self.chunk_size)
-        pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+        pregen = _get_ad_jacobian(self, self.store.test_size, state['conp'],
                                   None, True)
         store_size = self.store.test_size
         threshold = 0
@@ -1066,13 +1067,13 @@ class jacobian_eval(eval):
             self.store = __get_state(offset, offset + self.chunk_size)
             if self.store.test_size != store_size:
                 # need to regenerate
-                pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+                pregen = _get_ad_jacobian(self, self.store.test_size, state['conp'],
                                           None, True)
                 # and store size to check for regen
                 store_size = self.store.test_size
 
             # and add to Jacobian
-            jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+            jtemp = _get_ad_jacobian(self, self.store.test_size, state['conp'],
                                      pregen)
 
             # temporary turn off NaN comparison warnings

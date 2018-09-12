@@ -115,7 +115,7 @@ def _get_poly_wrapper(name, conp):
     return poly_wrapper
 
 
-def _get_fd_jacobian(self, test_size, conp=True, pregen=None, return_kernel=False):
+def _get_ad_jacobian(self, test_size, conp=True, pregen=None, return_kernel=False):
     """
     Convenience method to evaluate the finite difference Jacobian from a given
     Phi / parameter set
@@ -468,7 +468,7 @@ class SubTest(TestClass):
             self, *args, **kwargs)
         self._make_array = lambda *args, **kwargs: _make_array(
             self, *args, **kwargs)
-        self._get_fd_jacobian = lambda *args, **kwargs: _get_fd_jacobian(
+        self._get_ad_jacobian = lambda *args, **kwargs: _get_ad_jacobian(
             self, *args, **kwargs)
 
         super(SubTest, self).setUp()
@@ -1277,7 +1277,7 @@ class SubTest(TestClass):
             return getattr(self.store, attr).copy()
 
         # get the jacobian
-        jac = self._get_fd_jacobian(self.store.test_size, conp=conp)
+        jac = self._get_ad_jacobian(self.store.test_size, conp=conp)
 
         # store the jacobian for later
         setattr(self.store, attr, jac.copy())
