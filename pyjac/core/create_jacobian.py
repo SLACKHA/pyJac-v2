@@ -5177,7 +5177,7 @@ def find_last_species(specs, last_spec=None, return_map=False):
 
 
 def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
-                    vector_size=None, wide=False, deep=False, ilp=None, unr=None,
+                    width=None, depth=None, ilp=None, unr=None,
                     build_path='./out/', last_spec=None,
                     kernel_type=KernelType.jacobian, platform='',
                     data_order='C', rate_specialization=RateSpecialization.full,
@@ -5204,15 +5204,14 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     gas : cantera.Solution, optional
         The mechanism to generate the Jacobian for.  This or ``mech_name`` must be
         specified
-    vector_size : int
-        The SIMD vector width to use.  If the targeted platform is a GPU,
-        this is the GPU block size
-    wide : bool
-        If true, use a 'wide' vectorization strategy. Cannot be specified along with
-        'deep'.
-    deep : bool
-        If true, use a 'deep' vectorization strategy. Cannot be specified along with
-        'wide'.
+    width : int
+        If supplied, use a 'wide' vectorization strategy.
+        The SIMD vector-width to use.  If the targeted platform is a GPU,
+        this is the GPU block size. Cannot be specified along with :param:`depth`.
+    depth : int
+        If supplied, use a 'deep' vectorization strategy.
+        The SIMD vector-width to use.  If the targeted platform is a GPU,
+        this is the GPU block size. Cannot be specified along with :param:`width`.
     unr : int
         If supplied, unroll inner loops (i.e. those that would be affected by a
         deep vectorization). Can be used in conjunction with deep or wide parallelism
@@ -5327,21 +5326,10 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         sys.exit(2)
 
     # configure options
-    width = None
-    depth = None
-    if wide:
-        width = vector_size
-    elif deep:
-        depth = vector_size
-    if wide and deep:
+    if width and depth:
         logger.error('Cannot apply both a wide and deep vectorization at the same '
                      'time')
         raise InvalidInputSpecificationException(['wide', 'deep'])
-    if vector_size is None and (wide or deep):
-        logger.error('Cannot apply {} vectorization without a vector-size, use'
-                     'the -v arguement to supply one'.format(
-                        'wide' if wide else 'deep'))
-        raise InvalidInputSpecificationException(['wide', 'deep', 'vector_size'])
 
     if jac_type == JacobianType.finite_difference:
         # convert mode
@@ -5439,6 +5427,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # they had already been reassigned
     if kwargs.pop('test_mech_interpret_vs_backend', False):
         return reacs, specs
+
+    if kwargs:
+        logger.error('Keyword arguments: {} not recognized!'.format(
+            utils.stringify_args(kwargs, kwd=True)))
+        raise InvalidInputSpecificationException(kwargs.keys())
 
     # check for reactions with potentially bad derivatives
     bad_rxns = []

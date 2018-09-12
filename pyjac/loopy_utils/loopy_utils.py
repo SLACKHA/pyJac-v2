@@ -153,7 +153,7 @@ class loopy_options(object):
         self.lang = lang
         utils.check_order(order)
         self.order = order
-        self.rate_spec = rate_spec
+        self.rate_spec = utils.to_enum(rate_spec, RateSpecialization)
         self.rate_spec_kernels = rate_spec_kernels
         self.rop_net_kernels = rop_net_kernels
         self.platform = platform
@@ -162,15 +162,15 @@ class loopy_options(object):
         self.auto_diff = auto_diff
         self.use_atomic_doubles = use_atomic_doubles
         self.use_atomic_ints = use_atomic_ints
-        self.jac_format = jac_format
-        self.jac_type = jac_type
+        self.jac_format = utils.to_enum(jac_format, JacobianFormat)
+        self.jac_type = utils.to_enum(jac_type, JacobianType)
         self._is_simd = is_simd
         self.explicit_simd = explicit_simd
         self.explicit_simd_warned = False
         if self.lang != 'opencl' and self.explicit_simd:
             logger = logging.getLogger(__name__)
             logger.info('explicit-SIMD flag has no effect on non-OpenCL targets.')
-        self.kernel_type = KernelType
+        self.kernel_type = utils.to_enum(kernel_type, KernelType)
         if work_size:
             assert work_size > 0, 'Work-size must be non-negative'
         self.work_size = work_size

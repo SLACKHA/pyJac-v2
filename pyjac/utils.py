@@ -7,7 +7,6 @@ import os
 import errno
 import argparse
 import logging.config
-import functools
 import sys
 import subprocess
 from contextlib import contextmanager
@@ -357,6 +356,42 @@ def enum_to_string(enum):
 
     enum = str(enum)
     return enum[enum.index('.') + 1:]
+
+
+def to_enum(enum, enum_type):
+    """
+    Attempt to convert the :param:`enum` to type :param:`enum_type`.
+    If :param:`estr` is already an Enum, no effect.
+
+    Parameters
+    ----------
+    enum: str or instance of :class:`Enum`
+        The string or (already converted) enum type to convert
+    enum_type: :class:`Enum`
+        The type of Enum to convert to
+
+    Returns
+    -------
+    enum: :class:`Enum`
+        The converted enum
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If an improper enum type is specified
+    InvalidInputSpecificationException
+        If the :param:`enum` is an Enum but not of the same type as
+        :param:`enum_type`
+    """
+
+    try:
+        return EnumType(enum_type)(enum)
+    except AttributeError:
+        # not a string
+        if enum not in enum_type:
+            logger = logging.getLogger()
+            logger.error('Enum {} is not of type {}'.format(enum, enum_type))
+            raise exceptions.InvalidInputSpecificationException(enum)
 
 
 def is_iterable(value):
@@ -807,30 +842,24 @@ def get_parser():
                         help='Thermodynamic database filename (e.g., '
                              'therm.dat), or nothing if in mechanism.'
                         )
-    parser.add_argument('-v', '--vector_size',
+    parser.add_argument('-w', '--width',
+                        required=False,
                         type=int,
-                        default=0,
+                        default=None,
+                        help='Use a "wide" vectorization of vector-width "width".'
+                        'The calculation of the Jacobian / source terms'
+                        ' is vectorized over the entire set of thermo-chemical '
+                        'states.  That is, each work-item (CUDA thread) '
+                        'operates independently.')
+    parser.add_argument('-d', '--depth',
                         required=False,
-                        help='The SIMD/SIMT vector width to use in code-generation.'
-                             '  This corresponds to the "blocksize" in CUDA'
-                             'terminology.')
-    parser.add_argument('-w', '--wide',
-                        required=False,
-                        default=False,
-                        action='store_true',
-                        help='Use a "wide" vectorization, where the calculation '
-                        'of Jacobian / species rates is vectorized over the '
-                        'set of thermo-chemical state.  That is, each '
-                        'work-item (CUDA thread) operates independently.')
-    parser.add_argument('-d', '--deep',
-                        required=False,
-                        default=False,
-                        action='store_true',
-                        help='Use a "deep" vectorization, where the calculation '
-                        'of Jacobian / species rates is vectorized within each '
-                        'thermo-chemical state.  That is, all the work-items '
-                        '(CUDA threads) operates cooperate to evaluate a single '
-                        'state.')
+                        type=int,
+                        default=None,
+                        help='Use a "deep" vectorization of vector-width "depth".'
+                        'The calculation of the Jacobian / source terms'
+                        ' is vectorized over each individaul thermo-chemical '
+                        'state.  That is, the various work-items (CUDA threads) '
+                        'cooperate.')
     parser.add_argument('-e', '--explicit_simd',
                         required=False,
                         default=False,
