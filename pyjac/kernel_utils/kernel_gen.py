@@ -1648,8 +1648,7 @@ class kernel_generator(object):
         record: :class:`MemoryGenerationResult`
             The memory record that holds the kernel arguments
         for_driver: bool [False]
-            If True, only variables not in :attr:`input_arrays` or
-            :attr:`output_arrays` should be compressed.
+            If True, include kernel arguments in the resulting working buffers
 
         Returns
         -------
@@ -1671,14 +1670,32 @@ class kernel_generator(object):
             # include host constants in integer workspace
             iargs += record.host_constants
 
-        if for_driver:
-            # filter out any args we shouldn't be compressing
-            dargs = [x for x in dargs if x.name not in set(self.mem.host_arrays)]
-
         # and create buffers for all
         assert dargs, 'No kernel data!'
 
         def __generate(args, name, scope=scopes.GLOBAL, result=None):
+            copy = args[:]
+            # first, we sort by kernel argument ordering so any potentially
+            # duplicated kernel args are placed at the end and can be safely
+            # extracted in the driver
+            args = list(reversed(utils.kernel_argument_ordering(args)))
+
+            # exclude arguments that are in our own kernel args
+            # note: driver work array contains kernel args in the form of the local
+            # copies
+            if not for_driver:
+                args = [x for x in args if x not in record.kernel_data]
+
+            if not (len(args) or for_driver):
+                if result is None:
+                    result = CodegenResult()
+                # we've filtered out all the arguments in this kernel, return a dummy
+                return self._with_target(
+                    lp.ArrayArg(name, shape=(1,),
+                                order=self.loopy_opts.order,
+                                dtype=copy[0].dtype,
+                                address_space=scope), for_atomic=False), result
+
             # get the pointer unpackings
             size_per_wi, static, offsets = self._get_working_buffer(args)
             unpacks = []
@@ -1748,7 +1765,8 @@ class kernel_generator(object):
 
         # assign to non-readonly to prevent removal
         def _name_assign(arr, use_atomics=True):
-            if arr.name not in readonly and not isinstance(arr, lp.ValueArg):
+            if arr.name not in readonly and not isinstance(arr, lp.ValueArg) and \
+                    arr.name not in [time_array.name]:
                 return arr.name + '[{ind}] = 0 {atomic}'.format(
                     ind=', '.join(['0'] * len(arr.shape)),
                     atomic='{atomic}'
@@ -1885,7 +1903,8 @@ class kernel_generator(object):
 
         return size_per_work_item, static_size, offsets
 
-    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
+                            set_null=False):
         """
         A method stub to implement the pattern:
         ```
@@ -1905,6 +1924,8 @@ class kernel_generator(object):
             The array type
         scope: :class:`loopy.AddressSpace`
             The memory scope
+        set_null: bool [False]
+            If True, set the unpacked pointer to NULL
 
         Returns
         -------
@@ -1912,6 +1933,20 @@ class kernel_generator(object):
             The stringified pointer unpacking statement
         """
         raise NotImplementedError
+
+    @classmethod
+    def _remove_const_array(cls, text, arry):
+        """
+        Similar to :func:`_remove_work_array_consts`, but for removing const defn
+        of the given :param:`array`
+        """
+
+        replacers = [(re.compile(r'double\s*const\s*\*__restrict__\s*{}'.format(
+                      re.escape(arry))),
+                      r'double *__restrict__ {}'.format(arry))]
+        for r, s in replacers:
+            text = r.sub(s, text)
+        return text
 
     @classmethod
     def _remove_work_array_consts(cls, text):
@@ -1932,6 +1967,19 @@ class kernel_generator(object):
             r'long int *__restrict__ {}'.format(int_work_name))]
         for r, s in replacers:
             text = r.sub(s, text)
+        return text
+
+    def deconstify(self, text, readonly=None):
+        """
+        Convenience method to run :param:`text` through :func:`_remove_const_array`
+        for all of :attr`in_arrays`and :attr:`out_arrays`
+        """
+        if readonly is None:
+            readonly = []
+        deconst = [arr for arr in self.in_arrays + self.out_arrays
+                   if arr not in readonly]
+        for arr in deconst:
+            text = self._remove_const_array(text, arr)
         return text
 
     @classmethod
@@ -2327,6 +2375,9 @@ class kernel_generator(object):
                 kernels = self._migrate_host_constants(
                     kernels, record.host_constants)
 
+            # get the kernel arguments for this :class:`kernel_generator`
+            record = self._set_kernel_data(record)
+
             # generate working buffer
             record, result = self._compress_to_working_buffer(record)
 
@@ -2469,7 +2520,7 @@ class kernel_generator(object):
 
         return filename
 
-    def _get_local_unpacks(self, wrapper, args):
+    def _get_local_unpacks(self, wrapper, args, null_args=[]):
         """
         Converts pointer unpacks from :param:`wrapper` to '_local' versions
         for the driver kernel
@@ -2480,6 +2531,8 @@ class kernel_generator(object):
             The code-generation object for the wrapped kernel
         args: list of :class:`loopy.ArrayArgs`
             The args to convert
+        null_args: list of str
+            The names of args to "unpack" as NULL
 
         Returns
         -------
@@ -2487,11 +2540,17 @@ class kernel_generator(object):
             The code-generation result with the updated pointer unpacks
         """
 
-        ignored = [time_array.name]
-        unpacks = {x.name + arc.local_name_suffix:
-                   wrapper.pointer_offsets[x.name] for x in args
-                   if isinstance(x, lp.ArrayArg) and x.name not in ignored}
-        unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL)
+        def _name(arg):
+            return arg.name + arc.local_name_suffix
+
+        unpacks = {_name(x): wrapper.pointer_offsets[x.name] for x in args
+                   if isinstance(x, lp.ArrayArg)}
+        for null in null_args:
+            unpacks[null.name] = (null.dtype, 0, 0)
+
+        unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL,
+                                            set_null=any(k == null.name for null
+                                                         in null_args))
                    for k, (dtype, size, offset) in six.iteritems(unpacks)]
         return CodegenResult(pointer_unpacks=unpacks)
 
@@ -2531,21 +2590,36 @@ class kernel_generator(object):
         else:
             raise NotImplementedError
 
+        our_arg_names = self.in_arrays + self.out_arrays
+
         kernels = self._make_kernels(knl_info, for_driver=True,
                                      # mark input / output arrays as un-simdable
                                      # to trigger correct scatter / gather copy
                                      # if necessary
-                                     dont_split=self.in_arrays + self.out_arrays)
+                                     dont_split=our_arg_names)
+
+        def localfy(kernel):
+            """
+            Return a copy of the kernel w/ our argument names converted to 'local'
+            equivalensts
+            """
+            return kernel.copy(args=[
+                x if x.name not in our_arg_names
+                else x.copy(name=x.name + arc.local_name_suffix)
+                for x in kernel.args])
 
         # now we must modify the driver kernel, such that it expects the appropriate
         # data
         assert kernels[1].name == 'driver'
         kernels[1] = kernels[1].copy(
-            args=kernels[1].args + wrapper_memory.kernel_data)
+            args=kernels[1].args + [x for x in wrapper_memory.kernel_data
+                                    if x not in kernels[1].args])
+        # and rename to pass local arrays
+        kernels[1] = localfy(kernels[1])
 
         # process arguments
         record, kernels = self._process_args(
-            kernels, allowed_conflicts=self.in_arrays + self.out_arrays)
+            kernels, allowed_conflicts=our_arg_names)
 
         # process memory
         record, mem_limits = self._process_memory(record)
@@ -2553,15 +2627,57 @@ class kernel_generator(object):
         # set kernel data
         record = self._set_kernel_data(record, for_driver=True)
 
+        # and compress
+        driver_memory, driver_result = self._compress_to_working_buffer(
+            wrapper_memory.copy(), for_driver=True)
+        # and add work data
+        # add the sub-kernel's work arrays
+        work_arrays = [x for x in driver_memory.kernel_data if x.name in
+                       [rhs_work_name, local_work_name, int_work_name,
+                        w_size.name]]
+        # and remove the duplicates / smaller work arrays
+        dupl = {}
+        for arry in work_arrays:
+            if isinstance(arry, lp.ValueArg):
+                continue
+            if arry.name not in dupl:
+                dupl[arry.name] = arry
+            elif arry.name in [rhs_work_name, local_work_name, int_work_name]:
+                def _size(a):
+                    from pymbolic import substitute
+                    from pymbolic.primitives import Product
+                    assert len(a.shape) == 1
+                    if isinstance(a.shape[0], Product):
+                        return substitute(a.shape[0], **{w_size.name: 1})
+                    return a.shape[0]
+
+                if _size(arry) > _size(dupl[arry.name]):
+                    dupl[arry.name] = arry
+        work_arrays = list(dupl.values())
+
         # next, we need to determine where in the working buffer the arrays
         # we need in the driver live
-        result = self._get_local_unpacks(wrapper_result, record.kernel_data)
+        result = self._get_local_unpacks(driver_result, record.kernel_data,
+                                         null_args=[time_array])
+
+        record = record.copy(kernel_data=utils.kernel_argument_ordering(
+            record.kernel_data + work_arrays + [self._with_target(w_size)]))
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(
             record, result, kernels=kernels, fake_calls=[FakeCall(
-                self.name + '()', kernels[1], wrapper_result.kernel)],
+                self.name + '()', kernels[1], localfy(wrapper_result.kernel))],
             for_driver=True)
+
+        # remove constants from output args in result
+        result.extra_kernels[1] = self.deconstify(
+            result.extra_kernels[1], wrapper_memory.readonly)
+        # and the header
+        for i in range(len(result.preambles)):
+            if 'driver(' in result.preambles[i]:
+                result.preambles[i] = self.deconstify(result.preambles[i],
+                                                      wrapper_memory.readonly)
+                break
 
         if self.loopy_opts.depth:
             # insert barriers between:
@@ -2585,14 +2701,8 @@ class kernel_generator(object):
             max_ic_per_run = np.floor(
                 max_ic_per_run / self.vec_width) * self.vec_width
 
-        # get work arrays for driver
-        work_arrays = []
-        for x in record.kernel_data:
-            if isinstance(x, lp.ValueArg):
-                if x != w_size:
-                    work_arrays.append(x)
-            elif x not in record.kernel_data:
-                work_arrays.append(x)
+        work_arrays = utils.kernel_argument_ordering(
+            [self._with_target(p_size)] + work_arrays)
 
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],
@@ -2954,7 +3064,8 @@ class c_kernel_generator(kernel_generator):
 
         return [global_ind],  ['0 <= {} < {}'.format(global_ind, test_size)]
 
-    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
+                            set_null=False):
         """
         A method stub to implement the pattern:
         ```
@@ -2975,12 +3086,20 @@ class c_kernel_generator(kernel_generator):
             The array type
         scope: :class:`loopy.AddressSpace`
             The memory scope
+        set_null: bool [False]
+            If True, set the unpacked pointer to NULL
 
         Returns
         -------
         unpack: str
             The stringified pointer unpacking statement
         """
+
+        if set_null:
+            return '{dtype}* __restrict__ {array} = NULL;'.format(
+                dtype=self.type_map[dtype],
+                array=array)
+
         return ('{dtype}* __restrict__ {array} = {work} + {offset} + '
                 '{size} * omp_get_thread_num();'.format(
                     dtype=self.type_map[dtype],
@@ -3150,7 +3269,8 @@ class opencl_kernel_generator(kernel_generator):
 
         return [work_size]
 
-    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL):
+    def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
+                            set_null=False):
         """
         Implement the pattern
         ```
@@ -3170,6 +3290,8 @@ class opencl_kernel_generator(kernel_generator):
             The array type
         scope: :class:`loopy.AddressSpace`
             The memory scope
+        set_null: bool [False]
+            If True, set the unpacked pointer to NULL
 
         Returns
         -------
@@ -3196,8 +3318,16 @@ class opencl_kernel_generator(kernel_generator):
             dtype += str(self.vec_width)
             cast = '({} {}*)'.format(scope_str, dtype)
 
-        return '{}{} {}* __restrict__ {} = {}({} + {});'.format(
-            scope_str, volatile, dtype, array, cast, work_str, offset)
+        if set_null:
+            return '{scope}{volatile} {dtype}* __restrict__ {array} = 0;'.format(
+                scope=scope_str, volatile=volatile,
+                dtype=dtype, array=array)
+
+        return ('{scope}{volatile} {dtype}* __restrict__ {array}'
+                ' = {cast}({work_str} + {offset});').format(
+            scope=scope_str, volatile=volatile,
+            dtype=dtype, array=array, cast=cast,
+            work_str=work_str, offset=offset)
 
     def _special_kernel_subs(self, path, callgen):
         """
