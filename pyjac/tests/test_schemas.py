@@ -403,7 +403,6 @@ def test_get_test_matrix():
     from collections import defaultdict
 
     def width_check(state, want, seen):
-        print(state)
         if state['lang'] == 'c':
             assert state['width'] is None
             assert state['depth'] is None
@@ -411,7 +410,7 @@ def test_get_test_matrix():
             seen['width'].add(state['width'])
 
     def check_final_widths(seen):
-        return sorted(seen['width']) == [2, 4, 8]
+        return not (set(seen['width']) - set([None, 2, 4, 8]))
 
     # check we have reasonable values
     base = {'platform': ['intel', 'openmp'],
@@ -460,7 +459,7 @@ def test_get_test_matrix():
             assert state['order'] == 'C'
             assert state['conp'] is True
         else:
-            assert state['width'] == 4
+            assert state['width'] in [4, None]
 
     want.update({'platform': ['intel'],
                  'jac_type': update_jactype})
@@ -507,16 +506,16 @@ def test_get_test_matrix():
         if state['jac_type'] == enum_to_string(JacobianType.exact):
             if state['jac_format'] == enum_to_string(JacobianFormat.sparse):
                 if platform_is_gpu(state['platform']):
-                    assert state['width'] == 64
+                    assert state['width'] in [64, None]
                 else:
-                    assert state['width'] == 4
+                    assert state['width'] in [4, None]
                     assert state['order'] == 'F'
             else:
                 if platform_is_gpu(state['platform']):
                     assert state['order'] == 'C'
-                    assert state['width'] == 128
+                    assert state['width'] in [128, None]
                 else:
-                    assert state['width'] == 2
+                    assert state['width'] in [2, None]
 
     want = {'jac_format': sparsetest}
     run(want, loop)

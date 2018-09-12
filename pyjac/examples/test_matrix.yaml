@@ -72,6 +72,8 @@ test-list:
         # limit number of cores
         num_cores: [1]
         # use only parallel FD-evaluation
+        width: []
+        depth: []
         # C-order only
         order: ['C']
         # conp-only

@@ -612,11 +612,16 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                         outplat)])
 
     max_vec_width = 1
-    vector_params = [dict(p)['vecsize'] for p in out_params if 'vecsize' in
-                     dict(p) and dict(p)['vecsize'] != [None]]
-    if vector_params:
-        max_vec_width = max(max_vec_width, max(
-            [max(x) for x in vector_params]))
+
+    def _max(key):
+        vec = [dict(p)[key] for p in out_params if key in
+               dict(p) and dict(p)[key] is not None]
+        vec = [x for y in vec for x in y if x is not None]
+        if not vec:
+            return 1
+        return max(vec)
+
+    max_vec_width = max((_max('depth'), _max('width')))
     from . import reduce_oploop
     loop = reduce_oploop(out_params)
     return models, loop, max_vec_width
