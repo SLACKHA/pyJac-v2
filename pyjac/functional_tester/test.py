@@ -168,7 +168,7 @@ class hdf5_store(object):
                 os.remove(f)
         self.handles.clear()
 
-    def output_to_pytables(self, name, dirname, ref_ans, order, asplit,
+    def output_to_pytables(self, name, dirname, ref_ans, order,
                            filename=None, pytables_name=None,
                            num_conditions=None):
         """
@@ -190,9 +190,6 @@ class hdf5_store(object):
             will be taken
         order: ['C', 'F']
             The storage order of the data in the binary file
-        asplit: :class:`pyjac.core.array_creator.array_splitter`
-            The array splitter, needed to find out the shape out the output from
-            the reference answer's shape
         filename: str [None]
             The filename of the output, if not supplied it will be assumed to be
             :param:`dir`/name.bin
@@ -377,7 +374,7 @@ class validation_runner(runner, hdf5_store):
         self.helper.release()
         self.release()
 
-    def arrays_per_run(self, offset, this_run, order, answers, outputs, asplit):
+    def arrays_per_run(self, offset, this_run, order, answers, outputs):
         """
         Converts reference answers & outputs from :class:`pytable.arrays` to
         in-memory :class:`numpy.ndarrays` arrays, applying splitting if necessary
@@ -394,8 +391,6 @@ class validation_runner(runner, hdf5_store):
             The reference answers
         outputs: list of :class:`pytables.Array`
             The outputs to check
-        asplit: :class:`array_splitter
-            The splitting object
 
         Returns
         -------
@@ -418,7 +413,7 @@ class validation_runner(runner, hdf5_store):
         answers = [x[offset:offset + this_run, :] for x in answers]
         return answers, out
 
-    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
+    def run(self, state, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -427,8 +422,6 @@ class validation_runner(runner, hdf5_store):
         state: dict
             A dictionary containing the state of the current optimization / language
             / vectorization patterns, etc.
-        asplit: :class:`array_splitter`
-            The array splitter to use in modifying state arrays
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
             Has the keys "build", "test", "obj" and "run"
@@ -478,7 +471,7 @@ class validation_runner(runner, hdf5_store):
         for name, ref_ans in zip(*(self.helper.output_names, answers)):
             outputs.append(
                 self.output_to_pytables(name, my_test, ref_ans, state['order'],
-                                        asplit, num_conditions=num_conditions))
+                                        num_conditions=num_conditions))
 
         # now loop through the output in error chunks increments to get error
         offset = 0
@@ -490,7 +483,7 @@ class validation_runner(runner, hdf5_store):
 
             # convert our chunks to workable numpy arrays
             ans, out = self.arrays_per_run(
-                offset, this_run, state['order'], answers, outputs, asplit)
+                offset, this_run, state['order'], answers, outputs)
 
             # get error
             err_dict = self.helper.eval_error(
