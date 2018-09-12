@@ -330,18 +330,22 @@ def test_get_comparable_nosplit(ndim, sparse):
 
 
 def test_kernel_argument_ordering():
+    from pyjac.kernel_utils.kernel_gen import rhs_work_name as rwk
+    from pyjac.kernel_utils.kernel_gen import int_work_name as iwk
+    from pyjac.kernel_utils.kernel_gen import local_work_name as lwk
     # test with mixed strings / loopy ValueArgs
-    args = [arc.pressure_array, arc.state_vector, arc.jacobian_array,
-            arc.problem_size, arc.work_size, 'rwrk', 'lwrk', 'iwrk']
+    args = reversed([arc.pressure_array, arc.state_vector, arc.jacobian_array,
+                     arc.problem_size, arc.work_size, rwk, lwk, iwk])
 
     assert utils.kernel_argument_ordering(args) == (
         [arc.problem_size, arc.work_size, arc.pressure_array, arc.state_vector,
-         arc.jacobian_array, 'rwrk', 'iwrk', 'lwrk'])
+         arc.jacobian_array, rwk, iwk, lwk])
 
     # and pure strings
-    args = [arc.pressure_array, arc.state_vector, arc.jacobian_array,
-            arc.problem_size.name, arc.work_size.name, 'rwrk', 'lwrk', 'iwrk']
+    args = reversed([
+        arc.pressure_array, arc.state_vector, arc.jacobian_array,
+        arc.problem_size.name, arc.work_size.name, rwk, lwk, iwk])
 
     assert utils.kernel_argument_ordering(args) == (
         [arc.problem_size.name, arc.work_size.name, arc.pressure_array,
-         arc.state_vector, arc.jacobian_array, 'rwrk', 'iwrk', 'lwrk'])
+         arc.state_vector, arc.jacobian_array, rwk, iwk, lwk])
