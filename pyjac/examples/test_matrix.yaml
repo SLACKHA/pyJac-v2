@@ -53,7 +53,7 @@ platform-list:
 
 # test list
 test-list:
-  # a validation test for both spurce rates & jacobian
+  # a validation test for both source rates & jacobian
   - test-type: validation
     eval-type: both
   # source rate performance test
