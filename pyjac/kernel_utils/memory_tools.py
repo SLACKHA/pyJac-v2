@@ -179,13 +179,13 @@ class MemoryManager(object):
     def dtype(self, device, arr, include_pointer=False):
         return self.mem_type[self.lang(device)](arr, include_pointer=include_pointer)
 
-    def buffer_size(self, device, arr, num_ics='per_run'):
+    def buffer_size(self, device, arr, num_ics='per_run', include_sizeof=True):
         calc = StrideCalculator(self.type_map)
         # setup substitution for device buffer # of initial conditions
         subs = {}
         if device:
             subs[problem_size.name] = num_ics
-        return calc.buffer_size(arr, subs)
+        return calc.buffer_size(arr, subs, include_sizeof=include_sizeof)
 
     def non_ic_size(self, arr, subs=None):
         kwargs = {}
