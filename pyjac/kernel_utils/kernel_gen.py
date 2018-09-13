@@ -1738,8 +1738,7 @@ class kernel_generator(object):
             # first, we sort by kernel argument ordering so any potentially
             # duplicated kernel args are placed at the end and can be safely
             # extracted in the driver
-            args = list(reversed(utils.kernel_argument_ordering(
-                args, self.kernel_type)))
+            args = utils.kernel_argument_ordering(args, self.kernel_type)
 
             # exclude arguments that are in our own kernel args
             # note: driver work array contains kernel args in the form of the local
@@ -2691,6 +2690,7 @@ class kernel_generator(object):
         # and compress
         driver_memory, driver_result = self._compress_to_working_buffer(
             wrapper_memory.copy(), for_driver=True)
+
         # and add work data
         # add the sub-kernel's work arrays
         work_arrays = [x for x in driver_memory.kernel_data if x.name in
