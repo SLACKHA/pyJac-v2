@@ -91,7 +91,7 @@ def test_dense_to_sparse_indicies(shape, sparse, mask, axes, tiling=True):
         def __slicer(x, y):
             slicer = [slice(None)] * arr.ndim
             slicer[1:] = x, y
-            return slicer
+            return tuple(slicer)
 
         def apply_sparse(x, y):
             arr[__slicer(*np.where(~sparse(x, y)))] = 0
