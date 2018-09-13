@@ -53,7 +53,8 @@ def inputs_and_outputs(conp, ktype=KernelType.species_rates, output_full_rop=Fal
     """
     if ktype == KernelType.species_rates:
         input_args = utils.kernel_argument_ordering(
-            [arc.state_vector, arc.pressure_array if conp else arc.volume_array])
+            [arc.state_vector, arc.pressure_array if conp else arc.volume_array],
+            ktype)
         output_args = [arc.state_vector_rate_of_change]
     elif ktype == KernelType.chem_utils:
         input_args = [arc.state_vector]
@@ -61,7 +62,7 @@ def inputs_and_outputs(conp, ktype=KernelType.species_rates, output_full_rop=Fal
             [arc.enthalpy_array, arc.constant_pressure_specific_heat,
              arc.rate_const_thermo_coeff_array] if conp else [
              arc.internal_energy_array, arc.constant_volume_specific_heat,
-             arc.rate_const_thermo_coeff_array])
+             arc.rate_const_thermo_coeff_array], ktype)
     else:
         raise NotImplementedError()
 

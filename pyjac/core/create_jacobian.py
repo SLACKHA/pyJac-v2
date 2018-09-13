@@ -59,7 +59,8 @@ def inputs_and_outputs(conp):
         The output arguments to kernels generated in this file
     """
     input_args = utils.kernel_argument_ordering(
-        [arc.pressure_array if conp else arc.volume_array, arc.state_vector])
+        [arc.pressure_array if conp else arc.volume_array, arc.state_vector],
+        KernelType.jacobian)
     output_args = [arc.jacobian_array]
     return input_args, output_args
 

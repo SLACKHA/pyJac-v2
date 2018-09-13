@@ -337,7 +337,7 @@ def test_kernel_argument_ordering():
     args = reversed([arc.pressure_array, arc.state_vector, arc.jacobian_array,
                      arc.problem_size, arc.work_size, rwk, lwk, iwk])
 
-    assert utils.kernel_argument_ordering(args) == (
+    assert utils.kernel_argument_ordering(args, KernelType.jacobian) == (
         [arc.problem_size, arc.work_size, arc.pressure_array, arc.state_vector,
          arc.jacobian_array, rwk, iwk, lwk])
 
@@ -346,6 +346,12 @@ def test_kernel_argument_ordering():
         arc.pressure_array, arc.state_vector, arc.jacobian_array,
         arc.problem_size.name, arc.work_size.name, rwk, lwk, iwk])
 
-    assert utils.kernel_argument_ordering(args) == (
+    assert utils.kernel_argument_ordering(args, KernelType.jacobian) == (
         [arc.problem_size.name, arc.work_size.name, arc.pressure_array,
          arc.state_vector, arc.jacobian_array, rwk, iwk, lwk])
+
+    # and finally check that specifying one kernel type doesn't move non-args
+    args = reversed([arc.state_vector_rate_of_change, arc.jacobian_array])
+
+    assert utils.kernel_argument_ordering(args, KernelType.jacobian) == (
+        [arc.state_vector_rate_of_change, arc.jacobian_array])

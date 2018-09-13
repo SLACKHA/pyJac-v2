@@ -146,7 +146,7 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
-def kernel_argument_ordering(args):
+def kernel_argument_ordering(args, kernel_type):
     """
     A convenience method to ensure that we have a consistent set of argument
     orderings throughout pyJac
@@ -155,6 +155,8 @@ def kernel_argument_ordering(args):
     ----------
     args: list of str, or :class:`loopy.KernelArgument`'s
         The arguments to determine the order of
+    kernel_type: :class:`KernelType`
+        The type of kernel to use (to avoid spurious placements)
 
     Returns
     -------
@@ -163,6 +165,7 @@ def kernel_argument_ordering(args):
     """
 
     from pyjac.core import array_creator as arc
+    from pyjac.core.enum_types import KernelType
     from pyjac.kernel_utils.kernel_gen import rhs_work_name, local_work_name, \
         int_work_name, time_array
     import loopy as lp
@@ -191,8 +194,17 @@ def kernel_argument_ordering(args):
     ordered = sorted(ordered, key=lambda x: index_of(x, value_args))
 
     # next, repeat with kernel arguments
-    kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector,
-                   arc.state_vector_rate_of_change, arc.jacobian_array]
+    kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector]
+    if kernel_type == KernelType.jacobian:
+        kernel_args += [arc.jacobian_array]
+    elif kernel_type == KernelType.species_rates:
+        kernel_args += [arc.state_vector_rate_of_change]
+    elif kernel_type == KernelType.chem_utils:
+        kernel_args += [arc.enthalpy_array, arc.internal_energy_array,
+                        arc.constant_pressure_specific_heat,
+                        arc.constant_volume_specific_heat]
+    else:
+        raise NotImplementedError()
 
     def index_of2(x, arry):
         if x not in arry:
@@ -200,7 +212,7 @@ def kernel_argument_ordering(args):
             if x in work_arrays:
                 return len(arry) + next(i for i, v in enumerate(work_arrays)
                                         if x.startswith(v))
-            return len(arry) + 1000
+            return len(arry) - 1000
         return arry.index(x)
 
     save = len(ordered)

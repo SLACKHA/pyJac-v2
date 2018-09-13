@@ -1441,7 +1441,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             __saver(param, arc.pressure_array if conp else arc.volume_array, args)
 
             # sort args
-            args = [namify(arg) for arg in utils.kernel_argument_ordering(args)]
+            args = [namify(arg) for arg in utils.kernel_argument_ordering(
+                args, ktype)]
 
             # and now the test values
             tests = []
@@ -1452,8 +1453,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             __saver(test, test_arr_name, tests)
 
             # sort tests
-            tests = utils.kernel_argument_ordering(tests)
-            tests = [namify(arg) for arg in utils.kernel_argument_ordering(tests)]
+            tests = utils.kernel_argument_ordering(tests, ktype)
+            tests = [namify(arg) for arg in utils.kernel_argument_ordering(
+                tests, ktype)]
 
             # find where the reduced pressure term for non-Lindemann falloff /
             # chemically activated reactions is zero
