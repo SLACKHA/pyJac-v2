@@ -130,6 +130,18 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
 
     def __check(check_input):
         shape = ()
+
+        def _raise(desc, inp, nameref, shape):
+            logger = logging.getLogger(__name__)
+            logger.debug('{} array for driver kernel {} does not '
+                         'match expected shape (from array {}).  '
+                         'Expected: ({}), got: ({})'.format(
+                            desc, inp.name, nameref,
+                            stringify_args(inp.shape),
+                            stringify_args(shape))
+                         )
+            raise InvalidInputSpecificationException(inp.name)
+
         nameref = None
         desc = 'Input' if check_input else 'Output'
         for inp in [arrays[x] for x in (inputs if check_input else outputs)]:
@@ -137,15 +149,16 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
                 # only the initial condition dimension, fine
                 continue
             if shape:
-                if inp.shape != shape:
-                    logger = logging.getLogger(__name__)
-                    logger.debug('{} array for driver kernel {} does not '
-                                 'match expected shape (from array {}).  '
-                                 'Expected: ({}), got: ({})'.format(
-                                    desc, inp.name, nameref,
-                                    stringify_args(inp.shape), stringify_args(shape))
-                                 )
-                    raise InvalidInputSpecificationException(inp.name)
+                if inp.shape != shape and len(inp.shape) == len(shape):
+                    # allow different shapes in the last index
+                    if not all(x == y for x, y in zip(*(
+                            inp.shape[:-1], shape[:-1]))):
+                        _raise(desc, inp, nameref, shape)
+                    # otherwise, take the maximum of the shape entry
+                    shape = shape[:-1] + (max(shape[-1], inp.shape[-1]),)
+
+                elif inp.shape != shape:
+                    _raise(desc, inp, nameref, shape)
             else:
                 nameref = inp.name
                 shape = inp.shape[:]
@@ -154,15 +167,13 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
             logger.debug('No {} arrays supplied to driver that require '
                          'copying to working buffer!'.format(desc))
             raise InvalidInputSpecificationException('Driver ' + desc + ' arrays')
-    __check(True)
-    __check(False)
+        return shape
 
     def create_interior_kernel(for_input):
+        shape = __check(for_input)
         name = 'copy_{}'.format('in' if for_input else 'out')
         # get arrays
         arrs = [arrays[x] for x in (inputs if for_input else outputs)]
-        # get shape and interior size
-        shape = next(arr.shape for arr in arrs if arr_non_ic(arr))
 
         # create a dummy map and store
         map_shape = np.arange(shape[1], dtype=arc.kint_type)
@@ -217,11 +228,11 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
 
         # now create the instructions
         instruction_template = Template("""
-            if ${ind} < ${problem_size}
+            if ${ind} < ${problem_size} ${shape_check}
                 ${local_buffer} = ${global_buffer} {id=copy_${name}}
             end
         """) if for_input else Template("""
-            if ${ind} < ${problem_size}
+            if ${ind} < ${problem_size} ${shape_check}
                 ${global_buffer} = ${local_buffer} {id=copy_${name}}
             end
         """)
@@ -229,12 +240,19 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         warnings = []
         instructions = []
         for i, arr in enumerate(arrs):
+            # get shape check
+            shape_check = ''
+            if arr.shape[-1] != shape[-1] and len(arr.shape) == len(shape):
+                shape_check = ' and {} < {}'.format(
+                    indicies[-1], arr.shape[-1])
+
             instructions.append(instruction_template.substitute(
                 local_buffer=working_strs[i],
                 global_buffer=strs[i],
                 ind=conditional_index,
                 problem_size=arc.problem_size.name,
-                name=arr.name))
+                name=arr.name,
+                shape_check=shape_check))
             warnings.append('write_race(copy_{})'.format(arr.name))
         if loopy_opts.is_simd:
             warnings.append('vectorize_failed')
