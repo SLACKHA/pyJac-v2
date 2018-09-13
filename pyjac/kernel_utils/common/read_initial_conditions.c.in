@@ -11,8 +11,9 @@ Global declarations for Cog:
 
 /*[[[cog
      from six.moves import cPickle as pickle
-     from pyjac.utils import header_ext
+     from pyjac.core.array_creator import pressure_array, volume_array
      from pyjac.kernel_utils.tools import get_include
+     from pyjac.utils import header_ext
 
      with open(readgen, 'rb') as file:
          readgen = pickle.load(file)
@@ -38,14 +39,17 @@ Global declarations for Cog:
 //for sanity, the input data is expected to be in C-order
 
 void read_initial_conditions(const char* filename, unsigned int NUM,
-/*[[[cog
-     arrys = []
-     for arry in readgen.inputs:
-        arrys.append(mem.get_signature(False, arry) + ',')
-     cog.outl(' '.join(arrys))
-  ]]]
-  [[[end]]]*/
-                             double* phi_host, double* param_host,
+                             /*[[[cog
+                                 arrys = []
+                                 for arry in readgen.inputs:
+                                    arrys.append(mem.get_signature(False, arry) + ',')
+                                 cog.outl(' '.join(arrys))
+
+                                 assert len(readgen.inputs) == 2
+                                 param = next(x for x in readgen.inputs if x.name in [pressure_array, volume_array]).name
+                                 phi = next(x for x in readgen.inputs if x.name != param).name
+                              ]]]
+                              [[[end]]]*/
                              const char order) {
     FILE *fp = fopen (filename, "rb");
     if (fp == NULL)
@@ -69,27 +73,42 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
         }
 
         //fill the parameter array
-        param_host[i] = buffer[1];
+        /*[[[cog
+             cog.outl('{param}[i] = buffer[i];'.format(param=param))
+          ]]]
+          [[[end]]]*/
 
         // phi fill depends on order
         if (order == 'C')
         {
             //fill in temperature
-            phi_host[i * NN] = buffer[0];
+            /*[[[cog
+                 cog.outl('{phi}[i * NN] = buffer[0];'.format(phi=phi))
+              ]]]
+              [[[end]]]*/
             //fill in species moles
             for (int j = 0; j < NS; j++)
             {
-                phi_host[i * NN + (j + 1)] = buffer[j + 2];
+                /*[[[cog
+                     cog.outl('{phi}[i * NN + (j + 1)] = buffer[j + 2];'.format(phi=phi))
+                  ]]]
+                  [[[end]]]*/
             }
         }
         else
         {
             //fill in temperature
-            phi_host[i] = buffer[0];
+            /*[[[cog
+                 cog.outl('{phi}[i] = buffer[0];'.format(phi=phi))
+              ]]]
+              [[[end]]]*/
             //fill in species moles
             for (int j = 0; j < NS; j++)
             {
-                phi_host[(j + 1) * NUM + i] = buffer[j + 2];
+                /*[[[cog
+                     cog.outl('{phi}[(j + 1) * NUM + i] = buffer[j + 2];'.format(phi=phi))
+                  ]]]
+                  [[[end]]]*/
             }
         }
 
