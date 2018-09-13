@@ -2034,27 +2034,17 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         parallel_skip = parallel_skipper()
 
         wrapper = OptionLoopWrapper.from_oploop(
-            oploop.copy(), ignored_state_vals=['conp', 'split_kernels'],
+            oploop.copy(), ignored_state_vals=['conp', 'num_cores', 'models'],
             skip_test=lambda state: any(call(state) for call in [
                 parallel_skip, model_skipper, platform_skipper]))
-        for i, opts in wrapper:
+        for i, opts in enumerate(wrapper):
             # check for regen
             regen = old_state is None or __needs_regen(
                 old_state, wrapper.state.copy())
             # remove any old builds
             if regen:
                 __cleanup()
-            lang = opts.lang
-            vecsize = opts.vector_width
-            order = opts.order
-            wide = bool(opts.width)
-            deep = bool(opts.depth)
-            platform = opts.platform_name
-            rate_spec = opts.rate_spec
-            split_kernels = wrapper.state['split_kernels']
             conp = wrapper.state['conp']
-            sparse = opts.jac_format
-            jac_type = opts.jac_type
 
             # get the filename
             data_output = run.get_filename(wrapper.state.copy())
@@ -2071,32 +2061,31 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
             try:
                 if regen:
                     # don't regenerate code if we don't need to
-                    create_jacobian(lang,
+                    create_jacobian(opts.lang,
                                     gas=gas,
-                                    vector_size=vecsize,
-                                    wide=wide,
-                                    deep=deep,
-                                    data_order=order,
+                                    width=opts.width,
+                                    depth=opts.depth,
+                                    data_order=opts.order,
                                     build_path=my_build,
                                     kernel_type=rtype,
-                                    platform=platform,
+                                    platform=opts.platform_name,
                                     data_filename=phi_path,
-                                    split_rate_kernels=split_kernels,
-                                    rate_specialization=rate_spec,
-                                    split_rop_net_kernels=split_kernels,
+                                    split_rate_kernels=opts.rate_spec_kernels,
+                                    rate_specialization=opts.rate_spec,
+                                    split_rop_net_kernels=opts.rop_net_kernels,
                                     output_full_rop=(
                                         rtype == KernelType.species_rates
                                         and for_validation),
                                     conp=conp,
                                     use_atomic_doubles=opts.use_atomic_doubles,
                                     use_atomic_ints=opts.use_atomic_ints,
-                                    jac_format=sparse,
-                                    jac_type=jac_type,
+                                    jac_format=opts.jac_format,
+                                    jac_type=opts.jac_type,
                                     for_validation=for_validation,
                                     mem_limits=test_matrix)
             except MissingPlatformError:
                 # can't run on this platform
-                bad_platforms.update([platform])
+                bad_platforms.update([opts.platform_name])
                 continue
             except BrokenPlatformError as e:
                 # expected
