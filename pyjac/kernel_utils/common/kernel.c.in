@@ -489,9 +489,9 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     """.format(name=kernel.title()), dedent=True, trimblanklines=True)
     cog.out("""
 {{
+    this->max_per_run = {max_per_run};
     this->compiled = !do_not_compile;
     this->init(problem_size, work_size);
-    this->max_per_run = {max_per_run};
     """.format(num_source=num_source, binary_path=callgen.binname,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
     if callgen.lang == 'opencl':
