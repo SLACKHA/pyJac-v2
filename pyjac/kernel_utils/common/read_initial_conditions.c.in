@@ -1,22 +1,50 @@
-#include "${mechanism}"
-#include "${vectorization}"
+/*
+
+A cog-templated skeleton for reading of initial conditions from a binary file
+
+(C) Nicholas Curtis - 2018
+
+Global declarations for Cog:
+    - readgen: path to a serialized ReadgenRecord instance
+    that may be loaded to generate this file
+*/
+
+/*[[[cog
+     from six.moves import cPickle as pickle
+     from pyjac.utils import header_ext
+     from pyjac.kernel_utils.tools import get_include
+
+     with open(readgen, 'rb') as file:
+         readgen = pickle.load(file)
+
+     from pyjac.kernel_utils.memory_tools import get_memory
+     mem = get_memory(readgen)
+
+     # headers
+     cog.outl(get_include(readgen, 'mechanism'))
+     cog.outl(get_include(readgen, 'vectorization'))
+ ]]]
+ [[[end]]]*/
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/time.h>
 
 // size of a single input buffer
-#define SINGLE (NN + 1)
-// define dummy split for unvectorized if necessary
-#ifndef SPLIT
-#define SPLIT (1)
-#endif
 // total buffer size
-#define BUFF_SIZE ((NN + 1) * SPLIT)
+#define BUFF_SIZE ((NN + 1))
 
-//for sanity, the input data _must_ be in C-order
+//for sanity, the input data is expected to be in C-order
 
 void read_initial_conditions(const char* filename, unsigned int NUM,
+/*[[[cog
+     arrys = []
+     for arry in readgen.inputs:
+        arrys.append(mem.get_signature(False, arry) + ',')
+     cog.outl(' '.join(arrys))
+  ]]]
+  [[[end]]]*/
                              double* phi_host, double* param_host,
                              const char order) {
     FILE *fp = fopen (filename, "rb");
@@ -28,7 +56,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
 
     double buffer[BUFF_SIZE];
     // load temperature, pressure and concentrations for all (cells)
-    for (int i = 0; i < NUM; i+=SPLIT)
+    for (int i = 0; i < NUM; ++i)
     {
         // read line from data file
         int count = fread(buffer, sizeof(double), BUFF_SIZE, fp);
@@ -41,68 +69,27 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
         }
 
         //fill the parameter array
-        for (int k = 0; k < SPLIT; ++k)
-        {
-            param_host[i + k] = buffer[1 + k * SINGLE];
-        }
+        param_host[i] = buffer[1];
 
         // phi fill depends on order
         if (order == 'C')
         {
-            // if we have a split data array here, this corresponds to
-            // multiple initial conditions arrayed sequentially, i.e. for a state
-            // vector phi_{0,0}..phi_{i,j}..{phi_{NN, NState}}
-            // it should be arranged as:
-            //
-            // phi_{0, 0}, phi_{0, 1} ... phi_{0, SPLIT - 1}, phi_{1, 0} ...
-            //
-            // counter to the usual C-ordered layout
-            for (int k = 0; k < SPLIT; ++k)
+            //fill in temperature
+            phi_host[i * NN] = buffer[0];
+            //fill in species moles
+            for (int j = 0; j < NS; j++)
             {
-                //fill in temperature
-                phi_host[i * NN + k] = buffer[0 + k * SINGLE];
-                //fill in species moles
-                for (int j = 0; j < NS; j++)
-                {
-                    phi_host[i * NN + k + (j + 1) * SPLIT] = buffer[j + 2 + k * SINGLE];
-                }
+                phi_host[i * NN + (j + 1)] = buffer[j + 2];
             }
         }
         else
         {
-            // if we have a split data array here, this corresponds to
-            // state values from a single initial condition
-            // arrayed sequentially, i.e. for a state
-            // vector phi_{0,0}..phi_{i,j}..{phi_{NN, NState}}
-            // it should be arranged as:
-            //
-            // phi_{0, 0}, phi_{1, 0} ... phi_{SPLIT - 1, 0}, phi_{0, 1} ...
-            //
-            // counter to the usual F-ordered layout
-            for (int k = 0; k < SPLIT; ++k)
+            //fill in temperature
+            phi_host[i] = buffer[0];
+            //fill in species moles
+            for (int j = 0; j < NS; j++)
             {
-                //fill in temperature
-                #if SPLIT > 1
-                    phi_host[(i + k) * SPLIT] = buffer[0 + k * SINGLE];
-                    //fill in species moles
-                    for (int j = 0; j < NS; j++)
-                    {
-                        // index of the split * state #
-                        int index = ((j + 1) / SPLIT) * NUM * SPLIT;
-                        // offset for state #
-                        index += (i + k) * SPLIT;
-                        // offset for index in state vector
-                        index += (j + 1) % SPLIT;
-                        phi_host[index] = buffer[j + 2 + k * SINGLE];
-                    }
-                #else
-                    phi_host[i] = buffer[0 + k * SINGLE];
-                    //fill in species moles
-                    for (int j = 0; j < NS; j++)
-                    {
-                        phi_host[(j + 1) * NUM + i] = buffer[j + 2];
-                    }
-                #endif
+                phi_host[(j + 1) * NUM + i] = buffer[j + 2];
             }
         }
 

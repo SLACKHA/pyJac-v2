@@ -526,6 +526,33 @@ class CompgenResult(TargetCheckingRecord):
                                  build_options=build_options)
 
 
+class ReadgenRecord(TargetCheckingRecord):
+    """
+    A convenience class that provides storage for initial condition reading from
+    binary files
+
+    Attributes
+    ----------
+    inputs: list of :class:`loopy.ArrayArg`
+        The input args to be read from the binary file
+    lang: str ['c']
+        The language this kernel is being generated for.
+    order: str {'C', 'F'}
+        The data ordering
+    type_map: dict of :class:`LoopyType` -> str
+        The mapping of loopy types to ctypes
+    """
+
+    def __init__(self, lang='', type_map={}, order='', inputs=[]):
+        ImmutableRecord.__init__(self, lang=lang, order=order, inputs=inputs,
+                                 type_map=type_map)
+
+    @property
+    def dev_mem_type(self):
+        # a dummy property to shadow Callgen
+        return -1
+
+
 class kernel_generator(object):
 
     """
@@ -1047,13 +1074,13 @@ class kernel_generator(object):
         _, callgen = self._generate_calling_program(
             path, data_filename, callgen, record, for_validation=for_validation)
         self._generate_calling_header(path, callgen)
-        self._generate_common(path)
+        self._generate_common(path, record)
 
         # finally, copy any dependencies to the path
         lang_dir = os.path.join(script_dir, self.lang)
         self.__copy_deps(lang_dir, path, change_extension=False)
 
-    def _generate_common(self, path):
+    def _generate_common(self, path, record):
         """
         Creates the common files (used by all target languages) for this
         kernel generator
@@ -1062,28 +1089,54 @@ class kernel_generator(object):
         ----------
         path : str
             The output path for the common files
+        record: :class:`MemoryGenerationResult`
+            The memory storage generated for this kernel
 
         Returns
         -------
         None
         """
 
-        common_dir = os.path.join(script_dir, 'common')
-        # get the initial condition reader
-        with open(os.path.join(common_dir,
-                               'read_initial_conditions.c.in'), 'r') as file:
-            file_src = Template(file.read())
+        inputs = [x for x in record.args if x.name in self.in_arrays]
 
-        with filew.get_file(os.path.join(path, 'read_initial_conditions'
-                                         + utils.file_ext[self.lang]),
-                            self.lang,
-                            use_filter=False) as file:
-            file.add_lines(file_src.safe_substitute(
-                mechanism='mechanism' + utils.header_ext[self.lang],
-                vectorization='vectorization' + utils.header_ext[self.lang]))
+        # create readgen
+        readgen = ReadgenRecord(
+            lang=self.loopy_opts.lang,
+            type_map=self.type_map,
+            order=self.loopy_opts.order,
+            inputs=inputs)
+
+        # serialize
+        readout = os.path.join(path, 'readgen.pickle')
+        with open(readout, 'wb') as file:
+            pickle.dump(readgen, file)
+
+        def run(input, output):
+            # cogify
+            try:
+                Cog().callableMain([
+                            'cogapp', '-e', '-d', '-Dreadgen={}'.format(readout),
+                            '-o', output, input])
+            except Exception:
+                logger = logging.getLogger(__name__)
+                logger.error('Error generating initial conditions reader:'
+                             ' {}'.format(output))
+                raise
+
+        common = os.path.join(script_dir, 'common')
+        # generate reader
+        infile = os.path.join(common, 'read_initial_conditions.c.in')
+        outfile = os.path.join(path, 'read_initial_conditions' +
+                               utils.file_ext[self.lang])
+        run(infile, outfile)
+        # generate header
+        infile = os.path.join(common, 'read_initial_conditions.h.in')
+        outfile = os.path.join(path, 'read_initial_conditions' +
+                               utils.header_ext[self.lang])
+        run(infile, outfile)
 
         # and any other deps
-        self.__copy_deps(common_dir, path)
+        self.__copy_deps(common, path)
 
     def _generate_calling_header(self, path, callgen):
         """

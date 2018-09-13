@@ -549,7 +549,7 @@ class SubTest(TestClass):
                 assert 'char* platform = "{}";'.format(
                     opts.platform.vendor)
 
-    def __get_call_kernel_generator(self, opts):
+    def __get_call_kernel_generator(self, opts, spec_name='spec'):
         # create some test kernels
 
         # first, make a (potentially) host constant
@@ -583,7 +583,7 @@ class SubTest(TestClass):
         # create global args
         jac = arc.creator('jac', np.float64,
                           (arc.problem_size.name, 10), opts.order)
-        spec = arc.creator('spec', np.float64,
+        spec = arc.creator(spec_name, np.float64,
                            (arc.problem_size.name, 10), opts.order)
         chem = arc.creator('chem', np.float64,
                            (arc.problem_size.name, 10), opts.order)
@@ -617,11 +617,11 @@ class SubTest(TestClass):
         spec_gen = make_kernel_generator(
              opts, KernelType.species_rates, [spec_info],
              namestore, depends_on=[chem_gen],
-             input_arrays=['chem'], output_arrays=['spec'])
+             input_arrays=['chem'], output_arrays=[spec_name])
         jac_gen = make_kernel_generator(
              opts, KernelType.jacobian, [jac_info],
              namestore, depends_on=[spec_gen],
-             input_arrays=['spec'], output_arrays=['jac'])
+             input_arrays=[spec_name], output_arrays=['jac'])
 
         return jac_gen
 
@@ -736,6 +736,37 @@ class SubTest(TestClass):
                                 name = x
                             assert re.search(
                                 r'double\* d_{};'.format(name), file_src)
+
+    def test_read_initial_condition_generator(self):
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+        for opts in oploop:
+            kgen = self.__get_call_kernel_generator(
+                opts, spec_name='longanddistinct')
+
+            # get the record
+            with temporary_directory() as tdir:
+                kgen._make_kernels()
+                _, record, _ = kgen._generate_wrapping_kernel(tdir)
+
+                # and call the read IC gen
+                kgen._generate_common(tdir, record)
+
+                # read in header
+                with open(os.path.join(
+                        tdir, 'read_initial_conditions' + header_ext[opts.lang]),
+                        'r') as file:
+                    file = file.read()
+                assert 'double* longanddistinct' in file
+
+                # read in source
+                with open(os.path.join(
+                        tdir, 'read_initial_conditions' + file_ext[opts.lang]),
+                        'r') as file:
+                    file = file.read()
+                assert 'double* longanddistinct' in file
 
 
 def test_remove_worksize():
