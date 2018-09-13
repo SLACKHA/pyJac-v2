@@ -1720,8 +1720,14 @@ class kernel_generator(object):
         iargs, dargs = utils.partition(offset_args, lambda x: x.dtype == itype)
 
         if record.host_constants:
-            # include host constants in integer workspace
-            iargs += record.host_constants
+            # include host constants in integer/double workspaces
+            inames = set([i.name for i in iargs])
+            dnames = set([d.name for d in dargs])
+            for hc in record.host_constants:
+                if hc.dtype == itype and not set([hc.name]) & inames:
+                    iargs += [hc]
+                elif not set([hc.name]) & dnames:
+                    dargs += [hc]
 
         # and create buffers for all
         assert dargs, 'No kernel data!'
