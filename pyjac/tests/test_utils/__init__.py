@@ -1397,9 +1397,32 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             yield_index=True, ignored_state_vals=exceptions,
             do_sparse=ktype == KernelType.jacobian)
 
+    from pyjac.core.create_jacobian import determine_jac_inds
+    sparse_answers = {}
     for i, opts in oploops:
         with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
             conp = oploops.state['conp']
+
+            key = (conp, opts.jac_type, opts.order)
+            if ktype == KernelType.jacobian and \
+                    opts.jac_format == JacobianFormat.sparse \
+                    and key not in sparse_answers:
+                full_jac = test_arr(conp)
+                # get indicies
+                inds = determine_jac_inds(
+                    self.store.reacs, self.store.specs, RateSpecialization.fixed,
+                    jacobian_type=opts.jac_type)
+                if opts.order == 'C':
+                    # use CRS
+                    jac_row_inds = inds['jac_inds']['crs']['row_ptr']
+                    jac_col_inds = inds['jac_inds']['crs']['col_ind']
+                elif opts.order == 'F':
+                    # use CCS
+                    jac_row_inds = inds['jac_inds']['ccs']['row_ind']
+                    jac_col_inds = inds['jac_inds']['ccs']['col_ptr']
+                # need a sparse version of the test array
+                sparse = sparsify(full_jac, jac_col_inds, jac_row_inds, opts.order)
+                sparse_answers[key] = sparse
 
             # generate kernel
             kgen = kernel_gen(self.store.reacs, self.store.specs, opts, conp=conp,
@@ -1447,7 +1470,10 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             # and now the test values
             tests = []
             if six.callable(test_arr):
-                test = np.array(test_arr(conp), copy=True, order=opts.order)
+                if opts.jac_format == JacobianFormat.sparse:
+                    test = np.array(sparse_answers[key], copy=True, order=opts.order)
+                else:
+                    test = np.array(test_arr(conp), copy=True, order=opts.order)
             else:
                 test = np.array(test_arr, copy=True, order=opts.order)
             __saver(test, test_arr_name, tests)
