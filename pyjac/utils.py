@@ -170,7 +170,6 @@ def kernel_argument_ordering(args, kernel_type, dummy_args=None):
     from pyjac.core.enum_types import KernelType
     from pyjac.kernel_utils.kernel_gen import rhs_work_name, local_work_name, \
         int_work_name, time_array
-    import loopy as lp
     # first create a mapping of names -> original arguments
     mapping = {}
     for arg in args:
@@ -180,20 +179,11 @@ def kernel_argument_ordering(args, kernel_type, dummy_args=None):
             # str
             mapping[arg] = arg
 
-    ordered = []
     value_args = [arc.problem_size.name, arc.work_size.name, time_array.name]
-    # next, place all value arg's & time array at the front
-    for name, val in six.iteritems(mapping):
-        if isinstance(val, lp.ValueArg) or name in value_args:
-            ordered.append(name)
-
-    def index_of(x, arry):
-        if x not in arry:
-            return len(arry)
-        return arry.index(x)
+    va, nva = partition(mapping.keys(), lambda x: x in value_args)
 
     # now sort ordered by name
-    ordered = sorted(ordered, key=lambda x: index_of(x, value_args))
+    ordered = sorted(va, key=lambda x: value_args.index(x))
 
     # next, repeat with kernel arguments
     kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector]
@@ -209,22 +199,17 @@ def kernel_argument_ordering(args, kernel_type, dummy_args=None):
         assert dummy_args
         kernel_args += listify(dummy_args)
 
-    def index_of2(x, arry):
-        if x not in arry:
-            work_arrays = [rhs_work_name, int_work_name, local_work_name]
-            if x in work_arrays:
-                return len(arry) + next(i for i, v in enumerate(work_arrays)
-                                        if x.startswith(v))
-            return len(arry) - 1000
-        return arry.index(x)
+    # and finally, add the work arrays
+    kernel_args += [rhs_work_name, int_work_name, local_work_name]
 
-    save = len(ordered)
-    # finally, add anything else we've missed
-    for name in mapping:
-        if name not in ordered:
-            ordered.append(name)
+    # sort non-kernel-data & append
+    kd, nkd = partition(nva, lambda x: x in kernel_args)
 
-    ordered[save:] = sorted(ordered[save:], key=lambda x: index_of2(x, kernel_args))
+    # add non-kernel-data
+    ordered.extend(sorted(nkd))
+
+    # and sorted kernel data
+    ordered.extend(sorted(kd, key=lambda x: kernel_args.index(x)))
 
     return [mapping[x] for x in ordered]
 

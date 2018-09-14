@@ -350,8 +350,15 @@ def test_kernel_argument_ordering():
         [arc.problem_size.name, arc.work_size.name, arc.pressure_array,
          arc.state_vector, arc.jacobian_array, rwk, iwk, lwk])
 
-    # and finally check that specifying one kernel type doesn't move non-args
+    # check that specifying one kernel type doesn't move non-args
     args = reversed([arc.state_vector_rate_of_change, arc.jacobian_array])
 
     assert utils.kernel_argument_ordering(args, KernelType.jacobian) == (
         [arc.state_vector_rate_of_change, arc.jacobian_array])
+
+    # check that the argument ordering is repeatable for different order inputs
+    base = [arc.pressure_array, arc.state_vector, 'a', 'b', 'c', 'd']
+    ans = utils.kernel_argument_ordering(base, KernelType.species_rates)
+    import itertools
+    for perm in itertools.permutations(base):
+        assert utils.kernel_argument_ordering(perm, KernelType.species_rates) == ans
