@@ -362,11 +362,11 @@ class SubTest(TestClass):
                 gen0 = make_kernel_generator(
                      opts, KernelType.dummy, [knl0],
                      type('', (object,), {'jac': ''}),
-                     name=knl0.name)
+                     name=knl0.name, output_arrays=['arg'])
                 gen1 = make_kernel_generator(
                      opts, KernelType.dummy, [knl0, knl1],
                      type('', (object,), {'jac': ''}), depends_on=[gen0],
-                     name=knl1.name)
+                     name=knl1.name, output_arrays=['arg'])
                 return gen0, gen1
 
             # create a species rates kernel generator for this state
@@ -466,10 +466,12 @@ class SubTest(TestClass):
             gen0 = make_kernel_generator(
                  opts, KernelType.dummy, [knl0],
                  type('', (object,), {'jac': ''}),
+                 input_arrays=['arg'], output_arrays=['arg'],
                  name=knl0.name)
             gen1 = make_kernel_generator(
                  opts, KernelType.dummy, [knl1],
                  type('', (object,), {'jac': ''}), depends_on=[gen0],
+                 input_arrays=['arg'], output_arrays=['arg'],
                  name=knl1.name)
 
             def __get_result(gen, record=None):
@@ -743,16 +745,58 @@ class SubTest(TestClass):
                                                    do_vector=True,
                                                    do_sparse=False)
         for opts in oploop:
-            kgen = self.__get_call_kernel_generator(
-                opts, spec_name='longanddistinct')
+            # two kernels (one for each generator)
+            spec_insns = (
+                """
+                    {spec} = {param} {{id=0}}
+                """
+            )
+            param_insns = (
+                """
+                    {param} = 1 {{id=1}}
+                """
+            )
+            # create mapstore
+            domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                                 initializer=np.arange(10, dtype=arc.kint_type))
+            mapstore = arc.MapStore(opts, domain, None)
+            # create global args
+            param = arc.creator(arc.pressure_array, np.float64,
+                                (arc.problem_size.name, 10), opts.order)
+            spec = arc.creator('longanddistinct', np.float64,
+                               (arc.problem_size.name, 10), opts.order)
+            namestore = type('', (object,),
+                             {'param': param, 'spec': spec, 'jac': ''})
+            # create array / array strings
+            param_lp, param_str = mapstore.apply_maps(param, 'j', 'i')
+            spec_lp, spec_str = mapstore.apply_maps(spec, 'j', 'i')
+
+            # create kernel infos
+            spec_info = knl_info(
+                'spec_eval', spec_insns.format(param=param_str, spec=spec_str),
+                mapstore, kernel_data=[spec_lp, param_lp, arc.work_size],
+                silenced_warnings=['write_race(0)'])
+            param_info = knl_info(
+                'param_eval', param_insns.format(param=param_str),
+                mapstore, kernel_data=[param_lp, arc.work_size],
+                silenced_warnings=['write_race(1)'])
+            # create generators
+            param_gen = make_kernel_generator(
+                 opts, KernelType.chem_utils, [param_info],
+                 namestore,
+                 output_arrays=[param.name])
+            spec_gen = make_kernel_generator(
+                 opts, KernelType.species_rates, [spec_info],
+                 namestore, depends_on=[param_gen],
+                 input_arrays=[spec.name, param.name], output_arrays=[spec.name])
 
             # get the record
             with temporary_directory() as tdir:
-                kgen._make_kernels()
-                _, record, _ = kgen._generate_wrapping_kernel(tdir)
+                spec_gen._make_kernels()
+                _, record, _ = spec_gen._generate_wrapping_kernel(tdir)
 
                 # and call the read IC gen
-                kgen._generate_common(tdir, record)
+                spec_gen._generate_common(tdir, record)
 
                 # read in header
                 with open(os.path.join(

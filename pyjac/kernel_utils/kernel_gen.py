@@ -481,9 +481,18 @@ class CallgenResult(TargetCheckingRecord, DocumentingRecord):
             for key in data:
                 data[key].extend(self.work_arrays[:])
 
-        kernel_type = utils.EnumType(KernelType)(self.name)
+        import argparse
+        try:
+            kernel_type = utils.EnumType(KernelType)(self.name)
+            dummy_args = []
+        except argparse.ArgumentTypeError:
+            kernel_type = KernelType.dummy
+            dummy_args = sorted(set([x.name for x in self.input_args[self.name] +
+                                     self.output_args[self.name]]))
+
         for key in data:
-            data[key] = utils.kernel_argument_ordering(data[key], kernel_type)
+            data[key] = utils.kernel_argument_ordering(
+                data[key], kernel_type, dummy_args)
 
         return data
 
@@ -748,6 +757,12 @@ class kernel_generator(object):
         if self.kernel_type == KernelType.dummy:
             return self._name
         return utils.enum_to_string(self.kernel_type)
+
+    @property
+    def sorting_kernel_args(self):
+        if self.kernel_type == KernelType.dummy:
+            return sorted(set(self.in_arrays + self.out_arrays))
+        return None
 
     @property
     def user_specified_work_size(self):
@@ -1738,7 +1753,8 @@ class kernel_generator(object):
             # first, we sort by kernel argument ordering so any potentially
             # duplicated kernel args are placed at the end and can be safely
             # extracted in the driver
-            args = utils.kernel_argument_ordering(args, self.kernel_type)
+            args = utils.kernel_argument_ordering(args, self.kernel_type,
+                                                  self.sorting_kernel_args)
 
             # exclude arguments that are in our own kernel args
             # note: driver work array contains kernel args in the form of the local
@@ -1835,7 +1851,8 @@ class kernel_generator(object):
             return ''
 
         # data
-        kdata = utils.kernel_argument_ordering(kernel_data[:], self.kernel_type)
+        kdata = utils.kernel_argument_ordering(kernel_data[:], self.kernel_type,
+                                               self.sorting_kernel_args)
         if as_dummy_call:
             # add extra kernel args
             kdata.extend([x for x in self.extra_kernel_data
@@ -2387,7 +2404,8 @@ class kernel_generator(object):
         # update
         kernel_data = record.kernel_data + kernel_data
         # and sort
-        kernel_data = utils.kernel_argument_ordering(kernel_data, self.kernel_type)
+        kernel_data = utils.kernel_argument_ordering(kernel_data, self.kernel_type,
+                                                     self.sorting_kernel_args)
         return record.copy(kernel_data=kernel_data)
 
     def _generate_wrapping_kernel(self, path, record=None, result=None,
@@ -2723,7 +2741,7 @@ class kernel_generator(object):
 
         record = record.copy(kernel_data=utils.kernel_argument_ordering(
             record.kernel_data + work_arrays + [self._with_target(w_size)],
-            self.kernel_type))
+            self.kernel_type, self.sorting_kernel_args))
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(
@@ -2764,7 +2782,8 @@ class kernel_generator(object):
                 max_ic_per_run / self.vec_width) * self.vec_width
 
         work_arrays = utils.kernel_argument_ordering(
-            [self._with_target(p_size)] + work_arrays, self.kernel_type)
+            [self._with_target(p_size)] + work_arrays, self.kernel_type,
+            self.sorting_kernel_args)
 
         # update callgen
         callgen = callgen.copy(source_names=callgen.source_names + [filename],

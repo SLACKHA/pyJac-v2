@@ -146,7 +146,7 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
-def kernel_argument_ordering(args, kernel_type):
+def kernel_argument_ordering(args, kernel_type, dummy_args=None):
     """
     A convenience method to ensure that we have a consistent set of argument
     orderings throughout pyJac
@@ -157,10 +157,12 @@ def kernel_argument_ordering(args, kernel_type):
         The arguments to determine the order of
     kernel_type: :class:`KernelType`
         The type of kernel to use (to avoid spurious placements)
+    dummy_args: list of str [None]
+        kernel_type == KernelType.dummy, use these args for sorting
 
     Returns
     -------
-    ordered_args: lif of str or :class:`loopy.KernelArgument`
+    ordered_args: list of str or :class:`loopy.KernelArgument`
         The ordered kernel arguments
     """
 
@@ -204,7 +206,8 @@ def kernel_argument_ordering(args, kernel_type):
                         arc.constant_pressure_specific_heat,
                         arc.constant_volume_specific_heat]
     else:
-        raise NotImplementedError()
+        assert dummy_args
+        kernel_args += listify(dummy_args)
 
     def index_of2(x, arry):
         if x not in arry:
