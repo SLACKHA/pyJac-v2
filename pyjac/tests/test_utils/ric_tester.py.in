@@ -1,0 +1,54 @@
+import importlib
+import numpy as np
+import sys
+import os
+import six
+
+home_dir = os.path.dirname(__file__)
+read_ics = importlib.import_module('py_readics')
+data = six.u(os.path.join(home_dir, 'data.bin')).encode('UTF-8')
+
+
+phi_test = np.fromfile(os.path.join(home_dir, 'phi_test.npy'))
+"""[[[cog
+      from pyjac.core.array_creator import pressure_array, volume_array
+      conp = True if conp == 'True' else False
+      param_name = pressure_array if conp else volume_array
+      cog.outl("{} = np.fromfile(os.path.join(home_dir, 'param_test.npy'))".format(
+            param_name + '_test'))
+]]]
+[[[end]]]"""
+
+order = str(sys.argv[1])
+num = int(sys.argv[2])
+assert order in ['C', 'F']
+
+"""[[[cog
+      cog.outl("{0} = np.zeros_like({0}_test)".format(param_name))
+]]]
+[[[end]]]"""
+phi = np.zeros_like(phi_test)
+args = [data, num]
+"""[[[cog
+     from pyjac.utils import kernel_argument_ordering, stringify_args
+     from pyjac.core.enum_types import KernelType
+
+     args = kernel_argument_ordering(['phi', param_name], KernelType.species_rates)
+     cog.outl('args += [{}]'.format(stringify_args(args)))
+]]]
+[[[end]]]"""
+
+args += [order == 'C']
+
+read_ics.read_ics(*args)
+
+# check extra variable
+"""[[[cog
+      cog.outl("allclear = np.allclose({0}, {0}_test)".format(param_name))
+]]]
+[[[end]]]"""
+
+# and check
+allclear = allclear and np.allclose(phi, phi_test)
+
+sys.exit(not allclear)

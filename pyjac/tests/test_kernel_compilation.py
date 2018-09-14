@@ -5,18 +5,21 @@ import re
 import numpy as np
 from nose.tools import assert_raises
 from nose.plugins.attrib import attr
+from cogapp import Cog
 
 from pyjac import utils
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.create_jacobian import get_jacobian_kernel, \
     finite_difference_jacobian, create_jacobian
-from pyjac.tests import TestClass, test_utils
-from pyjac.libgen import generate_library
+from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import KernelType
 from pyjac.core.mech_auxiliary import write_aux
-from pyjac.core.array_creator import array_splitter, work_size
+from pyjac.core.array_creator import work_size
 from pyjac.core.exceptions import InvalidInputSpecificationException
+from pyjac.kernel_utils.kernel_gen import knl_info, make_kernel_generator
+from pyjac.libgen import generate_library
 from pyjac.pywrap.pywrap_gen import pywrap
+from pyjac.tests import TestClass, test_utils
 from pyjac.tests.test_utils import temporary_build_dirs, OptionLoopWrapper, xfail
 
 
@@ -117,24 +120,49 @@ class SubTest(TestClass):
 
     def test_read_initial_conditions(self):
         setup = test_utils.get_read_ics_source()
-        for opts in OptionLoopWrapper.from_get_oploop(self):
+        wrapper = OptionLoopWrapper.from_get_oploop(self, do_conp=True)
+        for opts in wrapper:
             with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
-                # create dummy loopy opts
-                asplit = array_splitter(opts)
+                conp = wrapper.state['conp']
 
-                header_ext = utils.header_ext[opts.lang]
-                file_ext = utils.file_ext[opts.lang]
+                # make a dummy generator
+                insns = (
+                    """
+                        {spec} = {param} {{id=0}}
+                    """
+                )
+                domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                                     initializer=np.arange(10, dtype=arc.kint_type))
+                mapstore = arc.MapStore(opts, domain, None)
+                # create global args
+                param = arc.creator(arc.pressure_array, np.float64,
+                                    (arc.problem_size.name, 10), opts.order)
+                spec = arc.creator(arc.state_vector, np.float64,
+                                   (arc.problem_size.name, 10), opts.order)
+                namestore = type('', (object,), {'jac': ''})
+                # create array / array strings
+                param_lp, param_str = mapstore.apply_maps(param, 'j', 'i')
+                spec_lp, spec_str = mapstore.apply_maps(spec, 'j', 'i')
 
-                # write initial condition file
-                ric = self.__write_with_subs(
-                    'read_initial_conditions.c.in',
-                    os.path.realpath(
-                        os.path.join(self.store.script_dir, os.pardir,
-                                     'kernel_utils', 'common')),
-                    build_dir,
-                    renamer=lambda x: x[:x.index('.')] + file_ext,
-                    mechanism='mechanism' + header_ext,
-                    vectorization='vectorization' + header_ext)
+                # create kernel infos
+                info = knl_info(
+                    'spec_eval', insns.format(param=param_str, spec=spec_str),
+                    mapstore, kernel_data=[spec_lp, param_lp, arc.work_size],
+                    silenced_warnings=['write_race(0)'])
+                # create generators
+                kgen = make_kernel_generator(
+                     opts, KernelType.dummy, [info],
+                     namestore,
+                     input_arrays=[param.name, spec.name],
+                     output_arrays=[spec.name],
+                     name='ric_tester')
+                # make kernels
+                kgen._make_kernels()
+                # and generate RIC
+                _, record, _ = kgen._generate_wrapping_kernel(build_dir)
+                kgen._generate_common(build_dir, record)
+                ric = os.path.join(build_dir, 'read_initial_conditions' +
+                                   utils.file_ext[opts.lang])
 
                 # write header
                 write_aux(build_dir, opts, self.store.specs, self.store.reacs)
@@ -147,39 +175,37 @@ class SubTest(TestClass):
                 toolchain = get_toolchain(opts.lang)
                 compile(opts.lang, toolchain, [ric], obj_dir=obj_dir)
 
-                # copy read ics header to final dest
-                read_ic_header = os.path.join(
-                    self.store.script_dir, os.pardir,
-                    'kernel_utils', 'common',
-                    'read_initial_conditions.h')
-                utils.copy_with_extension(
-                    opts.lang, read_ic_header, build_dir, header=True)
                 # write wrapper
                 self.__write_with_subs(
                     'read_ic_wrapper.pyx',
                     os.path.join(self.store.script_dir, 'test_utils'),
                     build_dir,
-                    header_ext=header_ext)
+                    header_ext=utils.header_ext[opts.lang])
                 # setup
                 utils.run_with_our_python(
                     [os.path.join(build_dir, 'setup.py'),
                      'build_ext', '--build-lib', lib_dir])
-                # copy in tester
-                shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
-                                             'ric_tester.py'),
-                                os.path.join(lib_dir, 'ric_tester.py'))
 
-                # For simplicity (and really, lack of need) we test CONP only
-                # hence, the extra variable is the volume, while the fixed parameter
-                # is the pressure
+                infile = os.path.join(self.store.script_dir, 'test_utils',
+                                      'ric_tester.py.in')
+                outfile = os.path.join(lib_dir, 'ric_tester.py')
+                # cogify
+                try:
+                    Cog().callableMain([
+                                'cogapp', '-e', '-d', '-Dconp={}'.format(conp),
+                                '-o', outfile, infile])
+                except Exception:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error('Error generating initial conditions reader:'
+                                 ' {}'.format(outfile))
+                    raise
 
                 # save phi, param in correct order
-                conp = True
                 phi = (self.store.phi_cp if conp else self.store.phi_cv)
-                save_phi, = asplit.split_numpy_arrays(phi)
-                save_phi = save_phi.flatten(opts.order)
+                savephi = phi.flatten(opts.order)
                 param = self.store.P if conp else self.store.V
-                save_phi.tofile(os.path.join(lib_dir, 'phi_test.npy'))
+                savephi.tofile(os.path.join(lib_dir, 'phi_test.npy'))
                 param.tofile(os.path.join(lib_dir, 'param_test.npy'))
 
                 # save bin file
@@ -193,6 +219,5 @@ class SubTest(TestClass):
                     out_file.tofile(file)
 
                 # and run
-                utils.run_with_our_python([
-                    os.path.join(lib_dir, 'ric_tester.py'), opts.order,
-                    str(self.store.test_size)])
+                utils.run_with_our_python([outfile, opts.order,
+                                           str(self.store.test_size)])

@@ -74,7 +74,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
 
         //fill the parameter array
         /*[[[cog
-             cog.outl('{param}[i] = buffer[i];'.format(param=param))
+             cog.outl('{param}[i] = buffer[1];'.format(param=param))
           ]]]
           [[[end]]]*/
 
