@@ -1846,6 +1846,26 @@ rate_const_thermo_coeff_array = 'b'
     constants
 """
 
+forward_rate_of_progress = 'rop_fwd'
+"""
+    The name of the forward ROP array
+"""
+
+reverse_rate_of_progress = 'rop_rev'
+"""
+    The name of the reverse ROP array
+"""
+
+net_rate_of_progress = 'rop_net'
+"""
+    The name of the net ROP array
+"""
+
+pressure_modification = 'pres_mod'
+"""
+    The name of the pressure modification of the ROP array
+"""
+
 
 class NameStore(object):
 
@@ -2171,18 +2191,18 @@ class NameStore(object):
                                       order=self.order)
 
         # rop's and fwd / rev / thd maps
-        self.rop_net = creator('rop_net',
+        self.rop_net = creator(net_rate_of_progress,
                                dtype=np.float64,
                                shape=(test_size, rate_info['Nr']),
                                order=self.order)
 
-        self.rop_fwd = creator('rop_fwd',
+        self.rop_fwd = creator(forward_rate_of_progress,
                                dtype=np.float64,
                                shape=(test_size, rate_info['Nr']),
                                order=self.order)
 
         if rate_info['rev']['num']:
-            self.rop_rev = creator('rop_rev',
+            self.rop_rev = creator(reverse_rate_of_progress,
                                    dtype=np.float64,
                                    shape=(
                                        test_size, rate_info['rev']['num']),
@@ -2203,7 +2223,7 @@ class NameStore(object):
                                     order=self.order)
 
         if rate_info['thd']['num']:
-            self.pres_mod = creator('pres_mod',
+            self.pres_mod = creator(pressure_modification,
                                     dtype=np.float64,
                                     shape=(
                                         test_size, rate_info['thd']['num']),
