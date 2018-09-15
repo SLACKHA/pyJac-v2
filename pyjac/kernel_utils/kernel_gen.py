@@ -481,13 +481,24 @@ class CallgenResult(TargetCheckingRecord, DocumentingRecord):
             for key in data:
                 data[key].extend(self.work_arrays[:])
 
-        kernel_args = sorted(set([x.name for x in self.input_args[self.name] +
-                                  self.output_args[self.name]]))
+        # get a clean copy of input / output args for consistent sorting
+        args = set(sorted([x.name for x in self.input_args[self.name] +
+                           self.output_args[self.name]]))
+        kernel_args = utils.kernel_argument_ordering(
+            args, kernel_type=self.kernel_type)
         for key in data:
             data[key] = utils.kernel_argument_ordering(
                 data[key], kernel_args=kernel_args)
 
         return data
+
+    @property
+    def kernel_type(self):
+        try:
+            kernel_type = utils.EnumType(KernelType)(self.name)
+        except Exception:
+            kernel_type = KernelType.dummy
+        return kernel_type
 
     @property
     def kernel_data(self):
@@ -753,7 +764,9 @@ class kernel_generator(object):
 
     @property
     def sorting_kernel_args(self):
-        return sorted(set(self.in_arrays + self.out_arrays))
+        # return a default sort of our kernel args w/o override
+        return utils.kernel_argument_ordering(self.in_arrays + self.out_arrays,
+                                              self.kernel_type)
 
     @property
     def user_specified_work_size(self):
