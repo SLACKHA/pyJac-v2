@@ -2696,14 +2696,14 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                             precompute(Tval, T_str, 'VAL')}
 
     # generic kf assigment str
-    kf_assign = Template("${kf_str} = ${rate} {id=simple_rate_eval, \
+    kf_assign = Template("${kf_str} = ${rate} {id=rate_eval0, \
                          nosync=${deps}}")
     expkf_assign = Template("${kf_str} = exp(${rate}) {id=rate_eval${id}, \
                             nosync=${deps}}")
 
     def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                            single_kernel_rtype=None, Tval=Tval, logT=logT,
-                           Tinv=Tinv):
+                           Tinv=Tinv, specializations=set()):
         # get domain
         domain, inds, num = rdomain(rtype)
 
@@ -2751,14 +2751,19 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 # not a combined kernel
                 return ' '
             elif assign == expkf_assign:
-                rate_evals = [2, 3, 4] if full else [2] if hybrid else []
-                rate_evals = ':'.join(['rate_eval{}'.format(x) for x in rate_evals])
-                return 'simple_rate_eval:a*{}'.format(
-                    ':' + rate_evals if rate_evals else '')
+                rate_evals = [0, 1, 2, 3, 4] if full else [0, 1, 2] if hybrid else \
+                    [0]
+                rate_evals = sorted(set(rate_evals) & specializations)
+                deps = ['rate_eval{}'.format(x) for x in rate_evals]
+                if 1 in rate_evals:
+                    # add beta iter deps
+                    deps += ['a*']
+                deps = ':'.join(deps)
+                return '{}'.format(':' + deps if deps else '')
             elif assign == kf_assign:
                 return 'rate_eval*:a*'
             else:
-                return 'simple_rate_eval:rate_eval*'
+                return 'rate_eval*'
 
         preambles = []
         manglers = []
@@ -2779,7 +2784,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 <int32> b_end = abs(${b_str})
                 kf_temp = kf_temp * ${power_func}(T_iter, b_end) \
                     {id=a4, dep=a3:a2:a1}
-                ${kf_str} = kf_temp {dep=a4, nosync=${deps}}
+                ${kf_str} = kf_temp {id=rate_eval1, dep=a4, nosync=${deps}}
                 """).safe_substitute(b_str=b_str, power_func=power_func,
                                      deps=__deps(''))
                 preambles.extend(lp_pregen.power_function_preambles(
@@ -2789,8 +2794,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
             else:
                 beta_iter_str = Template(
                     "${kf_str} = kf_temp * T_iter"
-                    " {id=a4, dep=a3:a2:a1, nosync=${deps}}").safe_substitute(
-                        deps=__deps(''))
+                    " {id=rate_eval1, dep=a3:a2:a1, nosync=${deps}}"
+                        ).safe_substitute(deps=__deps(''))
 
             retv = Template(
                 """
@@ -2863,6 +2868,13 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         else:
             specializations[2] = i_full
 
+    # filter out unused specializations
+    for rtype in specializations.copy():
+        domain, _, _ = rdomain(rtype)
+        if domain is None or not domain.initializer.size:
+            # kernel doesn't act on anything, don't add it to output
+            del specializations[rtype]
+
     # find out if beta iteration needed
     beta_iter = False
     b_attr = getattr(namestore, '{}_beta'.format(tag))
@@ -2877,41 +2889,46 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     # if single kernel, and not a fixed exponential
     if not separated_kernels and not fixed:
         # need to enclose each branch in it's own if statement
-        if len(specializations) > 1:
-            instruction_list = []
-            pre = []
-            man = []
-            for i in specializations:
+        do_conditional = len(specializations) > 1
+        instruction_list = []
+        pre = []
+        man = []
+        for i in specializations:
+            if do_conditional:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                insns, preambles, manglers = __get_instructions(
-                    -1,
-                    arc.MapStore(loopy_opts, mapstore.map_domain, test_size),
-                    specializations[i].kernel_data,
-                    beta_iter,
-                    single_kernel_rtype=i)
-                instruction_list.extend([
-                    '\t' + x for x in insns.split('\n') if x.strip()])
+            insns, preambles, manglers = __get_instructions(
+                -1,
+                arc.MapStore(loopy_opts, mapstore.map_domain, test_size),
+                specializations[i].kernel_data,
+                beta_iter,
+                single_kernel_rtype=i,
+                specializations=set(specializations.keys()))
+            instruction_list.extend([
+                '\t' + x for x in insns.split('\n') if x.strip()])
+            if do_conditional:
                 instruction_list.append('end')
-                if preambles:
-                    pre.extend(preambles)
-                if manglers:
-                    man.extend(manglers)
+            if preambles:
+                pre.extend(preambles)
+            if manglers:
+                man.extend(manglers)
         # and combine them
+        kernel_data = list(specializations.values())[0].kernel_data
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
                            instructions='\n'.join(instruction_list),
                            pre_instructions=list(
                                default_preinstructs.values()),
                            mapstore=mapstore,
-                           kernel_data=specializations[0].kernel_data,
+                           kernel_data=kernel_data,
                            var_name=var_name,
                            preambles=pre,
                            manglers=man,
-                           silenced_warnings=['write_race(rate_eval2)',
+                           silenced_warnings=['write_race(rate_eval0)',
+                                              'write_race(rate_eval1)',
+                                              'write_race(rate_eval2)',
                                               'write_race(rate_eval3)',
                                               'write_race(rate_eval4)',
-                                              'write_race(simple_rate_eval)',
                                               'write_race(a4)'])}
 
     out_specs = {}
@@ -2924,7 +2941,6 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
         # turn off warning
         info.kwargs['silenced_warnings'] = ['write_race(rate_eval{})'.format(rtype),
-                                            'write_race(simple_rate_eval)',
                                             'write_race(a4)']
 
         domain, _, num = rdomain(rtype)
@@ -2941,7 +2957,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         # if a specific rtype, get the instructions here
         if rtype >= 0:
             info.instructions, info.preambles, info.manglers = __get_instructions(
-                rtype, mapper, info.kernel_data, beta_iter)
+                rtype, mapper, info.kernel_data, beta_iter,
+                specializations=sorted(set(specializations.keys())))
 
         out_specs[rtype] = info
 
