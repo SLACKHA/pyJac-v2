@@ -480,7 +480,8 @@ class SubTest(TestClass):
 
         phi = self.store.phi_cp
         P = self.store.P
-        ref_const = self.store.fwd_rate_constants
+        ref_const = self.store.fwd_rate_constants if rtype != 'fall' else \
+            self.store.fall_rate_constants
 
         reacs = self.store.reacs
 
@@ -499,11 +500,20 @@ class SubTest(TestClass):
             'cheb': (
                 np.array([i for i, x in enumerate(reacs)
                           if x.match((reaction_type.cheb,))]),
-                get_cheb_arrhenius_rates)}
+                get_cheb_arrhenius_rates),
+            'fall': (
+                np.arange(len([i for i, x in enumerate(reacs)
+                               if x.match((reaction_type.fall,
+                               reaction_type.chem))])),
+                lambda *args, **kwargs: get_simple_arrhenius_rates(
+                    *args, **kwargs, falloff=True))}
 
-        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
-                'kf': lambda x: np.zeros_like(ref_const, order=x)}
-        if rtype != 'simple':
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
+        if rtype != 'fall':
+            args['kf'] = lambda x: np.zeros_like(ref_const, order=x)
+        else:
+            args['kf_fall'] = lambda x: np.zeros_like(ref_const, order=x)
+        if rtype not in ['simple', 'fall']:
             args['P_arr'] = P
 
         if not masks[rtype][0].size:
@@ -540,7 +550,7 @@ class SubTest(TestClass):
                 out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
 
         compare_mask, rate_func = masks[rtype]
-        post = None if rtype != 'simple' else __simple_post
+        post = None if rtype not in 'simple' else __simple_post
 
         # see if mechanism has this type
         if not compare_mask[0].size:
@@ -555,11 +565,15 @@ class SubTest(TestClass):
                          post_process=post, **args)
 
         self.__generic_rate_tester(
-            rate_func, kc, do_ratespec=rtype == 'simple', **kwargs)
+            rate_func, kc, do_ratespec=rtype in ['simple', 'fall'], **kwargs)
 
     @attr('long')
     def test_simple_rate_constants(self):
         self.__test_rateconst_type('simple')
+
+    @attr('long')
+    def test_fall_rate_constants(self):
+        self.__test_rateconst_type('fall')
 
     @attr('long')
     def test_plog_rate_constants(self):

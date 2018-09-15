@@ -181,6 +181,7 @@ class storage(object):
             [np.where(self.fall_inds == j)[0][0] for j in self.sri_inds])
         self.lind_to_pr_map = np.array(
             [np.where(self.fall_inds == j)[0][0] for j in self.lind_inds])
+        self.fall_rate_constants = np.zeros((test_size, self.fall_inds.size))
         self.ref_Pr = np.zeros((test_size, self.fall_inds.size))
         self.ref_Sri = np.zeros((test_size, self.sri_inds.size))
         self.ref_Troe = np.zeros((test_size, self.troe_inds.size))
@@ -199,6 +200,18 @@ class storage(object):
         def pr_eval(i, j):
             reac = fall_reacs[j]
             return reac.low_rate(self.T[i]) / reac.high_rate(self.T[i])
+
+        def kf_fall_eval(i, j):
+            reac = fall_reacs[j]
+            # note: here we are evauating the _other_ kf, i.e., the one that
+            # works as a part the reduced pressure only, and not the forward rxn rate
+            # directly -- this is why the rates below are opposite of what
+            # you might think
+            if isinstance(reac, ct.ChemicallyActivatedReaction):
+                rate = reac.high_rate
+            else:
+                rate = reac.low_rate
+            return rate(self.T[i])
 
         thd_to_fall_map = np.where(np.in1d(self.thd_inds, self.fall_inds))[0]
 
@@ -248,6 +261,7 @@ class storage(object):
                 -np.dot(self.spec_u[i, :], self.species_rates[i, :]) / np.dot(
                     self.spec_cv[i, :], self.concs[i, :]))
             for j in range(self.fall_inds.size):
+                self.fall_rate_constants[i, j] = kf_fall_eval(i, j)
                 arrhen_temp[j] = pr_eval(i, j)
             self.ref_Pr[i, :] = self.ref_thd[i, thd_to_fall_map] * arrhen_temp
             for j in range(self.sri_inds.size):
