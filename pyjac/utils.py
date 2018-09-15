@@ -146,7 +146,7 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
-def kernel_argument_ordering(args, kernel_type, dummy_args=None):
+def kernel_argument_ordering(args, kernel_type=None, kernel_args=None):
     """
     A convenience method to ensure that we have a consistent set of argument
     orderings throughout pyJac
@@ -156,9 +156,10 @@ def kernel_argument_ordering(args, kernel_type, dummy_args=None):
     args: list of str, or :class:`loopy.KernelArgument`'s
         The arguments to determine the order of
     kernel_type: :class:`KernelType`
-        The type of kernel to use (to avoid spurious placements)
-    dummy_args: list of str [None]
-        kernel_type == KernelType.dummy, use these args for sorting
+        The type of kernel to use (to avoid spurious placements of non-arguments)
+    kernel_args: list of str [None]
+        The kernel arguments for this type of kernel.  If supplied, overrides
+        :param:`kernel_type`
 
     Returns
     -------
@@ -185,19 +186,22 @@ def kernel_argument_ordering(args, kernel_type, dummy_args=None):
     # now sort ordered by name
     ordered = sorted(va, key=lambda x: value_args.index(x))
 
-    # next, repeat with kernel arguments
-    kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector]
-    if kernel_type == KernelType.jacobian:
-        kernel_args += [arc.jacobian_array]
-    elif kernel_type == KernelType.species_rates:
-        kernel_args += [arc.state_vector_rate_of_change]
-    elif kernel_type == KernelType.chem_utils:
-        kernel_args += [arc.enthalpy_array, arc.internal_energy_array,
-                        arc.constant_pressure_specific_heat,
-                        arc.constant_volume_specific_heat]
-    else:
-        assert dummy_args
-        kernel_args += listify(dummy_args)
+    if not kernel_args:
+        assert kernel_type is not None, ('Must supply either kernel_args or '
+                                         'kernel_type')
+
+        # next, repeat with kernel arguments
+        kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector]
+        if kernel_type == KernelType.jacobian:
+            kernel_args += [arc.jacobian_array]
+        elif kernel_type == KernelType.species_rates:
+            kernel_args += [arc.state_vector_rate_of_change]
+        elif kernel_type == KernelType.chem_utils:
+            kernel_args += [arc.enthalpy_array, arc.internal_energy_array,
+                            arc.constant_pressure_specific_heat,
+                            arc.constant_volume_specific_heat]
+        else:
+            kernel_args += listify(kernel_args)
 
     # and finally, add the work arrays
     kernel_args += [rhs_work_name, int_work_name, local_work_name]

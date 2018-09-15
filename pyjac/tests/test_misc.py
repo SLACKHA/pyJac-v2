@@ -362,3 +362,14 @@ def test_kernel_argument_ordering():
     import itertools
     for perm in itertools.permutations(base):
         assert utils.kernel_argument_ordering(perm, KernelType.species_rates) == ans
+
+    # test kernel arg override
+    kernel_args = [arc.jacobian_array, arc.state_vector, arc.pressure_array]
+    args = reversed([
+        arc.state_vector, arc.pressure_array, arc.jacobian_array,
+        arc.problem_size.name, arc.work_size.name, rwk, lwk, iwk])
+
+    out = utils.kernel_argument_ordering(args, KernelType.jacobian,
+                                         kernel_args=kernel_args)
+    for i in range(len(kernel_args) - 1):
+        assert out.index(kernel_args[i]) + 1 == out.index(kernel_args[i + 1])
