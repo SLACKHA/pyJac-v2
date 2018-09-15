@@ -30,7 +30,7 @@ from pyjac.tests import test_utils, get_matrix_file, _get_test_input
 from pyjac.core.enum_types import (KernelType, RateSpecialization)
 from pyjac.libgen import generate_library
 from pyjac.core.create_jacobian import determine_jac_inds
-from pyjac.utils import inf_cutoff
+from pyjac.utils import inf_cutoff, kernel_argument_ordering
 
 
 def getf(x):
@@ -237,7 +237,7 @@ class hdf5_store(object):
         # with the new version, all data is stored in 'C' or 'F' order in the
         # non-split format
         grow_axis = 0
-        shape = ref_ans_shape[:]
+        shape = tuple(ref_ans_shape[:])
 
         # and set the enlargable shape for the pytables array
         eshape = tuple(shape[i] if i != grow_axis else 0
@@ -352,20 +352,11 @@ class validation_runner(runner, hdf5_store):
         del V
         del moles
         self.num_conditions = num_conditions
-        self.max_vec_width = max_vec_width
 
         # reset
         self.chunk_size = self.base_chunk_size
 
-        # ensure our chunk size matches vec width
-        if self.chunk_size % max_vec_width != 0:
-            self.chunk_size = int(
-                np.ceil(self.chunk_size / max_vec_width) * max_vec_width)
-
         self.helper = self.eval_class(gas, num_conditions)
-        # and check for helper
-        if self.helper.chunk_size % max_vec_width != 0:
-            self.helper.chunk_size = self.chunk_size
 
     def post(self):
         """
@@ -448,6 +439,7 @@ class validation_runner(runner, hdf5_store):
         my_obj = dirs['obj']
 
         # compile library as executable
+
         lib = generate_library(state['lang'], my_build, obj_dir=my_obj,
                                out_dir=my_test, ktype=self.rtype, shared=True,
                                as_executable=True)
@@ -576,7 +568,13 @@ class spec_rate_eval(eval):
     @property
     def output_names(self):
         # outputs
-        return ['dphi', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+        return kernel_argument_ordering([
+            arc.state_vector_rate_of_change,
+            arc.forward_rate_of_progress,
+            arc.reverse_rate_of_progress,
+            arc.pressure_modification,
+            arc.net_rate_of_progress],
+            KernelType.species_rates)
 
     def ref_answers(self, state):
         return self.outputs_cp if state['conp'] else self.outputs_cv
@@ -669,28 +667,44 @@ class spec_rate_eval(eval):
             self.conv_extra_rates = self.to_file(
                 self.conv_extra_rates, 'conv_extra_rates.hdf5')
             # and store outputs
-            outputs = [self.rop_fwd_test, self.rop_rev_test, self.pres_mod_test,
-                       self.rop_net_test]
-            self.outputs_cp = [self.dphi_cp] + outputs
-            self.outputs_cv = [self.dphi_cv] + outputs
+            outputs = {arc.forward_rate_of_progress: self.rop_fwd_test,
+                       arc.reverse_rate_of_progress: self.rop_rev_test,
+                       arc.pressure_modification: self.pres_mod_test,
+                       arc.net_rate_of_progress: self.rop_net_test}
+            self.outputs_cp = outputs.copy()
+            self.outputs_cp[arc.state_vector_rate_of_change] = self.dphi_cp
+            self.outputs_cv = outputs.copy()
+            self.outputs_cv[arc.state_vector_rate_of_change] = self.dphi_cv
+
+            def listify(out):
+                order = kernel_argument_ordering(out.keys(),
+                                                 KernelType.species_rates)
+                return [out[key] for key in order]
+
+            self.outputs_cp = listify(self.outputs_cp)
+            self.outputs_cv = listify(self.outputs_cv)
             self.evaled = True
 
     def eval_error(self, offset, this_run, state, output, answers, err_dict):
         # get indicies
         pmod_ind = next(
-            i for i, x in enumerate(self.output_names) if 'pres_mod' in x)
+            i for i, x in enumerate(self.output_names)
+            if x == arc.pressure_modification)
         fwd_ind = next(
-            i for i, x in enumerate(self.output_names) if 'rop_fwd' in x)
+            i for i, x in enumerate(self.output_names)
+            if x == arc.forward_rate_of_progress)
         rev_ind = next(
-            i for i, x in enumerate(self.output_names) if 'rop_rev' in x)
+            i for i, x in enumerate(self.output_names)
+            if x == arc.reverse_rate_of_progress)
 
         # multiply fwd/rev ROP by pressure rates to compare w/ Cantera
         # fwd
-        output[fwd_ind][self.thd_map] *= output[pmod_ind][
-            np.arange(self.thd_map.size, dtype=arc.kint_type)]
+        output[fwd_ind][:, self.thd_map] *= output[pmod_ind][
+            :, np.arange(self.thd_map.size, dtype=arc.kint_type)]
         # reverse ROP
         # thd to rev map already in thd index list, so don't need to do arange
-        output[rev_ind][self.rev_to_thd_map] *= output[pmod_ind][self.rev_to_thd_map]
+        output[rev_ind][:, self.rev_to_thd_map] *= output[pmod_ind][
+            :, self.thd_to_rev_map]
 
         # IC index fixed at zero now
         IC_axis = 0
@@ -1108,7 +1122,8 @@ class jacobian_eval(eval):
     @property
     def output_names(self):
         # outputs
-        return ['jac']
+        return kernel_argument_ordering(
+            [arc.jacobian_array], KernelType.species_rates)
 
     def ref_answers(self, state):
         return [self.__fast_jac(state['conp'], state['sparse'], state['order'],
