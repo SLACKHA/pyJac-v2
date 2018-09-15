@@ -922,16 +922,16 @@ def get_parser():
                         "exponential term (Ta = 0, b = 0) 'Fixed' is a fixed"
                         " expression exp(logA + b logT + Ta / T).  Choices:"
                         ' {type}'.format(type=str(EnumType(RateSpecialization))))
-    parser.add_argument('-rk', '--split_rate_kernels',
-                        type=bool,
-                        default=True,
-                        help="If True, and the :param`rate_specialization` is not "
-                        "'Fixed', split different rate evaluation types into "
-                        "different kernels")
-    parser.add_argument('-rn', '--split_rop_net_kernels',
-                        type=bool,
+    parser.add_argument('-rk', '--fused_rate_kernels',
                         default=False,
-                        help="If True, break evaluation of different rate of "
+                        action='store_true',
+                        help="If supplied, and the :param`rate_specialization` "
+                        "is not 'Fixed', different rate evaluation will be evaluated"
+                        " into in the same function.")
+    parser.add_argument('-rn', '--split_rop_net_kernels',
+                        default=False,
+                        action='store_true',
+                        help="If supplied, break evaluation of different rate of "
                         "progress values (fwd / back / pdep) into different "
                         "kernels. Note that for a deep vectorization this will "
                         "introduce additional synchronization requirements.")
@@ -1028,7 +1028,7 @@ def create(**kwargs):
                     platform=args.platform,
                     data_order=args.data_order,
                     rate_specialization=args.rate_specialization,
-                    split_rate_kernels=args.split_rate_kernels,
+                    split_rate_kernels=not args.fused_rate_kernels,
                     split_rop_net_kernels=args.split_rop_net_kernels,
                     conp=args.conp,
                     use_atomic_doubles=args.use_atomic_doubles,
