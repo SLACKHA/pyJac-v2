@@ -2501,7 +2501,6 @@ class NameStore(object):
 
             # rtype maps
             for rtype in np.unique(rate_info['fall']['type']):
-                # find the map in global reaction index
                 mapv = rate_info['fall']['map'][
                     np.where(rate_info['fall']['type'] == rtype)[0]]
                 setattr(self, 'fall_rtype_{}_map'.format(rtype),
@@ -2519,7 +2518,7 @@ class NameStore(object):
                                 initializer=maskv,
                                 order=self.order))
                 # and indicies inside of the falloff parameters
-                inds = np.where(rate_info['fall']['map'] == mapv)[0].astype(
+                inds = np.where(np.in1d(rate_info['fall']['map'], mapv))[0].astype(
                     dtype=kint_type)
                 setattr(self, 'fall_rtype_{}_inds'.format(rtype),
                         creator('fall_rtype_{}_inds'.format(rtype),
