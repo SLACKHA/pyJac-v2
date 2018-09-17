@@ -1089,9 +1089,6 @@ class OptionLoopWrapper(object):
         should be skipped
     yield_index: bool [False]
         If true, yield a tuple of the (index, state) of the oploop enumeration
-    from_get_oploop: bool [False]
-        If true, apply skips that wouldn't be necessarily applied if user-specified
-        (e.g., deep-vectorized SIMD)
     skip_deep_simd: bool [None]
         If true, skip deep-SIMD vectorization tests, defaults to value of
         :param:`from_get_oploop`
@@ -1116,9 +1113,7 @@ class OptionLoopWrapper(object):
         self.skip_test = skip_test
         self.bad_platforms = set()
         self.ignored_state_vals = ignored_state_vals[:]
-        self.from_get_oploop = from_get_oploop
-        self.skip_deep_simd = skip_deep_simd if skip_deep_simd is not None else \
-            from_get_oploop
+        self.skip_deep_simd = skip_deep_simd
 
     @staticmethod
     def from_dict(oploop_base, skip_test=None, yield_index=False,
@@ -1167,7 +1162,7 @@ class OptionLoopWrapper(object):
         return OptionLoopWrapper(oploop, skip_test=skip_test,
                                  yield_index=yield_index,
                                  ignored_state_vals=ignored_state_vals,
-                                 from_get_oploop=True)
+                                 skip_deep_simd=True)
 
     @staticmethod
     def from_oploop(oploop_base, skip_test=None, yield_index=False,
@@ -1196,7 +1191,7 @@ class OptionLoopWrapper(object):
     def send(self, ignored_arg):
         for i, state in enumerate(self.oploop):
             if _should_skip_oploop(state, skip_test=self.skip_test,
-                                   skip_deep_simd=self.from_get_oploop):
+                                   skip_deep_simd=self.skip_deep_simd):
                 continue
             # build loopy options
             try:
@@ -2067,7 +2062,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         wrapper = OptionLoopWrapper.from_oploop(
             oploop.copy(), ignored_state_vals=['conp', 'num_cores', 'models'],
             skip_test=lambda state: any(call(state) for call in [
-                parallel_skip, model_skipper, platform_skipper]))
+                parallel_skip, model_skipper, platform_skipper]),
+            skip_deep_simd=True)
         for i, opts in enumerate(wrapper):
             # check for regen
             regen = old_state is None or __needs_regen(
