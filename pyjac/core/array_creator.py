@@ -1646,19 +1646,20 @@ class creator(object):
         return (lp_arr, name + '[{}]'.format(', '.join(
             str(x) for x in inds)))
 
-    def copy(self):
-        init = self.initializer.copy() if isinstance(self.initializer, np.ndarray) \
-            else self.initializer
-        fixed = copy.deepcopy(self.fixed_indicies)
+    def copy(self, **kwargs):
+        init = kwargs.get('initializer', self.initializer)
+        init = init.copy() if isinstance(init, np.ndarray) else init
+        fixed = kwargs.get('fixed_indicies', self.fixed_indicies)
+        fixed = copy.deepcopy(fixed)
         return self.__class__(
-            name=self.name,
-            dtype=self.dtype,
-            shape=self.shape,
-            scope=self.scope,
+            name=kwargs.get('name', self.name),
+            dtype=kwargs.get('dtype', self.dtype),
+            shape=kwargs.get('shape', self.shape),
+            scope=kwargs.get('scope', self.scope),
             initializer=init,
             fixed_indicies=fixed,
-            order=self.order,
-            affine=self.affine)
+            order=kwargs.get('order', self.order),
+            affine=kwargs.get('affine', self.affine))
 
 
 class jac_creator(creator):
