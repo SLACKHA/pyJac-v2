@@ -8,13 +8,15 @@ from __future__ import print_function
 # Standard libraries
 import os
 import subprocess
-from nose.tools import nottest
-import six
+import errno
+from collections import defaultdict
+import logging
 # import io open to ignore any utf-8 characters in file output
 # (e.g., from error'd OpenCL builds)
 from io import open
-from collections import defaultdict
-import logging
+
+from nose.tools import nottest
+import six
 
 # Local imports
 from pyjac.libgen import generate_library
@@ -63,14 +65,12 @@ class performance_runner(runner):
         self.steplist = []
         # initialize steplist
         step = max_vec_size
-        self.max_vec_size = max_vec_size
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
         # and put largest value evenly divisible by vecsize in list
-        maxval = (num_conditions // max_vec_size) * max_vec_size
-        if maxval not in self.steplist:
-            self.steplist.append(maxval)
+        if num_conditions not in self.steplist:
+            self.steplist.append(num_conditions)
 
     def check_file(self, filename, state, limits={}):
         """
@@ -134,10 +134,16 @@ class performance_runner(runner):
                 except ValueError:
                     pass
             return runs
-        except:
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                logger = logging.getLogger(__name__)
+                logger.exception('Error reading performance file {}'.format(
+                    filename))
+            return 0
+        except Exception:
             logger = logging.getLogger(__name__)
             logger.exception('Error reading performance file {}'.format(filename))
-            return runs
+            return 0
 
     def check_full_file(self, filename, num_conditions):
         """Checks a file for existing data, returns number of completed runs
@@ -176,12 +182,18 @@ class performance_runner(runner):
                 except ValueError:
                     pass
             return num_completed
-        except:
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                logger = logging.getLogger(__name__)
+                logger.exception('Error reading performance file {}'.format(
+                    filename))
+            return 0
+        except Exception:
             logger = logging.getLogger(__name__)
             logger.exception('Error reading performance file {}'.format(filename))
             return 0
 
-    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
+    def run(self, state, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -190,8 +202,6 @@ class performance_runner(runner):
         state: dict
             A dictionary containing the state of the current optimization / language
             / vectorization patterns, etc.
-        asplit: :class:`array_splitter`
-            Not used
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
             Has the keys "build", "test", "obj" and "run"
