@@ -146,7 +146,8 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
 """dict: exp10 functions for various languages"""
 
 
-def kernel_argument_ordering(args, kernel_type=None, kernel_args=None):
+def kernel_argument_ordering(args, kernel_type, for_validation=False,
+                             dummy_args=None):
     """
     A convenience method to ensure that we have a consistent set of argument
     orderings throughout pyJac
@@ -157,9 +158,11 @@ def kernel_argument_ordering(args, kernel_type=None, kernel_args=None):
         The arguments to determine the order of
     kernel_type: :class:`KernelType`
         The type of kernel to use (to avoid spurious placements of non-arguments)
-    kernel_args: list of str [None]
-        The kernel arguments for this type of kernel.  If supplied, overrides
-        :param:`kernel_type`
+    for_validation: bool [False]
+        If True, this kernel is being used for validation (affects which arguments
+        are considered kernel arguments)
+    dummy_args: list of str [None]
+        The kernel arguments to be used if :param:`kernel_type` == `KernelType.dummy`
 
     Returns
     -------
@@ -186,22 +189,24 @@ def kernel_argument_ordering(args, kernel_type=None, kernel_args=None):
     # now sort ordered by name
     ordered = sorted(va, key=lambda x: value_args.index(x))
 
-    if not kernel_args:
-        assert kernel_type is not None, ('Must supply either kernel_args or '
-                                         'kernel_type')
-
-        # next, repeat with kernel arguments
+    # next, repeat with kernel arguments
+    if kernel_type != KernelType.dummy:
         kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector]
         if kernel_type == KernelType.jacobian:
             kernel_args += [arc.jacobian_array]
         elif kernel_type == KernelType.species_rates:
             kernel_args += [arc.state_vector_rate_of_change]
+            if for_validation:
+                kernel_args += [
+                    arc.forward_rate_of_progress, arc.reverse_rate_of_progress,
+                    arc.pressure_modification, arc.net_rate_of_progress]
         elif kernel_type == KernelType.chem_utils:
             kernel_args += [arc.enthalpy_array, arc.internal_energy_array,
                             arc.constant_pressure_specific_heat,
                             arc.constant_volume_specific_heat]
-        else:
-            kernel_args += listify(kernel_args)
+    else:
+        assert dummy_args
+        kernel_args = listify(dummy_args)
 
     # and finally, add the work arrays
     kernel_args += [rhs_work_name, int_work_name, local_work_name]

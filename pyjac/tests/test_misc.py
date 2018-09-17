@@ -369,7 +369,16 @@ def test_kernel_argument_ordering():
         arc.state_vector, arc.pressure_array, arc.jacobian_array,
         arc.problem_size.name, arc.work_size.name, rwk, lwk, iwk])
 
-    out = utils.kernel_argument_ordering(args, KernelType.jacobian,
-                                         kernel_args=kernel_args)
+    out = utils.kernel_argument_ordering(args, KernelType.dummy,
+                                         dummy_args=kernel_args)
     for i in range(len(kernel_args) - 1):
         assert out.index(kernel_args[i]) + 1 == out.index(kernel_args[i + 1])
+
+    # test for validation
+    args = [arc.forward_rate_of_progress, arc.state_vector, 'a', 'b']
+    assert utils.kernel_argument_ordering(args, KernelType.species_rates,
+                                          for_validation=True) == [
+        'a', 'b', arc.state_vector, arc.forward_rate_of_progress]
+    assert utils.kernel_argument_ordering(args, KernelType.species_rates,
+                                          for_validation=False) == [
+        'a', 'b', arc.forward_rate_of_progress, arc.state_vector]
