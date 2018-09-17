@@ -515,7 +515,7 @@ def set_adept_editor(knl,
         sizes = variable.shape
         indicies = ['ad_j', 'i']
         out_str = variable.name + '[{index}]'
-        from ..core.array_creator import creator
+        from pyjac.core.array_creator import creator
         if isinstance(variable, creator):
             if variable.order == 'C':
                 # last index varies fastest, so stride of 'i' is 1
