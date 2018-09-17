@@ -545,7 +545,10 @@ def set_adept_editor(knl,
         for size, index in zip(sizes, indicies):
             if out_index:
                 out_index += ' + '
-            if size != problem_size:
+            if str(size) == arc.work_size.name:
+                # per work-size = 1 in this context as we're operating per-thread
+                pass
+            elif size != problem_size:
                 assert out_size is None, (
                     'Cannot determine variable size!')
                 out_size = size

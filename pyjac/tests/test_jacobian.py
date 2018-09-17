@@ -47,12 +47,24 @@ class editor(object):
                  problem_size, order, do_not_set=[],
                  skip_on_missing=None):
 
-        self.independent = independent
-        indep_size = next(x for x in independent.shape if x != problem_size
-                          and x != arc.problem_size.name)
-        self.dependent = dependent
-        dep_size = next(x for x in dependent.shape if x != problem_size
-                        and x != arc.problem_size.name)
+        def __replace_problem_size(shape):
+            new_shape = []
+            for x in shape:
+                if x != arc.problem_size.name:
+                    new_shape.append(x)
+                else:
+                    new_shape.append(problem_size)
+            return tuple(new_shape)
+
+        assert len(independent.shape) == 2
+        self.independent = independent.copy(shape=__replace_problem_size(
+            independent.shape))
+        indep_size = independent.shape[1]
+
+        assert len(dependent.shape) == 2
+        self.dependent = dependent.copy(shape=__replace_problem_size(
+            dependent.shape))
+        dep_size = dependent.shape[1]
         self.problem_size = problem_size
 
         # create the jacobian
