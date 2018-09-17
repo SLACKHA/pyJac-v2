@@ -2044,7 +2044,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                 self.done_parallel = {}
 
             def __call__(self, state):
-                par_check = tuple(state[x] for x in state if x != 'vecsize')
+                par_check = tuple(state[x] for x in state if x not in [
+                    'width', 'depth'])
                 if done_parallel[par_check]:
                     return True
                 # else mark done if we're running a parallel check

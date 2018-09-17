@@ -137,8 +137,8 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                     hit = True
                 return hit
 
-            hit_parallel = _add_vectype('width')
-            _add_vectype('depth', hit_parallel)
+            _add_vectype('width')
+            _add_vectype('depth')
 
             # fill in missing vectypes
             for x in ['width', 'depth']:
