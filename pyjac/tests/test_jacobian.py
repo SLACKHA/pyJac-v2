@@ -48,9 +48,11 @@ class editor(object):
                  skip_on_missing=None):
 
         self.independent = independent
-        indep_size = next(x for x in independent.shape if x != problem_size)
+        indep_size = next(x for x in independent.shape if x != problem_size
+                          and x != arc.problem_size.name)
         self.dependent = dependent
-        dep_size = next(x for x in dependent.shape if x != problem_size)
+        dep_size = next(x for x in dependent.shape if x != problem_size
+                        and x != arc.problem_size.name)
         self.problem_size = problem_size
 
         # create the jacobian
@@ -173,7 +175,7 @@ def _get_ad_jacobian(self, test_size, conp=True, pregen=None, return_kernel=Fals
     allint = {'net': rate_info['net']['allint']}
     args = {
         'phi': lambda x: np.array(phi, order=x, copy=True),
-        'jac': lambda x: np.zeros(store.jac.shape, order=x),
+        'jac': lambda x: np.zeros((test_size,) + store.jac.shape[1:], order=x),
         'wdot': create_arr.new(store.num_specs),
         'Atroe': create_arr.new(store.num_troe),
         'Btroe': create_arr.new(store.num_troe),
