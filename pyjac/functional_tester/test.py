@@ -30,7 +30,7 @@ from pyjac.tests import test_utils, get_matrix_file, _get_test_input
 from pyjac.core.enum_types import (KernelType, RateSpecialization)
 from pyjac.libgen import generate_library
 from pyjac.core.create_jacobian import determine_jac_inds
-from pyjac.utils import inf_cutoff, kernel_argument_ordering
+from pyjac.utils import inf_cutoff, kernel_argument_ordering, reassign_species_lists
 
 
 def getf(x):
@@ -860,6 +860,8 @@ class jacobian_eval(eval):
         self.num_conditions = num_conditions
         # read mech
         _, self.specs, self.reacs = read_mech_ct(gas=gas)
+        # and reassign
+        reassign_species_lists(self.reacs, self.specs)
 
         # predefines
         self.gas = gas
