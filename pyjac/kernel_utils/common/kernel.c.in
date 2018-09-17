@@ -490,7 +490,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     cog.out("""
 {{
     this->max_per_run = {max_per_run};
-    this->compiled = !do_not_compile;
+    this->compiled = do_not_compile;
     this->init(problem_size, work_size);
     """.format(num_source=num_source, binary_path=callgen.binname,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
@@ -623,7 +623,7 @@ int main(int argc, char* argv[])
             args=local_args,
             order=callgen.order), stdindent))
       # make kernel
-      cog.outl(indent('{0}Kernel kernel(problem_size, work_size);'.format(
+      cog.outl(indent('{0}Kernel kernel;'.format(
             callgen.name.title()), stdindent))
      ]]]
      [[[end]]]*/
@@ -637,7 +637,7 @@ int main(int argc, char* argv[])
     }
 
     double setup_time = GetTimer();
-    kernel.resize(problem_size, work_size);
+    kernel.resize(problem_size, work_size, !compile);
     StartTimer();
     /*[[[cog
       local_args = ', '.join([lmem.get_name(False, arr)
