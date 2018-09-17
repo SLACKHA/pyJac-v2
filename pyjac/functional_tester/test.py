@@ -444,9 +444,6 @@ class validation_runner(runner, hdf5_store):
                                out_dir=my_test, ktype=self.rtype, shared=True,
                                as_executable=True)
 
-        # store phi array to file
-        np.array(phi, order=state['order'], copy=True).flatten('K').tofile(phi_path)
-
         num_conditions = self.num_conditions
         limited_num_conditions = self.have_limit(state, limits)
         if limited_num_conditions is not None:
