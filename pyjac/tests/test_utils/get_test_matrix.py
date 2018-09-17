@@ -489,7 +489,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             continue
 
         for plookup in plats:
-            clean = plookup.copy()
             # get default number of cores
             cores = default_num_cores[:]
             # special gpu handling for cores
@@ -548,7 +547,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 # now apply overrides
                 outplat = plookup.copy()
                 for current in overrides:
-                    ivectypes_override = None
                     for override in overrides:
                         if override == 'num_cores':
                             override_log('num_cores', icores,

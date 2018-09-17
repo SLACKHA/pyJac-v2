@@ -1809,28 +1809,28 @@ class runner(object):
 
         return None
 
-    def get_filename(self, state):
+    def get_filename(self, loopy_opts, platform, conp, num_cores):
         # store vector size
-        self.current_vecsize = state['vecsize']
+        self.current_vecsize = loopy_opts.vector_width
         desc = self.descriptor
         if self.rtype == KernelType.jacobian:
-            desc += '_sparse' if utils.EnumType(JacobianFormat)(state['sparse'])\
-                 == JacobianFormat.sparse else '_full'
-        if utils.EnumType(JacobianType)(state['jac_type']) == \
-                JacobianType.finite_difference:
+            desc += '_sparse' if loopy_opts.jac_format == JacobianFormat.sparse \
+                else '_full'
+        if loopy_opts.jac_type == JacobianType.finite_difference:
             desc = 'fd' + desc
 
-        vecsize = state['vecsize'] if utils.can_vectorize_lang[state['lang']] and \
-            (state['wide'] or state['deep']) else '1'
-        vectype = 'w' if state['wide'] else 'd' if state['deep'] else 'par'
-        platform = state['platform']
-        split = 'split' if state['split_kernels'] else 'single'
-        conp = 'conp' if state['conp'] else 'conv'
+        vecsize = loopy_opts.vector_width if (
+            utils.can_vectorize_lang[loopy_opts.lang]
+            and loopy_opts.vector_width) else '1'
+        vectype = 'w' if loopy_opts.width else 'd' if loopy_opts.depth else 'par'
+        assert loopy_opts.rate_spec_kernels == loopy_opts.rop_net_kernels
+        split = 'split' if loopy_opts.rate_spec_kernels else 'single'
+        conp = 'conp' if conp else 'conv'
 
         return '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                desc, state['lang'], vecsize, state['order'],
-                vectype, platform, state['rate_spec'],
-                split, state['num_cores'], conp) + self.filetype
+                desc, loopy_opts.lang, vecsize, loopy_opts.order,
+                vectype, platform, utils.enum_to_string(loopy_opts.rate_spec),
+                split, num_cores, conp) + self.filetype
 
     def post(self):
         pass
@@ -2075,7 +2075,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
             conp = wrapper.state['conp']
 
             # get the filename
-            data_output = run.get_filename(wrapper.state.copy())
+            data_output = run.get_filename(opts, wrapper.state['platform'], conp,
+                                           wrapper.state['num_cores'])
 
             # if already run, continue
             data_output = os.path.join(this_dir, data_output)
