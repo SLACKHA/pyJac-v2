@@ -1957,7 +1957,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
             [], directory=os.path.join(work_dir, mech_name))
 
         # rewrite data to file in 'C' order
-        dbw.write(this_dir, num_conditions=num_conditions, data=data)
+        # dbw.write(this_dir, num_conditions=num_conditions, data=data)
 
         # apply species mapping to data
         data[:, 2:] = data[:, 2 + gas_map]
