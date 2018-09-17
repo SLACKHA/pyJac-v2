@@ -995,7 +995,7 @@ class jacobian_eval(eval):
         return jac
 
     def eval_answer(self, phi, state):
-        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
+        jac = self.__fast_jac(state['conp'], state['jac_format'], state['order'])
         if jac is not None:
             return jac
 
@@ -1095,7 +1095,7 @@ class jacobian_eval(eval):
         thresh_name = 'threshold_' + 'cp' if state['conp'] else 'cv'
         setattr(self, thresh_name, np.sqrt(threshold))
 
-        if state['sparse'] == 'sparse':
+        if state['jac_format'] == 'sparse':
             name += '_sp'
             thresh_name += '_sp'
 
@@ -1116,7 +1116,7 @@ class jacobian_eval(eval):
     def threshold(self, state):
         # find appropriate threshold from state
         name = 'threshold_' + 'cp' if state['conp'] else 'cv'
-        if state['sparse'] == 'sparse':
+        if state['jac_format'] == 'sparse':
             name += '_sp'
             name += '_{}'.format(state['order'])
         return getattr(self, name)
@@ -1128,7 +1128,7 @@ class jacobian_eval(eval):
             [arc.jacobian_array], KernelType.species_rates)
 
     def ref_answers(self, state):
-        return [self.__fast_jac(state['conp'], state['sparse'], state['order'],
+        return [self.__fast_jac(state['conp'], state['jac_format'], state['order'],
                                 require=True)]
 
     def eval_error(self, offset, this_run, state, outputs, answers, err_dict):
