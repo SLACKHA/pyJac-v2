@@ -1823,6 +1823,8 @@ class runner(object):
             utils.can_vectorize_lang[loopy_opts.lang]
             and loopy_opts.vector_width) else '1'
         vectype = 'w' if loopy_opts.width else 'd' if loopy_opts.depth else 'par'
+        if loopy_opts.is_simd:
+            vectype += 'simd'
         assert loopy_opts.rate_spec_kernels == loopy_opts.rop_net_kernels
         split = 'split' if loopy_opts.rate_spec_kernels else 'single'
         conp = 'conp' if conp else 'conv'
