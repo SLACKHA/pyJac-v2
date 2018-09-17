@@ -1911,6 +1911,9 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         my_obj = os.path.join(this_dir, obj_dir)
         my_build = os.path.join(this_dir, build_dir)
         my_test = os.path.join(this_dir, test_dir)
+        # store phi paths
+        phi_cp_path = os.path.join(this_dir, 'data_cp.bin')
+        phi_cv_path = os.path.join(this_dir, 'data_cv.bin')
         utils.create_dir(my_obj)
         utils.create_dir(my_build)
         utils.create_dir(my_test)
@@ -1958,10 +1961,6 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
 
         # apply species mapping to data
         data[:, 2:] = data[:, 2 + gas_map]
-
-        # figure out the number of conditions to test
-        num_conditions = int(
-            np.floor(num_conditions / max_vec_width) * max_vec_width)
 
         # check limits
         if 'limits' in mech_info:
@@ -2020,12 +2019,20 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         run.pre(gas, {'T': T, 'P': P, 'V': V, 'moles': moles},
                 num_conditions, max_vec_width)
 
+        # get the phi's
+        phi_cp = run.get_phi(T, P, V, moles)
+        phi_cv = run.get_phi(T, V, P, moles)
+        np.array(phi_cp, order='C', copy=True).flatten('C').tofile(phi_cp_path)
+        np.array(phi_cv, order='C', copy=True).flatten('C').tofile(phi_cv_path)
+
         # clear old data
         del data
         del T
         del P
         del V
         del moles
+        del phi_cp
+        del phi_cv
 
         # begin iterations
         from collections import defaultdict
@@ -2083,8 +2090,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                               mech_info['limits']):
                 continue
 
-            # store phi path
-            phi_path = os.path.join(this_dir, 'data.bin')
+            phi_path = phi_cp_path if conp else phi_cv_path
 
             try:
                 if regen:
