@@ -840,6 +840,13 @@ def test_remove_work_array_consts():
         '(long int const *__restrict__ iwk)') == '(long int *__restrict__ iwk)'
 
 
+def test_remove_const_array():
+    assert kernel_generator._remove_const_array(
+        'double const *__restrict__ test', 'test') == 'double *__restrict__ test'
+    assert kernel_generator._remove_const_array(
+        'double4 const *__restrict__ test', 'test') == 'double4 *__restrict__ test'
+
+
 def test_target_record():
     # make bad argument (i.e, one without the target set)
     import numpy as np
