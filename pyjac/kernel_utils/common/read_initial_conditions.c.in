@@ -54,7 +54,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
     FILE *fp = fopen (filename, "rb");
     if (fp == NULL)
     {
-        fprintf(stderr, "Could not open file: %s\\\n", filename);
+        fprintf(stderr, "Could not open file: %s\n", filename);
         exit(-1);
     }
 
@@ -67,7 +67,7 @@ void read_initial_conditions(const char* filename, unsigned int NUM,
         if (count != (BUFF_SIZE))
         {
             fprintf(stderr, "File (%s) is incorrectly formatted, %d "
-                "doubles were expected but only %d were read.\\n",
+                "doubles were expected but only %d were read.\n",
                 filename, BUFF_SIZE, count);
             exit(-1);
         }
