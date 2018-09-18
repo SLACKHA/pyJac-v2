@@ -1,50 +1,61 @@
 Beta release tasks:
-  ☐ Figure out how to properly emit fast_powi / fast_powf automagically depending
+  🗹 Figure out how to properly emit fast_powi / fast_powf automagically depending
     on data type
-  ☐ Get the rest of the write race warnings
-  ☐ Get the new ambiguous dependency warnings as well
+  🗹 Get the rest of the write race warnings
+  🗹 Get the new ambiguous dependency warnings as well
   ☐ Make platform specification completely independent of pyopencl -- currently, it requires the opencl platform to be installed on the generating machine, but it should only require a platform file.
+    🗹 In progress, need to do a full test on a machine w/o pyopencl installed
   ☐ Documentation
 Improvements:
-  ☐ Make libgen use codepy, since we depend on it already
+  🗹 Make libgen use codepy, since we depend on it already
   ☐ Fusion of similar kernels (e.g., the different Troe / SRI / Lindemann falloff derivative variants)
   ☐ Preload of commonly reused data into __local mem for deep-vectorizations on GPUs
     ☐ Note: the utility of this is limited at the moment, as NVIDIA doesn't yet support atomics
       hence, this will become more pressing when CUDA support is enabled
-  ☐ New targets: ISPC, CUDA
+  ☐ New targets: ISPC, CUDA, Vectorized OpenMP
 Add-ons:
   ☐ Add common BLAS / LAPACK implementations (e.g. matrix mul, inversion, etc.), particularly
     for sparse matrices
 Codegen:
   ☐ Find a way to unify kernels, such that a single library / pywrapper exposes
     all available code
-  ☐ Reimplement wrapper generation using Cog
+      🗹 In progress -- we have the ability to generate different classes that can call
+         each respective kernel, but we don't (yet) put a class for each possiblty kernel
+         in the calling program
+  🗹 Reimplement wrapper generation using Cog
     ☐ Make the wrapper a C++ interface, such that we can embed useful info (species ordering, etc.), as well as simplify kernel exection / memory allocation
-    ☐ Serialize the pre-initialize memory manager, and load in Cog generation to simplify this
+      🗹 In progress, need to add more information variables / array creators
+    🗹 Serialize the pre-initialize memory manager, and load in Cog generation to simplify this
     ☐ Leave stubs for extension to CUDA / ISPC / etc.
-    ☐ Unit tests of code-gen should be make to accompany
+    🗹 Unit tests of code-gen should be make to accompany
   ☐ Longer-term: define use fstrings for loopy-code generation
       ☐ Also, implement a compiler pre-define in loopy to make life easier
-  ☐ Much more in-depth codegen tests
+  🗹 Much more in-depth codegen tests
+  ☐ Implement long-running tests on Travis
       ☐ At very least, implement a 'very-long' (only) test on Travis
-        ☐ Running of performance / validation tester would be nice as well
+      ☐ Running of performance / validation tester would be nice as well
 misc:
   ☐ Better tests of instruction creator
+  ☐ Figure out Adept packaging bug for Conda on older servers
 Schemas:
   ☐ Figure out how to directly coerce schemas into optionloops / dicts to save trouble
   ☐ Various improvements
-    ☐ Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
+     🗹 Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
 
 
 Near-term plans:
-  ☐ Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
-  ☐ Tag pre-print version
+  🗹 Allow memory-limit specification in a variable/codegen-platform to implement overrides of global
+  🗹 Tag pre-print version
+  🗹 explict-simd
+  🗹 mechanism sorting
+  🗹 Change data pre-allocation for non-inputs / outputs to only use vector-size * num_threads * array size
+    🗹 Along these lines, allow for fixed-size allocations / fully implement "interface" mode for Hekki
   ☐ Switch to int64 to avoid overflow limiting
+    🗹 This is currently possible, but I haven't tested yet.
   ☐ Unify the command-line flags w/ the oploops for the test-matrix to make that more sane
+    🗹 This has at been somewhat mitigated (the depth / width options have been converted)
   ☐ In this vein, change the text matrix to an object that can be coerced from yaml input directly via ceberus
   ☐ Simplify split vector size division to right-shift and test
-  ☐ Fully implement "interface" mode for Hekki
+    🗹 This is partially resolved, at least for explicit simd
   ☐ Fix linting errors
   ☐ Interface with Chris' RK / ROS solvers for accelerInt
-  ☐ Build Sandia Flame model w/ OpenFOAM (https://openfoamwiki.net/images/8/8a/Christ_OFW6_slides.pdf)
-  ☐ Profit

@@ -43,17 +43,16 @@ memory-limits:
 platform-list:
   - name: intel
     lang: opencl
-    vectype: [wide, par]
-    # use a vector width of 2, 4 & 8
-    vecsize: [2, 4, 8]
-    atomics: False
+    # use a wide-vectorization w/ vector-width of 2, 4 & 8
+    # note: a parallel case will be added by default
+    width: [2, 4, 8]
+    atomic_doubles: False
   - name: openmp
     lang: c
-    vectype: [par]
 
 # test list
 test-list:
-  # a validation test for both spurce rates & jacobian
+  # a validation test for both source rates & jacobian
   - test-type: validation
     eval-type: both
   # source rate performance test
@@ -73,8 +72,8 @@ test-list:
         # limit number of cores
         num_cores: [1]
         # use only parallel FD-evaluation
-        vecsize: []
-        vectype: ['par']
+        width: []
+        depth: []
         # C-order only
         order: ['C']
         # conp-only
@@ -83,4 +82,4 @@ test-list:
     exact:
       both:
         # only test vector width of 4
-        vecsize: [4]
+        width: [4]

@@ -13,13 +13,13 @@ from pyjac.core.rate_subs import (
     get_temperature_rate, get_concentrations,
     get_molar_rates, get_extra_var_rates, reset_arrays)
 from pyjac.core.exceptions import BrokenPlatformError
-from pyjac.loopy_utils.loopy_utils import (loopy_options, RateSpecialization,
-                                           kernel_call)
+from pyjac.loopy_utils.loopy_utils import (loopy_options, kernel_call)
 from pyjac.tests import TestClass, test_utils, get_test_langs
-from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
+    KernelType, RateSpecialization
 from pyjac.tests.test_utils import (get_comparable, indexer, _generic_tester,
                                     _full_kernel_test)
-from pyjac.libgen import build_type
+from pyjac.core.array_creator import kint_type
 
 # modules
 import cantera as ct
@@ -66,7 +66,7 @@ class kf_wrapper(object):
                             rate_spec=loopy_opts.rate_spec,
                             rate_spec_kernels=loopy_opts.rate_spec_kernels)
                 if loopy_opts.lang == 'opencl':
-                    opts['platform'] = loopy_opts.platform.name
+                    opts['platform'] = loopy_opts.platform_name
                 opts = loopy_options(**opts)
             except BrokenPlatformError:
                 # bad platform
@@ -75,7 +75,7 @@ class kf_wrapper(object):
                 opts = loopy_options(order=loopy_opts.order,
                                      rate_spec=loopy_opts.rate_spec,
                                      rate_spec_kernels=loopy_opts.rate_spec_kernels,
-                                     platform=loopy_opts.platform.name,
+                                     platform=loopy_opts.platform_name,
                                      width=4 if loopy_opts.order == 'F' else None,
                                      depth=4 if loopy_opts.order == 'C' else None)
 
@@ -358,7 +358,7 @@ class SubTest(TestClass):
                                 if (isinstance(x, ct.FalloffReaction) and not
                                     isinstance(x, ct.ChemicallyActivatedReaction))
                                 else int(reaction_type.chem) for x in fall_reacs],
-                                       dtype=np.int32) - int(reaction_type.fall))
+                                       dtype=kint_type) - int(reaction_type.fall))
         # test blending func
         blend_types = []
         for x in fall_reacs:
@@ -370,7 +370,7 @@ class SubTest(TestClass):
                 blend_types.append(falloff_form.lind)
         assert np.array_equal(
             result['fall']['blend'], np.array(
-                [int(x) for x in blend_types], dtype=np.int32))
+                [int(x) for x in blend_types], dtype=kint_type))
         # test parameters
         # troe
         if result['fall']['troe']['num']:
@@ -437,7 +437,7 @@ class SubTest(TestClass):
                 thd_eff.append(eff_dict[spec])
         # and test
         assert np.array_equal(
-            result['thd']['type'], np.array(thd_type, dtype=np.int32))
+            result['thd']['type'], np.array(thd_type, dtype=kint_type))
         assert np.array_equal(result['thd']['eff'], thd_eff)
         assert np.array_equal(result['thd']['spec_num'], thd_sp_num)
         assert np.array_equal(result['thd']['spec'], thd_sp)
@@ -480,7 +480,8 @@ class SubTest(TestClass):
 
         phi = self.store.phi_cp
         P = self.store.P
-        ref_const = self.store.fwd_rate_constants
+        ref_const = self.store.fwd_rate_constants if rtype != 'fall' else \
+            self.store.fall_rate_constants
 
         reacs = self.store.reacs
 
@@ -499,11 +500,20 @@ class SubTest(TestClass):
             'cheb': (
                 np.array([i for i, x in enumerate(reacs)
                           if x.match((reaction_type.cheb,))]),
-                get_cheb_arrhenius_rates)}
+                get_cheb_arrhenius_rates),
+            'fall': (
+                np.arange(len([i for i, x in enumerate(reacs)
+                               if x.match((reaction_type.fall,
+                               reaction_type.chem))])),
+                lambda *args, **kwargs: get_simple_arrhenius_rates(
+                    *args, **kwargs, falloff=True))}
 
-        args = {'phi': lambda x: np.array(phi, order=x, copy=True),
-                'kf': lambda x: np.zeros_like(ref_const, order=x)}
-        if rtype != 'simple':
+        args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
+        if rtype != 'fall':
+            args['kf'] = lambda x: np.zeros_like(ref_const, order=x)
+        else:
+            args['kf_fall'] = lambda x: np.zeros_like(ref_const, order=x)
+        if rtype not in ['simple', 'fall']:
             args['P_arr'] = P
 
         if not masks[rtype][0].size:
@@ -528,8 +538,8 @@ class SubTest(TestClass):
             if len(out[0].shape) == 3:
                 # vectorized data order
                 # get the new indicies
-                _get_index = indexer(ref_const.ndim, out[0].ndim, out[0].shape,
-                                     kc.current_order)
+
+                _get_index = indexer(kc.current_split, ref_const.shape)
                 inds = _get_index((self.store.thd_inds,), (1,))
                 pmod_inds = _get_index((np.arange(self.store.thd_inds.size),), (1,))
                 # split the pres mod
@@ -540,7 +550,7 @@ class SubTest(TestClass):
                 out[0][:, self.store.thd_inds] *= self.store.ref_pres_mod
 
         compare_mask, rate_func = masks[rtype]
-        post = None if rtype != 'simple' else __simple_post
+        post = None if rtype not in 'simple' else __simple_post
 
         # see if mechanism has this type
         if not compare_mask[0].size:
@@ -555,11 +565,15 @@ class SubTest(TestClass):
                          post_process=post, **args)
 
         self.__generic_rate_tester(
-            rate_func, kc, do_ratespec=rtype == 'simple', **kwargs)
+            rate_func, kc, do_ratespec=rtype in ['simple', 'fall'], **kwargs)
 
     @attr('long')
     def test_simple_rate_constants(self):
         self.__test_rateconst_type('simple')
+
+    @attr('long')
+    def test_fall_rate_constants(self):
+        self.__test_rateconst_type('fall')
 
     @attr('long')
     def test_plog_rate_constants(self):
@@ -632,7 +646,9 @@ class SubTest(TestClass):
         ref_Pr = self.store.ref_Pr
         ref_ans = self.store.ref_Sri.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
-                'phi': lambda x: np.array(ref_phi, order=x, copy=True)
+                'phi': lambda x: np.array(ref_phi, order=x, copy=True),
+                'X': lambda x: np.zeros_like(self.store.ref_Sri, order=x),
+                'Fi': lambda x: np.zeros_like(ref_Pr, order=x)
                 }
 
         # get SRI reaction mask
@@ -644,7 +660,7 @@ class SubTest(TestClass):
         kc = kernel_call('fall_sri', ref_ans, out_mask=[0],
                          compare_mask=[get_comparable((sri_mask,), ref_ans)],
                          ref_ans_compare_mask=[get_comparable(
-                            (np.arange(self.store.sri_inds.size, dtype=np.int32),),
+                            (np.arange(self.store.sri_inds.size, dtype=kint_type),),
                             ref_ans)],
                          **args)
         self.__generic_rate_tester(get_sri_kernel, kc)
@@ -656,6 +672,10 @@ class SubTest(TestClass):
         ref_ans = self.store.ref_Troe.copy()
         args = {'Pr': lambda x: np.array(ref_Pr, order=x, copy=True),
                 'phi': lambda x: np.array(phi, order=x, copy=True),
+                'Fi': lambda x: np.zeros_like(ref_Pr, order=x),
+                'Atroe': lambda x: np.zeros_like(self.store.ref_Troe, order=x),
+                'Btroe': lambda x: np.zeros_like(self.store.ref_Troe, order=x),
+                'Fcent': lambda x: np.zeros_like(self.store.ref_Troe, order=x)
                 }
 
         # get Troe reaction mask
@@ -667,7 +687,7 @@ class SubTest(TestClass):
         kc = kernel_call('fall_troe', ref_ans, out_mask=[0],
                          compare_mask=[get_comparable((troe_mask,), ref_ans)],
                          ref_ans_compare_mask=[get_comparable(
-                            (np.arange(self.store.troe_inds.size, dtype=np.int32),),
+                            (np.arange(self.store.troe_inds.size, dtype=kint_type),),
                             ref_ans)], **args)
         self.__generic_rate_tester(get_troe_kernel, kc)
 
@@ -679,13 +699,16 @@ class SubTest(TestClass):
             np.in1d(self.store.fall_inds, self.store.lind_inds))[0]
         if not lind_mask.size:
             return
+
+        args = {'Fi': lambda x: np.zeros_like(self.store.ref_Pr, order=x)}
         # need a seperate answer mask to deal with the shape difference
         # in split arrays
-        ans_mask = np.arange(self.store.lind_inds.size, dtype=np.int32)
+        ans_mask = np.arange(self.store.lind_inds.size, dtype=kint_type)
         # create the kernel call
         kc = kernel_call('fall_lind', ref_ans,
                          compare_mask=[get_comparable((lind_mask,), ref_ans)],
-                         ref_ans_compare_mask=[get_comparable((ans_mask,), ref_ans)])
+                         ref_ans_compare_mask=[get_comparable((ans_mask,), ref_ans)],
+                         **args)
         self.__generic_rate_tester(get_lind_kernel, kc)
 
     @attr('long')
@@ -778,6 +801,8 @@ class SubTest(TestClass):
     @attr('long')
     def test_rop_net(self):
         fwd_removed = self.store.fwd_rxn_rate.copy()
+        # turn off division by zero warnings temporarily
+        hold = np.seterr(divide='ignore', invalid='ignore')
         fwd_removed[:, self.store.thd_inds] = fwd_removed[
             :, self.store.thd_inds] / self.store.ref_pres_mod
         thd_in_rev = np.where(
@@ -787,6 +812,7 @@ class SubTest(TestClass):
         rev_removed = self.store.rev_rxn_rate.copy()
         rev_removed[:, rev_update_map] = rev_removed[
             :, rev_update_map] / self.store.ref_pres_mod[:, thd_in_rev]
+        np.seterr(**hold)
 
         # remove ref pres mod = 0 (this is a 0 rate)
         fwd_removed[np.where(np.isnan(fwd_removed))] = 0
@@ -834,7 +860,7 @@ class SubTest(TestClass):
         kc = kernel_call('spec_rates', [wdot],
                          compare_mask=[
                             get_comparable((np.arange(self.store.gas.n_species,
-                                                      dtype=np.int32),), wdot)],
+                                                      dtype=kint_type),), wdot)],
                          **args)
 
         # test regularly
@@ -854,7 +880,7 @@ class SubTest(TestClass):
         kc = [kernel_call('temperature_rate', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
                           compare_mask=[get_comparable(
-                            (np.array([0], dtype=np.int32),), self.store.dphi_cp)],
+                            (np.array([0], dtype=kint_type),), self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -865,7 +891,7 @@ class SubTest(TestClass):
         kc = [kernel_call('temperature_rate', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
                           compare_mask=[get_comparable(
-                            (np.array([0], dtype=np.int32),), self.store.dphi_cv)],
+                            (np.array([0], dtype=kint_type),), self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_temperature_rate, kc,
@@ -877,7 +903,9 @@ class SubTest(TestClass):
             'phi': lambda x: np.array(
                 self.store.phi_cp, order=x, copy=True),
             'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)}
+                self.store.species_rates, order=x, copy=True),
+            'dphi': lambda x: np.zeros_like(
+                self.store.phi_cp, order=x)}
 
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
@@ -895,7 +923,9 @@ class SubTest(TestClass):
             'V_arr': lambda x: np.array(
                 self.store.V, order=x, copy=True),
             'wdot': lambda x: np.array(
-                self.store.species_rates, order=x, copy=True)}
+                self.store.species_rates, order=x, copy=True),
+            'dphi': lambda x: np.zeros_like(
+                self.store.phi_cp, order=x)}
         # test conv
         kc = [kernel_call('get_molar_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
@@ -924,7 +954,7 @@ class SubTest(TestClass):
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cp],
                           input_mask=['cv', 'u'],
                           compare_mask=[get_comparable(
-                            (np.array([1], dtype=np.int32),), self.store.dphi_cp)],
+                            (np.array([1], dtype=kint_type),), self.store.dphi_cp)],
                           **args)]
 
         # test conp
@@ -945,7 +975,7 @@ class SubTest(TestClass):
         kc = [kernel_call('get_extra_var_rates', [self.store.dphi_cv],
                           input_mask=['cp', 'h'],
                           compare_mask=[get_comparable(
-                            (np.array([1], dtype=np.int32),), self.store.dphi_cv)],
+                            (np.array([1], dtype=kint_type),), self.store.dphi_cv)],
                           **args)]
         # test conv
         self.__generic_rate_tester(get_extra_var_rates, kc,
@@ -973,5 +1003,5 @@ class SubTest(TestClass):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp
                           else self.store.dphi_cv,
-                          btype=build_type.species_rates, call_name='species_rates',
+                          ktype=KernelType.species_rates, call_name='species_rates',
                           loose_rtol=5e-3)

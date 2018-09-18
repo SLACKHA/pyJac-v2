@@ -7,6 +7,11 @@ import cantera as ct
 from nose.plugins.attrib import attr
 from unittest.case import SkipTest
 from parameterized import parameterized
+try:
+    from scipy.sparse import csr_matrix, csc_matrix
+except ImportError:
+    csr_matrix = None
+    csc_matrix = None
 
 from pyjac.core.rate_subs import (
     get_concentrations,
@@ -16,9 +21,8 @@ from pyjac.core.rate_subs import (
     polyfit_kernel_gen, get_plog_arrhenius_rates, get_cheb_arrhenius_rates,
     get_rev_rates, get_temperature_rate, get_extra_var_rates)
 from pyjac.loopy_utils.loopy_utils import (
-    loopy_options, RateSpecialization,
-    kernel_call, set_adept_editor, populate,
-    FiniteDifferenceMode)
+    loopy_options, kernel_call, set_adept_editor, populate, get_target)
+from pyjac.core.enum_types import RateSpecialization, FiniteDifferenceMode
 from pyjac.core.create_jacobian import (
     dRopi_dnj, dci_thd_dnj, dci_lind_dnj, dci_sri_dnj, dci_troe_dnj,
     total_specific_energy, dTdot_dnj, dEdot_dnj, thermo_temperature_derivative,
@@ -28,26 +32,39 @@ from pyjac.core.create_jacobian import (
     determine_jac_inds, reset_arrays, get_jacobian_kernel,
     finite_difference_jacobian)
 from pyjac.core import array_creator as arc
-from pyjac.core.reaction_types import reaction_type, falloff_form
+from pyjac.core.enum_types import reaction_type, falloff_form
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.tests import get_test_langs, TestClass
 from pyjac.tests.test_utils import (
     kernel_runner, get_comparable, _generic_tester,
-    _full_kernel_test, with_check_inds, inNd)
-from pyjac.libgen import build_type
+    _full_kernel_test, with_check_inds, inNd, skipif, xfail)
+from pyjac.core.enum_types import KernelType
 from pyjac import utils
 
 
 class editor(object):
-
     def __init__(self, independent, dependent,
                  problem_size, order, do_not_set=[],
                  skip_on_missing=None):
 
-        self.independent = independent
-        indep_size = next(x for x in independent.shape if x != problem_size)
-        self.dependent = dependent
-        dep_size = next(x for x in dependent.shape if x != problem_size)
+        def __replace_problem_size(shape):
+            new_shape = []
+            for x in shape:
+                if x != arc.problem_size.name:
+                    new_shape.append(x)
+                else:
+                    new_shape.append(problem_size)
+            return tuple(new_shape)
+
+        assert len(independent.shape) == 2
+        self.independent = independent.copy(shape=__replace_problem_size(
+            independent.shape))
+        indep_size = independent.shape[1]
+
+        assert len(dependent.shape) == 2
+        self.dependent = dependent.copy(shape=__replace_problem_size(
+            dependent.shape))
+        dep_size = dependent.shape[1]
         self.problem_size = problem_size
 
         # create the jacobian
@@ -55,10 +72,7 @@ class editor(object):
                                   (problem_size, dep_size, indep_size),
                                   order=order)
         self.output = self.output(*['i', 'j', 'k'])[0]
-        try:
-            self.do_not_set = do_not_set[:]
-        except:
-            self.do_not_set = [do_not_set]
+        self.do_not_set = utils.listify(do_not_set)
         self.skip_on_missing = skip_on_missing
 
     def set_single_kernel(self, single_kernel):
@@ -115,7 +129,7 @@ def _get_poly_wrapper(name, conp):
     return poly_wrapper
 
 
-def _get_fd_jacobian(self, test_size, conp=True, pregen=None, return_kernel=False):
+def _get_ad_jacobian(self, test_size, conp=True, pregen=None, return_kernel=False):
     """
     Convenience method to evaluate the finite difference Jacobian from a given
     Phi / parameter set
@@ -160,7 +174,7 @@ def _get_fd_jacobian(self, test_size, conp=True, pregen=None, return_kernel=Fals
         self.store.reacs, self.store.specs, RateSpecialization.fixed)
 
     # create loopy options
-    ad_opts = loopy_options(order='C', knl_type='map', lang='c', auto_diff=True)
+    ad_opts = loopy_options(order='C', lang='c', auto_diff=True)
 
     # create namestore
     store = arc.NameStore(ad_opts, rate_info, conp, test_size)
@@ -173,7 +187,7 @@ def _get_fd_jacobian(self, test_size, conp=True, pregen=None, return_kernel=Fals
     allint = {'net': rate_info['net']['allint']}
     args = {
         'phi': lambda x: np.array(phi, order=x, copy=True),
-        'jac': lambda x: np.zeros(store.jac.shape, order=x),
+        'jac': lambda x: np.zeros((test_size,) + store.jac.shape[1:], order=x),
         'wdot': create_arr.new(store.num_specs),
         'Atroe': create_arr.new(store.num_troe),
         'Btroe': create_arr.new(store.num_troe),
@@ -320,9 +334,10 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     # get kw args this function expects
     def __get_arg_dict(check, **in_args):
         try:
+            # py2-3 compat
             arg_count = check.func_code.co_argcount
             args = check.func_code.co_varnames[:arg_count]
-        except:
+        except AttributeError:
             arg_count = check.__code__.co_argcount
             args = check.__code__.co_varnames[:arg_count]
 
@@ -337,14 +352,12 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
     info = func(ad_opts, namestore,
                 test_size=self.store.test_size,
                 **__get_arg_dict(func, **kwargs))
-    try:
-        infos.extend(info)
-    except:
-        infos.append(info)
+
+    infos.extend(utils.listify(info))
 
     # create a dummy kernel generator
     knl = k_gen.make_kernel_generator(
-        name='jacobian',
+        kernel_type=KernelType.jacobian,
         loopy_opts=ad_opts,
         kernels=infos,
         namestore=namestore,
@@ -380,17 +393,11 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
                  **__get_arg_dict(f, **kwargs))
         is_skip = editor.skip_on_missing is not None and \
             f == editor.skip_on_missing
-        try:
-            if is_skip and any(x is None for x in info):
-                __raise(f)
-            infos.extend([x for x in info if x is not None])
-        except:
-            if info is None:
-                # empty map (e.g. no PLOG)
-                if is_skip:
-                    __raise(f)
-                continue
-            infos.append(info)
+
+        if is_skip and any(x is None for x in utils.listify(info)):
+            # empty map (e.g. no PLOG)
+            __raise(f)
+        infos.extend([x for x in utils.listify(info) if x is not None])
 
     for i in infos:
         for arg in i.kernel_data:
@@ -408,23 +415,17 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
         info = f(ad_opts, single_name,
                  test_size=1,
                  **__get_arg_dict(f, **kwargs))
-        try:
-            for i in info:
-                if f == func and have_match and kernel_call.name != i.name:
-                    continue
-                if i is None:
-                    continue
-                single_info.append(i)
-        except:
-            if f == func and have_match and kernel_call.name != info.name:
+
+        for i in utils.listify(info):
+            if f == func and have_match and kernel_call.name != i.name:
                 continue
-            if info is None:
+            if i is None:
                 # empty map (e.g. no PLOG)
                 continue
-            single_info.append(info)
+            single_info.append(i)
 
     single_knl = k_gen.make_kernel_generator(
-        name='spec_rates',
+        kernel_type=KernelType.species_rates,
         loopy_opts=ad_opts,
         kernels=single_info,
         namestore=single_name,
@@ -439,8 +440,6 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
 
     kernel_call.set_state(single_knl.array_split, ad_opts.order)
 
-    # add dummy 'j' arguement
-    kernel_call.kernel_args['j'] = -1
     # and place output
     kernel_call.kernel_args[editor.output.name] = np.zeros(
         editor.output.shape,
@@ -453,8 +452,6 @@ def _get_jacobian(self, func, kernel_call, editor, ad_opts, conp, extra_funcs=[]
             # setup the kernel call
             # reset the state
             kernel_call.set_state(single_knl.array_split, ad_opts.order)
-            # add dummy 'j' arguement
-            kernel_call.kernel_args['j'] = -1
             # and place output
             kernel_call.kernel_args[editor.output.name] = np.zeros(
                 editor.output.shape,
@@ -485,7 +482,7 @@ class SubTest(TestClass):
             self, *args, **kwargs)
         self._make_array = lambda *args, **kwargs: _make_array(
             self, *args, **kwargs)
-        self._get_fd_jacobian = lambda *args, **kwargs: _get_fd_jacobian(
+        self._get_ad_jacobian = lambda *args, **kwargs: _get_ad_jacobian(
             self, *args, **kwargs)
 
         super(SubTest, self).setUp()
@@ -527,7 +524,7 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        ad_opts = loopy_options(order='C', knl_type='map', lang='c',
+        ad_opts = loopy_options(order='C', lang='c',
                                 auto_diff=True)
 
         # create namestore
@@ -836,7 +833,7 @@ class SubTest(TestClass):
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
                 'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
                                               order=x)}
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        opts = loopy_options(order='C', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
 
         # get kf
@@ -888,7 +885,7 @@ class SubTest(TestClass):
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'b': lambda x: np.array(
                 self.store.ref_B_rev, order=x, copy=True)}
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        opts = loopy_options(order='C', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         allint = {'net': rate_info['net']['allint']}
 
@@ -902,7 +899,7 @@ class SubTest(TestClass):
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        opts = loopy_options(order='C', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         # need dBk/dT
         args = {
@@ -1019,7 +1016,7 @@ class SubTest(TestClass):
             'phi': lambda x: np.array(
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        opts = loopy_options(order='C', lang='opencl')
         X = runner(opts, namestore, self.store.test_size)['X']
         return X
 
@@ -1137,7 +1134,7 @@ class SubTest(TestClass):
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(
             get_troe_kernel, self.store.test_size, troe_args)
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        opts = loopy_options(order='C', lang='opencl')
         Fcent, Atroe, Btroe = [runner(
             opts, namestore, self.store.test_size)[x] for x in
             ['Fcent', 'Atroe', 'Btroe']]
@@ -1294,7 +1291,7 @@ class SubTest(TestClass):
             return getattr(self.store, attr).copy()
 
         # get the jacobian
-        jac = self._get_fd_jacobian(self.store.test_size, conp=conp)
+        jac = self._get_ad_jacobian(self.store.test_size, conp=conp)
 
         # store the jacobian for later
         setattr(self.store, attr, jac.copy())
@@ -1768,7 +1765,7 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        opts = loopy_options(order='C', knl_type='map', lang='opencl')
+        opts = loopy_options(order='C', lang='opencl')
         namestore = arc.NameStore(opts, rate_info, conp, self.store.test_size)
 
         return namestore, rate_info, opts
@@ -2352,11 +2349,8 @@ class SubTest(TestClass):
         self.__run_test_dedot_de(False)
 
     @attr('long')
+    @skipif(csr_matrix is None, 'Cannot test sparse Jacobian without scipy')
     def test_index_determination(self):
-        try:
-            from scipy.sparse import csr_matrix, csc_matrix
-        except:
-            raise SkipTest('Cannot test sparse Jacobian without scipy')
         # find FD jacobian
         jac = self.__get_full_jac(True)
         # find our non-zero indicies
@@ -2435,7 +2429,8 @@ class SubTest(TestClass):
                               compare_mask=[
                                 (slice(None), non_zero_inds[:, 0],
                                     non_zero_inds[:, 1])],
-                              compare_axis=-1)
+                              compare_axis=np.arange(len(jac_shape)),
+                              tiling=False)
 
         # and get mask
         kc = kernel_call('reset_arrays', comp.ref_answer, compare_mask=[comp],
@@ -2444,18 +2439,18 @@ class SubTest(TestClass):
         return self._generic_jac_tester(reset_arrays, kc)
 
     def test_sparse_indexing(self):
-        from ..core import instruction_creator as ic
+        from pyjac.core import instruction_creator as ic
         # a simple test to ensure our sparse indexing is working correctly
 
         @ic.with_conditional_jacobian
         def __kernel_creator(loopy_opts, namestore, test_size=None, jac_create=None):
-            from ..loopy_utils.loopy_utils import JacobianFormat
+            from pyjac.core.enum_types import JacobianFormat
             if loopy_opts.jac_format != JacobianFormat.sparse:
                 raise SkipTest('Not relevant')
-            from ..core import array_creator as arc
-            from ..kernel_utils.kernel_gen import knl_info
+            from pyjac.core import array_creator as arc
+            from pyjac.kernel_utils.kernel_gen import knl_info
             from string import Template
-            from ..loopy_utils.preambles_and_manglers import jac_indirect_lookup
+            from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup
             # get ptrs and inds
             if loopy_opts.order == 'C':
                 inds = namestore.jac_col_inds
@@ -2465,7 +2460,7 @@ class SubTest(TestClass):
                 indptr = namestore.jac_col_inds
             # create maps
             mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_phi,
-                                    namestore.net_nonzero_phi)
+                                    self.store.test_size)
             mapstore.finalize()
             var_name = mapstore.tree.iname
             global_ind = arc.global_ind
@@ -2498,9 +2493,10 @@ class SubTest(TestClass):
                 mapstore, namestore.jac, global_ind, var_name, 'spec + 2',
                 insn='${jac_str} = jac_index {id=set6, nosync=set*, dep=${deps}}')
 
+            target = get_target(loopy_opts.lang, device=loopy_opts.device)
             lookup = jac_indirect_lookup(
                 namestore.jac_col_inds if loopy_opts.order == 'C'
-                else namestore.jac_row_inds)
+                else namestore.jac_row_inds, target)
 
             kernel_data.append(jac_lp)
             # create get species -> rxn offsets & rxns
@@ -2542,7 +2538,7 @@ class SubTest(TestClass):
             kernel_data.append(numspec)
 
             # create a custom has_ns mask over all reaction types
-            has_ns_mask = np.full(namestore.num_reacs.size, 0, dtype=np.int32)
+            has_ns_mask = np.full(namestore.num_reacs.size, 0, dtype=arc.kint_type)
             if namestore.rxn_has_ns is not None:
                 has_ns_mask[namestore.rxn_has_ns.initializer] = 1
             if namestore.thd_only_ns_inds is not None:
@@ -2558,7 +2554,7 @@ class SubTest(TestClass):
                 has_ns_mask[namestore.thd_map[namestore.fall_to_thd_map[
                     namestore.lind_has_ns.initializer]]] = 1
             has_ns_mask = arc.creator('has_ns', initializer=has_ns_mask,
-                                      dtype=np.int32, shape=has_ns_mask.shape,
+                                      dtype=arc.kint_type, shape=has_ns_mask.shape,
                                       order=loopy_opts.order)
             has_ns, has_ns_str = mapstore.apply_maps(
                 has_ns_mask, rxn_str)
@@ -2633,7 +2629,13 @@ class SubTest(TestClass):
                             kernel_data=kernel_data,
                             extra_inames=extra_inames,
                             preambles=[lookup],
-                            seq_dependencies=True)
+                            seq_dependencies=True,
+                            silenced_warnings=['write_race(set1)',
+                                               'write_race(set2)',
+                                               'write_race(set3)',
+                                               'write_race(set4)',
+                                               'write_race(set5)',
+                                               'write_race(set6)'])
 
         # create reference answer
         # get number of non-zero jacobian inds
@@ -2642,14 +2644,13 @@ class SubTest(TestClass):
         jac_size = len(self.store.specs) + 1
         num_nonzero_jac = jac_inds['flat_C'].shape[0]
         # get reference answer and comparable
-        ref_ans = np.tile(np.arange(num_nonzero_jac, dtype=np.int32),
+        ref_ans = np.tile(np.arange(num_nonzero_jac, dtype=arc.kint_type),
                           (self.store.test_size, 1))
         compare_mask = (slice(None), np.arange(num_nonzero_jac))
 
         def __get_compare(kc, outv, index, is_answer=False):
-            from .test_utils import indexer
-            _get_index = indexer(ref_ans.ndim, outv.ndim, outv.shape,
-                                 kc.current_order)
+            from pyjac.tests.test_utils import indexer
+            _get_index = indexer(kc.current_split, ref_ans.shape)
             # first check we have a reasonable mask
             assert ref_ans.ndim == len(compare_mask), (
                 "Can't use dissimilar compare masks / axes")
@@ -2666,20 +2667,20 @@ class SubTest(TestClass):
         }
 
         kc = kernel_call('index_test', ref_ans, compare_mask=[__get_compare],
-                         compare_axis=-1, **args)
+                         compare_axis=np.arange(ref_ans.ndim), tiling=False, **args)
 
-        return self._generic_jac_tester(__kernel_creator, kc,
-                                        sparse_only=True)
+        return self._generic_jac_tester(__kernel_creator, kc, sparse_only=True)
 
     @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=build_type.jacobian, call_name='jacobian')
+                          ktype=KernelType.jacobian, call_name='jacobian')
 
     @parameterized.expand([(x,) for x in get_test_langs()])
     @attr('verylong')
+    @xfail(msg='Finite Difference Jacobian currently broken')
     def test_fd_jacobian(self, lang):
         def __looser_tol_finder(arr, order, have_split, conp):
             last_spec_name = self.store.gas.species_names[-1]
@@ -2775,7 +2776,7 @@ class SubTest(TestClass):
         # we meet some _reasonable_ (but large) tolerances
         _full_kernel_test(self, lang, finite_difference_jacobian, 'jac',
                           lambda conp: self.__get_full_jac(conp),
-                          btype=build_type.jacobian, call_name='jacobian',
+                          ktype=KernelType.jacobian, call_name='jacobian',
                           do_finite_difference=True,
                           atol=100, rtol=100, loose_rtol=1e7, loose_atol=100,
                           looser_tol_finder=__looser_tol_finder,

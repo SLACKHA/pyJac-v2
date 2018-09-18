@@ -46,12 +46,17 @@ def get_header_preamble(lang):
         The preamble to include
     """
     utils.check_lang(lang)
-    if lang == 'opencl':
+    if lang == 'c':
         return [textwrap.dedent("""
-    #if __OPENCL_C_VERSION__ < 120
-    #pragma OPENCL EXTENSION cl_khr_fp64: enable
-    #endif
-    """)]
+#ifdef _OPENMP
+ #include <omp.h>
+#else
+ #warning 'OpenMP not found! Unexpected results may occur if using more than one \
+thread.'
+ #define omp_get_num_threads() (1)
+#endif
+""".strip())]
+
     return []
 
 
@@ -173,7 +178,7 @@ class FileWriter(object):
         in_preamble = True
         brace_counter = 0
         for line in lines:
-            if 'void' in line:
+            if any(x in line for x in ['void', 'inline double']):
                 in_preamble = False
                 assert brace_counter == 0
 
@@ -231,10 +236,8 @@ class FileWriter(object):
         self.file.write('\n'.join(lines))
 
     def add_headers(self, headers):
-        if isinstance(headers, list):
-            self.headers.extend(headers)
-        else:
-            self.headers.append(headers)
+        headers = utils.listify(headers)
+        self.headers.extend(headers)
 
     def add_define(self, name, value=None):
         self.defines.append((name, value))

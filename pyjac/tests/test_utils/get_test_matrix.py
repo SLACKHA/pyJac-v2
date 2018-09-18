@@ -7,14 +7,13 @@ from nose.tools import nottest
 import six
 from optionloop import OptionLoop
 
-from pyjac.tests import _get_test_input, get_test_langs, platform_is_gpu
-from pyjac.libgen import build_type
+from pyjac.core.enum_types import KernelType, JacobianType, JacobianFormat
 from pyjac.utils import enum_to_string, can_vectorize_lang, listify, EnumType, \
-    stringify_args
-from pyjac.loopy_utils.loopy_utils import JacobianType, JacobianFormat
+    stringify_args, platform_is_gpu
+from pyjac.tests import _get_test_input, get_test_langs
 from pyjac.schemas import build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
-    DuplicateTestException, InvalidTestEnivironmentException, \
+    DuplicateTestException, InvalidTestEnvironmentException, \
     UnknownOverrideException, InvalidOverrideException
 
 model_key = r'model-list'
@@ -120,36 +119,26 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
             # set lang
             inner_loop.append(('lang', allowed_langs))
 
-            # get vectorization type and size
-            vectype = listify('par' if (
-                'vectype' not in p or not can_vectorize_lang[allowed_langs])
-                else p['vectype'])
-            # check if we have a vectorization
-            if not (len(vectype) == 1 and vectype[0] == 'par'):
-                # try load the vecsize, fail on missing
-                try:
-                    vecsize = [x for x in listify(p['vecsize'])]
-                except TypeError:
-                    raise Exception(
-                        'Platform {} has non-parallel vectype(s) {} but no supplied '
-                        'vector size.'.format(
-                            p['name'], [x for x in vectype if x != 'par']))
+            def _get(vecsize, hit):
+                if not hit:
+                    return vecsize + [None]
+                return vecsize
 
-                add_none = 'par' in vectype
-                for v in [x.lower() for x in vectype]:
-                    def _get(add_none):
-                        if add_none:
-                            return vecsize + [None]
-                        return vecsize
-                    if v == 'wide':
-                        inner_loop.append(('width', _get(add_none)))
-                        add_none = False
-                    elif v == 'deep':
-                        inner_loop.append(('depth', _get(add_none)))
-                        add_none = False
-                    elif v != 'par':
-                        raise Exception('Platform {} has invalid supplied vectype '
-                                        '{}'.format(p['name'], v))
+            def _add_vectype(key, hit=None):
+                hit = False if hit is None else hit
+                if key in p:
+                    assert can_vectorize_lang[allowed_langs], (
+                        'Cannot vectorize language: {}.'
+                        'Remove `{}` specification from platform!'.format(
+                            allowed_langs, key))
+                    # see if the user specified a parallel case
+                    hit = any(not x for x in p[key]) or hit
+                    inner_loop.append((key, _get(p[key], hit)))
+                    hit = True
+                return hit
+
+            _add_vectype('width')
+            _add_vectype('depth')
 
             # fill in missing vectypes
             for x in ['width', 'depth']:
@@ -157,18 +146,16 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                     inner_loop.append((x, None))
 
             # check for atomics
-            if 'atomics' in p:
-                inner_loop.append(('use_atomics', p['atomics']))
+            if 'atomic_doubles' in p:
+                inner_loop.append(('use_atomic_doubles', p['atomic_doubles']))
+            if 'atomic_ints' in p:
+                inner_loop.append(('use_atomic_ints', p['atomic_ints']))
+            # check for is_simd
+            if 'is_simd' in p:
+                inner_loop.append(('is_simd', p['is_simd']))
 
             # and store platform
             inner_loop.append(('platform', p['name']))
-
-            # finally check for seperate_kernels
-            sep_knl = True
-            if 'seperate_kernels' in p and not p['seperate_kernels']:
-                sep_knl = False
-            inner_loop.append(('seperate_kernels', sep_knl))
-
             # create option loop and add
             oploop += [inner_loop]
     except (TypeError, KeyError):
@@ -183,7 +170,18 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                 vecsizes = [4, None] if can_vectorize_lang[lang] else [None]
                 inner_loop = [('lang', lang)]
                 if lang == 'opencl':
-                    import pyopencl as cl
+                    try:
+                        import pyopencl as cl
+                    except ImportError:
+                        # no pyopencl, warn and return defaults
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warn('Module pyopencl not installed, can not '
+                                    'automatically detect installed OpenCL '
+                                    'platforms. Using default "ANY".')
+                        oploop += [inner_loop]
+                        continue
+
                     inner_loop += [('width', vecsizes[:]),
                                    ('depth', vecsizes[:])]
                     # add all devices
@@ -196,11 +194,18 @@ def load_platforms(matrix, langs=get_test_langs(), raise_on_empty=False):
                             devices = p.get_devices(dev_type)
                             if devices:
                                 plist = [('platform', p.name)]
-                                use_atomics = False
-                                if 'cl_khr_int64_base_atomics' in \
-                                        devices[0].extensions:
-                                    use_atomics = True
-                                plist.append(('use_atomics', use_atomics))
+                                use_atomic_doubles = (
+                                    'cl_khr_int64_base_atomics' in
+                                    devices[0].extensions)
+                                use_atomic_ints = (
+                                    'cl_khr_global_int32_base_atomics' in
+                                    devices[0].extensions)
+                                plist.append(('use_atomic_doubles',
+                                              use_atomic_doubles))
+                                plist.append(('use_atomic_ints',
+                                              use_atomic_ints))
+                                if dev_type == cl.device_type.CPU:
+                                    plist.append(('is_simd', [True, False]))
                                 platform_list.append(plist)
                     for p in platform_list:
                         # create option loop and add
@@ -223,7 +228,7 @@ jacobian_sub_override_keys['both'] = jacobian_sub_override_keys.copy()
 allowed_override_keys = {
     enum_to_string(JacobianType.exact): jacobian_sub_override_keys,
     enum_to_string(JacobianType.finite_difference): jacobian_sub_override_keys,
-    enum_to_string(build_type.species_rates): allowed_overrides}
+    enum_to_string(KernelType.species_rates): allowed_overrides}
 # and add handlers here
 
 
@@ -253,8 +258,8 @@ def load_tests(matrix, filename):
             return JacobianType
         except ArgumentTypeError:
             try:
-                EnumType(build_type)(ttype)
-                return build_type
+                EnumType(KernelType)(ttype)
+                return KernelType
             except:
                 EnumType(JacobianFormat)(ttype)
                 return JacobianFormat
@@ -265,9 +270,9 @@ def load_tests(matrix, filename):
         descriptors = [test['test-type'] + ' - ' + test['eval-type']]
         if test['eval-type'] == 'both':
             descriptors = [test['test-type'] + ' - ' + enum_to_string(
-                                build_type.jacobian),
+                                KernelType.jacobian),
                            test['test-type'] + ' - ' + enum_to_string(
-                                build_type.species_rates)]
+                                KernelType.species_rates)]
         if set(descriptors) & dupes:
             raise DuplicateTestException(test['test-type'], test['eval-type'],
                                          filename)
@@ -353,14 +358,14 @@ def get_overrides(test, eval_type, jac_type, sparse_type):
     test: dict
         The test with specified overrides
     eval_type: str
-        The stringified :class:`build_type`
+        The stringified :class:`KernelType`
     jac_type: str
         The stringified :class:`JacobianType`
     sparse_type: str
         The stringified :class:`JacobianFormat`
     """
 
-    if eval_type == enum_to_string(build_type.species_rates):
+    if eval_type == enum_to_string(KernelType.species_rates):
         if eval_type in test:
             return test[eval_type].copy()
         return {}
@@ -388,7 +393,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
     ----------
     work_dir : str
         Working directory with mechanisms and for data
-    test_type: :class:`build_type.jacobian`
+    test_type: :class:`KernelType.jacobian`
         Controls some testing options (e.g., whether to do a sparse matrix or not)
     test_matrix: str
         The test matrix file to load
@@ -430,7 +435,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
 
     # load the models
     models = load_models(work_dir, test_matrix)
-    assert isinstance(test_type, build_type)
+    assert isinstance(test_type, KernelType)
 
     # load tests
     tests = load_tests(test_matrix, matrix_name)
@@ -447,17 +452,17 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                          test_type)))
 
     # get defaults we haven't migrated to schema yet
-    rate_spec = ['fixed', 'hybrid'] if test_type != build_type.jacobian \
+    rate_spec = ['fixed', 'hybrid'] if test_type != KernelType.jacobian \
         else ['fixed']
     sparse = ([enum_to_string(JacobianFormat.sparse),
                enum_to_string(JacobianFormat.full)]
-              if test_type == build_type.jacobian else [
+              if test_type == KernelType.jacobian else [
                enum_to_string(JacobianFormat.full)])
     jac_types = [enum_to_string(JacobianType.exact),
                  enum_to_string(JacobianType.finite_difference)] if (
-                    test_type == build_type.jacobian and not for_validation) else [
+                    test_type == KernelType.jacobian and not for_validation) else [
                  enum_to_string(JacobianType.exact)]
-    split_kernels = [False]
+    rop_net_kernels = [False]
 
     # and default # of cores, this may be overriden
     default_num_cores, can_override_cores = num_cores_default()
@@ -484,19 +489,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             continue
 
         for plookup in plats:
-            clean = plookup.copy()
             # get default number of cores
             cores = default_num_cores[:]
-            # get default vector widths
-            widths = plookup['width']
-            is_wide = widths is not None
-            depths = plookup['depth']
-            is_deep = depths is not None
-            if is_deep and not is_wide:
-                widths = depths[:]
-            # sanity check
-            if is_wide or is_deep:
-                assert widths is not None
             # special gpu handling for cores
             is_gpu = False
             # test platform type
@@ -504,26 +498,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 # set cores to 1
                 is_gpu = True
                 cores = [1]
-
-            def apply_vectypes(lookup, widths, is_wide=is_wide, is_deep=is_deep):
-                if is_wide or is_deep:
-                    # set vec widths
-                    use_par = None in widths or (is_wide and is_deep)
-                    lookup['vecsize'] = [x for x in widths[:] if x is not None]
-                    base = [True] if not use_par else [True, False]
-                    if is_wide:
-                        lookup['wide'] = base[:]
-                        base.pop()
-                    if is_deep:
-                        lookup['deep'] = base[:]
-                else:
-                    lookup['vecsize'] = [None]
-                    lookup['wide'] = [False]
-                    lookup['deep'] = [False]
-                del lookup['width']
-                del lookup['depth']
-
-            apply_vectypes(plookup, widths)
 
             # default is both conp / conv
             conp = [True, False]
@@ -554,14 +528,13 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 icores = cores[:]
                 iorder = order[:]
                 iconp = conp[:]
-                ivecsizes = widths[:] if widths is not None else [None]
                 imodels = tuple(models.keys())
                 # load overides
                 overrides = get_overrides(test, ttype, jtype, stype)
 
                 # check that we can apply
                 if 'num_cores' in overrides and not can_override_cores:
-                    raise InvalidTestEnivironmentException(
+                    raise InvalidTestEnvironmentException(
                         ttype, 'num_cores', matrix_name, 'num_threads')
                 elif 'num_cores' in overrides and is_gpu:
                     logger = logging.getLogger(__name__)
@@ -574,7 +547,6 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 # now apply overrides
                 outplat = plookup.copy()
                 for current in overrides:
-                    ivectypes_override = None
                     for override in overrides:
                         if override == 'num_cores':
                             override_log('num_cores', icores,
@@ -597,19 +569,22 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                                 iconp.append(False)
                             override_log('conp', iconp_save,
                                          iconp)
-                        elif override == 'vecsize' and not is_gpu:
-                            override_log('vecsize', ivecsizes,
+                        elif override == 'width' and not is_gpu:
+                            override_log('width', plookup['width'],
                                          overrides[override])
-                            outplat['vecsize'] = listify(overrides[override])
-                        elif override == 'gpuvecsize' and is_gpu:
-                            override_log('gpuvecsize', ivecsizes,
+                            outplat['width'] = listify(overrides[override])
+                        elif override == 'gpuwidth' and is_gpu:
+                            override_log('gpuwidth', plookup['width'],
                                          overrides[override])
-                            outplat['vecsize'] = listify(overrides[override])
-                        elif override == 'vectype' and not is_gpu:
-                            # we have to do this at the end
-                            ivectypes_override = overrides[override]
-                        elif override == 'gpuvectype' and is_gpu:
-                            ivectypes_override = overrides[override]
+                            outplat['width'] = listify(overrides[override])
+                        elif override == 'depth' and not is_gpu:
+                            override_log('depth', plookup['depth'],
+                                         overrides[override])
+                            outplat['depth'] = listify(overrides[override])
+                        elif override == 'gpudepth' and is_gpu:
+                            override_log('gpudepth', plookup['depth'],
+                                         overrides[override])
+                            outplat['depth'] = listify(overrides[override])
                         elif override == 'models':
                             # check that all models are valid
                             for model in overrides[override]:
@@ -621,44 +596,30 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                                          stringify_args(overrides[override]))
                             imodels = tuple(overrides[override])
 
-                    if ivectypes_override is not None:
-                        c = clean.copy()
-                        apply_vectypes(c, outplat['vecsize'],
-                                       is_wide='wide' in ivectypes_override,
-                                       is_deep='deep' in ivectypes_override)
-                        # and copy into working
-                        outplat['wide'] = c['wide'] if 'wide' in c else [False]
-                        outplat['deep'] = c['deep'] if 'deep' in c else [False]
-                        outplat['vecsize'] = c['vecsize']
-                        old = ['']
-                        if is_wide:
-                            old += ['wide']
-                        if is_deep:
-                            old += ['deep']
-                        elif not is_wide:
-                            old += ['par']
-                        override_log('vecsize', old,
-                                     ivectypes_override)
-
                 # and finally, convert back to an option loop format
                 out_params.append([
                     ('num_cores', icores),
                     ('order', iorder),
                     ('rate_spec', rate_spec),
-                    ('split_kernels', split_kernels),
+                    ('rop_net_kernels', rop_net_kernels),
                     ('conp', iconp),
-                    ('sparse', [stype]),
+                    ('jac_format', [stype]),
                     ('jac_type', [jtype]),
                     ('models', [imodels])] +
                     [(key, value) for key, value in six.iteritems(
                         outplat)])
 
     max_vec_width = 1
-    vector_params = [dict(p)['vecsize'] for p in out_params if 'vecsize' in
-                     dict(p) and dict(p)['vecsize'] != [None]]
-    if vector_params:
-        max_vec_width = max(max_vec_width, max(
-            [max(x) for x in vector_params]))
+
+    def _max(key):
+        vec = [dict(p)[key] for p in out_params if key in
+               dict(p) and dict(p)[key] is not None]
+        vec = [x for y in vec for x in y if x is not None]
+        if not vec:
+            return 1
+        return max(vec)
+
+    max_vec_width = max((_max('depth'), _max('width')))
     from . import reduce_oploop
     loop = reduce_oploop(out_params)
     return models, loop, max_vec_width

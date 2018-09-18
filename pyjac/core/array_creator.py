@@ -10,9 +10,11 @@ from string import Template
 
 import loopy as lp
 import numpy as np
-from loopy.kernel.data import temp_var_scope as scopes
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
+from loopy.kernel.data import AddressSpace as scopes
+
+from pyjac.core.enum_types import JacobianFormat, JacobianType
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.utils import listify, partition
 
 
 class array_splitter(object):
@@ -35,20 +37,202 @@ class array_splitter(object):
     def __init__(self, loopy_opts):
         self.depth = loopy_opts.depth
         self.width = loopy_opts.width
-        self.vector_width = self.depth if bool(self.depth) else self.width
+        self.vector_width = loopy_opts.vector_width
         self.data_order = loopy_opts.order
+        self.is_simd = loopy_opts.is_simd
+        self.pre_split = None
+        if loopy_opts.pre_split:
+            if self.width:
+                self.pre_split = global_ind
+            else:
+                self.pre_split = var_name
 
-    def _have_split(self):
+    @property
+    def _is_simd_split(self):
+        """
+        Returns True IFF this array splitter has a split, and this split is a result
+        of use of explicit SIMD data types
+        """
+
+        return self._have_split() and not self._have_split(with_simd_as=False)
+
+    @staticmethod
+    def __determine_split(data_order, vector_width, width, depth, is_simd):
+        """
+        The internal workings of the :func:`_have_split` methods, consolodated.
+        Not intended to be called directly
+        """
+
+        if vector_width:
+            if is_simd:
+                return True
+            return ((data_order == 'C' and width) or (data_order == 'F' and depth))
+        return False
+
+    def _have_split(self, with_simd_as=None):
         """
         Returns True if there is anything for this :class:`array_splitter` to do
+
+        Parameters
+        ----------
+        with_simd_as: bool [None]
+            If specified, calculate whether we have a split if :attr:`is_simd` was
+            set to the given value
+
+        Returns
+        -------
+        have_split: bool
+            True IFF this vectorization pattern will result in a split for any
+            array
         """
 
-        return bool(self.vector_width) and ((
-            self.data_order == 'C' and self.width) or (
-            self.data_order == 'F' and self.depth))
+        is_simd = self.is_simd if with_simd_as is None else with_simd_as
+        return self.__determine_split(
+            self.data_order, self.vector_width, self.width, self.depth, is_simd)
+
+    @staticmethod
+    def _have_split_static(loopy_opts, with_simd_as=None):
+        """
+        Like :func:`_have_split`, but a static method for easy calling
+
+        Parameters
+        ----------
+        loopy_opts: :class:`loopy_options`
+            The options object that would be used to construct this splitter.
+        with_simd_as: bool [None]
+            If specified, calculate whether we have a split if :attr:`is_simd` was
+            set to the given value
+
+        Returns
+        -------
+        have_split: bool
+            True IFF this vectorization pattern will result in a split for any
+            array
+
+        """
+
+        is_simd = loopy_opts.is_simd if with_simd_as is None else with_simd_as
+        return array_splitter.__determine_split(
+            loopy_opts.order, loopy_opts.vector_width, loopy_opts.width,
+            loopy_opts.depth, is_simd)
+
+    def _should_split(self, array):
+        """
+        Returns True IFF this array should result in a split, the current criteria
+        are:
+
+        1) the array's at least 2-D
+        2) we have a vector width, and we're using explicit SIMD
+
+        Note: this assumes that :func:`_have_split` has been called previously (
+        and passed)
+
+        """
+
+        return len(array.shape) >= 2 or self.is_simd
+
+    def split_and_vec_axes(self, array):
+        """
+        Determine the axis that should be split, and the destination of the vector
+        axis for the given array and :attr:`data_order`, :attr:`width` and
+        :attr:`depth`
+
+        Parameters
+        ----------
+        array: :class:`numpy.ndarray` or :class:`loopy.ArrayBase`
+            The array to split
+
+        Notes
+        -----
+        Does not take into account whether the array should be split, see:
+            :func:`have_split`, :func:`should_split`
+
+        Returns
+        -------
+        split_axis:
+            the axis index to be split
+        vec_axis:
+            the destination index of the vector axis
+        """
+
+        if self.data_order == 'C' and self.width:
+            split_axis = 0
+            vec_axis = len(array.shape)
+        elif self.data_order == 'C':
+            split_axis = len(array.shape) - 1
+            vec_axis = len(array.shape)
+        elif self.data_order == 'F' and self.depth:
+            split_axis = len(array.shape) - 1
+            vec_axis = 0
+        else:
+            split_axis = 0
+            vec_axis = 0
+
+        return split_axis, vec_axis
+
+    def split_shape(self, array):
+        """
+        Returns the array shape that would result from splitting the supplied array
+
+        Parameters
+        ----------
+        array: :class:`numpy.ndarray` (or object w/ attribute shape)
+
+        Returns
+        -------
+        shape: tuple of int
+            The resulting split array shape
+        grow_axis: int
+            The integer index of the axis corresponding to the initial conditions,
+            see :ref:`vector_split`
+        vec_axis: int
+            The integer index of the vector axis, if present.
+            If there is no split, this will be None, see :ref:`vector_split`
+        split_axis: int
+            The integer index of the axis that will be split (note: this is
+            calculated _before_ the split is applied). If no split, this is None
+        """
+
+        grow_axis = 0
+        vec_axis = None
+        shape = tuple(x for x in array.shape)
+        split_axis = None
+        if not self._have_split():
+            return shape, grow_axis, vec_axis, split_axis
+
+        vector_width = None
+        if self._should_split(array):
+            # the grow axis is one IFF it's a F-ordered deep-split
+            grow_axis = 1 if self.data_order == 'F' else 0
+            split_axis, vec_axis = self.split_and_vec_axes(array)
+            vector_width = self.depth if self.depth else self.width
+            assert vector_width
+            new_shape = [-1] * (len(shape) + 1)
+
+            # the vector axis is of size vector_width
+            new_shape[vec_axis] = vector_width
+
+            def __index(i):
+                if i < vec_axis:
+                    return i
+                else:
+                    return i + 1
+
+            for i in range(len(shape)):
+                if i == split_axis:
+                    # the axis that is split is divided by the vector width
+                    new_shape[__index(i)] = int(
+                        np.ceil(shape[i] / float(vector_width)))
+                else:
+                    # copy old shape
+                    new_shape[__index(i)] = shape[i]
+
+            shape = tuple(new_shape)
+
+        return shape, grow_axis, vec_axis, split_axis
 
     def _split_array_axis_inner(self, kernel, array_name, split_axis, dest_axis,
-                                count, order='C'):
+                                count, order='C', vec=False, **kwargs):
         if count == 1:
             return kernel
 
@@ -69,12 +253,14 @@ class array_splitter(object):
         assert new_shape is not None, 'Cannot split auto-sized arrays'
         new_shape = list(new_shape)
         axis_len = new_shape[split_axis]
-        if str(axis_len) == problem_size.name:
-            # bake in the assumption that the problem size is divisible by the
-            # vector width
-            outer_len = div_ceil(axis_len, count)  # todo: fix map_quotient in loopy
+        # still need to reduce the global problem size in unit testing
+        if self.pre_split and not isinstance(axis_len, int):
+            outer_len = new_shape[split_axis]
         else:
+            # todo: automatic detection of when axis_len % count == 0, and we can
+            # replace with axis_len >> log2(count)
             outer_len = div_ceil(axis_len, count)
+
         new_shape[split_axis] = outer_len
         new_shape.insert(dest_axis, count)
         new_shape = tuple(new_shape)
@@ -94,7 +280,8 @@ class array_splitter(object):
             raise RuntimeError("axis %d of '%s' is not tagged fixed-stride".format(
                 split_axis, array_name))
 
-        new_dim_tags.insert(dest_axis, FixedStrideArrayDimTag(1))
+        tag = FixedStrideArrayDimTag(1)
+        new_dim_tags.insert(dest_axis, tag)
         # fix strides
         toiter = reversed(list(enumerate(new_shape))) if order == 'C' \
             else enumerate(new_shape)
@@ -137,8 +324,15 @@ class array_splitter(object):
             axis_idx = idx[split_axis]
 
             from loopy.symbolic import simplify_using_aff
-            inner_index = simplify_using_aff(kernel, axis_idx % count)
-            outer_index = simplify_using_aff(kernel, axis_idx // count)
+            from pymbolic.primitives import Variable
+            if self.pre_split:
+                # no split, just add an axis
+                outer_index = axis_idx
+                inner_index = Variable(self.pre_split + '_inner')
+            else:
+                inner_index = simplify_using_aff(kernel, axis_idx % count)
+                outer_index = simplify_using_aff(kernel, axis_idx // count)
+
             idx[split_axis] = outer_index
             idx.insert(dest_axis, inner_index)
             return expr.aggregate.index(tuple(idx))
@@ -149,9 +343,83 @@ class array_splitter(object):
                                     set([array_name]), split_access_axis)
         kernel = rule_mapping_context.finish_kernel(aash.map_kernel(kernel))
 
+        if vec:
+            achng = ArrayChanger(kernel, array_name)
+            new_strides = [t.layout_nesting_level for t in achng.get().dim_tags]
+            tag = ['N{}'.format(s) if i != dest_axis else 'vec'
+                   for i, s in enumerate(new_strides)]
+            kernel = lp.tag_array_axes(kernel, [array_name], tag)
+
         return kernel
 
-    def split_loopy_arrays(self, kernel):
+    def __split_iname_access(self, knl, arrays):
+        """
+        Warning -- should be called _only_ on non-split arrays when :attr:`pre_split`
+        is True
+
+        This is a helper array to ensure that indexing of non-split arrays
+        stay correct if we're using a pre-split.  Essentially, if we don't split
+        the arrays, the pre-split index will never make it into the array, and hence
+        the assumed iname splitting won't work.
+
+        Parameters
+        ----------
+        knl: :class:`loopy.LoopKernel`
+            The kernel to split iname access for
+        arrays: :list of class:`loopy.ArrayArg`
+            The array(s) to split iname access for
+
+        Returns
+        -------
+        split_knl: :class:`loopy.LoopKernel`
+            The kernel with iname access to the array's split
+
+        Raises
+        ------
+        AssertionError
+        """
+
+        assert self.pre_split
+        owner = self
+        new_var = self.pre_split + '_inner'
+
+        from pymbolic import var, substitute
+        from pymbolic.mapper import IdentityMapper
+        from loopy.symbolic import get_dependencies
+
+        names = set(arrays)
+
+        class SubstMapper(IdentityMapper):
+            def map_subscript(self, expr, *args, **kwargs):
+                if expr.aggregate.name in names:
+                    # get old index
+                    old = var(owner.pre_split + '_outer')
+                    new = var(owner.pre_split + '_outer') * owner.vector_width + \
+                        var(new_var)
+                    expr.index = substitute(expr.index, {old: new})
+
+                return super(SubstMapper, self).map_subscript(
+                    expr, *args, **kwargs)
+
+        insns = []
+        mapper = SubstMapper()
+        for insn in knl.instructions:
+            try:
+                if get_dependencies(insn.assignee) & names:
+                    insn = insn.copy(assignee=mapper(insn.assignee),
+                                     within_inames=insn.within_inames | set([
+                                        new_var]))
+                if get_dependencies(insn.expression) & names:
+                    insn = insn.copy(expression=mapper(insn.expression),
+                                     within_inames=insn.within_inames | set([
+                                        new_var]))
+            except AttributeError:
+                pass
+            insns.append(insn)
+
+        return knl.copy(instructions=insns)
+
+    def split_loopy_arrays(self, kernel, dont_split=[], **kwargs):
         """
         Splits the :class:`loopy.GlobalArg`'s that form the given kernel's arguements
         to conform to this split pattern
@@ -160,6 +428,15 @@ class array_splitter(object):
         ----------
         kernel : `loopy.LoopKernel`
             The kernel to apply the splits to
+        dont_split: list of str
+            List of array names that should not be split (typically representing
+            global inputs / outputs)
+
+        Keyword Arguments
+        -----------------
+        ignore_split_rename_errors: bool [False]
+            If True, ignore errors that would result from the vector index not being
+            the pre-split index, as expected.  Used in testing.
 
         Returns
         -------
@@ -170,19 +447,26 @@ class array_splitter(object):
         if not self._have_split():
             return kernel
 
-        for array_name, arr in [(x.name, x) for x in kernel.args
-                                if isinstance(x, lp.GlobalArg)
-                                and len(x.shape) >= 2]:
-            if self.data_order == 'C' and self.width:
-                split_axis = 0
-                dest_axis = len(arr.shape)
-            else:
-                split_axis = len(arr.shape) - 1
-                dest_axis = 0
+        arrays = [(x.name, x) for x in kernel.args
+                  if isinstance(x, lp.ArrayArg)
+                  and x.name not in dont_split]
 
+        to_split, not_to_split = partition(
+            arrays, lambda x: self._should_split(x[1]))
+
+        # add to don't split list for iname access handling
+        dont_split += [x[0] for x in not_to_split]
+        if self.pre_split and dont_split:
+            # we still have to split potential iname accesses in this array
+            # to maintain correctness
+            kernel = self.__split_iname_access(kernel, dont_split)
+
+        for array_name, arr in to_split:
+            split_axis, vec_axis = self.split_and_vec_axes(arr)
             kernel = self._split_array_axis_inner(
-                kernel, array_name, split_axis, dest_axis,
-                self.vector_width, self.data_order)
+                kernel, array_name, split_axis, vec_axis,
+                self.vector_width, self.data_order, self.is_simd,
+                **kwargs)
 
         return kernel
 
@@ -201,14 +485,14 @@ class array_splitter(object):
             The properly split / resized numpy array
         """
 
-        if not self._have_split() or len(input_array.shape) <= 1:
+        if not self._have_split() or not self._should_split(input_array):
             return input_array
 
-        def _split_and_pad(arr, axis, width, ax_trans):
+        def _split_and_pad(arr, axis, width, dest_axis):
             # get the last split as the ceiling
             end = np.ceil(arr.shape[axis] / width) * width
             # create split indicies
-            indicies = np.arange(width, end + 1, width, dtype=np.int32)
+            indicies = np.arange(width, end + 1, width, dtype=kint_type)
             # split array
             arr = np.split(arr, indicies, axis=axis)
             # filter out empties
@@ -220,19 +504,15 @@ class array_splitter(object):
                 arr[-1] = np.pad(arr[-1], pads, 'constant')
             # get joined
             arr = np.stack(arr, axis=axis)
-            # and move array dims
-            return np.moveaxis(arr, *ax_trans).copy(order=self.data_order)
+            # and move array axes
+            # the created axis is at axis + 1, and should be moved to
+            # the destination
+            return np.moveaxis(arr, axis + 1, dest_axis).copy(order=self.data_order)
 
         # figure out split
-        dim = len(input_array.shape) - 1
-        if self.data_order == 'C' and self.width:
-            # split: first axis (ICs)
-            # move, split axis (1) to end (-1)
-            return _split_and_pad(input_array, 0, self.width, (1, -1))
-        elif self.data_order == 'F' and self.depth:
-            # split: last axis
-            # move, split axis (-1) to front (0)
-            return _split_and_pad(input_array, dim, self.depth, (-1, 0))
+        split_axis, vec_axis = self.split_and_vec_axes(input_array)
+        return _split_and_pad(input_array, split_axis, self.vector_width,
+                              vec_axis)
 
     def split_numpy_arrays(self, arrays):
         """
@@ -258,70 +538,35 @@ class array_splitter(object):
 
         return [self._split_numpy_array(a) for a in arrays]
 
-    def split_shape(self, array):
-        """
-        Returns the array shape that would result from splitting the supplied array
 
-        Parameters
-        ----------
-        array: :class:`numpy.ndarray` (or object w/ attribute shape)
-
-        Returns
-        -------
-        shape: tuple of int
-            The resulting split array shape
-        grow_axis: int
-            The integer value of the axis corresponding to the initial conditions
-            Note: for a C-Split, this corresponds to the axis that would grow
-            if _more_ initial conditions were added, not the vector width
-        split_axis: int
-            The integer value of the split axis, if present
-            If there is no split, this will be None
-        """
-
-        grow_axis = 0
-        split_axis = None
-        shrink_axis = None
-        shape = tuple(x for x in array.shape)
-        vector_width = None
-        if self._have_split() and self.data_order == 'C':
-            split_axis = -1
-            shrink_axis = 0
-            vector_width = self.width
-        elif self._have_split() and self.data_order == 'F':
-            split_axis = 0
-            grow_axis = 1
-            shrink_axis = -1
-            vector_width = self.depth
-        if vector_width:
-            # need to fix shape
-            new_shape = [-1] * (len(shape) + 1)
-            copy_ind = 0
-            for i in range(len(new_shape)):
-                if i == split_axis or (split_axis == -1 and i == len(new_shape) - 1):
-                    # the split axis becomes the size of the vector width
-                    new_shape[i] = vector_width
-                elif i == shrink_axis or (
-                        shrink_axis == -1 and i == len(new_shape) - 1):
-                    # the shring axis is divided in size by the vector width
-                    new_shape[i] = int(
-                        np.ceil(shape[shrink_axis] / float(vector_width)))
-                    copy_ind += 1
-                else:
-                    # copy old shape
-                    new_shape[i] = shape[copy_ind]
-                    copy_ind += 1
-            shape = tuple(new_shape)
-            assert not any(x == -1 for x in shape)
-
-        return shape, grow_axis, \
-            split_axis
-
-
-problem_size = lp.ValueArg('problem_size', dtype=np.int32)
+kint_type = np.int32
 """
-    The problem size variable for non-testing
+    The integer type to use for kernel indicies, eventually I'd like to make this
+    user-specifiable
 """
+
+
+problem_size = lp.ValueArg('problem_size', dtype=kint_type)
+"""
+    The problem size variable for generated kernels, describes the size of
+    input/output arrays used in drivers
+"""
+
+work_size = lp.ValueArg('work_size', dtype=kint_type)
+"""
+    The global work size of the generated kernel.
+    Roughly speaking, this corresponds to:
+        - The number of cores to utilize on the CPU
+        - The number of blocks to launch on the GPU
+    This may be specified at run-time or during kernel-generation.
+"""
+
+local_name_suffix = '_local'
+"""
+The suffix to append to 'local' versions of arrays (i.e., those in the working buffer
+in use in the driver)
+"""
+
 
 global_ind = 'j'
 """str: The global initial condition index
@@ -347,8 +592,36 @@ This is the string indicies for the main loops for generated kernels in
 """
 
 
-class tree_node(object):
+def initial_condition_dimension_vars(loopy_opts, test_size, is_driver_kernel=False):
+    """
+    Return the size to use for the initial condition dimension, considering whether
+    we're in unit-testing, a driver kernel or simple kernel generation
 
+    Parameters
+    ----------
+    loopy_opts: :class:`loopy_options`
+        The loopy options to be used during kernel creation
+    test_size: int or None
+        The test size option, indicates whether we're in unit-testing
+    is_driver_kernel: bool [False]
+        If True, and not-unit testing, use the _full_ `problem_size` for the
+        IC dim. size
+
+    Returns
+    -------
+    size: list of :class:`loopy.ValueArg`
+        The initial condition dimension size variables
+    """
+
+    if isinstance(test_size, int) or loopy_opts.work_size:
+        return []
+    if is_driver_kernel:
+        return [work_size, problem_size]
+    else:
+        return [work_size]
+
+
+class tree_node(object):
     """
         A node in the :class:`MapStore`'s domain tree.
         Contains a base domain, a list of child domains, and a list of
@@ -410,6 +683,10 @@ class tree_node(object):
         else:
             self._iname = value
 
+    @property
+    def name(self):
+        return self.domain.name
+
     def set_transform(self, iname, insn, domain_transform):
         self.iname = iname
         self.insn = insn
@@ -440,9 +717,71 @@ class tree_node(object):
 
         return child
 
+    def has_children(self, arrays):
+        """
+        Checks whether an array is present in this :class:`tree_node`'s children
+
+        Parameters
+        ----------
+        arrays: str, or :class:`creator`, or list of str/:class:`creator`
+            The arrays to check for
+
+        Returns
+        -------
+        present: list of bool
+            True if array is present in children
+        """
+
+        arrays = [ary.name if isinstance(ary, creator) else ary
+                  for ary in listify(arrays)]
+        assert all(isinstance(x, str) for x in arrays)
+
+        present = []
+        for ary in arrays:
+            child = next((x for x in self.children if x.name == ary), None)
+            present.append(bool(child))
+        return present
+
     def __repr__(self):
         return ', '.join(['{}'.format(x) for x in
                           (self.domain.name, self.iname, self.insn)])
+
+
+def search_tree(root, arrays):
+    """
+    Searches the tree from the root supplied to see which tree node's (if any)
+    the list of arrays are children of
+
+    Parameters
+    ----------
+    root: :class:`tree_node`
+        The root of the tree to search
+    arrays: str, or :class:`creator`, or list of str/:class:`creator`
+        The arrays to search for
+
+    Returns
+    -------
+    parents: list of :class:`tree_node`
+        A list of tree node's who are the parents of the supplied arrays
+        If the array is not found, then the corresponding parent will be None
+    """
+
+    assert isinstance(root, tree_node), (
+        "Can't start tree search from type {}, an instance of :class:`tree_node` "
+        "expected.")
+    # first, check the root level
+    parents = root.has_children(arrays)
+    parents = [root if p else None for p in parents]
+
+    # now call recursively for the not-found arrays
+    missing_inds, missing = list(zip(*enumerate(arrays)))
+    for child in [c for c in root.children if isinstance(c, tree_node)]:
+        found = search_tree(child, missing)
+        for i, f in enumerate(found):
+            if f is not None:
+                parents[missing_inds[i]] = f
+
+    return parents
 
 
 class domain_transform(object):
@@ -470,16 +809,11 @@ class MapStore(object):
 
     loopy_opts : :class:`LoopyOptions`
         The loopy options for kernel creation
-    use_private_memory : Bool [False]
-        If True, use _private_ OpenCL/CUDA/etc. memory for array creation.
-        If False, use _global_ memory.
-    knl_type : ['map', 'mask']
-        The kernel mapping / masking type.  Controls whether this kernel should
-        generate maps vs masks and the index ranges
     map_domain : :class:`creator`
         The domain of the iname to use for a mapped kernel
-    mask_domain : :class:`creator`
-        The domain of the iname to use for a masked kernel
+    is_unit_test : bool
+        If true, we are generating arrays for a unit-test, and hence we should not
+        convert anything to working-buffer form
     iname : str
         The loop index to work with
     have_input_map : bool
@@ -491,18 +825,18 @@ class MapStore(object):
     raise_on_final : bool
         If true, raise an exception if a variable / domain is added to the
         domain tree after this :class:`MapStore` has been finalized
+    working_buffer_index : bool
+        If True, use internal buffers for OpenCL/CUDA/etc. array creation
+        where possible. If False, use full sized arrays.
     """
 
-    def __init__(self, loopy_opts, map_domain, mask_domain, iname='i',
+    def __init__(self, loopy_opts, map_domain, test_size, iname='i',
                  raise_on_final=True):
         self.loopy_opts = loopy_opts
-        self.use_private_memory = loopy_opts.use_private_memory
-        self.knl_type = loopy_opts.knl_type
         self.map_domain = map_domain
-        self.mask_domain = mask_domain
         self._check_is_valid_domain(self.map_domain)
-        self._check_is_valid_domain(self.mask_domain)
         self.domain_to_nodes = {}
+        self.is_unit_test = isinstance(test_size, int)
         self.transformed_domains = set()
         self.tree = tree_node(self, self._get_base_domain(), iname=iname)
         self.domain_to_nodes[self._get_base_domain()] = self.tree
@@ -513,12 +847,30 @@ class MapStore(object):
         self.raise_on_final = raise_on_final
         self.is_finalized = False
 
+        self.working_buffer_index = None
+        self.reshape_to_working_buffer = False
+        # if we're using a pre-split, find the WBI
+        if self.loopy_opts.pre_split:
+            from pyjac.kernel_utils.kernel_gen import kernel_generator
+            specialization = kernel_generator.apply_specialization(
+                self.loopy_opts, var_name, None,
+                get_specialization=True)
+            global_index = next((k for k, v in six.iteritems(specialization)
+                                 if v == 'g.0'), global_ind)
+            self.working_buffer_index = global_index
+
+        # unit tests operate on the whole array
+        self.initial_condition_dimension = None
+        if not self.is_unit_test:
+            self.initial_condition_dimension = \
+                self.loopy_opts.initial_condition_dimsize
+
     def _is_map(self):
         """
         Return true if map kernel
         """
 
-        return self.knl_type == 'map'
+        return True
 
     @property
     def transform_insns(self):
@@ -537,7 +889,7 @@ class MapStore(object):
         # update new domain
         new_map_domain.name = new_creator_name
         new_map_domain.initializer = \
-            np.arange(self.map_domain.initializer.size, dtype=np.int32)
+            np.arange(self.map_domain.initializer.size, dtype=kint_type)
 
         # change the base of the tree
         new_base = tree_node(self, new_map_domain, iname=self.iname,
@@ -575,6 +927,17 @@ class MapStore(object):
                     new_base.children.add(child)
 
         self.have_input_map = True
+
+    @property
+    def absolute_root(self):
+        """
+        Returns the :class:`MapStore`'s :attr:`tree`, if the store has no input map,
+        else the parent of the tree
+
+        A convenience method to get the true root of the tree
+        """
+
+        return self.tree.parent if self.have_input_map else self.tree
 
     def _create_transform(self, node, transform, affine=None):
         """
@@ -742,15 +1105,6 @@ class MapStore(object):
             'Cannot use non-initialized creator {} as domain!'.format(
                 domain.name))
 
-        if not self._is_map():
-            # need to check that the maximum value is smaller than the base
-            # mask domain size
-            assert np.max(domain.initializer) < \
-                self.mask_domain.initializer.size, (
-                    "Mask entries for domain {} cannot be outside of "
-                    "domain size {}".format(domain.name,
-                                            self.mask_domain.initializer.size))
-
     def _is_contiguous(self, domain):
         """Returns true if domain can be expressed with a simple for loop"""
         indicies = domain.initializer
@@ -809,12 +1163,7 @@ class MapStore(object):
         """
         Conviencience method to get domain agnostic of map / mask type
         """
-        if self.knl_type == 'map':
-            return self.map_domain
-        elif self.knl_type == 'mask':
-            return self.mask_domain
-        else:
-            raise NotImplementedError
+        return self.map_domain
 
     def check_and_add_transform(self, variable, domain, iname=None,
                                 force_inline=False):
@@ -1026,14 +1375,19 @@ class MapStore(object):
 
         # return affine mapping
         return variable(*tuple(__get_affine(i) for i in indicies),
-                        use_private_memory=self.use_private_memory, **kwargs)
+                        working_buffer_index=kwargs.pop(
+                            'working_buffer_index',
+                            self.working_buffer_index),
+                        reshape_to_working_buffer=kwargs.pop(
+                            'reshape_to_working_buffer',
+                            self.initial_condition_dimension),
+                        **kwargs)
 
     def copy(self):
         return copy.deepcopy(self)
 
     def generate_transform_instruction(self, oldname, newname, map_arr,
-                                       affine='',
-                                       force_inline=False):
+                                       affine='', force_inline=False):
         """
         Generates a loopy instruction that maps oldname -> newname via the
         mapping array (non-affine), or a simple affine transformation
@@ -1063,7 +1417,7 @@ class MapStore(object):
         try:
             affine = ' + ' + str(int(affine))
             return oldname + affine
-        except:
+        except (TypeError, ValueError):
             if affine is None:
                 affine = ''
             pass
@@ -1109,8 +1463,7 @@ class creator(object):
 
     def __init__(self, name, dtype, shape, order,
                  initializer=None, scope=scopes.GLOBAL,
-                 fixed_indicies=None, is_temporary=False, affine=None,
-                 is_input_or_output=False):
+                 fixed_indicies=None, is_temporary=False, affine=None):
         """
         Initializes the creator object
 
@@ -1124,7 +1477,7 @@ class creator(object):
             The shape of the array to create, parseable by loopy
         initializer : :class:`numpy.ndarray`
             If specified, the initializer of this array
-        scope : :class:`loopy.temp_var_scope`
+        scope : :class:`loopy.AddressSpace`
             The scope of an initialized loopy array
         fixed_indicies : list of tuple
             If supplied, a list of index number, fixed values that
@@ -1136,10 +1489,6 @@ class creator(object):
         affine : int
             If supplied, this represents an offset that should be applied to
             the creator upon indexing
-        is_input_or_output : bool [False]
-            If true, this creator is an input or output variable for pyJac.
-            Hence, it should not use private memory, regardless of the value of
-            :param:`use_private_memory` in :func:`creator.__call__`
         """
 
         self.name = name
@@ -1153,7 +1502,6 @@ class creator(object):
         self.num_indicies = len(shape)
         self.order = order
         self.affine = affine
-        self.is_input_or_output = is_input_or_output
         if fixed_indicies is not None:
             self.fixed_indicies = fixed_indicies[:]
         if is_temporary or initializer is not None:
@@ -1167,6 +1515,11 @@ class creator(object):
                     .format(name, initializer.shape, shape))
         else:
             self.creator = self.__glob_arg_creator
+
+    @property
+    def is_temporary(self):
+        return isinstance(self.initializer, np.ndarray) \
+            or self.initializer is not None
 
     @property
     def size(self):
@@ -1221,31 +1574,92 @@ class creator(object):
         return lp.GlobalArg(self.name, **arg_dict)
 
     def __call__(self, *indicies, **kwargs):
+        """
+        Create a loopy array and corresponding string based on the supplied
+        :param:`indicies` and :param:`kwargs`
+
+        Parameters
+        ----------
+        indicies: tuple of str
+            The indicies to apply for creation of the stringified array.
+            For instance an array index of the form:
+            ```
+                a[i, j] = ...
+            ```
+            should be passed the indicies ['i', 'j']
+        working_buffer_index: str
+            If supplied, the :class:`creator` will replace access to the global index
+            with the result of the vector specialization to enable pre-splitting of
+            the loopy arrays / indicies (and avoid index hell). :see:`working-buffer`
+        use_local_name: bool [False]
+            If True, append '_local" to the created variable to avoid duplicate
+            argument names in the driver functions.
+        reshape_to_working_buffer: str [None]
+            If True, and :param:`working_buffer_index` is supplied, the created array
+            will be reshaped to the working buffer size.
+            If False, the created array will not be reshaped (but the indicies may
+            be changed).
+            If not specified, defaults to `work_size`
+        """
         # figure out whether to use private memory or not
-        use_private_memory = kwargs.pop('use_private_memory', False)
+        wbi = kwargs.pop('working_buffer_index', None)
+        use_local_name = kwargs.pop('use_local_name', False)
+        reshape = kwargs.pop('reshape_to_working_buffer',
+                             work_size.name if wbi else None)
         inds = self.__get_indicies(*indicies)
 
-        # handle private memory request
+        # handle working buffer request
         glob_ind = None
-        if use_private_memory and not self.is_input_or_output:
-            # find the global ind if there
-            glob_ind = next((i for i, ind in enumerate(inds) if ind == global_ind),
-                            None)
 
+        def match(ind):
+            try:
+                return global_ind in ind
+            except TypeError:
+                # ind isn't iterable, hence not a str and therefore not global
+                # ind
+                return False
+
+        # find the global ind if there
+        if not self.is_temporary:
+            glob_ind = next((i for i, ind in enumerate(inds) if match(ind)), None)
         if glob_ind is not None:
-            # need to remove any index corresponding to the global_ind
-            inds = tuple(ind for i, ind in enumerate(inds) if i != glob_ind)
-            shape = tuple(s for i, s in enumerate(self.shape) if i != glob_ind)
-            lp_arr = self.__temp_var_creator(shape=shape,
-                                             scope=scopes.PRIVATE, **kwargs)
+            if wbi:
+                # convert index string to parallel iname only
+                inds = tuple(s if i != glob_ind else s.replace(global_ind, wbi)
+                             for i, s in enumerate(inds))
+            # and reshape the array
+            if reshape:
+                shape = tuple(s if i != glob_ind else reshape
+                              for i, s in enumerate(self.shape))
+            else:
+                shape = self.shape[:]
+            lp_arr = self.__glob_arg_creator(shape=shape, **kwargs)
         else:
             lp_arr = self.creator(**kwargs)
 
-        return (lp_arr, lp_arr.name + '[{}]'.format(', '.join(
+        # check name
+        name = lp_arr.name
+        if use_local_name:
+            name += local_name_suffix
+            lp_arr = lp_arr.copy(name=name)
+
+        return (lp_arr, name + '[{}]'.format(', '.join(
             str(x) for x in inds)))
 
-    def copy(self):
-        return copy.deepcopy(self)
+    def copy(self, **kwargs):
+        init = kwargs.get('initializer', self.initializer)
+        init = init.copy() if isinstance(init, np.ndarray) else init
+        fixed = kwargs.get('fixed_indicies', self.fixed_indicies)
+        fixed = copy.deepcopy(fixed)
+        return self.__class__(
+            name=kwargs.get('name', self.name),
+            dtype=kwargs.get('dtype', self.dtype),
+            shape=kwargs.get('shape', self.shape),
+            scope=kwargs.get('scope', self.scope),
+            initializer=init,
+            fixed_indicies=fixed,
+            order=kwargs.get('order', self.order),
+            affine=kwargs.get('affine', self.affine))
 
 
 class jac_creator(creator):
@@ -1270,7 +1684,7 @@ class jac_creator(creator):
             def __lt(x):
                 try:
                     x = int(x)
-                except:
+                except ValueError:
                     return False
                 return x < 2
 
@@ -1376,9 +1790,82 @@ def _make_mask(map_arr, mask_size):
 
     assert len(map_arr.shape) == 1, "Can't make mask from 2-D array"
 
-    mask = np.full(mask_size, -1, dtype=np.int32)
-    mask[map_arr] = np.arange(map_arr.size, dtype=np.int32)
+    mask = np.full(mask_size, -1, dtype=kint_type)
+    mask[map_arr] = np.arange(map_arr.size, dtype=kint_type)
     return mask
+
+
+# various names used by the outside world
+pressure_array = 'P_arr'
+"""
+    The name of the pressure array
+"""
+
+volume_array = 'V_arr'
+"""
+    The name of the volume array
+"""
+
+state_vector = 'phi'
+"""
+    The name of the state vector array
+"""
+
+state_vector_rate_of_change = 'dphi'
+"""
+    The name of the state vector rate of change array
+"""
+
+jacobian_array = 'jac'
+"""
+    The name of the jacobian array
+"""
+
+enthalpy_array = 'h'
+"""
+    The name of the enthalpy array
+"""
+
+internal_energy_array = 'u'
+"""
+    The name of the enthalpy array
+"""
+
+constant_pressure_specific_heat = 'cp'
+"""
+    The name of the cp array
+"""
+
+constant_volume_specific_heat = 'cv'
+"""
+    The name of the cv array
+"""
+
+rate_const_thermo_coeff_array = 'b'
+"""
+    The name of the 'b' array utilized in calculation of the rate
+    constants
+"""
+
+forward_rate_of_progress = 'rop_fwd'
+"""
+    The name of the forward ROP array
+"""
+
+reverse_rate_of_progress = 'rop_rev'
+"""
+    The name of the reverse ROP array
+"""
+
+net_rate_of_progress = 'rop_net'
+"""
+    The name of the net ROP array
+"""
+
+pressure_modification = 'pres_mod'
+"""
+    The name of the pressure modification of the ROP array
+"""
 
 
 class NameStore(object):
@@ -1401,18 +1888,12 @@ class NameStore(object):
         If true, use the constant pressure formulation
     test_size : str or int
         Optional size used in testing.  If not supplied, this is a kernel arg
-    use_private_memory : Bool [False]
-        If True, use _private_ OpenCL/CUDA/etc. memory for array creation.
-        If False, use _global_ memory.
     """
 
-    def __init__(self, loopy_opts, rate_info, conp=True,
-                 test_size='problem_size'):
+    def __init__(self, loopy_opts, rate_info, conp=True, test_size='problem_size'):
         self.loopy_opts = loopy_opts
-        self.use_private_memory = loopy_opts.use_private_memory
         self.rate_info = rate_info
         self.order = loopy_opts.order
-        self.test_size = test_size
         self.conp = conp
         self.jac_format = loopy_opts.jac_format
         self.jac_type = loopy_opts.jac_type
@@ -1427,26 +1908,17 @@ class NameStore(object):
         except AttributeError:
             return None
 
-    def __check(self, add_map=True):
-        """ Ensures that maps are only added to map kernels etc. """
-        if add_map:
-            assert self.loopy_opts.knl_type == 'map', ('Cannot add'
-                                                       ' map to mask kernel')
-        else:
-            assert self.loopy_opts.knl_type == 'mask', ('Cannot add'
-                                                        ' mask to map kernel')
-
     def __make_offset(self, arr):
         """
         Creates an offset array from the given array
         """
 
         assert len(arr.shape) == 1, "Can't make offset from 2-D array"
-        assert arr.dtype == np.int32, "Offset arrays should be integers!"
+        assert arr.dtype == kint_type, "Offset arrays should be integers!"
 
         return np.array(np.concatenate(
             (np.cumsum(arr) - arr, np.array([np.sum(arr)]))),
-            dtype=np.int32)
+            dtype=kint_type)
 
     def _add_arrays(self, rate_info, test_size):
         """
@@ -1454,42 +1926,42 @@ class NameStore(object):
         """
 
         # problem size
-        if isinstance(test_size, str):
-            self.problem_size = problem_size
+        if not isinstance(test_size, int):
+            test_size = problem_size.name
 
         # generic ranges
         self.num_specs = creator('num_specs', shape=(rate_info['Ns'],),
-                                 dtype=np.int32, order=self.order,
+                                 dtype=kint_type, order=self.order,
                                  initializer=np.arange(rate_info['Ns'],
-                                                       dtype=np.int32))
+                                                       dtype=kint_type))
         self.num_specs_no_ns = creator('num_specs_no_ns',
                                        shape=(rate_info['Ns'] - 1,),
-                                       dtype=np.int32, order=self.order,
+                                       dtype=kint_type, order=self.order,
                                        initializer=np.arange(
                                            rate_info['Ns'] - 1,
-                                           dtype=np.int32))
+                                           dtype=kint_type))
         self.num_reacs = creator('num_reacs', shape=(rate_info['Nr'],),
-                                 dtype=np.int32, order=self.order,
+                                 dtype=kint_type, order=self.order,
                                  initializer=np.arange(rate_info['Nr'],
-                                                       dtype=np.int32))
+                                                       dtype=kint_type))
         self.num_rev_reacs = creator('num_rev_reacs',
                                      shape=(rate_info['rev']['num'],),
-                                     dtype=np.int32, order=self.order,
+                                     dtype=kint_type, order=self.order,
                                      initializer=np.arange(
                                          rate_info['rev']['num'],
-                                         dtype=np.int32))
+                                         dtype=kint_type))
 
         self.phi_inds = creator('phi_inds',
                                 shape=(rate_info['Ns'] + 1),
-                                dtype=np.int32, order=self.order,
+                                dtype=kint_type, order=self.order,
                                 initializer=np.arange(rate_info['Ns'] + 1,
-                                                      dtype=np.int32))
+                                                      dtype=kint_type))
         self.phi_spec_inds = creator('phi_spec_inds',
                                      shape=(rate_info['Ns'] - 1,),
-                                     dtype=np.int32, order=self.order,
+                                     dtype=kint_type, order=self.order,
                                      initializer=np.arange(2,
                                                            rate_info['Ns'] + 1,
-                                                           dtype=np.int32))
+                                                           dtype=kint_type))
 
         # flat / dense jacobian
         if 'jac_inds' in rate_info:
@@ -1499,25 +1971,25 @@ class NameStore(object):
             flat_col_inds = rate_info['jac_inds'][name][:, 1]
             self.num_nonzero_jac_inds = creator('num_jac_entries',
                                                 shape=flat_row_inds.shape,
-                                                dtype=np.int32,
+                                                dtype=kint_type,
                                                 order=self.order,
                                                 initializer=np.arange(
                                                     flat_row_inds.size,
-                                                    dtype=np.int32))
+                                                    dtype=kint_type))
             self.jac_size = creator('jac_size',
                                     shape=((rate_info['Ns'] + 1)**2),
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     order=self.order,
                                     initializer=np.arange((rate_info['Ns'] + 1)**2,
-                                                          dtype=np.int32))
+                                                          dtype=kint_type))
             self.flat_jac_row_inds = creator('jac_row_inds',
                                              shape=flat_row_inds.shape,
-                                             dtype=np.int32,
+                                             dtype=kint_type,
                                              order=self.order,
                                              initializer=flat_row_inds)
             self.flat_jac_col_inds = creator('jac_col_inds',
                                              shape=flat_col_inds.shape,
-                                             dtype=np.int32,
+                                             dtype=kint_type,
                                              order=self.order,
                                              initializer=flat_col_inds)
 
@@ -1525,13 +1997,13 @@ class NameStore(object):
             crs_col_ind = rate_info['jac_inds']['crs']['col_ind']
             self.crs_jac_col_ind = creator('jac_col_inds',
                                            shape=crs_col_ind.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=crs_col_ind)
             crs_row_ptr = rate_info['jac_inds']['crs']['row_ptr']
             self.crs_jac_row_ptr = creator('jac_row_ptr',
                                            shape=crs_row_ptr.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=crs_row_ptr)
 
@@ -1539,13 +2011,13 @@ class NameStore(object):
             ccs_row_ind = rate_info['jac_inds']['ccs']['row_ind']
             self.ccs_jac_row_ind = creator('jac_row_inds',
                                            shape=ccs_row_ind.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=ccs_row_ind)
             ccs_col_ptr = rate_info['jac_inds']['ccs']['col_ptr']
             self.ccs_jac_col_ptr = creator('jac_col_ptr',
                                            shape=ccs_col_ptr.shape,
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            order=self.order,
                                            initializer=ccs_col_ptr)
 
@@ -1561,73 +2033,65 @@ class NameStore(object):
                     self.jac_col_inds = self.ccs_jac_col_ptr
 
         # state arrays
-        self.T_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+        self.T_arr = creator(state_vector, shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 0)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 0)])
 
         # handle extra variable and P / V arrays
-        self.E_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
+        self.E_arr = creator(state_vector, shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 1)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 1)])
         if self.conp:
-            self.P_arr = creator('P_arr', shape=(test_size,),
-                                 dtype=np.float64, order=self.order,
-                                 is_input_or_output=True)
+            self.P_arr = creator(pressure_array, shape=(test_size,),
+                                 dtype=np.float64, order=self.order)
             self.V_arr = self.E_arr
         else:
             self.P_arr = self.E_arr
-            self.V_arr = creator('V_arr', shape=(test_size,),
-                                 dtype=np.float64, order=self.order,
-                                 is_input_or_output=True)
+            self.V_arr = creator(volume_array, shape=(test_size,),
+                                 dtype=np.float64, order=self.order)
 
-        self.n_arr = creator('phi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order,
-                             is_input_or_output=True)
+        self.n_arr = creator(state_vector, shape=(test_size, rate_info['Ns'] + 1),
+                             dtype=np.float64, order=self.order)
         self.conc_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                 dtype=np.float64, order=self.order)
         self.conc_ns_arr = creator('conc', shape=(test_size, rate_info['Ns']),
                                    dtype=np.float64, order=self.order,
                                    fixed_indicies=[(1, rate_info['Ns'] - 1)])
-        self.n_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+        self.n_dot = creator(state_vector_rate_of_change,
+                             shape=(test_size, rate_info['Ns'] + 1),
+                             dtype=np.float64, order=self.order)
+        self.T_dot = creator(state_vector_rate_of_change,
+                             shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             is_input_or_output=True)
-        self.T_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
+                             fixed_indicies=[(1, 0)])
+        self.E_dot = creator(state_vector_rate_of_change,
+                             shape=(test_size, rate_info['Ns'] + 1),
                              dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 0)],
-                             is_input_or_output=True)
-        self.E_dot = creator('dphi', shape=(test_size, rate_info['Ns'] + 1),
-                             dtype=np.float64, order=self.order,
-                             fixed_indicies=[(1, 1)],
-                             is_input_or_output=True)
+                             fixed_indicies=[(1, 1)])
 
         if self.jac_format == JacobianFormat.sparse and 'jac_inds' in rate_info:
-            self.jac = jac_creator('jac',
+            self.jac = jac_creator(jacobian_array,
                                    shape=(test_size, self.num_nonzero_jac_inds.size),
                                    order=self.order,
                                    dtype=np.float64,
-                                   is_input_or_output=True,
                                    row_inds=self.jac_row_inds,
                                    col_inds=self.jac_col_inds)
         elif self.jac_type == JacobianType.finite_difference and \
                 'jac_inds' in rate_info:
-            self.jac = jac_creator('jac',
+            self.jac = jac_creator(jacobian_array,
                                    shape=(test_size, rate_info['Ns'] + 1,
                                           rate_info['Ns'] + 1),
                                    order=self.order,
                                    dtype=np.float64,
-                                   is_input_or_output=True,
                                    row_inds=self.jac_row_inds,
                                    col_inds=self.jac_col_inds,
                                    is_sparse=False)
         else:
-            self.jac = creator('jac',
+            self.jac = creator(jacobian_array,
                                shape=(test_size, rate_info['Ns'] + 1,
                                       rate_info['Ns'] + 1),
                                order=self.order,
-                               dtype=np.float64,
-                               is_input_or_output=True)
+                               dtype=np.float64)
 
         self.spec_rates = creator('wdot', shape=(test_size, rate_info['Ns']),
                                   dtype=np.float64, order=self.order)
@@ -1638,16 +2102,25 @@ class NameStore(object):
                               dtype=np.float64,
                               order=self.order)
 
+        self.mw_inv = creator('mw_inv', shape=(rate_info['Ns'] - 1,),
+                              initializer=1. / rate_info['mws'][:-1],
+                              dtype=np.float64,
+                              order=self.order)
+
         self.mw_post_arr = creator('mw_factor', shape=(rate_info['Ns'] - 1,),
                                    initializer=rate_info['mw_post'],
                                    dtype=np.float64,
                                    order=self.order)
 
+        self.mw_work = creator('mw_work', shape=(test_size,),
+                               dtype=np.float64,
+                               order=self.order)
+
         # net species rates data
 
         # per reaction
         self.rxn_to_spec = creator('rxn_to_spec',
-                                   dtype=np.int32,
+                                   dtype=kint_type,
                                    shape=rate_info['net'][
                                        'reac_to_spec'].shape,
                                    initializer=rate_info[
@@ -1655,51 +2128,51 @@ class NameStore(object):
                                    order=self.order)
         off = self.__make_offset(rate_info['net']['num_reac_to_spec'])
         self.rxn_to_spec_offsets = creator('net_reac_to_spec_offsets',
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            shape=off.shape,
                                            initializer=off,
                                            order=self.order)
         self.rxn_to_spec_reac_nu = creator('reac_to_spec_nu',
-                                           dtype=np.int32, shape=rate_info[
+                                           dtype=kint_type, shape=rate_info[
                                                'net']['nu'].shape,
                                            initializer=rate_info['net']['nu'],
                                            order=self.order,
                                            affine=1)
         self.rxn_to_spec_prod_nu = creator('reac_to_spec_nu',
-                                           dtype=np.int32, shape=rate_info[
+                                           dtype=kint_type, shape=rate_info[
                                                'net']['nu'].shape,
                                            initializer=rate_info['net']['nu'],
                                            order=self.order)
 
         self.rxn_has_ns = creator('rxn_has_ns',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=rate_info['reac_has_ns'].shape,
                                   initializer=rate_info['reac_has_ns'],
                                   order=self.order)
         self.num_rxn_has_ns = creator('num_rxn_has_ns',
-                                      dtype=np.int32,
+                                      dtype=kint_type,
                                       shape=rate_info['reac_has_ns'].shape,
                                       initializer=np.arange(
                                           rate_info['reac_has_ns'].size,
-                                          dtype=np.int32),
+                                          dtype=kint_type),
                                       order=self.order)
 
         # per species
         net_nonzero_spec = rate_info['net_per_spec']['map'][np.where(
             rate_info['net_per_spec']['map'] != rate_info['Ns'] - 1)]
         self.net_nonzero_spec = creator(
-            'net_nonzero_spec_no_ns', dtype=np.int32,
+            'net_nonzero_spec_no_ns', dtype=kint_type,
             shape=net_nonzero_spec.shape,
             initializer=net_nonzero_spec,
             order=self.order)
         self.net_nonzero_phi = creator(
-            'net_nonzero_phi', dtype=np.int32,
+            'net_nonzero_phi', dtype=kint_type,
             shape=(net_nonzero_spec.shape[0] + 2,),
             initializer=np.asarray(np.hstack(([0, 1], net_nonzero_spec + 2)),
-                                   dtype=np.int32),
+                                   dtype=kint_type),
             order=self.order)
 
-        self.spec_to_rxn = creator('spec_to_rxn', dtype=np.int32,
+        self.spec_to_rxn = creator('spec_to_rxn', dtype=kint_type,
                                    shape=rate_info['net_per_spec'][
                                        'reacs'].shape,
                                    initializer=rate_info[
@@ -1707,36 +2180,36 @@ class NameStore(object):
                                    order=self.order)
         off = self.__make_offset(rate_info['net_per_spec']['reac_count'])
         self.spec_to_rxn_offsets = creator('spec_to_rxn_offsets',
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            shape=off.shape,
                                            initializer=off,
                                            order=self.order)
         self.spec_to_rxn_nu = creator('spec_to_rxn_nu',
-                                      dtype=np.int32, shape=rate_info[
+                                      dtype=kint_type, shape=rate_info[
                                           'net_per_spec']['nu'].shape,
                                       initializer=rate_info[
                                           'net_per_spec']['nu'],
                                       order=self.order)
 
         # rop's and fwd / rev / thd maps
-        self.rop_net = creator('rop_net',
+        self.rop_net = creator(net_rate_of_progress,
                                dtype=np.float64,
                                shape=(test_size, rate_info['Nr']),
                                order=self.order)
 
-        self.rop_fwd = creator('rop_fwd',
+        self.rop_fwd = creator(forward_rate_of_progress,
                                dtype=np.float64,
                                shape=(test_size, rate_info['Nr']),
                                order=self.order)
 
         if rate_info['rev']['num']:
-            self.rop_rev = creator('rop_rev',
+            self.rop_rev = creator(reverse_rate_of_progress,
                                    dtype=np.float64,
                                    shape=(
                                        test_size, rate_info['rev']['num']),
                                    order=self.order)
             self.rev_map = creator('rev_map',
-                                   dtype=np.int32,
+                                   dtype=kint_type,
                                    shape=rate_info['rev']['map'].shape,
                                    initializer=rate_info[
                                        'rev']['map'],
@@ -1745,19 +2218,19 @@ class NameStore(object):
             mask = _make_mask(rate_info['rev']['map'],
                               rate_info['Nr'])
             self.rev_mask = creator('rev_mask',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     shape=mask.shape,
                                     initializer=mask,
                                     order=self.order)
 
         if rate_info['thd']['num']:
-            self.pres_mod = creator('pres_mod',
+            self.pres_mod = creator(pressure_modification,
                                     dtype=np.float64,
                                     shape=(
                                         test_size, rate_info['thd']['num']),
                                     order=self.order)
             self.thd_map = creator('thd_map',
-                                   dtype=np.int32,
+                                   dtype=kint_type,
                                    shape=rate_info['thd']['map'].shape,
                                    initializer=rate_info[
                                        'thd']['map'],
@@ -1766,14 +2239,14 @@ class NameStore(object):
             mask = _make_mask(rate_info['thd']['map'],
                               rate_info['Nr'])
             self.thd_mask = creator('thd_mask',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     shape=mask.shape,
                                     initializer=mask,
                                     order=self.order)
 
-            thd_inds = np.arange(rate_info['thd']['num'], dtype=np.int32)
+            thd_inds = np.arange(rate_info['thd']['num'], dtype=kint_type)
             self.thd_inds = creator('thd_inds',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     shape=thd_inds.shape,
                                     initializer=thd_inds,
                                     order=self.order)
@@ -1814,16 +2287,16 @@ class NameStore(object):
                                     order=self.order)
 
         # num simple
-        num_simple = np.arange(rate_info['simple']['num'], dtype=np.int32)
+        num_simple = np.arange(rate_info['simple']['num'], dtype=kint_type)
         self.num_simple = creator('num_simple',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=num_simple.shape,
                                   initializer=num_simple,
                                   order=self.order)
 
         # simple map
         self.simple_map = creator('simple_map',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=rate_info['simple']['map'].shape,
                                   initializer=rate_info['simple']['map'],
                                   order=self.order)
@@ -1837,7 +2310,7 @@ class NameStore(object):
                                    order=self.order)
 
         self.num_simple = creator('num_simple',
-                                  dtype=np.int32,
+                                  dtype=kint_type,
                                   shape=num_simple.shape,
                                   initializer=num_simple,
                                   order=self.order)
@@ -1864,7 +2337,7 @@ class NameStore(object):
             # and indicies inside of the simple parameters
             inds = np.where(
                 np.in1d(rate_info['simple']['map'], mapv))[0].astype(
-                dtype=np.int32)
+                dtype=kint_type)
             setattr(self, 'simple_rtype_{}_inds'.format(rtype),
                     creator('simple_rtype_{}_inds'.format(rtype),
                             dtype=inds.dtype,
@@ -1872,7 +2345,7 @@ class NameStore(object):
                             initializer=inds,
                             order=self.order))
             # and num
-            num = np.arange(inds.size, dtype=np.int32)
+            num = np.arange(inds.size, dtype=kint_type)
             setattr(self, 'simple_rtype_{}_num'.format(rtype),
                     creator('simple_rtype_{}_num'.format(rtype),
                             dtype=num.dtype,
@@ -1912,29 +2385,29 @@ class NameStore(object):
             # thd only indicies
             mapv = np.where(np.logical_not(np.in1d(rate_info['thd']['map'],
                                                    rate_info['fall']['map'])))[0]
-            mapv = np.array(mapv, dtype=np.int32)
+            mapv = np.array(mapv, dtype=kint_type)
             self.thd_only_map = creator('thd_only_map',
-                                        dtype=np.int32,
+                                        dtype=kint_type,
                                         shape=mapv.shape,
                                         initializer=mapv,
                                         order=self.order)
             self.num_thd_only = creator('num_thd_only',
-                                        dtype=np.int32,
+                                        dtype=kint_type,
                                         shape=mapv.shape,
                                         initializer=np.arange(mapv.size,
-                                                              dtype=np.int32),
+                                                              dtype=kint_type),
                                         order=self.order)
 
             mask = _make_mask(mapv, rate_info['Nr'])
             self.thd_only_mask = creator('thd_only_mask',
-                                         dtype=np.int32,
+                                         dtype=kint_type,
                                          shape=mask.shape,
                                          initializer=mask,
                                          order=self.order)
 
-            num_specs = rate_info['thd']['spec_num'].astype(dtype=np.int32)
+            num_specs = rate_info['thd']['spec_num'].astype(dtype=kint_type)
             spec_list = rate_info['thd']['spec'].astype(
-                dtype=np.int32)
+                dtype=kint_type)
             thd_effs = rate_info['thd']['eff']
 
             # finally create arrays
@@ -1943,7 +2416,7 @@ class NameStore(object):
                                    shape=thd_effs.shape,
                                    initializer=thd_effs,
                                    order=self.order)
-            num_thd = np.arange(rate_info['thd']['num'], dtype=np.int32)
+            num_thd = np.arange(rate_info['thd']['num'], dtype=kint_type)
             self.num_thd = creator('num_thd',
                                    dtype=num_thd.dtype,
                                    shape=num_thd.shape,
@@ -1952,7 +2425,7 @@ class NameStore(object):
             thd_only_ns_inds = np.where(
                 np.in1d(
                     self.thd_only_map.initializer,
-                    rate_info['thd']['has_ns']))[0].astype(np.int32)
+                    rate_info['thd']['has_ns']))[0].astype(kint_type)
             thd_only_ns_map = self.thd_only_map.initializer[
                 thd_only_ns_inds]
             self.thd_only_ns_map = creator('thd_only_ns_map',
@@ -2029,7 +2502,6 @@ class NameStore(object):
 
             # rtype maps
             for rtype in np.unique(rate_info['fall']['type']):
-                # find the map in global reaction index
                 mapv = rate_info['fall']['map'][
                     np.where(rate_info['fall']['type'] == rtype)[0]]
                 setattr(self, 'fall_rtype_{}_map'.format(rtype),
@@ -2047,8 +2519,8 @@ class NameStore(object):
                                 initializer=maskv,
                                 order=self.order))
                 # and indicies inside of the falloff parameters
-                inds = np.where(rate_info['fall']['map'] == mapv)[0].astype(
-                    dtype=np.int32)
+                inds = np.where(np.in1d(rate_info['fall']['map'], mapv))[0].astype(
+                    dtype=kint_type)
                 setattr(self, 'fall_rtype_{}_inds'.format(rtype),
                         creator('fall_rtype_{}_inds'.format(rtype),
                                 dtype=inds.dtype,
@@ -2056,7 +2528,7 @@ class NameStore(object):
                                 initializer=inds,
                                 order=self.order))
                 # and num
-                num = np.arange(inds.size, dtype=np.int32)
+                num = np.arange(inds.size, dtype=kint_type)
                 setattr(self, 'fall_rtype_{}_num'.format(rtype),
                         creator('fall_rtype_{}_num'.format(rtype),
                                 dtype=num.dtype,
@@ -2066,14 +2538,14 @@ class NameStore(object):
 
             # maps
             self.fall_map = creator('fall_map',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     initializer=rate_info['fall']['map'],
                                     shape=rate_info['fall']['map'].shape,
                                     order=self.order)
 
-            num_fall = np.arange(rate_info['fall']['num'], dtype=np.int32)
+            num_fall = np.arange(rate_info['fall']['num'], dtype=kint_type)
             self.num_fall = creator('num_fall',
-                                    dtype=np.int32,
+                                    dtype=kint_type,
                                     initializer=num_fall,
                                     shape=num_fall.shape,
                                     order=self.order)
@@ -2105,9 +2577,9 @@ class NameStore(object):
                 np.where(
                     np.in1d(
                         rate_info['thd']['map'], rate_info['fall']['map'])
-                )[0], dtype=np.int32)
+                )[0], dtype=kint_type)
             self.fall_to_thd_map = creator('fall_to_thd_map',
-                                           dtype=np.int32,
+                                           dtype=kint_type,
                                            initializer=fall_to_thd_map,
                                            shape=fall_to_thd_map.shape,
                                            order=self.order)
@@ -2115,7 +2587,7 @@ class NameStore(object):
             fall_to_thd_mask = _make_mask(fall_to_thd_map,
                                           rate_info['Nr'])
             self.fall_to_thd_mask = creator('fall_to_thd_mask',
-                                            dtype=np.int32,
+                                            dtype=kint_type,
                                             initializer=fall_to_thd_mask,
                                             shape=fall_to_thd_mask.shape,
                                             order=self.order)
@@ -2176,7 +2648,7 @@ class NameStore(object):
 
                 # map and mask
                 num_troe = np.arange(rate_info['fall']['troe']['num'],
-                                     dtype=np.int32)
+                                     dtype=kint_type)
                 self.num_troe = creator('num_troe',
                                         shape=num_troe.shape,
                                         dtype=num_troe.dtype,
@@ -2202,7 +2674,7 @@ class NameStore(object):
                     self.troe_map.initializer]
                 troe_ns_inds = np.where(
                     np.in1d(troe_inds, rate_info['thd']['has_ns']))[0].astype(
-                        np.int32)
+                        kint_type)
                 troe_has_ns = self.troe_map.initializer[
                     troe_ns_inds]
                 self.troe_has_ns = creator('troe_has_ns',
@@ -2268,7 +2740,7 @@ class NameStore(object):
 
                 # map and mask
                 num_sri = np.arange(rate_info['fall']['sri']['num'],
-                                    dtype=np.int32)
+                                    dtype=kint_type)
                 self.num_sri = creator('num_sri',
                                        shape=num_sri.shape,
                                        dtype=num_sri.dtype,
@@ -2294,7 +2766,7 @@ class NameStore(object):
                     self.sri_map.initializer]
                 sri_ns_inds = np.where(
                     np.in1d(sri_inds, rate_info['thd']['has_ns']))[0].astype(
-                        np.int32)
+                        kint_type)
                 sri_has_ns = self.sri_map.initializer[
                     sri_ns_inds]
                 self.sri_has_ns = creator('sri_has_ns_map',
@@ -2326,7 +2798,7 @@ class NameStore(object):
                                          initializer=lind_mask,
                                          order=self.order)
                 num_lind = np.arange(rate_info['fall']['lind']['num'],
-                                     dtype=np.int32)
+                                     dtype=kint_type)
                 self.num_lind = creator('num_lind',
                                         shape=num_lind.shape,
                                         dtype=num_lind.dtype,
@@ -2336,7 +2808,7 @@ class NameStore(object):
                     self.lind_map.initializer]
                 lind_ns_inds = np.where(
                     np.in1d(lind_inds, rate_info['thd']['has_ns']))[0].astype(
-                        np.int32)
+                        kint_type)
                 lind_has_ns = self.lind_map.initializer[
                     lind_ns_inds]
                 self.lind_has_ns = creator('lind_has_ns',
@@ -2415,7 +2887,7 @@ class NameStore(object):
                                           scope=scopes.PRIVATE)
 
             # mask and map
-            cheb_map = rate_info['cheb']['map'].astype(dtype=np.int32)
+            cheb_map = rate_info['cheb']['map'].astype(dtype=kint_type)
             self.cheb_map = creator('cheb_map',
                                     dtype=cheb_map.dtype,
                                     initializer=cheb_map,
@@ -2427,7 +2899,7 @@ class NameStore(object):
                                      initializer=cheb_mask,
                                      shape=cheb_mask.shape,
                                      order=self.order)
-            num_cheb = np.arange(rate_info['cheb']['num'], dtype=np.int32)
+            num_cheb = np.arange(rate_info['cheb']['num'], dtype=kint_type)
             self.num_cheb = creator('num_cheb',
                                     dtype=num_cheb.dtype,
                                     initializer=num_cheb,
@@ -2455,7 +2927,7 @@ class NameStore(object):
                                           order=self.order)
 
             # mask and map
-            plog_map = rate_info['plog']['map'].astype(dtype=np.int32)
+            plog_map = rate_info['plog']['map'].astype(dtype=kint_type)
             self.plog_map = creator('plog_map',
                                     dtype=plog_map.dtype,
                                     initializer=plog_map,
@@ -2467,7 +2939,7 @@ class NameStore(object):
                                      initializer=plog_mask,
                                      shape=plog_mask.shape,
                                      order=self.order)
-            num_plog = np.arange(rate_info['plog']['num'], dtype=np.int32)
+            num_plog = np.arange(rate_info['plog']['num'], dtype=kint_type)
             self.num_plog = creator('num_plog',
                                     dtype=num_plog.dtype,
                                     initializer=num_plog,
@@ -2490,13 +2962,15 @@ class NameStore(object):
                              initializer=rate_info['thermo']['T_mid'],
                              shape=rate_info['thermo']['T_mid'].shape,
                              order=self.order)
-        for name in ['cp', 'cv', 'u', 'h', 'b', 'dcp', 'dcv', 'db']:
+        for name in [constant_pressure_specific_heat, constant_volume_specific_heat,
+                     internal_energy_array, enthalpy_array,
+                     rate_const_thermo_coeff_array, 'dcp', 'dcv', 'db']:
             setattr(self, name, creator(name,
                                         dtype=np.float64,
                                         shape=(test_size, rate_info['Ns']),
                                         order=self.order))
         # thermo arrays
-        self.spec_energy = self.h if self.conp else self.u
+        self.spec_energy = self.h.copy() if self.conp else self.u.copy()
         self.spec_energy_ns = self.spec_energy.copy()
         self.spec_energy_ns.fixed_indicies = [(1, rate_info['Ns'] - 1)]
         self.spec_heat = self.cp if self.conp else self.cv

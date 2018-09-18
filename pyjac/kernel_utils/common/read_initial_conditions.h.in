@@ -1,0 +1,44 @@
+/*
+
+A cog-templated skeleton for reading of initial conditions from a binary file
+
+(C) Nicholas Curtis - 2018
+
+Global declarations for Cog:
+    - readgen: path to a serialized ReadgenRecord instance
+    that may be loaded to generate this file
+*/
+
+
+#ifndef READ_IC_H
+#define READ_IC_H
+
+/*[[[cog
+     from six.moves import cPickle as pickle
+     from textwrap import indent
+     from pyjac.utils import header_ext
+     from pyjac.utils import indent as stdindent
+     from pyjac.kernel_utils.tools import get_include
+
+     with open(readgen, 'rb') as file:
+         readgen = pickle.load(file)
+
+     from pyjac.kernel_utils.memory_tools import get_memory
+     mem = get_memory(readgen)
+
+ ]]]
+ [[[end]]]*/
+
+
+void read_initial_conditions(
+    const char* filename, unsigned int NUM,
+    /*[[[cog
+         arrys = []
+         for arry in readgen.inputs:
+            arrys.append(mem.get_signature(False, arry) + ',')
+         cog.outl(indent(' '.join(arrys), stdindent), dedent=False)
+      ]]]
+      [[[end]]]*/
+    const char order);
+
+#endif

@@ -9,7 +9,7 @@ from __future__ import division
 import math
 import logging
 import numpy as np
-from pyjac.core.reaction_types import reaction_type, thd_body_type, falloff_form, \
+from pyjac.core.enum_types import reaction_type, thd_body_type, falloff_form, \
     reversible_type
 
 __all__ = ['RU', 'RUC', 'RU_JOUL', 'PA', 'get_elem_wt',
@@ -317,6 +317,8 @@ class ReacInfo(object):
                 self.type.append(thd_body_type.unity)
             else:  # mixture as third body
                 self.type.append(thd_body_type.mix)
+        else:
+            self.type.append(thd_body_type.none)
 
         if reaction_type.fall in self.type or \
                 reaction_type.chem in self.type:
@@ -326,6 +328,8 @@ class ReacInfo(object):
                 self.type.append(falloff_form.sri)
             else:
                 self.type.append(falloff_form.lind)
+        else:
+            self.type.append(falloff_form.none)
 
         # cleanup Chemkin mechanisms that require PLOG / Chebysheb to have rate
         # parameters
@@ -334,9 +338,17 @@ class ReacInfo(object):
             self.b = 0
             self.E = 0
 
+    def get_type(self, reaction_enum_type):
+        """
+        Return all :class:`reaction_type` enums in our :attr:`types` that is
+        and instance of the given :param:`reaction_enum_type` class, or None if
+        not found.
+        """
+        return [x for x in self.type if isinstance(x, reaction_enum_type)]
+
     def match(self, reac_types):
         """
-        Given a tuple of `reaction_types` enums, for conditional equations
+        Given a tuple of :class:`reaction_types` enums, for conditional equations
         this method returns true / false if the reaction falls under this equation
 
         Parameters
@@ -355,12 +367,17 @@ class ReacInfo(object):
         A match is made if this reaction matches all `reaction types` given
             with the repeat rule given above
 
+        An empty :param:`reac_types` will be matched by all reactions
+
         """
+
+        if not reac_types:
+            return True
 
         if not isinstance(reac_types, tuple):
             try:
                 reac_types = tuple(reac_types)
-            except:
+            except TypeError:
                 reac_types = (reac_types,)
 
         # get the types to a more managable form

@@ -1,4 +1,4 @@
-# a configuration file for nose-testconfig that sets:
+# Configuration file for nose-testconfig that sets:
 # a) the test platforms file
 # b) the chemical mechanism to test
 # c) the maximum number of threads to test
@@ -30,3 +30,5 @@ config['test_langs'] = 'opencl,c'
 # note that the default tolerances should work for the test mechanism, but you may
 # need to adjust for other (real) mechanisms
 # config['atol'] = 1
+# Set the number of initial conditions for pyJac testing
+# config['test_size'] = 8192

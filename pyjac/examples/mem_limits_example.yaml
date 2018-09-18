@@ -1,19 +1,20 @@
 # an example of appropriate memory limits for an Intel OpenCL platform
 # based on values taken from the queried limits
-# All units are in bytes
-constant:
-  # The maximum constant buffer size, as given by CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE
-  131072
+# All units are in bytes [B], other recognized units are [GB, MB, KB]
+memory_limits:
+  constant:
+    # The maximum constant buffer size, as given by CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE
+    131072 B
 
-#local:
-  # not specified
+  #local:
+    # not specified
 
-alloc:
-  # The max size of memory object allocation in bytes for OpenCL,
-  # given by CL_DEVICE_MAX_MEM_ALLOC_SIZE
-  33746508800
+  alloc:
+    # The max size of memory object allocation in bytes for OpenCL,
+    # given by CL_DEVICE_MAX_MEM_ALLOC_SIZE
+    33746508800 B
 
-global:
-  # Size of global device memory in bytes for OpenCL
-  # given by CL_DEVICE_GLOBAL_MEM_SIZE
-  134986035200
+  global:
+    # Size of global device memory in bytes for OpenCL
+    # given by CL_DEVICE_GLOBAL_MEM_SIZE
+    134986035200 B

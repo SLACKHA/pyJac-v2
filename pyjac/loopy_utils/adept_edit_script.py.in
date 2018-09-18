@@ -1,13 +1,19 @@
 #! /usr/bin/env python
 
 """
-A simple script that acts as the 'EDITOR' for loopy code generation,
-changing simple code-generation patterns that cause errors for various
-OpenCL implementations (mostly Intel)
+A simple script that acts as the 'EDITOR' for auto-differentiation code generation,
+implementing a wrapper around the given kernels that:
+
+1) Sets up Adept's stack / recording for auto-diff
+2) Copies data to / from vectors of Adept adoubles (per-initial condition)
+3) Calls kernels with the adoubles, and
+4) Computes and stores the auto-differentiated Jacobian
+
 """
 
 import sys
 import re
+import textwrap
 
 
 def __get_file(filename, text_in=None):
@@ -29,7 +35,7 @@ def substitute(filename, text_in=None):
     # first replace what will become the inner kernel with the single indexed
     # version
 
-    lines = """${base_kernels}""".splitlines(True)
+    lines = textwrap.dedent("""${base_kernels}""").splitlines(True)
 
     first_body = None
     index = 0
@@ -62,10 +68,12 @@ def substitute(filename, text_in=None):
             # replace double in func defn w/ adouble
             lines[i] = re.sub(r'double\b(?![^,]+${jac_name})', 'adouble', lines[i])
             if i >= body_at:
-                # replace j's in function body with zeros as we're passing
                 # a single vector at a time
                 lines[i] = lines[i].replace(str(${problem_size} - 1), '0')
-                lines[i] = lines[i].replace('j', '0')
+
+                # we no longer need to replace j's in function body, as C-operates
+                # on a single condition by default now.
+                # lines[i] = lines[i].replace('j', '0')
 
                 # check for fmax
                 fmax_re = re.compile(r'fmax\((.+),(.+)\);')
@@ -81,7 +89,8 @@ def substitute(filename, text_in=None):
                             group = ind + 1
                             break
                     lines[i] = fmax_re.sub('\\{};'.format(group), lines[i])
-                #lines[i] = re.sub(r'fmax\((.+),(.+)\);', r'std::max(adouble(\1), \2);', lines[i])
+                # lines[i] = re.sub(
+                # r'fmax\((.+),(.+)\);', r'std::max(adouble(\1), \2);', lines[i])
 
         # next we have to rename the inner function
         lines[body_at - 1] = re.sub(r'void\s*([\w_]+)', r'void ad_\1',
@@ -100,15 +109,22 @@ ${function_defn}{
     #pragma omp parallel for
     for (int ad_j = 0; ad_j < ${problem_size}; ++ad_j)
     {
-        adept::Stack stack; // Where the derivative information is stored
+        // Where the derivative information is stored
+        adept::Stack stack;
         //initialize variables
         ${initializers}
-        stack.new_recording(); // Start recording
-        std::vector<adouble> ${ad_dep_name}(${dep_size}); // Create vector of active output variables
-        ${kernel_calls} // Run algorithm
-        stack.independent(&${ad_indep_name}[0], ${indep_size}); // Identify independent variables
-        stack.dependent(&${ad_dep_name}[0], ${dep_size}); // Identify dependent variables
-        stack.jacobian(${jac_base_offset}); // Compute & store Jacobian in jac
+        // Start recording
+        stack.new_recording();
+        // Create vector of active output variables
+        std::vector<adouble> ${ad_dep_name}(${dep_size});
+        // Run algorithm
+        ${kernel_calls}
+        // Identify independent variables
+        stack.independent(&${ad_indep_name}[0], ${indep_size});
+        // Identify dependent variables
+        stack.dependent(&${ad_dep_name}[0], ${dep_size});
+        // Compute & store Jacobian in jac
+        stack.jacobian(${jac_base_offset});
         ${setters}
     }
 }
@@ -160,7 +176,8 @@ ${function_defn}{
         # if function defined before this
         if func_str in func_strs[:i]:
             # mark the mask
-            mask[funcs[i][0]:funcs[i][1] + 1] = [False] * (funcs[i][1] + 1 - funcs[i][0])
+            mask[funcs[i][0]:funcs[i][1] + 1] = [False] * (
+                funcs[i][1] + 1 - funcs[i][0])
 
     # and take the non masked lines
     new_lines = [lines[i] for i in range(len(lines)) if mask[i]]

@@ -1,254 +1,223 @@
 import os
-from collections import OrderedDict
 import shutil
-from string import Template
-import sys
-import subprocess
 import re
 
-from optionloop import OptionLoop
 import numpy as np
-from parameterized import parameterized, param
 from nose.tools import assert_raises
+from nose.plugins.attrib import attr
+from cogapp import Cog
 
 from pyjac import utils
 from pyjac.core.rate_subs import get_specrates_kernel
 from pyjac.core.create_jacobian import get_jacobian_kernel, \
     finite_difference_jacobian, create_jacobian
-from pyjac.tests import TestClass, test_utils
-from pyjac.loopy_utils.loopy_utils import loopy_options
-from pyjac.libgen import generate_library, build_type
+from pyjac.core import array_creator as arc
+from pyjac.core.enum_types import KernelType
 from pyjac.core.mech_auxiliary import write_aux
-from pyjac.core.array_creator import array_splitter, problem_size
-from pyjac.pywrap.pywrap_gen import generate_wrapper
-from pyjac.core.exceptions import IncorrectInputSpecificationException
+from pyjac.core.array_creator import work_size
+from pyjac.core.exceptions import InvalidInputSpecificationException
+from pyjac.kernel_utils.kernel_gen import knl_info, make_kernel_generator
+from pyjac.libgen import generate_library
+from pyjac.pywrap.pywrap_gen import pywrap
+from pyjac.tests import TestClass, test_utils
+from pyjac.tests.test_utils import temporary_build_dirs, OptionLoopWrapper, xfail
 
 
 class SubTest(TestClass):
-    def __cleanup(self, remove_dirs=True):
-        # remove library
-        test_utils.clean_dir(self.store.lib_dir, remove_dirs)
-        # remove build
-        test_utils.clean_dir(self.store.obj_dir, remove_dirs)
-        # clean dummy builder
-        dist_build = os.path.join(self.store.build_dir, 'build')
-        if os.path.exists(dist_build):
-            shutil.rmtree(dist_build)
-        # clean sources
-        test_utils.clean_dir(self.store.build_dir, remove_dirs)
 
-    def __get_spec_lib(self, state, opts):
-        build_dir = self.store.build_dir
-        conp = state['conp']
-        kgen = get_specrates_kernel(self.store.reacs, self.store.specs, opts,
-                                    conp=conp)
-        # generate
-        kgen.generate(build_dir)
-        # write header
-        write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+    def __run_test(self, method, test_python_wrapper=True,
+                   ktype=KernelType.species_rates, **oploop_keywords):
+        kwargs = {}
+        if not test_python_wrapper:
+            kwargs['shared'] = [True, False]
+        oploop_keywords.update(kwargs)
+        ignored_state_vals = ['conp'] + list(kwargs.keys())
 
-    def __get_objs(self, lang='opencl', depth=None, width=None, order='C'):
-        opts = loopy_options(lang=lang,
-                             width=width, depth=depth, ilp=False,
-                             unr=None, order=order, platform='CPU')
+        wrapper = OptionLoopWrapper.from_get_oploop(
+            self, ignored_state_vals=ignored_state_vals,
+            do_conp=False, **oploop_keywords)
+        for opts in wrapper:
+            with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
+                # write files
+                # write files
+                conp = wrapper.state['conp']
+                kgen = method(self.store.reacs, self.store.specs, opts,
+                              conp=conp)
+                # generate
+                kgen.generate(build_dir)
+                # write header
+                write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+                if test_python_wrapper:
+                    package = 'pyjac_{}'.format(utils.package_lang[opts.lang])
+                    # test wrapper generation
+                    pywrap(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
+                           ktype=ktype)
 
-        oploop = OptionLoop(OrderedDict([
-            ('conp', [True]),
-            ('shared', [True, False])]))
-        return opts, oploop
+                    imp = test_utils.get_import_source()
+                    with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
+                        file.write(imp.substitute(path=lib_dir, package=package))
 
-    @parameterized.expand([('opencl',), ('c',)])
-    def test_compile_specrates_knl(self, lang):
-        opts, oploop = self.__get_objs(lang=lang)
-        build_dir = self.store.build_dir
-        obj_dir = self.store.obj_dir
-        lib_dir = self.store.lib_dir
-        for state in oploop:
-            # clean old
-            self.__cleanup()
-            # create / write files
-            self.__get_spec_lib(state, opts)
-            # compile
-            generate_library(opts.lang, build_dir, obj_dir=obj_dir,
-                             out_dir=lib_dir, shared=state['shared'],
-                             btype=build_type.species_rates)
+                    utils.run_with_our_python([
+                        os.path.join(lib_dir, 'test_import.py')])
+                else:
+                    # compile
+                    generate_library(opts.lang, build_dir, obj_dir=obj_dir,
+                                     out_dir=lib_dir, shared=wrapper.state['shared'],
+                                     ktype=ktype)
 
-    @parameterized.expand([('opencl',), ('c',)])
-    def test_specrates_pywrap(self, lang):
-        opts, oploop = self.__get_objs(lang=lang)
-        build_dir = self.store.build_dir
-        obj_dir = self.store.obj_dir
-        lib_dir = self.store.lib_dir
-        packages = {'c': 'pyjac_c', 'opencl': 'pyjac_ocl'}
-        for state in oploop:
-            # clean old
-            self.__cleanup()
-            # create / write files
-            self.__get_spec_lib(state, opts)
-            # test wrapper generation
-            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                             btype=build_type.species_rates)
+    @attr('verylong')
+    def test_specrates_compilation(self):
+        self.__run_test(get_specrates_kernel, test_python_wrapper=True)
 
-            # create the test importer, and run
-            imp = test_utils.get_import_source()
-            with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
-                file.write(imp.substitute(path=lib_dir, package=packages[lang]))
+    @attr('verylong')
+    def test_jacobian_compilation(self):
+        self.__run_test(
+            get_jacobian_kernel, ktype=KernelType.jacobian,
+            # approximate doesn't change much about the code while sparse does!
+            test_python_wrapper=True, do_approximate=False, do_sparse=True)
 
-            python_str = 'python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1])
-            subprocess.check_call([python_str,
-                                   os.path.join(lib_dir, 'test_import.py')])
+    @attr('verylong')
+    @xfail(msg='Finite Difference Jacobian currently broken.')
+    def test_fd_jacobian_compilation(self, state):
+        self.__run_test(
+            finite_difference_jacobian, test_python_wrapper=False,
+            ktype=KernelType.jacobian, do_finite_difference=True)
 
-    def __test_cases():
-        for state in OptionLoop(OrderedDict(
-                [('lang', ['opencl', 'c']),
-                 (('jac_type'), ['exact', 'approximate', 'finite_difference'])])):
-            yield param(state)
-
-    @parameterized.expand(__test_cases,
-                          testcase_func_name=lambda x, y, z:
-                          '{0}_{1}_{2}'.format(x.__name__, z[0][0]['lang'],
-                                               z[0][0]['jac_type']))
-    def test_compile_jacobian(self, state):
-        lang = state['lang']
-        jac_type = state['jac_type']
-        opts, oploop = self.__get_objs(lang=lang)
-        build_dir = self.store.build_dir
-        obj_dir = self.store.obj_dir
-        lib_dir = self.store.lib_dir
-        packages = {'c': 'pyjac_c', 'opencl': 'pyjac_ocl'}
-        for state in oploop:
-            # clean old
-            self.__cleanup()
-            # create / write files
-            build_dir = self.store.build_dir
-            conp = state['conp']
-            method = get_jacobian_kernel
-            if jac_type == 'finite_difference':
-                method = finite_difference_jacobian
-            kgen = method(self.store.reacs, self.store.specs, opts,
-                          conp=conp)
-            # generate
-            kgen.generate(build_dir)
-            # write header
-            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
-            # test wrapper generation
-            generate_wrapper(opts.lang, build_dir, obj_dir=obj_dir, out_dir=lib_dir,
-                             btype=build_type.jacobian)
-
-            # create the test importer, and run
-            imp = test_utils.get_import_source()
-            with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
-                file.write(imp.substitute(path=lib_dir, package=packages[lang]))
-
-            python_str = 'python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1])
-            subprocess.check_call([python_str,
-                                   os.path.join(lib_dir, 'test_import.py')])
-
-    def test_fixed_size(self):
+    def test_fixed_work_size(self):
         # test bad fixed size
-        with assert_raises(IncorrectInputSpecificationException):
+        with assert_raises(InvalidInputSpecificationException):
             create_jacobian(
-                'opencl', gas=self.store.gas, vector_size=4, wide=True, fixed_size=1)
+                'opencl', gas=self.store.gas, vector_size=4, wide=True, work_size=1)
 
-        # test good fixed size
-        # create w/ fixed size
-        create_jacobian('c', gas=self.store.gas, fixed_size=1, data_order='F',
-                        build_path=self.store.build_dir)
-        # read resulting file
-        with open(os.path.join(self.store.build_dir, 'jacobian_kernel.c'),
-                  'r') as file:
-            file = file.read()
-        # and make sure we don't have 'problem_size'
-        assert not re.search(r'\b{}\b'.format(problem_size.name), file)
+        with utils.temporary_directory() as build_dir:
+            # test good fixed size
+            create_jacobian('c', gas=self.store.gas, work_size=1,
+                            data_order='F', build_path=build_dir,
+                            kernel_type=KernelType.species_rates)
+
+            files = ['species_rates.c', 'species_rates.h', 'chem_utils.c',
+                     'chem_utils.h']
+            for file in files:
+                # read resulting file
+                with open(os.path.join(build_dir, file), 'r') as file:
+                    file = file.read()
+                # and make sure we don't have 'work_size
+                assert not re.search(r'\b{}\b'.format(work_size.name), file)
+
+    def __write_with_subs(self, file, inpath, outpath, renamer=None, **subs):
+        with open(os.path.join(inpath, file), 'r') as read:
+            src = read.read()
+
+        src = utils.subs_at_indent(src, **subs)
+
+        if renamer:
+            file = renamer(file)
+
+        with open(os.path.join(outpath, file), 'w') as outfile:
+            outfile.write(src)
+
+        return os.path.join(outpath, file)
 
     def test_read_initial_conditions(self):
-        build_dir = self.store.build_dir
-        obj_dir = self.store.obj_dir
-        lib_dir = self.store.lib_dir
         setup = test_utils.get_read_ics_source()
-        utils.create_dir(build_dir)
-        utils.create_dir(obj_dir)
-        utils.create_dir(lib_dir)
-        oploop = OptionLoop(OrderedDict([
-            # no need to test conv
-            ('conp', [True]),
-            ('order', ['C', 'F']),
-            ('depth', [4, None]),
-            ('width', [4, None]),
-            ('lang', ['c'])]))
-        for state in oploop:
-            if state['depth'] and state['width']:
-                continue
-            self.__cleanup(False)
-            # create dummy loopy opts
-            opts = type('', (object,), state)()
-            asplit = array_splitter(opts)
+        wrapper = OptionLoopWrapper.from_get_oploop(self, do_conp=True)
+        for opts in wrapper:
+            with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
+                conp = wrapper.state['conp']
 
-            # get source
-            path = os.path.realpath(
-                os.path.join(self.store.script_dir, os.pardir,
-                             'kernel_utils', 'common',
-                             'read_initial_conditions.c.in'))
+                # make a dummy generator
+                insns = (
+                    """
+                        {spec} = {param} {{id=0}}
+                    """
+                )
+                domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                                     initializer=np.arange(10, dtype=arc.kint_type))
+                mapstore = arc.MapStore(opts, domain, None)
+                # create global args
+                param = arc.creator(arc.pressure_array, np.float64,
+                                    (arc.problem_size.name, 10), opts.order)
+                spec = arc.creator(arc.state_vector, np.float64,
+                                   (arc.problem_size.name, 10), opts.order)
+                namestore = type('', (object,), {'jac': ''})
+                # create array / array strings
+                param_lp, param_str = mapstore.apply_maps(param, 'j', 'i')
+                spec_lp, spec_str = mapstore.apply_maps(spec, 'j', 'i')
 
-            with open(path, 'r') as file:
-                ric = Template(file.read())
-            # subs
-            ric = ric.safe_substitute(mechanism='mechanism.h',
-                                      vectorization='vectorization.h')
-            # write
-            with open(os.path.join(
-                    build_dir, 'read_initial_conditions.c'), 'w') as file:
-                file.write(ric)
-            # write header
-            write_aux(build_dir, opts, self.store.specs, self.store.reacs)
-            # write setup
-            with open(os.path.join(build_dir, 'setup.py'), 'w') as file:
-                file.write(setup.safe_substitute(buildpath=build_dir))
-            # copy read ics header to final dest
-            shutil.copyfile(os.path.join(self.store.script_dir, os.pardir,
-                                         'kernel_utils', 'common',
-                                         'read_initial_conditions.h'),
-                            os.path.join(build_dir, 'read_initial_conditions.h'))
-            # copy wrapper
-            shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
-                                         'read_ic_wrapper.pyx'),
-                            os.path.join(build_dir, 'read_ic_wrapper.pyx'))
-            # setup
-            python_str = 'python{}.{}'.format(
-                sys.version_info[0], sys.version_info[1])
-            call = [python_str, os.path.join(build_dir, 'setup.py'),
-                    'build_ext', '--build-lib', lib_dir]
-            subprocess.check_call(call)
-            # copy in tester
-            shutil.copyfile(os.path.join(self.store.script_dir, 'test_utils',
-                                         'ric_tester.py'),
-                            os.path.join(lib_dir, 'ric_tester.py'))
+                # create kernel infos
+                info = knl_info(
+                    'spec_eval', insns.format(param=param_str, spec=spec_str),
+                    mapstore, kernel_data=[spec_lp, param_lp, arc.work_size],
+                    silenced_warnings=['write_race(0)'])
+                # create generators
+                kgen = make_kernel_generator(
+                     opts, KernelType.dummy, [info],
+                     namestore,
+                     input_arrays=[param.name, spec.name],
+                     output_arrays=[spec.name],
+                     name='ric_tester')
+                # make kernels
+                kgen._make_kernels()
+                # and generate RIC
+                _, record, _ = kgen._generate_wrapping_kernel(build_dir)
+                kgen._generate_common(build_dir, record)
+                ric = os.path.join(build_dir, 'read_initial_conditions' +
+                                   utils.file_ext[opts.lang])
 
-            # For simplicity (and really, lack of need) we test CONP only
-            # hence, the extra variable is the volume, while the fixed parameter
-            # is the pressure
+                # write header
+                write_aux(build_dir, opts, self.store.specs, self.store.reacs)
+                with open(os.path.join(build_dir, 'setup.py'), 'w') as file:
+                    file.write(setup.safe_substitute(buildpath=build_dir,
+                                                     obj_dir=obj_dir))
 
-            # save phi, param in correct order
-            phi = (self.store.phi_cp if opts.conp else self.store.phi_cv)
-            save_phi, = asplit.split_numpy_arrays(phi)
-            save_phi = save_phi.flatten(opts.order)
-            param = self.store.P if opts.conp else self.store.V
-            save_phi.tofile(os.path.join(lib_dir, 'phi_test.npy'))
-            param.tofile(os.path.join(lib_dir, 'param_test.npy'))
+                # and compile
+                from pyjac.libgen import compile, get_toolchain
+                toolchain = get_toolchain(opts.lang)
+                compile(opts.lang, toolchain, [ric], obj_dir=obj_dir)
 
-            # save bin file
-            out_file = np.concatenate((
-                np.reshape(phi[:, 0], (-1, 1)),  # temperature
-                np.reshape(param, (-1, 1)),  # param
-                phi[:, 1:]), axis=1  # species
-            )
-            out_file = out_file.flatten('K')
-            with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
-                out_file.tofile(file)
+                # write wrapper
+                self.__write_with_subs(
+                    'read_ic_wrapper.pyx',
+                    os.path.join(self.store.script_dir, 'test_utils'),
+                    build_dir,
+                    header_ext=utils.header_ext[opts.lang])
+                # setup
+                utils.run_with_our_python(
+                    [os.path.join(build_dir, 'setup.py'),
+                     'build_ext', '--build-lib', lib_dir])
 
-            # and run
-            subprocess.check_call(
-                [python_str, os.path.join(lib_dir, 'ric_tester.py'), opts.order,
-                 str(self.store.test_size)])
+                infile = os.path.join(self.store.script_dir, 'test_utils',
+                                      'ric_tester.py.in')
+                outfile = os.path.join(lib_dir, 'ric_tester.py')
+                # cogify
+                try:
+                    Cog().callableMain([
+                                'cogapp', '-e', '-d', '-Dconp={}'.format(conp),
+                                '-o', outfile, infile])
+                except Exception:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error('Error generating initial conditions reader:'
+                                 ' {}'.format(outfile))
+                    raise
+
+                # save phi, param in correct order
+                phi = (self.store.phi_cp if conp else self.store.phi_cv)
+                savephi = phi.flatten(opts.order)
+                param = self.store.P if conp else self.store.V
+                savephi.tofile(os.path.join(lib_dir, 'phi_test.npy'))
+                param.tofile(os.path.join(lib_dir, 'param_test.npy'))
+
+                # save bin file
+                out_file = np.concatenate((
+                    np.reshape(phi[:, 0], (-1, 1)),  # temperature
+                    np.reshape(param, (-1, 1)),  # param
+                    phi[:, 1:]), axis=1  # species
+                )
+                out_file = out_file.flatten('K')
+                with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
+                    out_file.tofile(file)
+
+                # and run
+                utils.run_with_our_python([outfile, opts.order,
+                                           str(self.store.test_size)])

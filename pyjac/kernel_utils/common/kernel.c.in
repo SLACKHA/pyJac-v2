@@ -1,0 +1,690 @@
+/*
+
+A cog-templated skeleton for pyJac kernel execution
+
+OpenCL code adapted from:
+    Based on https://www.olcf.ornl.gov/tutorials/opencl-vector-addition/
+    and https://www.fixstars.com/en/opencl/book/OpenCLProgrammingBook/calling-the-kernel/
+
+(C) Nicholas Curtis - 2018
+
+Global declarations for Cog:
+    - codegen: path to a serialized CallgenResult instance
+    that may be loaded to generate this file
+*/
+
+/*[[[cog
+     import loopy as lp
+     import numpy as np
+     import re
+     from textwrap import indent
+     from six.moves import cPickle as pickle
+     from string import Template
+     from pyjac.utils import indent as stdindent
+     from pyjac.utils import header_ext
+     from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, \
+         max_size, get_include, make_doc_str, get_num_bytes
+
+     with open(callgen, 'rb') as file:
+         callgen = pickle.load(file)
+     num_source = len(callgen.source_names)
+
+     from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
+     mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
+
+     cog.outl(get_include(callgen, '{}_main'.format(callgen.name)))
+     cog.outl(get_include(callgen, 'read_initial_conditions'))
+     cog.outl(get_include(callgen, 'write_data'))
+     cog.outl(get_include(callgen, 'memcpy_2d'))
+ ]]]
+ [[[end]]]*/
+
+Kernel::Kernel():
+    initialized(false),
+    compiled(false),
+    problem_size(0),
+    work_size(0)
+{
+    /*[[[cog
+        if callgen.lang != 'opencl':
+            # only OpenCL has runtime compilation
+            cog.outl('this->compiled=true;')
+      ]]]
+      [[[end]]]*/
+}
+
+Kernel::~Kernel()
+{
+    this->finalize();
+}
+
+/*[[[cog
+if callgen.lang == 'opencl':
+    cog.outl('const char* Kernel::build_options = "{}";'.format(callgen.build_options))
+    cog.outl('const char* Kernel::platform_check = "{}";'.format(callgen.platform))
+    cog.outl('const unsigned int Kernel::device_type = {};'.format(int(callgen.device_type)));
+]]]
+[[[end]]]*/
+
+void Kernel::resize(size_t problem_size, size_t work_size, bool do_not_compile)
+{
+    if (do_not_compile and !this->compiled)
+    {
+        // Assume that OpenCL kernel has previously been compiled (e.g., via a previous kernel call)
+        this->compiled = true;
+    }
+    if (this->initialized && ((work_size != this->work_size) || (problem_size != this->problem_size)))
+    {
+        this->finalize_memory();
+        this->init(problem_size, work_size);
+    }
+    else if (!this->initialized)
+    {
+        this->init(problem_size, work_size);
+    }
+}
+
+size_t Kernel::per_run()
+{
+    return this->max_per_run < this->problem_size ? this->max_per_run : this->problem_size;
+}
+
+size_t Kernel::per_run(size_t problem_size)
+{
+    return this->max_per_run < problem_size ? this->max_per_run : problem_size;
+}
+
+size_t Kernel::this_run(size_t offset)
+{
+    size_t per_run = this->per_run();
+    return this->problem_size - offset < per_run ? this->problem_size - offset : per_run;
+}
+
+/*[[[cog
+     if callgen.lang == 'c':
+        cog.outl("""
+            /*
+              Resets the program for a change in number of threads
+            */
+            void Kernel::threadset(unsigned int num_threads)
+            {
+                // get maximum allowed threads
+                unsigned int max_threads = omp_get_max_threads();
+                // check that # of threads < max allowed
+                cassert(num_threads <= max_threads, "Can't use more than the maximum allowed threads by OpenMP.");
+                // set number of threads
+                omp_set_num_threads(num_threads);
+                // and store
+                this->work_size = num_threads;
+            }""", dedent=True, trimblanklines=True)
+  ]]]
+  [[[end]]]*/
+
+/*[[[cog
+    # generate docs
+    cog.outl(make_doc_str(callgen, ['problem_size', 'work_size'],
+                          'Create {} Kernel'.format(callgen.lang.title())),
+                          trimblanklines=True)
+    # put in kernel init's
+    if callgen.lang == 'opencl':
+        cog.out("""
+    void Kernel::init(size_t problem_size, size_t work_size)
+    {
+        cl_platform_id platform_id[NUM_PLATFORMS];
+        cl_device_id device_ids[MAX_DEVICE];
+        cl_uint ret_num_platforms;
+        cl_uint ret_num_devices;
+        cl_uint num_devices = 1;
+        cl_int return_code;
+        cl_device_type device_type = this->device_type;
+
+        if (!this->compiled)
+        {
+            this->compile();
+        }
+
+        size_t source_size;
+        unsigned char* source_bin;
+
+        FILE *fp;
+
+        /* Load compiled kernel binary */
+        fp = fopen(this->kernel_path, "rb");
+        if (!fp) {
+            fprintf(stderr, "Compiled kernel binary file: %s not found!\\n", this->kernel_path);
+            exit(EXIT_FAILURE);
+        }
+        //find file size
+        fseek(fp, 0L, SEEK_END);
+        source_size = ftell(fp);
+        rewind(fp);
+
+        //read file
+        source_bin = (unsigned char*)malloc(source_size);
+        cassert(fread(source_bin, 1, source_size, fp) == source_size, "Error reading source binary...");
+        fclose(fp);
+
+        /* Get platform/device information */
+        check_err(clGetPlatformIDs(NUM_PLATFORMS, platform_id, &ret_num_platforms));
+        cl_platform_id pid = NULL;
+        for (unsigned int i = 0; i < ret_num_platforms; ++i)
+        {
+            //check if matches user-supplied platform
+            char pvendor[100];
+            size_t psize = 100 * sizeof(char);
+            check_err(clGetPlatformInfo(platform_id[i], CL_PLATFORM_VENDOR, psize, pvendor, NULL));
+            if(strstr(pvendor, platform_check) != NULL)
+            {
+                pid = platform_id[i];
+                break;
+            }
+        }
+        cassert(pid != NULL, "Platform not found");
+
+        if (device_type != CL_DEVICE_TYPE_GPU)
+        {
+            //we're going to create a subdevice limited to work_size # of cores
+            //all systems tested show multi-cpus as a single device.
+            num_devices = 1;
+        }
+        else if (num_devices >= MAX_DEVICE)
+        {
+            fprintf(stderr, "Cannot create program with %d devices, please update MAX_DEVICE definition.\\n", num_devices);
+            exit(EXIT_FAILURE);
+        }
+
+        //get the device
+        check_err(clGetDeviceIDs(pid, device_type, num_devices, device_ids, &ret_num_devices));
+
+        cassert(ret_num_devices > 0, "No devices found!");
+
+        //now we need to create subdevices for the CPU
+        if (device_type == CL_DEVICE_TYPE_CPU)
+        {
+            cl_uint num_compute;
+            //first get the maximum number of sub partitions (i.e. logical threads)
+            check_err(clGetDeviceInfo(device_ids[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(num_compute), &num_compute, NULL));
+            cassert(work_size <= num_compute, "Too many cores used...");
+
+            //ok, now we know we're ok
+            //let's create a subdevice with the required number of compute units
+            // Partition properties
+            cl_device_partition_property properties[3];
+            // Partition type
+            properties[0] = CL_DEVICE_PARTITION_BY_COUNTS;
+            // number of compute units
+            properties[1] = work_size;
+            // List end
+            properties[2] = CL_DEVICE_PARTITION_BY_COUNTS_LIST_END;
+
+            // Specifies the size of the out_devices array
+            cl_uint num_sub_devices = 1;
+            // Provides a buffer for the generated subdevices with a number of elements specified by num_sub_devices
+            cl_device_id sub_device_ids;
+            // Create the subdevices for the device_id device
+            check_err(clCreateSubDevices(device_ids[0], properties, num_sub_devices, &sub_device_ids, &ret_num_devices));
+            cassert(ret_num_devices > 0, "No sub-devices could be created!");
+            //and assign to the device_ids
+            device_ids[0] = sub_device_ids;
+            num_devices = num_sub_devices;
+        }
+
+        //for the moment, limit to one device
+        cassert(num_devices == 1, "Currently limited to a single device");
+
+        //create context
+        this->context = clCreateContext(NULL, num_devices, &device_ids[0], NULL, NULL, &return_code);
+        check_err(return_code);
+
+        //create queue
+        this->queue = clCreateCommandQueue(this->context, device_ids[0], 0, &return_code);
+        check_err(return_code);
+
+        /* Create Kernel program from the read in source binary */
+        cl_int bin_status;
+        this->program = clCreateProgramWithBinary(context, num_devices, &device_ids[0], (const size_t*)&source_size,
+                                                  (const unsigned char**)&source_bin, &bin_status, &return_code);
+        check_err(bin_status);
+        check_err(return_code);
+
+        /* Build Program */
+        return_code = clBuildProgram(this->program, num_devices, &device_ids[0], this->build_options, NULL, NULL);
+        if (return_code != CL_SUCCESS)
+        {
+              fprintf(stderr, "OpenCL failed to build the program...\\n");
+
+              size_t len;
+              char *buffer;
+              check_err(clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_LOG, sizeof(char*), NULL, &len));
+              buffer = (char*)calloc(len, sizeof(char));
+              check_err(clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_LOG, len * sizeof(char), buffer, NULL));
+              fprintf(stderr, "%s\\n", buffer);
+              free(buffer);
+
+              clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_STATUS, sizeof(char*), NULL, &len);
+              buffer = (char*)calloc(len, sizeof(char));
+              clGetProgramBuildInfo(this->program, device_ids[0], CL_PROGRAM_BUILD_STATUS, len * sizeof(char), buffer, NULL);
+              fprintf(stderr, "%s\\n", buffer);
+              free(buffer);
+
+              check_err(return_code);
+        }
+
+        free(source_bin);
+
+        this->mem_init(problem_size, work_size);
+        // mark initialized
+        this->initialized = true;
+        this->problem_size = problem_size;
+        this->work_size = work_size;
+    }
+            """, trimblanklines=True)
+
+    elif callgen.lang == 'c':
+        cog.outl("""
+    void Kernel::init(size_t problem_size, size_t work_size)
+    {
+        this->threadset(work_size);
+        this->mem_init(problem_size, work_size);
+        // mark initialized
+        this->initialized = true;
+        this->problem_size = problem_size;
+        this->work_size = work_size;
+    }
+            """, trimblanklines=True)
+]]]
+[[[end]]]*/
+
+
+/*
+   Destroys the kernel object, will not be usable again
+*/
+void Kernel::finalize()
+{
+    if(this->initialized)
+    {
+        this->finalize_memory();
+        /*[[[cog
+            if callgen.lang == 'opencl':
+                cog.outl('check_err(clReleaseProgram(this->program));')
+                cog.outl('check_err(clReleaseCommandQueue(this->queue));')
+                cog.outl('check_err(clReleaseContext(this->context));')
+        ]]]
+        [[[end]]]*/
+
+        // mark deinit
+        this->compiled = false;
+        this->initialized = false;
+    }
+}
+
+
+/*[[[cog
+# generate sub-kernel classes
+for kernel in callgen.kernel_data:
+    # create a new memory manager to get 'this->' for device buffers
+    kmem = get_memory(callgen, host_namer=HostNamer(),
+                      device_namer=DeviceNamer('this'))
+
+    kernel_name = '{name}Kernel'.format(name=kernel.title())
+
+    # generate docs
+    cog.outl(make_doc_str(callgen, ['problem_size', 'work_size'],
+                          ''),
+                          trimblanklines=True)
+
+    cog.out("""
+void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
+{{
+    size_t per_run = this->d_per_run = this->per_run(problem_size);
+""".format(kernel_name=kernel_name))
+    if callgen.lang == 'opencl':
+        cog.outl("""
+    #ifndef PINNED
+        #if CL_LEVEL >= 120
+            // with CL 1.2, we have access to clEnqueueFillBuffer
+            double zero = 0;
+        #else
+            // otherwise, we need a zero buffer to use clEnqueueWriteBuffer
+            double* zero = (double*)malloc({max_size} * sizeof(double));
+            memset(zero, 0, {max_size} * sizeof(double));
+        #endif
+    #endif
+""".format(max_size=max_size(mem, callgen.kernel_data[kernel]),
+           kernel_name=kernel_name), dedent=False, trimblanklines=True)
+
+    cog.outl("""
+    /* If we've run out of constant memory space, we will place converted
+       global constant here */
+    """, trimblanklines=True)
+
+    for arr in callgen.host_constants[kernel]:
+        # define
+        cog.outl(indent(kmem.define(False, arr, host_constant=True), stdindent))
+
+    if callgen.lang == 'opencl':
+        cog.outl("""
+    cl_int return_code;
+    """, dedent=False, trimblanklines=True)
+
+    cog.outl("""
+    /* Alloc buffers */
+    """, dedent=False, trimblanklines=True)
+
+    for arr in callgen.kernel_data[kernel]:
+        if not (isinstance(arr, lp.ValueArg) or
+                arr.address_space == lp.AddressSpace.LOCAL):
+            cog.outl(indent(kmem.alloc(True, arr), stdindent))
+
+    cog.outl("""
+    /* and memset to zero */
+    """, dedent=False, trimblanklines=True)
+
+    for arr in callgen.kernel_data[kernel]:
+        if not (isinstance(arr, lp.ValueArg) or
+                arr.address_space == lp.AddressSpace.LOCAL):
+            cog.outl(indent(kmem.memset(True, arr), stdindent))
+
+    cog.out("""
+
+    /* Transfer host constants here (if any), as we only need to do so once */
+
+    """, dedent=False, trimblanklines=True)
+
+    for arr in callgen.host_constants[kernel]:
+        cog.outl(indent(kmem.copy(True, arr, host_constant=True), stdindent))
+
+    # and create kernel
+    if callgen.lang == 'opencl':
+        cog.outl("""
+    #if CL_LEVEL < 120
+        free(zero);
+    #endif
+
+    /* Create OpenCL Kernel */
+    this->kernel = clCreateKernel(program, "{knl_name}_driver", &return_code);
+    check_err(return_code);
+
+    /* Kernel arg setting */
+    """.format(knl_name=kernel), dedent=False, trimblanklines=True)
+        # finally set kernel args
+        set_arg = ('check_err(clSetKernelArg(kernel, {arg_index}, '
+               '{arg_size}, {arg_value}));')
+
+        for i, arg in enumerate(callgen.kernel_data[kernel]):
+            if not isinstance(arg, lp.ValueArg):
+                name = '&' + kmem.get_name(True, arg.name)
+                size = 'sizeof({})'.format(kmem.dtype(True, arg))
+                if arg.address_space == lp.AddressSpace.LOCAL:
+                    name = 'NULL'
+                    size = get_num_bytes(kmem, arg)
+
+                cog.outl(
+                    indent(set_arg.format(
+                        arg_index=i,
+                        arg_size=size,
+                        arg_value=name),
+                        stdindent))
+            else:
+                # workaround for integer overflow of cl_uint
+                # switch problem-size -> per-run, as that is what the device sees
+                name_maps = {'problem_size': 'per_run'}
+                name = arg.name if arg.name not in name_maps else \
+                    name_maps[arg.name]
+                arg_set = set_arg.format(
+                        arg_index=i,
+                        arg_size='sizeof({})'.format(kmem.dtype(True, arg)),
+                        arg_value='&{}'.format(kmem.get_name(True, name)))
+                cog.outl(indent(arg_set, stdindent))
+
+    cog.outl('}\n')
+
+    # memory free's
+    cog.out("""
+    void {kernel_name}::finalize_memory()
+    {{
+    """.format(kernel_name=kernel_name), dedent=True, trimblanklines=True)
+
+    if callgen.lang == 'opencl':
+        cog.out("""
+    /* Finalization of our current queue / kernel */
+    check_err(clFlush(this->queue));
+    check_err(clReleaseKernel(this->kernel));
+    check_err(clFinish(this->queue));
+    """, dedent=False, trimblanklines=True)
+
+    cog.outl(indent('/* Free Memory */', stdindent))
+
+    for arr in callgen.kernel_data[kernel]:
+        if not (isinstance(arr, lp.ValueArg) or
+                arr.address_space == lp.AddressSpace.LOCAL):
+            cog.outl(indent(kmem.free(True, arr), stdindent))
+
+    cog.outl('}\n')
+
+    # write constructor
+    cog.outl(make_doc_str(callgen, [], 'Default constructor (requires resize before use)'))
+    cog.out("""
+    {name}Kernel::{name}Kernel()
+    """.format(name=kernel.title()), dedent=True, trimblanklines=True)
+    cog.out("""
+{{
+    this->max_per_run = {max_per_run};
+    """.format(max_per_run=callgen.max_ic_per_run),
+        dedent=False, trimblanklines=True)
+    if callgen.lang == 'opencl':
+        cog.outl("""
+    this->num_source = {num_source};
+    this->kernel_path = "{binary_path}";
+    """.format(binary_path=callgen.binname, num_source=num_source),
+        dedent=False, trimblanklines=True)
+
+    cog.outl('}\n')
+
+    # and write alternate constructor that allows memory initialization
+    cog.outl(make_doc_str(callgen, ['problem_size', 'work_size', 'do_not_compile'],
+                          'Initializing contstructor'))
+    cog.out("""
+    {name}Kernel::{name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile)
+    """.format(name=kernel.title()), dedent=True, trimblanklines=True)
+    cog.out("""
+{{
+    this->max_per_run = {max_per_run};
+    this->compiled = do_not_compile;
+    this->init(problem_size, work_size);
+    """.format(num_source=num_source, binary_path=callgen.binname,
+               max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
+    if callgen.lang == 'opencl':
+        cog.out("""
+    this->num_source = {num_source};
+    this->kernel_path = "{binary_path}";
+    """.format(num_source=num_source, binary_path=callgen.binname,
+               max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
+
+    cog.outl('}\n')
+    # write kernel docs
+    cog.outl(make_doc_str(
+        callgen, callgen.kernel_args[kernel],
+        "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)),
+        dedent=True, trimblanklines=True)
+
+    # write kernel defn
+    cog.out("""
+void {kernel_name}::operator()({knl_args})
+{{
+    cassert(this->initialized, "Must initialize kernel (e.g., via resize()) before use.");
+    """.format(knl_args=get_kernel_args(mem, callgen.kernel_args[kernel]),
+               kernel_name=kernel_name),
+            dedent=True, trimblanklines=True)
+
+    if callgen.lang == 'opencl':
+        cog.outl("""
+    // error checking for pinned memory transfers
+    cl_int return_code;
+    """, trimblanklines=True)
+    cog.outl("""
+    size_t per_run = this->d_per_run = this->per_run();
+
+    for (size_t offset = 0; offset < this->problem_size; offset += per_run)
+    {
+        size_t this_run = this->this_run(offset);
+    """, trimblanklines = True)
+
+    if callgen.lang == 'opencl':
+        cog.outl("""
+        size_t global_work_size = this->work_size;
+        size_t local_work_size = {local_size};
+        #if !defined(EXPLICIT_SIMD)
+            // need to multiply global worksize by local worksize
+            // to get correct number of global items (as)
+            global_work_size *= local_work_size;
+        #endif
+    """.format(local_size=callgen.local_size), dedent=False, trimblanklines=True)
+
+    cog.outl(indent('// Memory Transfers into the kernel, if any', stdindent * 2))
+    # write memory transfers in
+    for arg in callgen.input_args[kernel]:
+        if not (isinstance(arg, lp.ValueArg) or
+                arg.address_space == lp.AddressSpace.LOCAL):
+            cog.outl(indent(kmem.copy(to_device=True, arr=arg), stdindent*2))
+
+    # call kernel
+    cog.outl(indent('// run kernel', stdindent * 2))
+    if callgen.lang == 'opencl':
+        cog.outl("""
+        check_err(clEnqueueNDRangeKernel(queue, this->kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, NULL));
+        """, dedent=False, trimblanklines=True)
+    elif callgen.lang == 'c':
+        name_maps = {'problem_size': 'per_run'}
+        def get_name(arg):
+            name = arg.name if arg.name not in name_maps else \
+                name_maps[arg.name]
+            return type('', (object,), {'name': name})
+
+        args = ', '.join([kmem.get_name(True, get_name(arg))
+                          for arg in callgen.kernel_data[kernel]])
+        cog.outl("""
+        {kernel}_driver({args});
+        """.format(kernel=kernel, args=args), dedent=False, trimblanklines=True)
+
+    cog.outl(indent('// Memory Transfers out', stdindent * 2))
+    # and finally write memory transfers out
+    for arg in callgen.output_args[kernel]:
+        if not (isinstance(arg, lp.ValueArg) or
+                arg.address_space == lp.AddressSpace.LOCAL):
+            cog.outl(indent(kmem.copy(to_device=False, arr=arg), stdindent*2))
+
+    # and close
+    cog.out("""
+    }
+}
+""", trimblanklines=True)
+]]]
+[[[end]]]*/
+
+
+int main(int argc, char* argv[])
+{
+
+    //check args
+    cassert(argc >= 3, "Missing arguments...");
+
+    //arglist is:
+    //#0 - the program name
+    //#1 - the problem size
+    //#2 - the number of cores / threads [CPU/Accelerator] or number GPU blocks [GPU only]
+    //#3 - whether to compile
+
+    size_t problem_size = atoi(argv[1]);
+    size_t work_size = atoi(argv[2]);
+    int compile = 1;
+    if (argc >= 4)
+        compile = atoi(argv[3]);
+
+    /*[[[cog
+        # create local versions of kernel arguments
+        lmem = get_memory(callgen, host_namer=HostNamer(postfix='_local'),
+                          device_namer=DeviceNamer())
+        for arg in callgen.kernel_args[callgen.name]:
+            cog.outl(lmem.define(False, arg))
+        for arg in callgen.kernel_args[callgen.name]:
+            cog.outl(lmem.alloc(False, arg))
+      ]]]
+    [[[end]]]*/
+
+    //read input data
+    /*[[[cog
+      local_args = ', '.join([lmem.get_name(False, arr)
+             for arr in callgen.input_args[callgen.name]])
+      cog.outl(indent(
+        'read_initial_conditions("{path}", problem_size, {args}, '
+        '\'{order}\');'.format(
+            path=callgen.input_data_path,
+            args=local_args,
+            order=callgen.order), stdindent))
+      # make kernel
+      cog.outl(indent('{0}Kernel kernel;'.format(
+            callgen.name.title()), stdindent))
+     ]]]
+     [[[end]]]*/
+    //first compile to binary
+    double compilation_time = -1;
+    if (compile)
+    {
+        StartTimer();
+        kernel.compile();
+        compilation_time = GetTimer();
+    }
+
+    StartTimer();
+    kernel.resize(problem_size, work_size, !compile);
+    double setup_time = GetTimer();
+    StartTimer();
+    /*[[[cog
+      local_args = ', '.join([lmem.get_name(False, arr)
+             for arr in callgen.kernel_args[callgen.name]])
+      # and call
+      cog.outl(indent('kernel({});'.format(local_args), stdindent))
+      ]]]
+      [[[end]]]*/
+    double runtime = GetTimer();
+
+    printf("%zu,%.15le,%.15le,%.15le\n", problem_size, compilation_time,
+                setup_time, runtime);
+
+    // write output to file if supplied
+    /*[[[cog
+        num_outputs = len(callgen.output_args[callgen.name])
+        output_paths = ', '.join(['"{}.bin"'.format(x.name)
+                                  for x in callgen.output_args[callgen.name]])
+        output_sizes = ', '.join(['{}'.format(lmem.buffer_size(False, x, include_sizeof=False))
+                                  for x in callgen.output_args[callgen.name]])
+        outputs = ', '.join(['{}'.format(lmem.get_name(False, x))
+                             for x in callgen.output_args[callgen.name]])
+        if callgen.for_validation:
+            cog.outl("""
+                const char* output_files[{num_outputs}] = {{{output_paths}}};
+                size_t output_sizes[{num_outputs}] = {{{output_sizes}}};
+                double* outputs[{num_outputs}] = {{{outputs}}};
+                for(int i = 0; i < {num_outputs}; ++i)
+                {{
+                    write_data(output_files[i], outputs[i], output_sizes[i]);
+                }}
+            """.format(num_outputs=num_outputs,
+                       output_paths=output_paths,
+                       output_sizes=output_sizes,
+                       outputs=outputs),
+            dedent=True, trimblanklines=True)
+      ]]]
+      [[[end]]]*/
+    kernel.finalize();
+
+    // local frees
+    /*[[[cog
+      for x in callgen.kernel_args[callgen.name]:
+          cog.outl(lmem.free(False, x))
+      ]]]
+      [[[end]]]*/
+
+    return 0;
+}

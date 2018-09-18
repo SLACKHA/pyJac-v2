@@ -1,104 +1,103 @@
+from collections import OrderedDict
+
 # compatibility
 from six.moves import range
-
-# local imports
-from pyjac.core import array_creator as arc
-from pyjac.tests import TestClass
-from pyjac.core.rate_subs import assign_rates
-from pyjac.loopy_utils.loopy_utils import RateSpecialization
 
 # nose tools
 from nose.tools import assert_raises
 from nose.plugins.attrib import attr
-from parameterized import parameterized
 
 # modules
 import loopy as lp
 import numpy as np
 
+# local imports
+from pyjac.core import array_creator as arc
+from pyjac.tests import TestClass
+from pyjac.core.rate_subs import assign_rates
+from pyjac.core.enum_types import RateSpecialization
+from pyjac.tests import get_test_langs
+from pyjac.utils import listify
+from pyjac.tests.test_utils import OptionLoopWrapper
 
-def _dummy_opts(knl_type, order='C', use_private_memory=False):
-    class dummy(object):
-        def __init__(self, knl_type, order='C', use_private_memory=False):
-            self.knl_type = knl_type
-            self.order = order
-            self.use_private_memory = use_private_memory
-            self.jac_format = ''
-            self.jac_type = ''
-    return dummy(knl_type, order=order, use_private_memory=use_private_memory)
+
+def opts_loop(width=[4, None],
+              depth=[4, None],
+              order=['C', 'F'],
+              lang=get_test_langs(),
+              is_simd=[True, False]):
+
+    oploop = OrderedDict(
+        [('width', width),
+         ('depth', depth),
+         ('order', order),
+         ('lang', lang),
+         ('order', order),
+         ('is_simd', is_simd),
+         ('unr', [None]),
+         ('ilp', [None])])
+    for opts in OptionLoopWrapper.from_dict(oploop):
+        yield opts
+
+
+def _dummy_opts(order='C'):
+    for opts in opts_loop(order=listify(order),
+                          lang=['c']):
+        return opts
 
 
 def test_creator_asserts():
     # check dtype
     with assert_raises(AssertionError):
-        arc.creator('', np.int32, (10,), 'C',
+        arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.arange(10, dtype=np.float64))
     # test shape
     with assert_raises(AssertionError):
-        arc.creator('', np.int32, (11,), 'C',
+        arc.creator('', arc.kint_type, (11,), 'C',
                     initializer=np.arange(10, dtype=np.float32))
 
 
-@parameterized(['map'])
-def test_non_contiguous_input(maptype):
-    lp_opt = _dummy_opts(maptype)
+def test_non_contiguous_input():
+    lp_opt = _dummy_opts()
 
     # test that creation of mapstore with non-contiguous map forces
     # generation of input map
-    c = arc.creator('', np.int32, (10,), 'C',
+    c = arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                         dtype=np.int32))
+                                         dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mstore.finalize()
     assert len(mstore.transformed_domains) == 1
     assert mstore.tree.parent is not None
     assert np.allclose(mstore.tree.parent.domain.initializer, np.arange(10))
 
 
-@parameterized(['map', 'mask'])
-def test_contiguous_input(maptype):
+def test_contiguous_input():
 
     # test that creation of mapstore with contiguous map has no effect
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
+    lp_opt = _dummy_opts()
+    c = arc.creator('', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(10, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
 
-@parameterized(['mask'])
-def test_invalid_mask_input(maptype):
-    lp_opt = _dummy_opts(maptype)
-    mask = np.full((10,), -1, np.int32)
-    mask[1] = 3
-    mask[3] = 6
-    mask[4] = 11
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                         dtype=np.int32))
-
-    with assert_raises(AssertionError):
-        mstore = arc.MapStore(lp_opt, c, c, 'i')
-        mstore.finalize()
-        assert len(mstore.transformed_domains) == 0
-
-
 def __create_var(name, size=(10,)):
-    return arc.creator(name, np.int32, size, 'C')
+    return arc.creator(name, arc.kint_type, size, 'C')
 
 
 def test_contiguous_offset_input():
-    lp_opt = _dummy_opts('map')
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+    lp_opt = _dummy_opts()
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a creator that can be mapped affinely
-    c2 = arc.creator('c2', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
+    c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
     x = __create_var('x')
     mstore.check_and_add_transform(x, c2, 'i')
     mstore.finalize()
@@ -114,22 +113,22 @@ def test_contiguous_offset_input_map():
     # same as the above, but check that a non-affine mappable transform
     # results in an input map
 
-    lp_opt = _dummy_opts('map')
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+    lp_opt = _dummy_opts()
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a creator that can be mapped affinely
-    c2 = arc.creator('c2', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
+    c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
     x = __create_var('x')
     mstore.check_and_add_transform(x, c2, 'i')
 
     # and another creator that can't be affinely mapped
-    c3 = arc.creator('c3', np.int32, (10,), 'C',
+    c3 = arc.creator('c3', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
     x2 = __create_var('x2')
     mstore.check_and_add_transform(x2, c3, 'i')
     mstore.finalize()
@@ -148,22 +147,22 @@ def test_input_map_domain_transfer():
     # check that a domain on the tree that matches the input map gets
     # transfered to the input map
 
-    lp_opt = _dummy_opts('map')
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+    lp_opt = _dummy_opts()
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a creator that matches the coming input map
-    c2 = arc.creator('c2', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
+    c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
     x = __create_var('x')
     mstore.check_and_add_transform(x, c2, 'i')
 
     # and another creator that forces the input map
-    c3 = arc.creator('c3', np.int32, (10,), 'C',
+    c3 = arc.creator('c3', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
     x2 = __create_var('x2')
     mstore.check_and_add_transform(x2, c3, 'i')
     mstore.finalize()
@@ -181,18 +180,18 @@ def test_input_map_domain_transfer():
 
 def test_duplicate_iname_detection():
     # ensures the same transform isn't picked up multiple times
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # create dummy map
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create a mapped domain
-    c2 = arc.creator('c', np.int32, (10,), 'C',
+    c2 = arc.creator('c', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(3)) +
-                                          list(range(4, 11)), dtype=np.int32))
+                                          list(range(4, 11)), dtype=arc.kint_type))
 
     # add two variables to the same domain
     mstore.check_and_add_transform(__create_var('x'), c2)
@@ -207,18 +206,18 @@ def test_duplicate_iname_detection():
 
     # now repeat with the variables having initializers
     # to test that leaves aren't mapped
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # create dummy map
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create a mapped domain
-    c2 = arc.creator('c', np.int32, (10,), 'C',
+    c2 = arc.creator('c', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(3)) +
-                                          list(range(4, 11)), dtype=np.int32))
+                                          list(range(4, 11)), dtype=arc.kint_type))
 
     # add two variables to the same domain
     x = __create_var('x')
@@ -237,33 +236,33 @@ def test_duplicate_iname_detection():
 
 
 def test_map_range_update():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
     # test a complicated chaining / input map case
 
     # create dummy map
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # next add a creator that doesn't need a map
-    c2 = arc.creator('c2', np.int32, (10,), 'C',
-                     initializer=np.arange(10, 0, -1, dtype=np.int32))
+    c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, 0, -1, dtype=arc.kint_type))
     mstore.check_and_add_transform(c2, c, 'i')
 
     # and a creator that only needs an affine map
-    c3 = arc.creator('c3', np.int32, (10,), 'C',
-                     initializer=np.arange(4, 14, dtype=np.int32))
+    c3 = arc.creator('c3', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(4, 14, dtype=arc.kint_type))
     mstore.check_and_add_transform(c3, c2, 'i')
 
     # and add a creator that will trigger a transform for c3
-    c4 = arc.creator('c4', np.int32, (10,), 'C',
-                     initializer=np.arange(4, 14, dtype=np.int32))
+    c4 = arc.creator('c4', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(4, 14, dtype=arc.kint_type))
     mstore.check_and_add_transform(c4, c3, 'i')
 
     # and another affine
-    c5 = arc.creator('c5', np.int32, (10,), 'C',
-                     initializer=np.arange(3, 13, dtype=np.int32))
+    c5 = arc.creator('c5', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(3, 13, dtype=arc.kint_type))
     mstore.check_and_add_transform(c5, c4, 'i')
     # and we need a final variable to test c5
     x = __create_var('x')
@@ -290,61 +289,34 @@ def test_map_range_update():
             and mstore.domain_to_nodes[c5].iname == 'i_2 + -1')
 
 
-@parameterized(['mask'])
-def test_mask_input(maptype):
-    lp_opt = _dummy_opts(maptype)
-    # create dummy mask
-    mask = np.full((10,), -1, np.int32)
-    mask[1] = 3
-    mask[3] = 6
-    mask[4] = 7
-    c = arc.creator('c', np.int32, (10,), 'C',
-                    initializer=mask)
+def test_multiple_inputs():
+    lp_opt = _dummy_opts()
+    c = arc.creator('', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(10, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
-
-    mask2 = np.array(mask, copy=True)
-    mask2[4] = 8
-    # add a creator
-    c2 = arc.creator('c2', np.int32, (10,), 'C',
-                     initializer=mask2)
-    mstore.check_and_add_transform(__create_var('x'), c2, 'i')
-    mstore.finalize()
-
-    assert len(mstore.transformed_domains) == 1
-    assert mstore.domain_to_nodes[c2] in mstore.transformed_domains
-
-
-@parameterized(['map'])
-def test_multiple_inputs(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a variable
-    c2 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
+    c2 = arc.creator('', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
     mstore.check_and_add_transform(__create_var('x2'), c2, 'i')
 
     # add a mapped variable
-    c3 = arc.creator('', np.int32, (10,), 'C',
+    c3 = arc.creator('', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(5)) + list(range(6, 11)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
     mstore.check_and_add_transform(__create_var('x3'), c3, 'i')
 
     # test different vaiable with same map
-    c4 = arc.creator('', np.int32, (10,), 'C',
+    c4 = arc.creator('', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(5)) + list(range(6, 11)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
     mstore.check_and_add_transform(__create_var('x4'), c4, 'i')
 
     # add another mapped variable
-    c5 = arc.creator('', np.int32, (10,), 'C',
+    c5 = arc.creator('', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(4)) + list(range(5, 11)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
     mstore.check_and_add_transform(__create_var('x5'), c5, 'i')
 
     mstore.finalize()
@@ -356,181 +328,127 @@ def test_multiple_inputs(maptype):
 
     assert len(mstore.transformed_domains) == 3
     assert np.array_equal(mstore.map_domain.initializer,
-                          np.arange(10, dtype=np.int32))
+                          np.arange(10, dtype=arc.kint_type))
 
 
-@parameterized(['map', 'mask'])
-def test_bad_multiple_variable_map(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
+def test_bad_multiple_variable_map():
+    lp_opt = _dummy_opts()
+    c = arc.creator('', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(10, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add a variable
-    c2 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
+    c2 = arc.creator('', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
     x2 = __create_var('x2')
     mstore.check_and_add_transform(x2, c2, 'i')
 
-    c3 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=np.arange(3, 13, dtype=np.int32))
+    c3 = arc.creator('', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(3, 13, dtype=arc.kint_type))
     # add the same variable as a different domain, and check error
     with assert_raises(AssertionError):
         mstore.check_and_add_transform(x2, c3, 'i')
 
 
-@parameterized(['mask'])
-def test_multiple_mask_inputs(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
+def test_offset_base():
+    lp_opt = _dummy_opts()
+    c = arc.creator('', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     # add a variable
-    c2 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=np.arange(10, dtype=np.int32))
-    x2 = __create_var('x2')
-    mstore.check_and_add_transform(x2, c2, 'i')
-
-    assert len(mstore.transformed_domains) == 0
-
-    # add a masked variable
-    mask = np.full((10,), -1, np.int32)
-    mask[0] = 2
-    c3 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=mask)
-    x3 = __create_var('x3')
-    mstore.check_and_add_transform(x3, c3, 'i')
-
-    # add another mapped variable
-    mask2 = mask[:]
-    mask2[2] = 2
-    c4 = arc.creator('', np.int32, (10,), 'C',
-                     initializer=mask2)
-    x4 = __create_var('x4')
-    mstore.check_and_add_transform(x4, c4, 'i')
-    mstore.finalize()
-
-    assert len(mstore.transformed_domains) == 2
-    # check c2 in transforms
-    assert mstore.domain_to_nodes[c2] not in mstore.transformed_domains
-    # check x2 parent
-    assert mstore.domain_to_nodes[x2].parent == mstore.domain_to_nodes[c2]
-    # check c3 in transforms
-    assert mstore.domain_to_nodes[c3] in mstore.transformed_domains
-    # and x3 parent
-    assert mstore.domain_to_nodes[x3].parent == mstore.domain_to_nodes[c3]
-    # check c4 in transforms
-    assert mstore.domain_to_nodes[c4] in mstore.transformed_domains
-    # check x4 parent
-    assert mstore.domain_to_nodes[x4].parent == mstore.domain_to_nodes[c4]
-
-
-@parameterized(['map'])
-def test_offset_base(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
-
-    # add a variable
-    c2 = arc.creator('', np.int32, (10,), 'C',
+    c2 = arc.creator('', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(4)) + list(range(5, 11)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
     x = __create_var('x')
     mstore.check_and_add_transform(x, c2, 'i')
     mstore.finalize()
 
     assert len(mstore.transformed_domains) == 2
     assert np.array_equal(mstore.map_domain.initializer,
-                          np.arange(10, dtype=np.int32))
+                          np.arange(10, dtype=arc.kint_type))
     assert mstore.domain_to_nodes[c2] in mstore.transformed_domains
     assert mstore.domain_to_nodes[x].parent == mstore.domain_to_nodes[c2]
 
 
-@parameterized(['map'])
-def test_map_variable_creator(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
+def test_map_variable_creator():
+    lp_opt = _dummy_opts()
+    c = arc.creator('base', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     # add a variable
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
+    var = arc.creator('var', arc.kint_type, (10,), 'C')
+    domain = arc.creator('domain', arc.kint_type, (10,), 'C',
                          initializer=np.array(list(range(4)) +
                                               list(range(5, 11)),
-                                              dtype=np.int32))
+                                              dtype=arc.kint_type))
     mstore.check_and_add_transform(var, domain, 'i')
     var, var_str = mstore.apply_maps(var, 'i')
 
-    assert isinstance(var, lp.GlobalArg)
+    assert isinstance(var, lp.ArrayArg)
     assert var_str == 'var[i_1]'
     assert '<> i_1 = domain[i + 3] {id=index_i_1}' in mstore.transform_insns
 
 
-@parameterized(['map'])
-def test_map_to_larger(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (5,), 'C',
-                    initializer=np.arange(5, dtype=np.int32))
+def test_map_to_larger():
+    lp_opt = _dummy_opts()
+    c = arc.creator('base', arc.kint_type, (5,), 'C',
+                    initializer=np.arange(5, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     # add a variable
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
-                         initializer=np.arange(10, dtype=np.int32))
+    var = arc.creator('var', arc.kint_type, (10,), 'C')
+    domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                         initializer=np.arange(10, dtype=arc.kint_type))
     # this should work
     mstore.check_and_add_transform(var, domain, 'i')
     var, var_str = mstore.apply_maps(var, 'i')
 
-    assert isinstance(var, lp.GlobalArg)
+    assert isinstance(var, lp.ArrayArg)
     assert var_str == 'var[i_0]'
     assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
 
 
-@parameterized(['map'])
-def test_chained_maps(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (5,), 'C',
-                    initializer=np.arange(5, dtype=np.int32))
+def test_chained_maps():
+    lp_opt = _dummy_opts()
+    c = arc.creator('base', arc.kint_type, (5,), 'C',
+                    initializer=np.arange(5, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     assert len(mstore.transformed_domains) == 0
 
     def __get_iname(domain):
         return mstore.domain_to_nodes[domain].iname
 
     # add a variable
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
-                         initializer=np.arange(10, dtype=np.int32))
+    var = arc.creator('var', arc.kint_type, (10,), 'C')
+    domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                         initializer=np.arange(10, dtype=arc.kint_type))
     # this should work
     mstore.check_and_add_transform(var, domain, 'i')
 
     # now add a chained map
-    var2 = arc.creator('var2', np.int32, (10,), 'C')
-    domain2 = arc.creator('domain2', np.int32, (10,), 'C',
-                          initializer=np.arange(10, dtype=np.int32))
+    var2 = arc.creator('var2', arc.kint_type, (10,), 'C')
+    domain2 = arc.creator('domain2', arc.kint_type, (10,), 'C',
+                          initializer=np.arange(10, dtype=arc.kint_type))
 
     mstore.check_and_add_transform(domain2, domain)
     mstore.check_and_add_transform(var2, domain2)
 
     # and finally put another chained map that does require a transform
-    var3 = arc.creator('var3', np.int32, (10,), 'C')
-    domain3 = arc.creator('domain3', np.int32, (10,), 'C',
+    var3 = arc.creator('var3', arc.kint_type, (10,), 'C')
+    domain3 = arc.creator('domain3', arc.kint_type, (10,), 'C',
                           initializer=np.array(list(range(3)) +
                                                list(range(4, 11)),
-                                               dtype=np.int32))
+                                               dtype=arc.kint_type))
 
     mstore.check_and_add_transform(domain3, domain2)
     mstore.check_and_add_transform(var3, domain3)
@@ -561,107 +479,63 @@ def test_chained_maps(maptype):
         in mstore.transform_insns)
 
 
-@parameterized(['mask'])
-def test_mask_variable_creator(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
+def test_map_iname_domains():
+    lp_opt = _dummy_opts()
+    c = arc.creator('base', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    assert len(mstore.transformed_domains) == 0
-
-    # add a variable
-    mask = np.full((10,), -1, np.int32)
-    mask[0] = 2
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
-                         initializer=mask)
-    mstore.check_and_add_transform(var, domain, 'i')
-    var, var_str = mstore.apply_maps(var, 'i')
-
-    assert isinstance(var, lp.GlobalArg)
-    assert var_str == 'var[i_0]'
-    assert '<> i_0 = domain[i] {id=index_i_0}' in mstore.transform_insns
-
-
-@parameterized(['mask'])
-def test_mask_iname_domains(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-
-    # add a variable
-    mask = np.full((10,), -1, np.int32)
-    mask[0] = 2
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
-                         initializer=mask)
-    mstore.check_and_add_transform(var, domain, 'i')
-
-    mstore.finalize()
-    assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
-
-
-@parameterized(['map'])
-def test_map_iname_domains(maptype):
-    lp_opt = _dummy_opts(maptype)
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(3, 13, dtype=np.int32))
-
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add an affine map
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    mapv = np.arange(10, dtype=np.int32)
-    var = arc.creator('var', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
+    mapv = np.arange(10, dtype=arc.kint_type)
+    var = arc.creator('var', arc.kint_type, (10,), 'C')
+    domain = arc.creator('domain', arc.kint_type, (10,), 'C',
                          initializer=mapv)
     mstore.check_and_add_transform(var, domain, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '3 <= i <= 12')
 
     # add a non-affine map, domain should bounce to 0-based
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
-    mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=np.int32)
-    var = arc.creator('var2', np.int32, (10,), 'C')
-    domain = arc.creator('domain', np.int32, (10,), 'C',
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
+    mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=arc.kint_type)
+    var = arc.creator('var2', arc.kint_type, (10,), 'C')
+    domain = arc.creator('domain', arc.kint_type, (10,), 'C',
                          initializer=mapv)
     mstore.check_and_add_transform(var, domain, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
     # check non-contigous
-    c = arc.creator('base', np.int32, (10,), 'C',
+    c = arc.creator('base', arc.kint_type, (10,), 'C',
                     initializer=np.array(list(range(3)) + list(range(4, 11)),
-                                         dtype=np.int32))
+                                         dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
     mstore.finalize()
     assert mstore.get_iname_domain() == ('i', '0 <= i <= 9')
 
 
 def test_leaf_inames():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
-    c = arc.creator('base', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    c = arc.creator('base', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(10, dtype=arc.kint_type))
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create one map
-    mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=np.int32)
-    mapv2 = np.array(list(range(2)) + list(range(3, 11)), dtype=np.int32)
-    domain2 = arc.creator('domain2', np.int32, (10,), 'C',
+    mapv = np.array(list(range(3)) + list(range(4, 11)), dtype=arc.kint_type)
+    mapv2 = np.array(list(range(2)) + list(range(3, 11)), dtype=arc.kint_type)
+    domain2 = arc.creator('domain2', arc.kint_type, (10,), 'C',
                           initializer=mapv2)
-    domain = arc.creator('domain', np.int32, (10,), 'C',
+    domain = arc.creator('domain', arc.kint_type, (10,), 'C',
                          initializer=mapv)
     mstore.check_and_add_transform(domain2, domain, 'i')
 
     # and another
-    var = arc.creator('var', np.int32, (10,), 'C')
+    var = arc.creator('var', arc.kint_type, (10,), 'C')
     mstore.check_and_add_transform(var, domain2, 'i')
 
     # now create var
@@ -677,15 +551,15 @@ def test_leaf_inames():
 
 
 def test_input_map_pickup():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # test that creation of mapstore with non-contiguous map forces
     # non-transformed variables to pick up the right iname
-    c = arc.creator('', np.int32, (10,), 'C',
+    c = arc.creator('', arc.kint_type, (10,), 'C',
                     initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                         dtype=np.int32))
+                                         dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # create a variable
     x = __create_var('x')
@@ -695,32 +569,23 @@ def test_input_map_pickup():
 
 
 def test_fixed_creator_indices():
-    c = arc.creator('base', np.int32, ('isize', 'jsize'), 'C',
+    c = arc.creator('base', arc.kint_type, ('isize', 'jsize'), 'C',
                     fixed_indicies=[(0, 1)])
     assert c('j')[1] == 'base[1, j]'
 
 
-@parameterized(['map'])
-def test_force_inline(maptype):
-    lp_opt = _dummy_opts(maptype)
-    if maptype == 'map':
-        mapv = np.arange(0, 5, dtype=np.int32)
-    else:
-        mapv = np.full(11, -1, dtype=np.int32)
-        mapv[:10] = np.arange(10, dtype=np.int32)
-    c = arc.creator('base', np.int32, mapv.shape, 'C',
+def test_force_inline():
+    lp_opt = _dummy_opts()
+    mapv = np.arange(0, 5, dtype=arc.kint_type)
+    c = arc.creator('base', arc.kint_type, mapv.shape, 'C',
                     initializer=mapv)
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
 
     # add an affine map
-    if maptype == 'map':
-        mapv = np.array(mapv, copy=True) + 1
-    else:
-        mapv[0] = -1
-        mapv[1:] = np.arange(10, dtype=np.int32)
-    var = arc.creator('var', np.int32, mapv.shape, 'C')
-    domain = arc.creator('domain', np.int32, mapv.shape, 'C',
+    mapv = np.array(mapv, copy=True) + 1
+    var = arc.creator('var', arc.kint_type, mapv.shape, 'C')
+    domain = arc.creator('domain', arc.kint_type, mapv.shape, 'C',
                          initializer=mapv)
     mstore.check_and_add_transform(var, domain, 'i')
     _, var_str = mstore.apply_maps(var, 'i')
@@ -728,45 +593,56 @@ def test_force_inline(maptype):
     assert len(mstore.transform_insns) == 0
 
 
-def test_private_memory_creations():
-    lp_opt = _dummy_opts('map', use_private_memory=True)
+def test_working_buffer_creations():
+    for lp_opt in opts_loop():
+        def __shape_compare(shape1, shape2):
+            for s1, s2 in zip(*(shape1, shape2)):
+                assert str(s1) == str(s2)
+            return True
 
-    # make a creator to form the base of the mapstore
-    c = arc.creator('', np.int32, (10,), 'C',
-                    initializer=np.arange(10, dtype=np.int32))
+        # make a creator to form the base of the mapstore
+        c = arc.creator('', arc.kint_type, (10,), lp_opt.order,
+                        initializer=np.arange(10, dtype=arc.kint_type))
 
-    # and the array to test
-    arr = arc.creator('a', np.int32, (10, 10), 'C')
+        # and the array to test
+        arr = arc.creator('a', arc.kint_type, (10, 10), lp_opt.order)
 
-    # and a final "input" array
-    inp = arc.creator('b', np.int32, (10, 10), 'C',
-                      is_input_or_output=True)
+        # and a final "input" array
+        inp = arc.creator('b', arc.kint_type, (10, 10), lp_opt.order)
 
-    mstore = arc.MapStore(lp_opt, c, c, 'i')
+        mstore = arc.MapStore(lp_opt, c, 8192, 'i')
+        arr_lp, arr_str = mstore.apply_maps(
+            arr, 'j', 'i',
+            reshape_to_working_buffer=arc.work_size.name,
+            working_buffer_index='k')
 
-    arr_lp, arr_str = mstore.apply_maps(arr, 'j', 'i')
-    assert isinstance(arr_lp, lp.TemporaryVariable) and arr_lp.shape == (10,)
-    assert arr_str == 'a[i]'
+        assert isinstance(arr_lp, lp.ArrayArg) and \
+            __shape_compare(arr_lp.shape, (arc.work_size.name, 10))
+        assert arr_str == 'a[k, i]' if lp_opt.pre_split else 'a[j, i]'
 
-    inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i')
-    assert isinstance(inp_lp, lp.GlobalArg) and inp_lp.shape == (10, 10)
-    assert inp_str == 'b[j, i]'
+        inp_lp, inp_str = mstore.apply_maps(inp, 'j', 'i',
+                                            reshape_to_working_buffer=False,
+                                            working_buffer_index=None)
+        assert isinstance(inp_lp, lp.ArrayArg) and __shape_compare(
+            inp_lp.shape, (10, 10))
+        assert inp_str == 'b[j, i]'
 
-    # now test input without the global index
-    arr_lp, arr_str = mstore.apply_maps(arr, 'k', 'i')
-    assert isinstance(arr_lp, lp.GlobalArg) and arr_lp.shape == (10, 10)
-    assert arr_str == 'a[k, i]'
+        # now test input without the global index
+        arr_lp, arr_str = mstore.apply_maps(arr, 'k', 'i')
+        assert isinstance(arr_lp, lp.ArrayArg) and __shape_compare(
+            arr_lp.shape, (10, 10))
+        assert arr_str == 'a[k, i]'
 
 
 def test_affine_dict_with_input_map():
-    lp_opt = _dummy_opts('map')
+    lp_opt = _dummy_opts()
 
     # make a creator to form the base of the mapstore
-    c1 = arc.creator('c1', np.int32, (10,), 'C',
+    c1 = arc.creator('c1', arc.kint_type, (10,), 'C',
                      initializer=np.array(list(range(4)) + list(range(6, 12)),
-                                          dtype=np.int32))
+                                          dtype=arc.kint_type))
 
-    mstore = arc.MapStore(lp_opt, c1, c1, 'i')
+    mstore = arc.MapStore(lp_opt, c1, True, 'i')
 
     # create a variable
     x = __create_var('x')
@@ -774,25 +650,82 @@ def test_affine_dict_with_input_map():
     assert mstore.apply_maps(x, 'i', affine={'i': 1})[1] == 'x[i_0 + 1]'
 
 
+def test_tree_node_children():
+    lp_opt = _dummy_opts()
+    # create mapstore
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
+
+    # add children
+    c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
+    x = __create_var('x')
+    mstore.check_and_add_transform(x, c2, 'i')
+    c3 = arc.creator('c3', arc.kint_type, (10,), 'C',
+                     initializer=np.array(list(range(4)) + list(range(6, 12)),
+                                          dtype=arc.kint_type))
+    x2 = __create_var('x2')
+    mstore.check_and_add_transform(x2, c3, 'i')
+    mstore.finalize()
+
+    # check children
+    assert mstore.tree.has_children([x, x2]) == [False, False]
+    assert mstore.domain_to_nodes[c2].has_children([x, x2]) == [True, False]
+    assert mstore.domain_to_nodes[c3].has_children([x, x2]) == [False, True]
+
+    # and finally check the tree search
+    x3 = __create_var('x3')
+    assert arc.search_tree(mstore.tree.parent, [x, x2, x3]) == [
+        mstore.domain_to_nodes[c2], mstore.domain_to_nodes[c3], None]
+
+
+def test_absolute_root():
+    lp_opt = _dummy_opts()
+    # create mapstore
+    c = arc.creator('c', arc.kint_type, (10,), 'C',
+                    initializer=np.arange(3, 13, dtype=arc.kint_type))
+    mstore = arc.MapStore(lp_opt, c, True, 'i')
+
+    # add children
+    c2 = arc.creator('c2', arc.kint_type, (10,), 'C',
+                     initializer=np.arange(10, dtype=arc.kint_type))
+    x = __create_var('x')
+    mstore.check_and_add_transform(x, c2, 'i')
+
+    assert mstore.absolute_root == mstore.domain_to_nodes[c] and \
+        mstore.absolute_root.name == 'c'
+
+    # force input map
+    c3 = arc.creator('c3', arc.kint_type, (10,), 'C',
+                     initializer=np.array(list(range(4)) + list(range(6, 12)),
+                                          dtype=arc.kint_type))
+    x2 = __create_var('x2')
+    mstore.check_and_add_transform(x2, c3, 'i')
+    mstore.finalize()
+    assert mstore.absolute_root != mstore.domain_to_nodes[c] and \
+        mstore.absolute_root.name == 'c_map'
+
+
 class SubTest(TestClass):
     @attr('long')
     def test_namestore_init(self):
-        lp_opt = _dummy_opts('map')
+        lp_opt = _dummy_opts()
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
 
     @attr('long')
     def test_input_private_memory_creations(self):
-        lp_opt = _dummy_opts('map', use_private_memory=True)
+        lp_opt = _dummy_opts()
         rate_info = assign_rates(self.store.reacs, self.store.specs,
                                  RateSpecialization.fixed)
         # create name and mapstores
         nstore = arc.NameStore(lp_opt, rate_info, True, self.store.test_size)
-        mstore = arc.MapStore(lp_opt, nstore.phi_inds, nstore.phi_inds, 'i')
+        mstore = arc.MapStore(lp_opt, nstore.phi_inds, self.store.test_size, 'i')
 
         # create known input
         jac_lp, jac_str = mstore.apply_maps(nstore.jac, 'j', 'k', 'i')
 
-        assert isinstance(jac_lp, lp.GlobalArg) and jac_lp.shape == nstore.jac.shape
+        assert isinstance(jac_lp, lp.ArrayArg) and jac_lp.shape == nstore.jac.shape
         assert jac_str == 'jac[j, k, i]'

@@ -1,274 +1,69 @@
-from __future__ import division
-
 import numpy as np
-import loopy as lp
+from textwrap import dedent
 
-from pyjac.core.array_creator import array_splitter
-from pyjac.core.instruction_creator import get_deep_specializer
+from pyjac.core import array_creator as arc
+from pyjac.core.instruction_creator import get_update_instruction
+from pyjac.core.array_creator import MapStore, creator
+from pyjac.tests.test_utils import TestingLogger
+from pyjac.tests import set_seed
 
-
-class dummy_loopy_opts(object):
-    def __init__(self, depth=None, width=None, order='C'):
-        self.depth = depth
-        self.width = width
-        self.order = order
+set_seed()
 
 
-def __internal(asplit, shape, order='C', wide=8):
-    """
-    Assumes shape is square
-    """
-    side = shape[0]
-    # create array
-    arr = np.zeros(shape, order=order)
-    # set values
-    ind = [slice(None)] * arr.ndim
-    for i in range(shape[-1]):
-        ind[-1 if order == 'F' else 0] = i
-        arr[ind] = i
-    # split
-    arr, = asplit.split_numpy_arrays(arr)
-    shape = list(shape)
-    if order == 'F':
-        # put new dim at front
-        shape.insert(0, wide)
-        # and adjust end dim
-        shape[-1] = np.ceil(side / wide)
-    else:
-        # put new dim at end
-        shape.insert(len(shape), wide)
-        # and adjust start dim
-        shape[0] = np.ceil(side / wide)
-    # check dim
-    assert np.array_equal(arr.shape, shape)
-    # and values
-    ind = [0] * (arr.ndim - 1)
-    if order == 'F':
-        ind = [slice(None)] + ind
-        set_at = -1
-    else:
-        ind = ind + [slice(None)]
-        set_at = 0
+def test_get_update_instruction():
+    # test the update instruction creator
 
-    start = 0
-    while start < side:
-        ind[set_at] = int(start / wide)
-        test = np.zeros(wide)
-        ar = np.arange(start, np.minimum(start + wide, side))
-        test[:ar.size] = ar[:]
-        assert np.array_equal(arr[ind], test)
-        start += wide
+    # first, create some domains
+    map_np = np.arange(12, dtype=arc.kint_type)
+    map_domain = creator('map', map_np.dtype, map_np.shape, 'C', initializer=map_np)
 
+    # and a dummy loopy options and mapstore
+    loopy_opts = type('', (object,), {
+        'use_working_buffer': False, 'pre_split': False})
+    mapstore = MapStore(loopy_opts, map_domain, True)
 
-def test_npy_array_splitter_c_wide():
-    # create opts
-    opts = dummy_loopy_opts(width=8, order='C')
+    # add a new domain
+    domain_np = np.arange(12, dtype=arc.kint_type) + 2
+    domain = creator('domain', domain_np.dtype, domain_np.shape, 'C',
+                     initializer=domain_np)
 
-    # create array split
-    asplit = array_splitter(opts)
+    mapstore.check_and_add_transform(domain, map_domain)
 
-    def _test(shape):
-        __internal(asplit, shape, order='C', wide=opts.width)
+    # test #1, non-finalized mapstore produces warming
+    # capture logging
+    tl = TestingLogger()
+    tl.start_capture(logname='pyjac.core.instruction_creator')
 
-    # test with small square
-    _test((10, 10))
+    get_update_instruction(mapstore, map_domain, 'dummy')
 
-    # now test with evenly sized
-    _test((16, 16))
+    logs = tl.stop_capture()
+    assert 'non-finalized mapstore' in logs
 
-    # finally, try with 3d arrays
-    _test((10, 10, 10))
-    _test((16, 16, 16))
+    # test #2, empty map produces no-op with correct ID
+    test_instrution = '<> test = domain[i] {id=anchor}'
+    insn = get_update_instruction(mapstore, None, test_instrution)
+    assert insn == '... nop {id=anchor}'
 
+    # test #3, non-transformed domain doesn't result in guarded update insn
+    insn = get_update_instruction(mapstore, domain, test_instrution)
+    assert insn == test_instrution
 
-def test_npy_array_splitter_f_deep():
-    # create opts
-    opts = dummy_loopy_opts(depth=8, order='F')
+    # test #4, transformed domain results in guarded update insn
+    mapstore = MapStore(loopy_opts, map_domain, True)
+    domain_np = np.full_like(domain_np, -1)
+    choice = np.sort(np.random.choice(domain_np.size, domain_np.size - 3,
+                                      replace=False))
+    domain_np[choice] = np.arange(choice.size)
+    domain = creator('domain', domain_np.dtype, domain_np.shape, 'C',
+                     initializer=domain_np)
+    variable = creator('variable', domain_np.dtype, domain_np.shape, 'C')
 
-    # create array split
-    asplit = array_splitter(opts)
-
-    def _test(shape):
-        __internal(asplit, shape, order='F', wide=opts.depth)
-
-    # test with small square
-    _test((10, 10))
-
-    # now test with evenly sized
-    _test((16, 16))
-
-    # finally, try with 3d arrays
-    _test((10, 10, 10))
-    _test((16, 16, 16))
-
-
-def _create(order='C', target=lp.ExecutableCTarget()):
-    # create a test kernel
-    arg1 = lp.GlobalArg('a1', shape=(10, 10), order=order)
-    arg2 = lp.GlobalArg('a2', shape=(16, 16), order=order)
-
-    return lp.make_kernel(
-        '{[i]: 0 <= i < 10}',
-        """
-            a1[0, i] = 1 {id=a1}
-            a2[0, i] = 1 {id=a2}
-        """,
-        [arg1, arg2],
-        target=target)
-
-
-def test_lpy_array_splitter_c_wide():
-    from pymbolic.primitives import Subscript, Variable
-
-    # create opts
-    opts = dummy_loopy_opts(width=8, order='C')
-
-    # create array split
-    asplit = array_splitter(opts)
-
-    k = lp.split_iname(_create('C'), 'i', 8)
-    k = asplit.split_loopy_arrays(k)
-
-    # test that it runs
-    k()
-
-    # check dim and shape
-    a1 = next(x for x in k.args if x.name == 'a1')
-    assert a1.shape == (2, 10, 8)
-    # and indexing
-    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
-    assert isinstance(assign, Subscript) and assign.index == (
-        0, Variable('i_inner') + Variable('i_outer') * 8, 0)
-
-    # now test with evenly sized
-    a2 = next(x for x in k.args if x.name == 'a2')
-    assert a2.shape == (2, 16, 8)
-    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
-    assert isinstance(assign, Subscript) and assign.index == (
-        0, Variable('i_inner') + Variable('i_outer') * 8, 0)
-
-
-def test_lpy_array_splitter_f_deep():
-    from pymbolic.primitives import Subscript, Variable
-
-    # create opts
-    opts = dummy_loopy_opts(depth=8, order='F')
-
-    # create array split
-    asplit = array_splitter(opts)
-
-    k = lp.split_iname(_create('F'), 'i', 8)
-    k = asplit.split_loopy_arrays(k)
-
-    # test that it runs
-    k()
-
-    # check dim
-    a1 = next(x for x in k.args if x.name == 'a1')
-    assert a1.shape == (8, 10, 2)
-    # and indexing
-    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a1')
-    assert isinstance(assign, Subscript) and assign.index == (
-        Variable('i_inner'), 0, Variable('i_outer'))
-
-    # now test with evenly sized
-    a2 = next(x for x in k.args if x.name == 'a2')
-    assert a2.shape == (8, 16, 2)
-    assign = next(insn.assignee for insn in k.instructions if insn.id == 'a2')
-    assert isinstance(assign, Subscript) and assign.index == (
-        Variable('i_inner'), 0, Variable('i_outer'))
-
-
-def test_atomic_deep_vec_with_small_split():
-    # test that an :class:`atomic_deep_specialization` with split smaller than
-    # the vector width uses the correct splitting size
-
-    def __test(loop_size, vec_width):
-        knl = lp.make_kernel(
-            '{{[i]: 0 <= i < {}}}'.format(loop_size),
-            """
-            <> x = 1.0
-            a1[0] = a1[0] + x {id=set}
-            ... lbarrier {id=wait, dep=set}
-            for i
-                a1[0] = a1[0] + 1 {id=a1, dep=set:wait, nosync=set}
-            end
-            """,
-            [lp.GlobalArg('a1', shape=(loop_size,), order='C', dtype=np.float32)],
-            target=lp.PyOpenCLTarget())
-        loopy_opts = type('', (object,), {'depth': vec_width, 'order': 'C',
-                                          'use_atomics': True})
-        knl = lp.split_iname(knl, 'i', vec_width, inner_tag='l.0')
-
-        # feed through deep specializer
-        _, ds = get_deep_specializer(loopy_opts, atomic_ids=['a1'],
-                                     split_ids=['set'], use_atomics=True,
-                                     is_write_race=True, split_size=loop_size)
-        knl = ds(knl)
-
-        val = np.minimum(loop_size, vec_width)
-        assert 'x / {:.1f}f'.format(val) in lp.generate_code(knl)[0]
-
-    # test kernel w/ loop size smaller than split
-    __test(10, 16)
-    # test kernel w/ loop size larger than split
-    __test(16, 8)
-
-
-def test_get_split_shape():
-    # create opts
-    opts = dummy_loopy_opts(depth=8, order='F')
-
-    # create array split
-    asplit = array_splitter(opts)
-
-    def __test(splitter, shape):
-        arr = np.zeros(shape)
-        if splitter.data_order == 'F':
-            grow = 1
-            split = 0
-        else:
-            grow = 0
-            split = -1
-
-        sh, gr, sp = asplit.split_shape(arr)
-        assert gr == grow
-        assert sp == split
-        assert sh == asplit.split_numpy_arrays(arr)[0].shape
-
-    # test with small square
-    __test(asplit, (10, 10))
-
-    # now test with evenly sized
-    __test(asplit, (16, 16))
-
-    # finally, try with 3d arrays
-    __test(asplit, (10, 10, 10))
-    __test(asplit, (16, 16, 16))
-
-    # and finally test with some randomly sized arrays
-    for i in range(50):
-        shape = np.random.randint(1, 12, size=np.random.randint(2, 5))
-        __test(asplit, shape)
-
-    # now repeat with C split
-    # create opts
-    opts = dummy_loopy_opts(width=8, order='C')
-
-    # create array split
-    asplit = array_splitter(opts)
-
-    # test with small square
-    __test(asplit, (10, 10))
-
-    # now test with evenly sized
-    __test(asplit, (16, 16))
-
-    # finally, try with 3d arrays
-    __test(asplit, (10, 10, 10))
-    __test(asplit, (16, 16, 16))
-
-    # and finally test with some randomly sized arrays
-    for i in range(50):
-        shape = np.random.randint(1, 12, size=np.random.randint(2, 5))
-        __test(asplit, shape)
+    mapstore.check_and_add_transform(domain, map_domain)
+    mapstore.check_and_add_transform(variable, domain)
+    insn = get_update_instruction(mapstore, variable, test_instrution)
+    test = dedent("""
+        if i_0 >= 0
+            <> test = domain[i] {id=anchor}
+        end
+    """).strip()
+    assert dedent(insn).strip() == test

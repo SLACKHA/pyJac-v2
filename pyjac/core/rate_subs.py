@@ -17,18 +17,59 @@ from collections import OrderedDict
 # Non-standard librarys
 import loopy as lp
 import numpy as np
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
 
 # Local imports
-from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac import utils
 from pyjac.core import chem_model as chem
-from pyjac.kernel_utils import kernel_gen as k_gen
-from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
-from pyjac.core import array_creator as arc
-from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type,\
+    RateSpecialization, KernelType
 from pyjac.core import instruction_creator as ic
+from pyjac.core import array_creator as arc
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac.kernel_utils import kernel_gen as k_gen
+
+
+def inputs_and_outputs(conp, ktype=KernelType.species_rates, output_full_rop=False):
+    """
+    A convenience method such that kernel inputs / output argument names are
+    available for inspection
+
+    Parameters
+    ----------
+    conp: bool
+        If true, use constant-pressure formulation, else constant-volume
+    ktype: :class:`KernelType`
+        The kernel type to return the arguments for -- if unspecified, defaults to
+        species rates
+
+    Returns
+    -------
+    input_args: list of str
+        The input arguments to kernels generated in this file
+    output_args: list of str
+        The output arguments to kernels generated in this file
+    """
+    if ktype == KernelType.species_rates:
+        input_args = utils.kernel_argument_ordering(
+            [arc.state_vector, arc.pressure_array if conp else arc.volume_array],
+            ktype)
+        output_args = [arc.state_vector_rate_of_change]
+    elif ktype == KernelType.chem_utils:
+        input_args = [arc.state_vector]
+        output_args = utils.kernel_argument_ordering(
+            [arc.enthalpy_array, arc.constant_pressure_specific_heat,
+             arc.rate_const_thermo_coeff_array] if conp else [
+             arc.internal_energy_array, arc.constant_volume_specific_heat,
+             arc.rate_const_thermo_coeff_array], ktype)
+    else:
+        raise NotImplementedError()
+
+    if output_full_rop:
+        output_args += ['rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+
+    return input_args, output_args
 
 
 def assign_rates(reacs, specs, rate_spec):
@@ -61,7 +102,7 @@ def assign_rates(reacs, specs, rate_spec):
         1 -> kf = A * T * T * T ...
         2 -> kf = exp(logA + b * logT - Ta / T)
 
-    if rate_spec == lp_utils.rate_specialization.fixed
+    if rate_spec == RateSpecialization.fixed
         0 -> kf = exp(logA + b * logT - Ta / T)
 
     Note that the reactions in 'fall', 'chem' and 'thd' are also in
@@ -76,16 +117,16 @@ def assign_rates(reacs, specs, rate_spec):
         offset, maps, etc.
     """
 
-    assert rate_spec in lp_utils.RateSpecialization
+    assert rate_spec in RateSpecialization
     # determine specialization
-    full = rate_spec == lp_utils.RateSpecialization.full
-    # hybrid = rate_spec == lp_utils.RateSpecialization.hybrid
-    fixed = rate_spec == lp_utils.RateSpecialization.fixed
+    full = rate_spec == RateSpecialization.full
+    # hybrid = rate_spec == RateSpecialization.hybrid
+    fixed = rate_spec == RateSpecialization.fixed
 
     # find fwd / reverse rate parameters
     # first, the number of each
     rev_map = np.array([i for i, x in enumerate(reacs) if x.rev],
-                       dtype=np.int32)
+                       dtype=arc.kint_type)
     num_rev = len(rev_map)
     # next, find the species / nu values
     nu_sum = []
@@ -128,18 +169,18 @@ def assign_rates(reacs, specs, rate_spec):
             ns_nu.extend([ns_prod_nu, ns_reac_nu])
 
     # create numpy versions
-    reac_has_ns = np.array(reac_has_ns, dtype=np.int32)
+    reac_has_ns = np.array(reac_has_ns, dtype=arc.kint_type)
     net_nu_integer = all(utils.is_integer(nu) for nu in net_nu)
     if net_nu_integer:
-        nu_sum = np.array(nu_sum, dtype=np.int32)
-        net_nu = np.array(net_nu, dtype=np.int32)
-        ns_nu = np.array(ns_nu, dtype=np.int32)
+        nu_sum = np.array(nu_sum, dtype=arc.kint_type)
+        net_nu = np.array(net_nu, dtype=arc.kint_type)
+        ns_nu = np.array(ns_nu, dtype=arc.kint_type)
     else:
         nu_sum = np.array(nu_sum)
         net_nu = np.array(net_nu)
         ns_nu = np.array(ns_nu)
-    net_num_spec = np.array(net_num_spec, dtype=np.int32)
-    net_spec = np.array(net_spec, dtype=np.int32)
+    net_num_spec = np.array(net_num_spec, dtype=arc.kint_type)
+    net_spec = np.array(net_spec, dtype=arc.kint_type)
 
     # sometimes we need the net properties forumlated per species rather than
     # per reaction as above
@@ -158,23 +199,23 @@ def assign_rates(reacs, specs, rate_spec):
             spec_reac_count.append(len(reac_list))
             spec_list.append(ispec)
 
-    spec_to_reac = np.array(spec_to_reac, dtype=np.int32)
+    spec_to_reac = np.array(spec_to_reac, dtype=arc.kint_type)
     if net_nu_integer:
-        spec_nu = np.array(spec_nu, dtype=np.int32)
+        spec_nu = np.array(spec_nu, dtype=arc.kint_type)
     else:
         spec_nu = np.array(spec_nu)
-    spec_reac_count = np.array(spec_reac_count, dtype=np.int32)
-    spec_list = np.array(spec_list, dtype=np.int32)
+    spec_reac_count = np.array(spec_reac_count, dtype=arc.kint_type)
+    spec_list = np.array(spec_list, dtype=arc.kint_type)
 
     def __seperate(reacs, matchers):
         # find all reactions / indicies that match this offset
         rate = [(i, x) for i, x in enumerate(reacs) if any(x.match(y) for y in
                                                            matchers)]
-        mapping = np.empty(0, dtype=np.int32)
+        mapping = np.empty(0, dtype=arc.kint_type)
         num = 0
         if rate:
             mapping, rate = zip(*rate)
-            mapping = np.array(mapping, dtype=np.int32)
+            mapping = np.array(mapping, dtype=arc.kint_type)
             rate = list(rate)
             num = len(rate)
 
@@ -188,9 +229,9 @@ def assign_rates(reacs, specs, rate_spec):
     def __specialize(rates, fall=False):
         fall_types = None
         num = len(rates)
-        rate_type = np.zeros((num,), dtype=np.int32)
+        rate_type = np.zeros((num,), dtype=arc.kint_type)
         if fall:
-            fall_types = np.zeros((num,), dtype=np.int32)
+            fall_types = np.zeros((num,), dtype=arc.kint_type)
         # reaction parameters
         A = np.zeros((num,), dtype=np.float64)
         b = np.zeros((num,), dtype=np.float64)
@@ -250,7 +291,7 @@ def assign_rates(reacs, specs, rate_spec):
     for p in plog_reacs:
         num_pressures.append(len(p.plog_par))
         plog_params.append(p.plog_par)
-    num_pressures = np.array(num_pressures, dtype=np.int32)
+    num_pressures = np.array(num_pressures, dtype=arc.kint_type)
 
     cheb_reacs, cheb_map, num_cheb = __seperate(
         reacs, [reaction_type.cheb])
@@ -267,8 +308,8 @@ def assign_rates(reacs, specs, rate_spec):
         cheb_coeff.append(cheb.cheb_par)
         cheb_plim.append(cheb.cheb_plim)
         cheb_tlim.append(cheb.cheb_tlim)
-    cheb_n_pres = np.array(cheb_n_pres, dtype=np.int32)
-    cheb_n_temp = np.array(cheb_n_temp, dtype=np.int32)
+    cheb_n_pres = np.array(cheb_n_pres, dtype=arc.kint_type)
+    cheb_n_temp = np.array(cheb_n_temp, dtype=arc.kint_type)
     cheb_plim = np.array(cheb_plim)
     cheb_tlim = np.array(cheb_tlim)
     cheb_coeff = np.array(cheb_coeff)
@@ -280,14 +321,14 @@ def assign_rates(reacs, specs, rate_spec):
         fall_reacs, True)
     # find blending type
     blend_type = np.array([next(int(y) for y in x.type if isinstance(
-        y, falloff_form)) for x in fall_reacs], dtype=np.int32)
+        y, falloff_form)) for x in fall_reacs], dtype=arc.kint_type)
     # seperate parameters based on blending type
     # lindeman
     lind_map = np.where(blend_type == int(falloff_form.lind))[
-        0].astype(dtype=np.int32)
+        0].astype(dtype=arc.kint_type)
     # sri
     sri_map = np.where(blend_type == int(falloff_form.sri))[
-        0].astype(dtype=np.int32)
+        0].astype(dtype=arc.kint_type)
     sri_reacs = [reacs[fall_map[i]] for i in sri_map]
     sri_par = [reac.sri_par for reac in sri_reacs]
     # now fill in defaults as needed
@@ -302,7 +343,7 @@ def assign_rates(reacs, specs, rate_spec):
             np.empty(shape=(0,)) for i in range(5)]
     # and troe
     troe_map = np.where(blend_type == int(falloff_form.troe))[
-        0].astype(dtype=np.int32)
+        0].astype(dtype=arc.kint_type)
     troe_reacs = [reacs[fall_map[i]] for i in troe_map]
     troe_par = [reac.troe_par for reac in troe_reacs]
     # now fill in defaults as needed
@@ -326,7 +367,7 @@ def assign_rates(reacs, specs, rate_spec):
         reacs, [reaction_type.fall, reaction_type.chem, reaction_type.thd])
     # find third body type
     thd_type = np.array([next(int(y) for y in x.type if isinstance(
-        y, thd_body_type)) for x in thd_reacs], dtype=np.int32)
+        y, thd_body_type)) for x in thd_reacs], dtype=arc.kint_type)
 
     # first, we must do some surgery to get _our_ form of the thd-body
     # efficiencies
@@ -358,10 +399,10 @@ def assign_rates(reacs, specs, rate_spec):
                 thd_has_ns.append(i)
                 thd_ns_eff.append(eff[ind])
 
-    thd_spec_num = np.array(thd_spec_num, dtype=np.int32)
-    thd_spec = np.array(thd_spec, dtype=np.int32)
+    thd_spec_num = np.array(thd_spec_num, dtype=arc.kint_type)
+    thd_spec = np.array(thd_spec, dtype=arc.kint_type)
     thd_eff = np.array(thd_eff, dtype=np.float64)
-    thd_has_ns = np.array(thd_has_ns, dtype=np.int32)
+    thd_has_ns = np.array(thd_has_ns, dtype=arc.kint_type)
     thd_ns_eff = np.array(thd_ns_eff, dtype=np.float64)
 
     # thermo properties
@@ -507,16 +548,14 @@ def reset_arrays(loopy_opts, namestore, test_size=None):
 
     def __create(arr, nrange, name):
         # create reset kernel
-        mapstore = arc.MapStore(loopy_opts,
-                                nrange,
-                                nrange)
+        mapstore = arc.MapStore(loopy_opts, nrange, test_size)
 
         # first, create all arrays
         kernel_data = []
 
         # add problem size
-        if namestore.problem_size is not None:
-            kernel_data.append(namestore.problem_size)
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
 
         # need arrays
         arr_lp, arr_str = mapstore.apply_maps(arr, *default_inds)
@@ -569,9 +608,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     fixed_inds = (global_ind,)
 
@@ -579,8 +616,8 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # need P, V, T and n arrays
 
@@ -608,7 +645,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
 
     pre_instructions = Template(
         """<>V_inv = 1.0d / ${V_str}
-           <>n_sum = 0
+           <>n_sum = 0 {id=n_init}
            ${cns_str} = ${P_str} / (R_u * ${T_str}) {id=cns_init}
         """).substitute(
             P_str=P_str,
@@ -619,16 +656,13 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     instructions = Template(
         """
             ${conc_str} = ${n_str} * V_inv {id=cn_init}
-            n_sum = n_sum + ${n_str} {id=n_update}
+            n_sum = n_sum + ${n_str} {id=n_update, dep=n_init}
         """).substitute(
             conc_str=conc_str,
             n_str=n_str
     )
 
-    barrier = (
-        '... lbarrier {id=break, dep=cns_init}'
-        if loopy_opts.use_atomics and loopy_opts.depth else
-        '... nop {id=break, dep=cns_init}')
+    barrier = ic.get_barrier(loopy_opts, id='break', dep='cns_init')
     post_instructions = Template(
         """
         ${barrier}
@@ -678,16 +712,14 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # first, create all arrays
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     fixed_inds = (global_ind,)
 
@@ -710,7 +742,10 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
                                       *fixed_inds)
 
     V_val = 'V_val'
-    pre_instructions = ic.default_pre_instructs(V_val, V_str, 'VAL')
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
+    pre_instructions = precompute(V_val, V_str, 'VAL')
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
@@ -767,16 +802,14 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # first, create all arrays
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     fixed_inds = (global_ind,)
 
@@ -804,25 +837,27 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     kernel_data.extend([wdot_lp, Edot_lp, T_lp, P_lp, Tdot_lp, mw_lp])
 
+    dE_init = '<>dE = 0.0d {id=dE_init}'
+
     if conp:
         pre_instructions = [
             Template('${Edot_str} = ${V_str} * ${Tdot_str} / ${T_str} \
                      {id=init}').safe_substitute(
                 **locals()),
-            '<>dE = 0.0d'
+            dE_init
         ]
     else:
         pre_instructions = [
             Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_str}\
                      {id=init}').safe_substitute(
                 **locals()),
-            '<>dE = 0.0d'
+            dE_init
         ]
 
     instructions = Template(
         """
-            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum}
-            """
+            dE = dE + (1.0 - ${mw_str}) * ${wdot_str} {id=sum, dep=dE_init}
+        """
     ).safe_substitute(**locals())
 
     if conp:
@@ -830,7 +865,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = ['<>dE = 0.0d']
+            pre_instructions = [dE_init]
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${V_str} * ${Tdot_str} / ${T_str} \
@@ -841,7 +876,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
-                    {id=final, dep=lb2, atomic, nosync=temp_init}
+                    {id=final, dep=lb2, atomic, nosync=temp_init:temp_sum}
                 """
             ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
@@ -857,7 +892,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
     else:
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = ['<>dE = 0.0d']
+            pre_instructions = [dE_init]
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_str} \
@@ -867,7 +902,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
-                    {id=final, dep=lb2, atomic, nosync=temp_init}
+                    {id=final, dep=lb2, atomic, nosync=temp_init:temp_sum}
                 """
             ).safe_substitute(**locals())]
             kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
@@ -926,17 +961,15 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
         equation types
     """
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs, test_size)
     fixed_inds = (global_ind,)
 
     # first, create all arrays
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add / apply maps
     mapstore.check_and_add_transform(namestore.spec_rates,
@@ -969,15 +1002,15 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
 
     pre_instructions = [Template(
         """
-        <> upper = 0
-        <> lower = 0
+        <> upper = 0 {id=uinit}
+        <> lower = 0 {id=linit}
         # handled by reset_arrays
         # ${Tdot_str} = 0 {id=init}
         """).safe_substitute(**locals())]
     instructions = Template(
         """
-            upper = upper + ${energy_str} * ${wdot_str} {id=sum1}
-            lower = lower + ${conc_str} * ${spec_heat_str} {id=sum2}
+            upper = upper + ${energy_str} * ${wdot_str} {id=sum1, dep=uinit}
+            lower = lower + ${conc_str} * ${spec_heat_str} {id=sum2, dep=linit}
         """
     ).safe_substitute(**locals())
 
@@ -987,16 +1020,17 @@ def get_temperature_rate(loopy_opts, namestore, conp=True,
         """
     ).safe_substitute(**locals())]
 
-    if loopy_opts.use_atomics and loopy_opts.depth:
+    if ic.use_atomics(loopy_opts):
         # need to fix the post instructions to work atomically
         post_instructions = [Template(
             """
             temp_sum[0] = 0 {id=temp_init, atomic}
             ... lbarrier {id=lb1, dep=temp_init}
-            temp_sum[0] = temp_sum[0] + lower {id=temp_sum, dep=lb1:sum*, atomic}
+            temp_sum[0] = temp_sum[0] + lower {id=temp_sum, dep=lb1:sum*, \
+                nosync=temp_init, atomic}
             ... lbarrier {id=lb2, dep=temp_sum}
             ${Tdot_str} = ${Tdot_str} - upper / temp_sum[0] \
-                {id=final, dep=lb2, atomic}
+                {id=final, dep=lb2, nosync=temp_sum:temp_init, atomic}
             """
         ).safe_substitute(**locals())]
         kernel_data.append(lp.TemporaryVariable('temp_sum', dtype=np.float64,
@@ -1044,18 +1078,17 @@ def get_spec_rates(loopy_opts, namestore, conp=True,
     """
 
     kernel_data = []
+
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # various indicies
     spec_ind = 'spec_ind'
     ispec = 'ispec'
 
     # create map store
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_reacs,
-                            namestore.num_reacs)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_reacs, test_size)
 
     # create arrays
     spec_lp, spec_str = mapstore.apply_maps(namestore.rxn_to_spec,
@@ -1133,19 +1166,16 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
 
     kernel_data = OrderedDict([('fwd', [])])
     maps = OrderedDict([('fwd',
-                         arc.MapStore(loopy_opts, namestore.num_reacs,
-                                      namestore.num_reacs))])
+                         arc.MapStore(loopy_opts, namestore.num_reacs, test_size))])
     transforms = {'fwd': namestore.num_reacs}
 
     separated_kernels = loopy_opts.rop_net_kernels
     if separated_kernels:
         kernel_data['rev'] = []
-        maps['rev'] = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
-                                   namestore.rev_mask)
+        maps['rev'] = arc.MapStore(loopy_opts, namestore.num_rev_reacs, test_size)
         transforms['rev'] = namestore.rev_map
         kernel_data['pres_mod'] = []
-        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.num_thd,
-                                        namestore.thd_mask)
+        maps['pres_mod'] = arc.MapStore(loopy_opts, namestore.num_thd, test_size)
         transforms['pres_mod'] = namestore.thd_map
     else:
         transforms['rev'] = namestore.rev_mask
@@ -1159,7 +1189,11 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
 
     def __add_to_all(data):
         for kernel in kernel_data:
-            __add_data(kernel, data)
+            try:
+                for d in data:
+                    __add_data(kernel, d)
+            except TypeError:
+                __add_data(kernel, data)
 
     def __get_map(knl):
         if separated_kernels:
@@ -1185,8 +1219,8 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
             check_and_add_transform(namestore.rop_net,
                                     transforms[name])
 
-    if test_size == 'problem_size':
-        __add_to_all(namestore.problem_size)
+    __add_to_all(
+        arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # create the fwd rop array / str
     # this never has a map / mask
@@ -1251,19 +1285,16 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
                 rop_rev_str=rop_rev_str))
 
         # pmod update
-        if namestore.pres_mod is not None:
-            pmod_update_instructions = ic.get_update_instruction(
-                __get_map('pres_mod'), namestore.pres_mod,
-                Template(
-                    """
-                net_rate = net_rate * ${pres_mod_str} \
-                    {id=rate_update_pmod, dep=rate_update${rev_dep}}
-                """).safe_substitute(
-                    rev_dep=':rate_update_rev' if namestore.rop_rev is not None
-                        else '',
-                    pres_mod_str=pres_mod_str))
-        else:
-            pmod_update_instructions = ''
+        pmod_update_instructions = ic.get_update_instruction(
+            __get_map('pres_mod'), namestore.pres_mod,
+            Template(
+                """
+            net_rate = net_rate * ${pres_mod_str} \
+                {id=rate_update_pmod, dep=rate_update${rev_dep}}
+            """).safe_substitute(
+                rev_dep=':rate_update_rev' if namestore.rop_rev is not None
+                    else '',
+                pres_mod_str=pres_mod_str))
 
         instructions = Template(instructions).safe_substitute(
             rev_update=rev_update_instructions,
@@ -1284,19 +1315,19 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
             if kernel == 'fwd':
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_fwd_str}
+            ${rop_net_str} = ${rop_fwd_str} {id=rop_net_fwd}
                     """).safe_substitute(rop_fwd_str=rop_fwd_str,
                                          rop_net_str=rop_strs['fwd'])
             elif kernel == 'rev':
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_net_str} - ${rop_rev_str}
+            ${rop_net_str} = ${rop_net_str} - ${rop_rev_str} {id=rop_net_rev}
                     """).safe_substitute(rop_rev_str=rop_rev_str,
                                          rop_net_str=rop_strs['rev'])
             else:
                 instructions = Template(
                     """
-            ${rop_net_str} = ${rop_net_str} * ${pres_mod_str}
+            ${rop_net_str} = ${rop_net_str} * ${pres_mod_str} {id=rop_net_pres_mod}
                     """).safe_substitute(pres_mod_str=pres_mod_str,
                                          rop_net_str=rop_strs['pres_mod'])
 
@@ -1306,7 +1337,9 @@ def get_rop_net(loopy_opts, namestore, test_size=None):
                                         instructions=instructions,
                                         var_name=var_name,
                                         kernel_data=kernel_data[kernel],
-                                        mapstore=maps[kernel]))
+                                        mapstore=maps[kernel],
+                                        silenced_warnings=['write_race(rop_net_{})'
+                                        .format(kernel)]))
         return infos
 
 
@@ -1343,8 +1376,9 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
 
         # indicies
         kernel_data = []
-        if test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+        # add problem size
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
         if direction == 'fwd':
             inds = namestore.num_reacs
             mapinds = namestore.num_reacs
@@ -1352,7 +1386,7 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
             inds = namestore.num_rev_reacs
             mapinds = namestore.rev_map
 
-        maps[direction] = arc.MapStore(loopy_opts, inds, inds)
+        maps[direction] = arc.MapStore(loopy_opts, inds, test_size)
         themap = maps[direction]
 
         # add transforms for the offsets
@@ -1416,33 +1450,20 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                          spec_str=spec_str,
                          spec_ind=spec_ind)
 
+        power_func = utils.power_function(loopy_opts.lang,
+                                          is_integer_power=allint['net'])
         # if all integers, it's much faster to use multiplication
-        allint_eval = Template(
+        roptemp_eval = Template(
             """
-    rop_temp = rop_temp * fast_powi(${concs_str}, ${nu_str}) {id=rop_fin}
+    rop_temp = rop_temp * ${power_func}(${concs_str}, ${nu_str}) {id=rop_fin, \
+        dep=rop_init}
     """).safe_substitute(
             nu_str=nu_str,
-            concs_str=concs_str)
+            concs_str=concs_str,
+            power_func=power_func)
 
-        # if we need to use powers, do so
-        fractional_eval = Template(
-            """
-    if int(${nu_str}) == ${nu_str}
-        ${allint}
-    else
-        rop_temp = rop_temp * fast_powf(${concs_str}, ${nu_str}) {id=rop_fin2}
-    end
-    """).safe_substitute(nu_str=nu_str,
-                         concs_str=concs_str)
-        fractional_eval = k_gen.subs_at_indent(
-            fractional_eval, allint=allint_eval)
-
-        if not allint['net']:
-            rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                                                    rop_temp_eval=fractional_eval)
-        else:
-            rop_instructions = k_gen.subs_at_indent(rop_instructions,
-                                                    rop_temp_eval=allint_eval)
+        rop_instructions = utils.subs_at_indent(rop_instructions,
+                                                rop_temp_eval=roptemp_eval)
 
         # and finally extra inames
         extra_inames = [
@@ -1455,9 +1476,10 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                               kernel_data=kernel_data,
                               extra_inames=extra_inames,
                               mapstore=maps[direction],
-                              preambles=[
-            lp_pregen.fastpowi_PreambleGen(),
-            lp_pregen.fastpowf_PreambleGen()])
+                              manglers=lp_pregen.power_function_manglers(
+                                loopy_opts, power_func),
+                              preambles=lp_pregen.power_function_preambles(
+                                loopy_opts, power_func))
 
     infos = [__rop_create('fwd')]
     if namestore.rop_rev is not None:
@@ -1493,13 +1515,13 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
         # rate info and reac ind
 
         kernel_data = []
-        if test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+        # add problem size
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
 
         # create the third body conc pres-mod kernel
 
-        thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map,
-                               namestore.thd_only_mask)
+        thd_map = arc.MapStore(loopy_opts, namestore.thd_only_map, test_size)
 
         # get the third body concs
         thd_lp, thd_str = thd_map.apply_maps(namestore.thd_conc,
@@ -1510,7 +1532,7 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
                                                        *default_inds)
 
         thd_instructions = Template("""
-        ${pres_mod} = ${thd_conc}
+        ${pres_mod} = ${thd_conc} {id=set_pres_mod}
         """).safe_substitute(pres_mod=pres_mod_str,
                              thd_conc=thd_str)
 
@@ -1523,7 +1545,8 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
                            instructions=thd_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=thd_map)]
+                           mapstore=thd_map,
+                           silenced_warnings=['write_race(set_pres_mod)'])]
 
     # check for empty
     if namestore.num_fall is None:
@@ -1531,11 +1554,11 @@ def get_rxn_pres_mod(loopy_opts, namestore, test_size=None):
     else:
         # and now the falloff kernel
         kernel_data = []
-        if test_size == 'problem_size':
-            kernel_data.append(namestore.problem_size)
+        # add problem size
+        kernel_data.extend(arc.initial_condition_dimension_vars(
+            loopy_opts, test_size))
 
-        fall_map = arc.MapStore(loopy_opts, namestore.num_fall,
-                                namestore.num_fall)
+        fall_map = arc.MapStore(loopy_opts, namestore.num_fall, test_size)
 
         # the pressure mod term uses fall_to_thd_map/mask
         fall_map.check_and_add_transform(namestore.pres_mod,
@@ -1615,12 +1638,12 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     spec_ind = 'spec_ind'
     spec_loop = 'ispec'
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add the reverse map
-    rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs,
-                           namestore.rev_mask)
+    rev_map = arc.MapStore(loopy_opts, namestore.num_rev_reacs, test_size)
 
     # map from reverse reaction index to forward reaction index
     rev_map.check_and_add_transform(
@@ -1672,6 +1695,10 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     kernel_data.extend([nu_sum_lp, spec_lp, num_spec_offsets_lp,
                         B_lp, Kc_lp, nu_lp, kf_arr, kr_arr])
 
+    # get the right power function
+    power_func = utils.power_function(loopy_opts.lang,
+                                      is_integer_power=allint['net'])
+
     # create the pressure product loop
     pressure_prod = Template("""
     <> P_sum_end = abs(${nu_sum}) {id=P_bound}
@@ -1680,27 +1707,9 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     else
         P_val = R_u / P_a {id=P_val_decl1}
     end
-    <> P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
-    """).substitute(nu_sum=nu_sum_str)
-
-    if not allint['net']:
-        # if not all integers, need to add outer if statment to check integer
-        # status
-        pressure_prod_temp = Template("""
-    <> P_sum_end = abs(${nu_sum}) {id=P_bound}
-    if ${nu_sum} > 0
-        <> P_val = P_a / R_u {id=P_val_decl}
-    else
-        P_val = R_u / P_a {id=P_val_decl1}
-    end
-    if (int)${nu_sum} == ${nu_sum}
-        P_sum = fast_powi(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
-    else
-        P_sum = fast_powf(P_val, fabs(${nu_sum})) {id=P_accum2, dep=P_val_decl*}
-    end""").substitute(nu_sum=nu_sum_str)
-
-        pressure_prod = k_gen.subs_at_indent(pressure_prod_temp, 'pprod',
-                                             pressure_prod)
+    <> P_sum = ${power_func}(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
+    """).substitute(nu_sum=nu_sum_str,
+                    power_func=power_func)
 
     # and the b sum loop
     Bsum_inst = Template("""
@@ -1747,8 +1756,10 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                           parameters={
                               'P_a': np.float64(chem.PA),
                               'R_u': np.float64(chem.RU)},
-                          preambles=[lp_pregen.fastpowi_PreambleGen(),
-                                     lp_pregen.fastpowf_PreambleGen()])
+                          manglers=lp_pregen.power_function_manglers(
+                                loopy_opts, power_func),
+                          preambles=lp_pregen.power_function_preambles(
+                                loopy_opts, power_func))
 
 
 def get_thd_body_concs(loopy_opts, namestore, test_size=None):
@@ -1780,7 +1791,7 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
     spec_offset = 'offset'
 
     # create mapstore over number of third reactions
-    mapstore = arc.MapStore(loopy_opts, namestore.thd_inds, namestore.thd_inds)
+    mapstore = arc.MapStore(loopy_opts, namestore.thd_inds, test_size)
 
     # create args
 
@@ -1816,8 +1827,9 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
 
     # kernel data
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add arrays
     kernel_data.extend([P_arr, T_arr, concs_lp, thd_lp, thd_type_lp,
@@ -1836,7 +1848,8 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
 <> thd_temp = ${P_str} * not_spec / (R * ${T_str}) {id=thd1, dep=num0}
 for ${spec_loop}
     <> ${spec_ind} = ${thd_spec} {id=ind1}
-    thd_temp = thd_temp + (${thd_eff} - not_spec) * ${conc_thd_spec} {id=thdcalc, dep=ind1}
+    thd_temp = thd_temp + (${thd_eff} - not_spec) * ${conc_thd_spec} {id=thdcalc,\
+        dep=ind1:thd1}
 end
 ${thd_str} = thd_temp {dep=thd*}
 """).safe_substitute(
@@ -1897,8 +1910,7 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
         return None
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.num_cheb,
-                            namestore.cheb_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_cheb, test_size)
 
     # max degrees in mechanism
     poly_max = int(np.maximum(maxP, maxT))
@@ -1943,8 +1955,9 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
 
     # update kernel data
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     kernel_data.extend([params_lp, num_P_lp, num_T_lp, plim_lp, tlim_lp,
                         pres_poly_lp, temp_poly_lp, T_arr, P_arr, kf_arr])
@@ -1952,8 +1965,11 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
     # preinstructions
     logP = 'logP'
     Tinv = 'Tinv'
-    preinstructs = [ic.default_pre_instructs(logP, P_str, 'LOG'),
-                    ic.default_pre_instructs(Tinv, T_str, 'INV')]
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
+    preinstructs = [precompute(logP, P_str, 'LOG'),
+                    precompute(Tinv, T_str, 'INV')]
 
     # various strings for preindexed limits, params, etc
     _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
@@ -1993,32 +2009,33 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
 <>Pred = (-Pmax - Pmin + 2 * ${logP}) / (Pmax - Pmin)
 <>numP = ${num_P_str} {id=plim}
 <>numT = ${num_T_str} {id=tlim}
-${ppoly0_str} = 1
-${ppoly1_str} = Pred
-${tpoly0_str} = 1
-${tpoly1_str} = Tred
+${ppoly0_str} = 1 {id=ppoly_init}
+${ppoly1_str} = Pred {id=ppoly_init1}
+${tpoly0_str} = 1 {id=tpoly_init}
+${tpoly1_str} = Tred {id=tpoly_init2}
 #<> poly_end = max(numP, numT)
 # compute polynomial terms
 for p
     if p < numP
         ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - ${ppolypm2_str} \
-            {id=ppoly, dep=plim}
+            {id=ppoly, dep=plim:ppoly_init*}
     end
     if p < numT
         ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - ${tpolypm2_str} \
-            {id=tpoly, dep=tlim}
+            {id=tpoly, dep=tlim:tpoly_init*}
     end
 end
-<> kf_temp = 0
+<> kf_temp = 0 {id=kf_init}
 for m
-    <>temp = 0
+    <>temp = 0 {id=temp_init}
     for k
         if k < numP
-            temp = temp + ${ppoly_k_str} * ${params_str} {id=temp, dep=ppoly:tpoly}
+            temp = temp + ${ppoly_k_str} * ${params_str} {id=temp,
+                dep=ppoly:tpoly:kf_init:temp_init}
         end
     end
     if m < numT
-        kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp}
+        kf_temp = kf_temp + ${tpoly_m_str} * temp {id=kf, dep=temp:kf_init}
     end
 end
 
@@ -2072,8 +2089,7 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
     hi_ind = 'hi_ind'
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.plog_map,
-                            namestore.plog_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.plog_map, test_size)
 
     # number of parameter sets per reaction
     mapstore.check_and_add_transform(namestore.plog_num_param,
@@ -2105,8 +2121,9 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
 
     # data
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # update kernel data
     kernel_data.extend([plog_params_lp, plog_num_param_lp, T_arr,
@@ -2139,14 +2156,14 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
         """
         <>lower = ${logP} <= ${pressure_lo} # check below range
         if lower
-            <>lo_ind = 0 {id=ind00}
-            <>hi_ind = 0 {id=ind01}
+            <>lo_ind = 0 {id=ind00, nosync=ind10}
+            <>hi_ind = 0 {id=ind01, nosync=ind11}
         end
         <>numP = ${plog_num_param_str} - 1
         <>upper = ${logP} > ${pressure_hi} # check above range
         if upper
-            lo_ind = numP {id=ind10}
-            hi_ind = numP {id=ind11}
+            lo_ind = numP {id=ind10, nosync=ind00}
+            hi_ind = numP {id=ind11, nosync=ind01}
         end
         <>oor = lower or upper
         for k
@@ -2156,8 +2173,8 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
             <> midcheck = (k < numP) and (${logP} > ${pressure_mid_lo}) \
                 and (${logP} <= ${pressure_mid_hi})
             if midcheck
-                lo_ind = k {id=ind20}
-                hi_ind = k + 1 {id=ind21}
+                lo_ind = k {id=ind20, dep=ind10:ind00}
+                hi_ind = k + 1 {id=ind21, dep=ind11:ind01}
             end
         end
         # load pressure and reaction parameters into temp arrays
@@ -2172,25 +2189,31 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
         if not oor
             # if not out of bounds, compute interpolant
             kf_temp = (-logk1 + logk2) * (${logP} - low[0]) / (hi[0] - low[0]) + \
-                kf_temp {id=a_found, dep=a1:a2}
+                kf_temp {id=a_found, dep=a1:a2:a_oor}
         end
-        ${kf_str} = exp(kf_temp) {id=kf, dep=a_oor:a_found}
+        ${kf_str} = exp(kf_temp) {id=kf, dep=a_found}
 """).safe_substitute(**locals())
 
     vec_spec = ic.write_race_silencer(['kf'])
+
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
                            pre_instructions=[
-                               ic.default_pre_instructs(Tinv, T_str, 'INV'),
-                               ic.default_pre_instructs(logT, T_str, 'LOG'),
-                               ic.default_pre_instructs(logP, P_str, 'LOG')],
+                               precompute(Tinv, T_str, 'INV'),
+                               precompute(logT, T_str, 'LOG'),
+                               precompute(logP, P_str, 'LOG')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            extra_inames=extra_inames,
-                           vectorization_specializer=vec_spec)]
+                           vectorization_specializer=vec_spec,
+                           # silence warning about scatter load of plog parameters
+                           # due to varying pressure
+                           silenced_warnings=['vectorize_failed'])]
 
 
 def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
@@ -2219,15 +2242,14 @@ def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
         return None
 
     # create the mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
-                            namestore.fall_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.fall_map, test_size)
 
     # create the various necessary arrays
 
     kernel_data = []
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
-
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
     # add maps / masks
 
     # kf is over all reactions
@@ -2269,12 +2291,12 @@ def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
     pr_instructions = Template("""
 if ${fall_type_str}
     # chemically activated
-    <>k0 = ${kf_str} {id=k0_c}
-    <>kinf = ${kf_fall_str} {id=kinf_c}
+    <>k0 = ${kf_str} {id=k0_c, nosync=k0_f}
+    <>kinf = ${kf_fall_str} {id=kinf_c, nosync=kinf_f}
 else
     # fall-off
-    kinf = ${kf_str} {id=kinf_f}
-    k0 = ${kf_fall_str} {id=k0_f}
+    kinf = ${kf_str} {id=kinf_f, nosync=kinf_c}
+    k0 = ${kf_fall_str} {id=k0_f, nosync=k0_c}
 end
 # prevent reduced pressure from ever being truly zero
 ${Pr_str} = fmax(1e-300d, ${thd_conc_str} * k0 / kinf) {id=set, dep=k*}
@@ -2323,11 +2345,11 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     kernel_data = []
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_troe, namestore.num_troe)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_troe, test_size)
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # add maps / masks
     mapstore.check_and_add_transform(namestore.Fi, namestore.troe_map)
@@ -2362,6 +2384,10 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     # update the kernel_data
     kernel_data.extend([troe_a_lp, troe_T3_lp, troe_T1_lp, troe_T2_lp])
 
+    # get generic power function
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
+                                      is_positive_power=True)
+
     # make the instructions
     troe_instructions = Template("""
     <>Fcent_temp = ${troe_a_str} * exp(-T * ${troe_T1_str}) \
@@ -2377,21 +2403,27 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     <>Btroe_temp = -1.1762 * logFcent - 0.14 * logPr + 0.806 {dep=Fcent_decl*}
     ${Atroe_str} = Atroe_temp
     ${Btroe_str} = Btroe_temp
-    ${Fi_str} = Fcent_temp**(1 / (((Atroe_temp * Atroe_temp) / \
-        (Btroe_temp * Btroe_temp) + 1))) {id=Fi, dep=Fcent_decl*}
+    ${Fi_str} = ${power_func}(Fcent_temp, (1 / (((Atroe_temp * Atroe_temp) / \
+        (Btroe_temp * Btroe_temp) + 1)))) {id=Fi, dep=Fcent_decl*}
     """).safe_substitute(**locals())
 
     vec_spec = ic.write_race_silencer(['Fi'])
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     return [k_gen.knl_info('fall_troe',
-                           pre_instructions=[ic.default_pre_instructs(
+                           pre_instructions=[precompute(
                                'T', T_str, 'VAL')],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            vectorization_specializer=vec_spec,
-                           manglers=[lp_pregen.fmax()])]
+                           manglers=[lp_pregen.fmax()] +
+                           lp_pregen.power_function_manglers(
+                                        loopy_opts, power_func),
+                           preambles=lp_pregen.power_function_preambles(
+                                loopy_opts, power_func))]
 
 
 def get_sri_kernel(loopy_opts, namestore, test_size=None):
@@ -2422,10 +2454,11 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     kernel_data = []
 
     # create mapper
-    mapstore = arc.MapStore(loopy_opts, namestore.num_sri, namestore.sri_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_sri, test_size)
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # maps and transforms
     mapstore.check_and_add_transform(namestore.Fi, namestore.sri_map)
@@ -2456,31 +2489,45 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     Tinv = 'Tinv'
     Tval = 'Tval'
 
+    # get generic power function
+    pos_power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
+                                          is_positive_power=True)
+    gen_power_func = utils.power_function(loopy_opts.lang,
+                                          is_positive_power=isinstance(
+                                            sri_e_lp.dtype, np.integer))
+
     # create instruction set
     sri_instructions = Template("""
     <>logPr = log10(fmax(1e-300d, ${Pr_str}))
     <>X_temp = 1 / (logPr * logPr + 1) {id=X_decl}
-    <>Fi_temp = (${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
-        exp(-${Tval} / ${sri_c_str})) **(X_temp) {id=Fi_decl, dep=X_decl}
+    <>Fi_temp = ${pos_power_func}((${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
+        exp(-${Tval} / ${sri_c_str})), X_temp) {id=Fi_decl, dep=X_decl}
     if ${sri_d_str} != 1.0
         Fi_temp = Fi_temp * ${sri_d_str} {id=Fi_decl1, dep=Fi_decl}
     end
     if ${sri_e_str} != 0.0
-        Fi_temp = Fi_temp * ${Tval}**${sri_e_str} {id=Fi_decl2, dep=Fi_decl}
+        Fi_temp = Fi_temp * ${gen_power_func}(${Tval}, ${sri_e_str}) \
+            {id=Fi_decl2, dep=Fi_decl1}
     end
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
     ${X_sri_str} = X_temp
     """).safe_substitute(**locals())
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                               ic.default_pre_instructs(Tval, T_str, 'VAL'),
-                               ic.default_pre_instructs(Tinv, T_str, 'INV')],
+                               precompute(Tval, T_str, 'VAL'),
+                               precompute(Tinv, T_str, 'INV')],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           manglers=[lp_pregen.fmax()])]
+                           manglers=[lp_pregen.fmax()] +
+                           lp_pregen.power_function_manglers(
+                               loopy_opts, [pos_power_func, gen_power_func]),
+                           preambles=lp_pregen.power_function_preambles(
+                               loopy_opts, [pos_power_func, gen_power_func]))]
 
 
 def get_lind_kernel(loopy_opts, namestore, test_size=None):
@@ -2512,27 +2559,28 @@ def get_lind_kernel(loopy_opts, namestore, test_size=None):
 
     kernel_data = []
 
-    if test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    # add problem size
+    kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # create Fi array / str
 
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.lind_map, namestore.lind_mask)
+    mapstore = arc.MapStore(loopy_opts, namestore.lind_map, test_size)
 
     Fi_lp, Fi_str = mapstore.apply_maps(namestore.Fi, *default_inds)
     kernel_data.append(Fi_lp)
 
     # create instruction set
     lind_instructions = Template("""
-    ${Fi_str} = 1
+    ${Fi_str} = 1 {id=Fi_init}
     """).safe_substitute(Fi_str=Fi_str)
 
     return [k_gen.knl_info('fall_lind',
                            instructions=lind_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
-                           mapstore=mapstore)]
+                           mapstore=mapstore,
+                           silenced_warnings=['write_race(Fi_init)'])]
 
 
 def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
@@ -2569,8 +2617,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         if namestore.fall_map is None:
             return None
 
-        mapstore = arc.MapStore(loopy_opts, namestore.fall_map,
-                                namestore.fall_mask)
+        mapstore = arc.MapStore(loopy_opts, namestore.fall_map, test_size)
         # define the rtype iteration domain
 
         def get_rdomain(rtype):
@@ -2584,8 +2631,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         rdomain = get_rdomain
     else:
         tag = 'simple'
-        mapstore = arc.MapStore(loopy_opts, namestore.simple_map,
-                                namestore.simple_mask)
+        mapstore = arc.MapStore(loopy_opts, namestore.simple_map, test_size)
         # define the rtype iteration domain
 
         def get_rdomain(rtype):
@@ -2602,9 +2648,9 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         rdomain = get_rdomain
 
     # first assign the reac types, parameters
-    full = loopy_opts.rate_spec == lp_utils.RateSpecialization.full
-    hybrid = loopy_opts.rate_spec == lp_utils.RateSpecialization.hybrid
-    fixed = loopy_opts.rate_spec == lp_utils.RateSpecialization.fixed
+    full = loopy_opts.rate_spec == RateSpecialization.full
+    hybrid = loopy_opts.rate_spec == RateSpecialization.hybrid
+    fixed = loopy_opts.rate_spec == RateSpecialization.fixed
     separated_kernels = loopy_opts.rate_spec_kernels
     logger = logging.getLogger(__name__)
     if fixed and separated_kernels:
@@ -2613,8 +2659,9 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                     'RateSpecialization, disabling...')
 
     base_kernel_data = []
-    if test_size == 'problem_size':
-        base_kernel_data.append(namestore.problem_size)
+    # add problem size
+    base_kernel_data.extend(arc.initial_condition_dimension_vars(
+        loopy_opts, test_size))
 
     # if we need the rtype array, add it
     if not separated_kernels and not fixed:
@@ -2639,20 +2686,24 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     Tinv = 'Tinv'
     logT = 'logT'
     Tval = 'Tval'
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
     default_preinstructs = {Tinv:
-                            ic.default_pre_instructs(Tinv, T_str, 'INV'),
+                            precompute(Tinv, T_str, 'INV'),
                             logT:
-                            ic.default_pre_instructs(logT, T_str, 'LOG'),
+                            precompute(logT, T_str, 'LOG'),
                             Tval:
-                            ic.default_pre_instructs(Tval, T_str, 'VAL')}
+                            precompute(Tval, T_str, 'VAL')}
 
     # generic kf assigment str
-    kf_assign = Template("${kf_str} = ${rate}")
-    expkf_assign = Template("${kf_str} = exp(${rate})")
+    kf_assign = Template("${kf_str} = ${rate} {id=rate_eval0, \
+                         nosync=${deps}}")
+    expkf_assign = Template("${kf_str} = exp(${rate}) {id=rate_eval${id}, \
+                            nosync=${deps}}")
 
     def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                            single_kernel_rtype=None, Tval=Tval, logT=logT,
-                           Tinv=Tinv):
+                           Tinv=Tinv, specializations=set()):
         # get domain
         domain, inds, num = rdomain(rtype)
 
@@ -2687,33 +2738,64 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
         # get rate equations
         rate_eqn_pre = Template(
-            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv}").safe_substitute(
-            **locals())
+            "${A_str} + ${logT} * ${b_str} - ${Ta_str} * ${Tinv}"
+            ).safe_substitute(**locals())
         rate_eqn_pre_noTa = Template(
             "${A_str} + ${logT} * ${b_str}").safe_substitute(**locals())
         rate_eqn_pre_nobeta = Template(
             "${A_str} - ${Ta_str} * ${Tinv}").safe_substitute(
             **locals())
 
+        def __deps(assign):
+            if single_kernel_rtype is None:
+                # not a combined kernel
+                return ' '
+            elif assign == expkf_assign:
+                rate_evals = [0, 1, 2, 3, 4] if full else [0, 1, 2] if hybrid else \
+                    [0]
+                rate_evals = sorted(set(rate_evals) & specializations)
+                deps = ['rate_eval{}'.format(x) for x in rate_evals]
+                if 1 in rate_evals:
+                    # add beta iter deps
+                    deps += ['a*']
+                deps = ':'.join(deps)
+                return '{}'.format(':' + deps if deps else '')
+            elif assign == kf_assign:
+                return 'rate_eval*:a*'
+            else:
+                return 'rate_eval*'
+
         preambles = []
+        manglers = []
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
-            retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre))
+            retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre),
+                                                deps=__deps(expkf_assign),
+                                                id=rtype)
         # otherwise check type and return appropriate instructions with
         # array strings substituted in
         elif rtype == 0:
-            retv = kf_assign.safe_substitute(rate=A_str)
+            retv = kf_assign.safe_substitute(rate=A_str, deps=__deps(kf_assign))
         elif rtype == 1:
             if beta_iter > 1:
+                power_func = utils.power_function(
+                    loopy_opts.lang, is_integer_power=True, is_positive_power=True)
                 beta_iter_str = Template("""
                 <int32> b_end = abs(${b_str})
-                kf_temp = kf_temp * fast_powi(T_iter, b_end) {id=a4, dep=a3:a2:a1}
-                ${kf_str} = kf_temp {dep=a4}
-                """).safe_substitute(b_str=b_str)
-                preambles.append(lp_pregen.fastpowi_PreambleGen())
+                kf_temp = kf_temp * ${power_func}(T_iter, b_end) \
+                    {id=a4, dep=a3:a2:a1}
+                ${kf_str} = kf_temp {id=rate_eval1, dep=a4, nosync=${deps}}
+                """).safe_substitute(b_str=b_str, power_func=power_func,
+                                     deps=__deps(''))
+                preambles.extend(lp_pregen.power_function_preambles(
+                    loopy_opts, power_func))
+                manglers.extend(lp_pregen.power_function_manglers(
+                    loopy_opts, power_func))
             else:
-                beta_iter_str = ("${kf_str} = kf_temp * T_iter"
-                                 " {id=a4, dep=a3:a2:a1}")
+                beta_iter_str = Template(
+                    "${kf_str} = kf_temp * T_iter"
+                    " {id=rate_eval1, dep=a3:a2:a1, nosync=${deps}}"
+                        ).safe_substitute(deps=__deps(''))
 
             retv = Template(
                 """
@@ -2726,12 +2808,14 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 """).safe_substitute(**locals())
         elif rtype == 2:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre_noTa))
+                rate=str(rate_eqn_pre_noTa), deps=__deps(expkf_assign),
+                id=rtype)
         elif rtype == 3:
             retv = expkf_assign.safe_substitute(
-                rate=str(rate_eqn_pre_nobeta))
+                rate=str(rate_eqn_pre_nobeta), deps=__deps(expkf_assign),
+                id=rtype)
 
-        return Template(retv).safe_substitute(kf_str=kf_str), preambles
+        return Template(retv).safe_substitute(kf_str=kf_str), preambles, manglers
 
     # various specializations of the rate form
     specializations = {}
@@ -2784,6 +2868,13 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         else:
             specializations[2] = i_full
 
+    # filter out unused specializations
+    for rtype in specializations.copy():
+        domain, _, _ = rdomain(rtype)
+        if domain is None or not domain.initializer.size:
+            # kernel doesn't act on anything, don't add it to output
+            del specializations[rtype]
+
     # find out if beta iteration needed
     beta_iter = False
     b_attr = getattr(namestore, '{}_beta'.format(tag))
@@ -2798,34 +2889,47 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     # if single kernel, and not a fixed exponential
     if not separated_kernels and not fixed:
         # need to enclose each branch in it's own if statement
-        if len(specializations) > 1:
-            instruction_list = []
-            pre = []
-            for i in specializations:
+        do_conditional = len(specializations) > 1
+        instruction_list = []
+        pre = []
+        man = []
+        for i in specializations:
+            if do_conditional:
                 instruction_list.append(
                     'if {1} == {0}'.format(i, rtype_str))
-                insns, preambles = __get_instructions(
-                    -1,
-                    arc.MapStore(loopy_opts, mapstore.map_domain,
-                                 mapstore.mask_domain),
-                    specializations[i].kernel_data,
-                    beta_iter,
-                    single_kernel_rtype=i)
-                instruction_list.extend([
-                    '\t' + x for x in insns.split('\n') if x.strip()])
+            insns, preambles, manglers = __get_instructions(
+                -1,
+                arc.MapStore(loopy_opts, mapstore.map_domain, test_size),
+                specializations[i].kernel_data,
+                beta_iter,
+                single_kernel_rtype=i,
+                specializations=set(specializations.keys()))
+            instruction_list.extend([
+                '\t' + x for x in insns.split('\n') if x.strip()])
+            if do_conditional:
                 instruction_list.append('end')
-                if preambles:
-                    pre.extend(preambles)
+            if preambles:
+                pre.extend(preambles)
+            if manglers:
+                man.extend(manglers)
         # and combine them
+        kernel_data = list(specializations.values())[0].kernel_data
         specializations = {-1: k_gen.knl_info(
                            'rateconst_singlekernel_{}'.format(tag),
                            instructions='\n'.join(instruction_list),
                            pre_instructions=list(
                                default_preinstructs.values()),
                            mapstore=mapstore,
-                           kernel_data=specializations[0].kernel_data,
+                           kernel_data=kernel_data,
                            var_name=var_name,
-                           preambles=pre)}
+                           preambles=pre,
+                           manglers=man,
+                           silenced_warnings=['write_race(rate_eval0)',
+                                              'write_race(rate_eval1)',
+                                              'write_race(rate_eval2)',
+                                              'write_race(rate_eval3)',
+                                              'write_race(rate_eval4)',
+                                              'write_race(a4)'])}
 
     out_specs = {}
     # and do some finalizations for the specializations
@@ -2835,21 +2939,26 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
             out_specs[rtype] = info
             continue
 
+        # turn off warning
+        info.kwargs['silenced_warnings'] = ['write_race(rate_eval{})'.format(rtype),
+                                            'write_race(a4)']
+
         domain, _, num = rdomain(rtype)
         if domain is None or not domain.initializer.size:
             # kernel doesn't act on anything, don't add it to output
             continue
 
         # next create a mapper for this rtype
-        mapper = arc.MapStore(loopy_opts, domain, domain)
+        mapper = arc.MapStore(loopy_opts, domain, test_size)
 
         # set as mapper
         info.mapstore = mapper
 
         # if a specific rtype, get the instructions here
         if rtype >= 0:
-            info.instructions, info.preambles = __get_instructions(
-                rtype, mapper, info.kernel_data, beta_iter)
+            info.instructions, info.preambles, info.manglers = __get_instructions(
+                rtype, mapper, info.kernel_data, beta_iter,
+                specializations=sorted(set(specializations.keys())))
 
         out_specs[rtype] = info
 
@@ -2858,7 +2967,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
 def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                          auto_diff=False, output_full_rop=False,
-                         mem_limits=''):
+                         mem_limits='', **kwargs):
     """Helper function that generates kernels for
        evaluation of reaction rates / rate constants / and species rates
 
@@ -2887,7 +2996,9 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -2899,10 +3010,6 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # figure out rates and info
     rate_info = assign_rates(reacs, specs, loopy_opts.rate_spec)
 
-    # set test size
-    if test_size is None:
-        test_size = 'problem_size'
-
     # create the namestore
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
 
@@ -2913,7 +3020,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
             klist = kernels
         try:
             klist.extend([x for x in knls if x is not None])
-        except:
+        except TypeError:
             if knls is not None:
                 klist.append(knls)
 
@@ -3014,17 +3121,18 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     if conp:
         # get h / cp evals
         __add_knl(polyfit_kernel_gen('h', loopy_opts, nstore,
-                                     test_size))
+                                     test_size), depends_on)
         __add_knl(polyfit_kernel_gen('cp', loopy_opts, nstore,
-                                     test_size))
+                                     test_size), depends_on)
     else:
         # and u / cv
         __add_knl(polyfit_kernel_gen('u', loopy_opts, nstore,
-                                     test_size))
+                                     test_size), depends_on)
         __add_knl(polyfit_kernel_gen('cv', loopy_opts, nstore,
-                                     test_size))
-    # add the thermo kernels to our dependencies
-    depends_on.extend(kernels[-2:])
+                                     test_size), depends_on)
+    # and add to source rates
+    __add_knl(depends_on[-2:])
+
     # and temperature rates
     __add_knl(get_temperature_rate(loopy_opts,
                                    nstore, test_size=test_size, conp=conp))
@@ -3033,13 +3141,13 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                   test_size=None))
 
     # get a wrapper for the dependecies
-    thermo_wrap = k_gen.make_kernel_generator(name='chem_utils_kernel',
+    thermo_in, thermo_out = inputs_and_outputs(conp, KernelType.chem_utils)
+    thermo_wrap = k_gen.make_kernel_generator(kernel_type=KernelType.chem_utils,
                                               loopy_opts=loopy_opts,
                                               kernels=depends_on,
                                               namestore=nstore,
-                                              input_arrays=['T_arr'],
-                                              output_arrays=['h', 'cp'] if conp else
-                                                            ['u', 'cv'],
+                                              input_arrays=thermo_in,
+                                              output_arrays=thermo_out,
                                               auto_diff=auto_diff,
                                               test_size=test_size,
                                               mem_limits=mem_limits
@@ -3090,18 +3198,16 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         # and at the extra variable rates for Tdot
         __insert_at('get_extra_var_rates', True)
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
-    output_arrays = ['dphi']
+    input_arrays, output_arrays = inputs_and_outputs(
+        conp, output_full_rop=output_full_rop)
     if output_full_rop:
-        output_arrays += ['rop_fwd']
-        if rate_info['rev']['num']:
-            output_arrays += ['rop_rev']
-        if rate_info['thd']['num']:
-            output_arrays += ['pres_mod']
-        output_arrays += ['rop_net']
+        if not rate_info['rev']['num']:
+            output_arrays = [x for x in output_arrays if x != 'rop_rev']
+        if not rate_info['thd']['num']:
+            output_arrays = [x for x in output_arrays if x != 'pres_mod']
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='species_rates_kernel',
+        kernel_type=KernelType.species_rates,
         kernels=kernels,
         namestore=nstore,
         depends_on=[thermo_wrap],
@@ -3110,7 +3216,8 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         auto_diff=auto_diff,
         test_size=test_size,
         barriers=barriers,
-        mem_limits=mem_limits)
+        mem_limits=mem_limits,
+        **kwargs)
 
 
 def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
@@ -3142,14 +3249,11 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     param_ind = 'dummy'
     loop_index = 'k'
     # create mapper
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs,
-                            loop_index)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs, test_size, loop_index)
 
     knl_data = []
-    if test_size == 'problem_size':
-        knl_data.append(namestore.problem_size)
+    # add problem size
+    knl_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # get correctly ordered arrays / strings
     a_lo_lp, _ = mapstore.apply_maps(namestore.a_lo, loop_index, param_ind)
@@ -3197,19 +3301,19 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
         {'a' + str(i): a_hi for i, a_hi in enumerate(a_hi_strs)})
 
     Tval = 'T'
-    preinstructs = [ic.default_pre_instructs(Tval, T_str, 'VAL')]
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+    preinstructs = [precompute(Tval, T_str, 'VAL')]
     if nicename in ['db', 'b']:
-        preinstructs.append(ic.default_pre_instructs('Tinv', T_str, 'INV'))
+        preinstructs.append(precompute('Tinv', T_str, 'INV'))
         if nicename == 'b':
-            preinstructs.append(ic.default_pre_instructs('logT', T_str, 'LOG'))
+            preinstructs.append(precompute('logT', T_str, 'LOG'))
 
     return k_gen.knl_info(instructions=Template("""
-        for k
-            if ${Tval} < ${T_mid_str}
-                ${out_str} = ${lo_eq}
-            else
-                ${out_str} = ${hi_eq}
-            end
+        if ${Tval} < ${T_mid_str}
+            ${out_str} = ${lo_eq} {id=low, nosync=hi}
+        else
+            ${out_str} = ${hi_eq} {id=hi, nosync=low}
         end
         """).safe_substitute(**locals()),
                           kernel_data=knl_data,
@@ -3217,12 +3321,14 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
                           name='eval_{}'.format(nicename),
                           parameters={'Ru': chem.RU},
                           var_name=loop_index,
-                          mapstore=mapstore)
+                          mapstore=mapstore,
+                          silenced_warnings=['write_race(low)',
+                                             'write_race(hi)'])
 
 
 def write_chem_utils(reacs, specs, loopy_opts, conp=True,
                      test_size=None, auto_diff=False,
-                     mem_limits=''):
+                     mem_limits='', **kwargs):
     """Helper function that generates kernels for
        evaluation of species thermodynamic quantities
 
@@ -3246,7 +3352,9 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -3257,10 +3365,6 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
     # figure out rates and info
     rate_info = assign_rates(reacs, specs, loopy_opts.rate_spec)
-
-    # set test size
-    if test_size is None:
-        test_size = 'problem_size'
 
     # create the namestore
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
@@ -3274,17 +3378,18 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='chem_utils',
+        kernel_type=KernelType.chem_utils,
         kernels=kernels,
         namestore=nstore,
         input_arrays=['phi'],
         output_arrays=output,
         auto_diff=auto_diff,
         test_size=test_size,
-        mem_limits=mem_limits
+        mem_limits=mem_limits,
+        **kwargs
     )
 
 
 if __name__ == "__main__":
     utils.setup_logging()
-    utils.create()
+    utils.create(kernel_type=KernelType.species_rates)

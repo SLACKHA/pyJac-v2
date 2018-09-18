@@ -17,25 +17,52 @@ import os
 # external
 import numpy as np
 import loopy as lp
-from loopy.kernel.data import temp_var_scope as scopes
+from loopy.kernel.data import AddressSpace as scopes
+from pytools import UniqueNameGenerator
 
 # Local imports
 from pyjac import utils
 from pyjac.core import mech_interpret as mech
 from pyjac.core import rate_subs as rate
 from pyjac.core import mech_auxiliary as aux
+from pyjac.core.enum_types import (JacobianType, JacobianFormat,
+                                   FiniteDifferenceMode, RateSpecialization)
 from pyjac.loopy_utils import loopy_utils as lp_utils
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
-from pyjac.loopy_utils import JacobianType, JacobianFormat, \
-    FiniteDifferenceMode, load_platform
+from pyjac.loopy_utils import load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
-from pyjac.core.reaction_types import reaction_type, falloff_form, thd_body_type
+from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
+    KernelType
 from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
 from pyjac.core.rate_subs import assign_rates
-from pyjac.core.exceptions import IncorrectInputSpecificationException
+from pyjac.core.exceptions import InvalidInputSpecificationException
+
+
+def inputs_and_outputs(conp):
+    """
+    A convenience method such that kernel inputs / output argument names are
+    available for inspection
+
+    Parameters
+    ----------
+    conp: bool
+        If true, use constant-pressure formulation, else constant-volume
+
+    Returns
+    -------
+    input_args: list of str
+        The input arguments to kernels generated in this file
+    output_args: list of str
+        The output arguments to kernels generated in this file
+    """
+    input_args = utils.kernel_argument_ordering(
+        [arc.pressure_array if conp else arc.volume_array, arc.state_vector],
+        KernelType.jacobian)
+    output_args = [arc.jacobian_array]
+    return input_args, output_args
 
 
 def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact):
@@ -106,7 +133,7 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     def __offset(arr):
         return np.array(np.concatenate(
             (np.cumsum(arr) - arr, np.array([np.sum(arr)]))),
-            dtype=np.int32)
+            dtype=arc.kint_type)
 
     # get list of species that have a non-zero nu in some reaction
     non_zero_specs = val['net_per_spec']['map']
@@ -208,8 +235,8 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
     # get the compressed storage
     rows, cols = zip(*inds)
 
-    rows = np.array(rows, dtype=np.int32)
-    cols = np.array(cols, dtype=np.int32)
+    rows = np.array(rows, dtype=arc.kint_type)
+    cols = np.array(cols, dtype=arc.kint_type)
 
     # get a column-major version for flat inds
     inds_F = np.array(inds, copy=True)
@@ -219,10 +246,10 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
         row_F = rows[np.where(cols == col)[0]]
         # place in inds
         inds_F[offset:offset + row_F.size] = np.asarray(
-            (row_F, [col] * row_F.size), dtype=np.int32).T
+            (row_F, [col] * row_F.size), dtype=arc.kint_type).T
         offset += row_F.size
 
-    # turn into row and colum counts
+    # turn into row and column counts
     row_ptr = []
     col_ind = []
 
@@ -245,17 +272,17 @@ def determine_jac_inds(reacs, specs, rate_spec, jacobian_type=JacobianType.exact
 
     # update indicies in return value
     val['jac_inds'] = {
-        'flat_C': np.asarray(inds, dtype=np.int32),
-        'flat_F': np.asarray(inds_F, dtype=np.int32),
-        'crs': {'col_ind': np.array(col_ind, dtype=np.int32),
+        'flat_C': np.asarray(inds, dtype=arc.kint_type),
+        'flat_F': np.asarray(inds_F, dtype=arc.kint_type),
+        'crs': {'col_ind': np.array(col_ind, dtype=arc.kint_type),
                 'row_ptr': __offset(row_ptr)},
-        'ccs': {'row_ind': np.array(row_ind, dtype=np.int32),
+        'ccs': {'row_ind': np.array(row_ind, dtype=arc.kint_type),
                 'col_ptr': __offset(col_ptr)}
     }
     return val
 
 
-def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
+def reset_arrays(loopy_opts, namestore, test_size=None):
     """Resets the Jacobian array for use in the evaluations
 
     Parameters
@@ -268,9 +295,6 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     test_size : int
         If not none, this kernel is being used for testing.
         Hence we need to size the arrays accordingly
-    conp : bool [True]
-        If supplied, True for constant pressure jacobian. False for constant
-        volume [Default: True]
 
     Returns
     -------
@@ -283,14 +307,12 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     kernel_data = []
 
     # add problem size
-    if namestore.problem_size is not None:
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     if loopy_opts.jac_format == JacobianFormat.sparse:
         # simply loop over the whole jacobian array
-        mapstore = arc.MapStore(loopy_opts,
-                                namestore.num_nonzero_jac_inds,
-                                namestore.num_nonzero_jac_inds)
+        mapstore = arc.MapStore(loopy_opts, namestore.num_nonzero_jac_inds,
+                                test_size)
         jac_lp, jac_str = mapstore.apply_maps(namestore.jac, global_ind, var_name,
                                               ignore_lookups=True)
         instructions = Template(
@@ -301,8 +323,7 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
         kernel_data.extend([jac_lp])
     else:
         # simply loop over the whole jacobian array
-        mapstore = arc.MapStore(loopy_opts, namestore.jac_size,
-                                namestore.jac_size)
+        mapstore = arc.MapStore(loopy_opts, namestore.jac_size, test_size)
         # need jac_array
         row = 'row'
         col = 'col'
@@ -326,7 +347,7 @@ def reset_arrays(loopy_opts, namestore, test_size=None, conp=True):
     can_vectorize, vec_spec = ic.get_deep_specializer(
         loopy_opts, init_ids=['reset'], is_write_race=False,
         # for FD jacobian, no need for atomics
-        use_atomics=loopy_opts.jac_type != JacobianType.finite_difference)
+        atomic=loopy_opts.jac_type != JacobianType.finite_difference)
 
     return k_gen.knl_info(name='reset_arrays',
                           instructions=instructions,
@@ -371,8 +392,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     """
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     num_range_dict = {reaction_type.thd: namestore.num_thd_only,
                       falloff_form.lind: namestore.num_lind,
@@ -398,7 +418,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     ns = namestore.num_specs[-1]
 
     # create mapstore
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     # setup static mappings
 
@@ -501,6 +521,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     factor = 'dci_thd_dE_fac'
     # the pressure modification term to use (pres_mod for thd, Pr for falloff)
     fall_instructions = ''
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dE'
@@ -541,7 +563,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 * (0.14 * ${Atroe_str} + ${Btroe_str}) * \
                 (mod ${conp_theta_pr_fac}) / \
                 (fmax(1e-300d, ${Pr_str}) * absqsq * logten) \
-                    {id=dFi_final, dep=ab_fin}
+                    {id=dFi_final, dep=ab_fin:mod_final}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
             manglers.append(lp_pregen.fmax())
@@ -551,10 +573,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
             b_lp, b_str = mapstore.apply_maps(namestore.sri_b, var_name)
             c_lp, c_str = mapstore.apply_maps(namestore.sri_c, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp])
-            pre_instructions.append(
-                ic.default_pre_instructs('Tval', T_str, 'VAL'))
-            pre_instructions.append(
-                ic.default_pre_instructs('Tinv', T_str, 'INV'))
+            pre_instructions.append(precompute('Tval', T_str, 'VAL'))
+            pre_instructions.append(precompute('Tinv', T_str, 'INV'))
             manglers.append(lp_pregen.fmax())
 
             sri_fac = (Template("""\
@@ -569,7 +589,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
                 <> dFi = -2 * ${X_str} * ${X_str} * (\
                     mod ${conp_theta_pr_fac}) * ${sri_fac} * \
                     log(fmax(1e-300d, ${Pr_str})) / \
-                    (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi_final}
+                    (fmax(1e-300d, ${Pr_str}) * logtensquared) \
+                        {id=dFi_final, dep=mod_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
         else:
@@ -591,26 +612,27 @@ def __dcidE(loopy_opts, namestore, test_size=None,
         ${fall_instructions}
         if ${fall_type_str}
             # chemically activated
-            <>kf_0 = ${kf_str} {id=kf_chem}
-            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
+            <>kf_0 = ${kf_str} {id=kf_chem , nosync=kf_fall}
+            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem, nosync=kf_inf_fall}
         else
             # fall-off
-            kf_0 = ${kf_fall_str} {id=kf_fall}
-            kf_inf = ${kf_str} {id=kf_inf_fall}
+            kf_0 = ${kf_fall_str} {id=kf_fall, nosync=kf_chem}
+            kf_inf = ${kf_str} {id=kf_inf_fall, nosync=kf_inf_chem}
         end
         mod = mod${Pfac} * rt_inv * kf_0 / \
             kf_inf {id=mod_final, dep=kf*:mod_mix:mod_spec}
         ${dFi_instructions}
         <> dci_fall_dE = ${pres_mod_str} * \
             ((-mod${conp_theta_pr_fac})/ (${Pr_str} + 1) + \
-                dFi) {id=dci_fall_init}
+                dFi) {id=dci_fall_init, dep=mod_final}
         if not ${fall_type_str}
             # falloff
             dci_fall_dE = dci_fall_dE + ${Fi_str} * mod / (${Pr_str} + 1) \
-                ${conp_theta_pr_outer_fac} {id=dci_fall_up1, dep=dci_fall_init}
+                ${conp_theta_pr_outer_fac} \
+                {id=dci_fall_up1, dep=dci_fall_init:mod_final}
         end
         dci_fall_dE = dci_fall_dE * ${fall_finish} \
-            {id=dci_fall_final, dep=dci_fall_up1}
+            {id=dci_fall_final, dep=dci_fall_up1:rop_net_up}
         """).safe_substitute(**locals())
 
     rop_net_rev_update = ic.get_update_instruction(
@@ -625,7 +647,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     fall_deps = ':kf*' if rxn_type != reaction_type.thd else ''
     mod_update = Template("""
     if ${thd_type_str} != ${unity}
-        mod = mod * ${P_str} * rt_inv$ - ${pres_mod_str} \
+        mod = mod * ${P_str} * rt_inv - ${pres_mod_str} \
             {id=mod_up, dep=mod_mix:mod_spec${fall_deps}}
     end
     """).safe_substitute(**locals()) if conp and rxn_type == reaction_type.thd\
@@ -648,10 +670,11 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     thd_mod_insns = Template("""
     ${mod_init}
     if ${thd_type_str} == ${mix} and ${thd_spec_last_str} == ${ns}
-        mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init}
+        mod = ${thd_eff_last_str} {id=mod_mix, dep=mod_init, nosync=mod_spec}
     end
     if ${thd_type_str} == ${spec}
-        mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init}
+        mod = ${thd_spec_last_str} == ${ns} {id=mod_spec, dep=mod_init, \
+            nosync=mod_mix}
     end
     ${mod_update}
     ${thd_factor_set}
@@ -891,8 +914,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # check rxn type
     if rxn_type in [reaction_type.plog, reaction_type.cheb] and do_ns:
@@ -920,7 +942,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
     # number of species
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     rxn_range_dict = {reaction_type.elementary: namestore.simple_map,
                       reaction_type.plog: namestore.plog_map,
@@ -990,6 +1012,11 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
     parameters = {}
     pre_instructions = []
+    manglers = []
+    preambles = []
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
     if not do_ns:
         if not conp and \
                 rxn_type not in [reaction_type.plog, reaction_type.cheb]:
@@ -1011,14 +1038,15 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                     'dRopi_dE = dRopi_dE + nu_rev * ${rop_rev_str} \
                 {id=dE_update, dep=dE_init}').safe_substitute(**locals()))
 
-            deps = ':'.join(['dE_update'] if rev_update else [])
-            pres_mod_update = ''
+            pmod_deps = ':'.join(['dE_update'] if rev_update else [])
+            pres_mod_update = '... nop {{id=dE_final, dep={pmod_deps}}}'.format(
+                pmod_deps=pmod_deps)
             if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
                 pres_mod_update = ic.get_update_instruction(
                     mapstore, namestore.pres_mod,
                     Template(
                         'dRopi_dE = dRopi_dE * ${pres_mod_str} \
-                    {id=dE_final, dep=${deps}}').safe_substitute(**locals()))
+                    {id=dE_final, dep=${pmod_deps}}').safe_substitute(**locals()))
 
             # if conp, need to include the fwd / reverse ROP an extra time
             # to account for the qi term resulting from d/dV (qi * V)
@@ -1079,10 +1107,39 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                 kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
                 # add plog instruction
-                pre_instructions.extend([ic.default_pre_instructs(
-                    'logP', P_str, 'LOG'), ic.default_pre_instructs(
-                    'logT', T_str, 'LOG'), ic.default_pre_instructs(
+                pre_instructions.extend([precompute(
+                    'logP', P_str, 'LOG'), precompute(
+                    'logT', T_str, 'LOG'), precompute(
                     'Tinv', T_str, 'INV')])
+
+                plog_preloads = ''
+                if loopy_opts.is_simd:
+                    # add some pre-loads for the plog parameters to avoid
+                    # precompute avoid errors with lookup of individual SIMD-vector
+                    # elements
+
+                    plog_preloads = Template("""
+                    with {id_prefix=set_lo, dep=set_lo}
+                        <> p_lo = ${pres_lo_str}
+                        <> a_lo = ${A_lo_str}
+                        <> beta_lo = ${beta_lo_str}
+                        <> Ta_lo = ${Ta_lo_str}
+                    end
+                    with {id_prefix=set_hi, dep=set_hi}
+                        <> p_hi = ${pres_hi_str}
+                        <> a_hi = ${A_hi_str}
+                        <> beta_hi = ${beta_hi_str}
+                        <> Ta_hi = ${Ta_hi_str}
+                    end""").safe_substitute(**locals())
+                    # and update strings
+                    pres_lo_str = 'p_lo'
+                    A_lo_str = 'a_lo'
+                    beta_lo_str = 'beta_lo'
+                    Ta_lo_str = 'Ta_lo'
+                    pres_hi_str = 'p_hi'
+                    A_hi_str = 'a_hi'
+                    beta_hi_str = 'beta_hi'
+                    Ta_hi_str = 'Ta_hi'
 
                 # and dkf instructions
                 dkf_instructions = Template("""
@@ -1097,6 +1154,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                             hi = ${param_ind} + 1 {id=set_hi, dep=hi_init}
                         end
                     end
+
+                    ${plog_preloads}
                     <> dkf = 0 {id=dkf_init}
                     # not out of range
                     if logP > ${pressure_lo} and logP <= ${pressure_hi}
@@ -1160,8 +1219,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
                 # preinstructions
                 pre_instructions.extend(
-                    [ic.default_pre_instructs('logP', P_str, 'LOG'),
-                     ic.default_pre_instructs('Tinv', T_str, 'INV')])
+                    [precompute('logP', P_str, 'LOG'),
+                     precompute('Tinv', T_str, 'INV')])
 
                 # various strings for preindexed limits, params, etc
                 _, Pmin_str = mapstore.apply_maps(
@@ -1207,36 +1266,36 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                         (${Tmax_str} - ${Tmin_str})
                     <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / \
                         (${Pmax_str} - ${Pmin_str})
-                    ${ppoly0_str} = 1
-                    ${ppoly1_str} = 2 * Pred # derivative by P
-                    ${tpoly0_str} = 1
-                    ${tpoly1_str} = Tred
+                    ${ppoly0_str} = 1 {id=ppoly_init1}
+                    ${ppoly1_str} = 2 * Pred {id=ppoly_init2} # derivative by P
+                    ${tpoly0_str} = 1 {id=tpoly_init1}
+                    ${tpoly1_str} = Tred {id=tpoly_init2}
 
                     # compute polynomial terms
                     for p
                         if p < numP
                             ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - \
-                                ${ppolypm2_str} {id=ppoly, dep=plim}
+                                ${ppolypm2_str} {id=ppoly, dep=plim:ppoly_init*}
                         end
                         if p < numT
                             ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - \
-                                ${tpolypm2_str} {id=tpoly, dep=tlim}
+                                ${tpolypm2_str} {id=tpoly, dep=tlim:tpoly_init*}
                         end
                     end
 
                     <> dkf = 0 {id=dkf_init}
                     for m
-                        <>temp = 0
+                        <>temp = 0 {id=temp_init}
                         for k
                             # derivative by P
                             temp = temp + (k + 1) * ${ppoly_str} * \
-                                ${params_str} {id=temp, dep=ppoly:tpoly}
+                                ${params_str} {id=temp, dep=ppoly:tpoly:temp_init}
                         end
                         dkf = dkf + ${tpoly_str} * temp \
                             {id=dkf_update, dep=temp:dkf_init}
                     end
                     dkf = dkf * 2 * logten / (${P_str} * \
-                        (${Pmax_str} - ${Pmin_str})) {id=dkf, dep=dkf_update}
+                        (${Pmax_str} - ${Pmin_str})) {id=dkf_final, dep=dkf_update}
                 """).safe_substitute(**locals())
                 parameters['logten'] = log(10)
 
@@ -1263,6 +1322,16 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
         conc_lp, conc_str = mapstore.apply_maps(
             namestore.conc_arr, global_ind, 'net_spec')
+        # TODO: forward allint to this function
+        # get the appropriate power function and calls
+        power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
+                                          guard_nonzero=True)
+        nu_fwd = 'nu_fwd'
+        nu_rev = 'nu_rev'
+        pow_conc_fwd = power_func(conc_str, nu_fwd)
+        pow_conc_rev = power_func(conc_str, nu_rev)
+        manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
+        preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
 
         if conp:
             pre_instructions.append(Template(
@@ -1286,9 +1355,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
 
         rev_update = ic.get_update_instruction(
             mapstore, namestore.kr,
-            Template(
-                'kr_i = ${kr_str} \
-                    {id=kr_up, dep=kr_in}').safe_substitute(**locals()))
+            Template('kr_i = ${kr_str} {id=kr_up, dep=kr_in}').safe_substitute(
+                **locals()))
 
         pres_mod_update = ''
         if rxn_type not in [reaction_type.plog, reaction_type.cheb]:
@@ -1306,23 +1374,23 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         <> Sns_fwd = ${ns_reac_nu_str} {id=Sns_fwd_init}
         <> Sns_rev = ${ns_prod_nu_str} {id=Sns_rev_init}
         for ${net_ind}
-            <> nu_fwd = ${net_reac_nu_str} {id=nuf_inner}
-            <> nu_rev = ${net_prod_nu_str} {id=nur_inner}
+            <> ${nu_fwd} = ${net_reac_nu_str} {id=nuf_inner}
+            <> ${nu_rev} = ${net_prod_nu_str} {id=nur_inner}
             <> net_spec = ${spec_str}
             # handle nu
             if net_spec == ${ns}
-                nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+                ${nu_fwd} = ${nu_fwd} - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) \
-                {id=Sns_fwd_up, dep=nuf_inner_up}
+            Sns_fwd = Sns_fwd * ${pow_conc_fwd} {id=Sns_fwd_up, \
+                dep=nuf_inner_up:Sns_fwd_init}
             if net_spec == ${ns}
-                nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                ${nu_rev} = ${nu_rev} - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) \
-                {id=Sns_rev_up, dep=nur_inner_up}
+            Sns_rev = Sns_rev * ${pow_conc_rev} {id=Sns_rev_up, \
+                dep=nur_inner_up:Sns_rev_init}
         end
         <> dRopi_dE = (Sns_fwd * ${kf_str} - Sns_rev * kr_i) * ci \
-            * fac {id=dE_final, dep=Sns*}
+            * fac {id=dE_final, dep=Sns*:kr_up:ci}
         """).substitute(**locals())
 
     # get nuk's
@@ -1336,7 +1404,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         "* dRopi_dE {id=jac, dep=${deps}}").safe_substitute(**locals())
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k_str, 1, affine={spec_k_str: 2},
-        insn=jac_update_insn, deps='dE*:')
+        insn=jac_update_insn, deps='*:dE_final')
     kernel_data.append(jac_lp)
     instructions = Template("""
         <> offset = ${nu_offset_str}
@@ -1365,11 +1433,14 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles=[lp_pregen.fastpowi_PreambleGen(),
-                   lp_pregen.fastpowf_PreambleGen()],
+        preambles=preambles,
+        manglers=manglers,
         parameters=parameters,
         can_vectorize=can_vectorize,
-        vectorization_specializer=vec_spec
+        vectorization_specializer=vec_spec,
+        # expected vectorized scatter load instructions for plog parameters
+        # with wide vectorization (pressure non-constant between vector-lanes)
+        silenced_warnings=['vectorize_failed']
     )
 
 
@@ -1500,7 +1571,7 @@ def dRopi_cheb_dE(loopy_opts, namestore, test_size=None, conp=True,
                      test_size=test_size, do_ns=False,
                      rxn_type=reaction_type.cheb, conp=conp,
                      maxP=maxP, maxT=maxT)]
-    if test_size == 'problem_size':
+    if not isinstance(test_size, int):
         # include the ns version for convenience in testing
         ret.append(__dRopidE(loopy_opts, namestore,
                              test_size=test_size, do_ns=True,
@@ -1541,11 +1612,9 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
@@ -1580,29 +1649,31 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     # molecular weights
     mw_lp, mw_str = mapstore.apply_maps(
         namestore.mw_post_arr, var_name)
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     # setup instructions
     parameters = {}
     if conp:
-        pre_instructions = ['<> dTsum = 0',
-                            '<> specsum = 0']
+        pre_instructions = ['<> dTsum = 0 {id=dTinit}',
+                            '<> specsum = 0 {id=specsum}']
         instructions = [(True, Template("""
             specsum = specsum + (${spec_energy_str} - ${spec_energy_ns_str} * \
                 ${mw_str}) * (${jac_str} - ${wdot_str}) {id=up, dep=${deps}}
             """).safe_substitute(**locals())), (False, Template("""
             dTsum = dTsum + (${spec_heat_str} - ${spec_heat_ns_str}) * \
-                ${conc_str} {id=up2, dep=*}
+                ${conc_str} {id=up2, dep=*:dTinit}
             """).safe_substitute(**locals()))]
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str} * ${V_str})
             ${jac_str} = ${jac_str} + (${Tdot_str} * dTsum - specsum) * \
                 spec_inv {id=jac, dep=${deps}, nosync=up*}
             """).safe_substitute(**locals())
-        deps = '*'
+        deps = '*:specsum'
         post_deps = 'up*'
     else:
-        pre_instructions = ['<> sum = 0',
-                            ic.default_pre_instructs('Vinv', V_str, 'INV')]
+        pre_instructions = ['<> sum = 0 {id=sum}',
+                            precompute('Vinv', V_str, 'INV')]
         parameters['Ru'] = chem.RU
         instructions = [(True, Template("""
             sum = sum + (${spec_energy_str} - ${spec_energy_ns_str} * \
@@ -1611,11 +1682,12 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str})
             ${jac_str} = ${jac_str} - (${Tdot_str} * ${spec_heat_ns_str} \
-                / (Ru * ${T_str})) * spec_inv {id=jac_split, dep=${deps}, nosync=up}
+                / (Ru * ${T_str})) * spec_inv {id=jac_split, dep=${deps}, \
+                nosync=up:jac}
             ${jac_str} = ${jac_str} - (sum * Vinv) * spec_inv \
-                {id=jac, dep=${deps}, nosync=up}
+                {id=jac, dep=${deps}, nosync=jac_split:up}
                     """).safe_substitute(**locals())
-        deps = '*'
+        deps = '*:sum'
         post_deps = 'up'
 
     # jacobian entries
@@ -1682,11 +1754,9 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.net_nonzero_spec, namestore.net_nonzero_spec)
+    mapstore = arc.MapStore(loopy_opts, namestore.net_nonzero_spec, test_size)
 
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
@@ -1723,7 +1793,7 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     """).safe_substitute(**locals())
     jac_lp, instructions = jac_create(
         mapstore, namestore.jac, global_ind, var_name, 1, affine={var_name: 2},
-        deps='index*', insn=instructions,
+        deps='init:index*', insn=instructions,
         entry_exists=True,  # as we're looping over non-zero
     )
 
@@ -1731,16 +1801,16 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
 
     # and create post instructions
     _, dTdot_de_str = jac_create(
-        mapstore, namestore.jac, global_ind, 0, 1, entry_exists=True)
+        mapstore, namestore.jac, global_ind, 0, 1, entry_exists=True, warn=False)
     post_instructions = Template("""
         ${jac_str} = ${jac_str} + Ru * ${T_str} * sum / ${param_str} \
-            {id=jac, dep=${deps}, nosync=up}
+            {id=jac, dep=${deps}, nosync=up:jac_split}
         ${jac_str} = ${jac_str} + (${var_str} * ${dTdot_de_str} + ${Tdot_str}) \
-            / ${T_str} {id=jac_split, dep=${deps}, nosync=up}
+            / ${T_str} {id=jac_split, dep=${deps}, nosync=up:jac}
     """).safe_substitute(**locals())
     _, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 1, 1, insn=post_instructions,
-        deps='up', entry_exists=True)
+        deps='up:init', entry_exists=True)
 
     parameters = {'Ru': chem.RU}
 
@@ -1791,13 +1861,11 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # Temperature
     T_lp, T_str = mapstore.apply_maps(
@@ -1858,30 +1926,34 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     kernel_data.extend([spec_heat_tot_lp, dTdt_lp, spec_heat_lp, dspec_heat_lp,
                         spec_energy_lp, mw_lp, conc_lp, V_lp, wdot_lp, T_lp])
 
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
     pre_instructions = Template("""
     <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) \
         * ${conc_ns_str}) {id=split}
-    <> rate_sum = 0
+    <> rate_sum = 0 {id=rate_sum}
     """).safe_substitute(**locals()).split('\n')
     pre_instructions.extend([
-        ic.default_pre_instructs('Vinv', V_str, 'INV'),
-        ic.default_pre_instructs('Tinv', T_str, 'INV')])
+        precompute('Vinv', V_str, 'INV'),
+        precompute('Tinv', T_str, 'INV')])
 
     # add create molar rate update insn
     jac_update = Template("""
         rate_sum = rate_sum + Vinv * ${jac_str} * \
             (-${spec_energy_str} + ${spec_energy_ns_str} * ${mw_str}) \
-                {id=rate_update, dep=${deps}}
+                {id=rate_update, dep=${deps}, nosync=rate_sum2}
     """).safe_substitute(**locals())
     _, jac_update = jac_create(
         mapstore, namestore.jac, global_ind, var_name, 0, affine={var_name: 2},
-        insn=jac_update, deps='*')
+        insn=jac_update, deps='*:precompute*:rate_sum')
     # and place in inner loop
     instructions = Template("""
         dTsum = dTsum + (${spec_heat_ns_str} * Tinv - ${dspec_heat_str}) \
-            * ${conc_str}
+            * ${conc_str} {id=dTsum_up, dep=split}
         rate_sum = rate_sum + ${wdot_str} * \
-            (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str})
+            (-${spec_heat_str} + ${mw_str} * ${spec_heat_ns_str}) {id=rate_sum2, \
+                nosync=rate_update, dep=rate_sum}
         ${jac_update}
     """).safe_substitute(**locals())
 
@@ -1892,7 +1964,8 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
     # jacobian entry
     jac_lp, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 0, 0,
-        entry_exists=True, insn=post_instructions, deps='rate_update')
+        entry_exists=True, insn=post_instructions,
+        deps='rate_update:dTsum_up:rate_sum*')
     kernel_data.append(jac_lp)
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
@@ -1941,13 +2014,11 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
     """
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(
-        loopy_opts, namestore.num_specs_no_ns, namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     # create arrays
     mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr, var_name)
@@ -1962,12 +2033,16 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
 
     # instructions
     _, dTdot_dT_str = jac_create(
-        mapstore, namestore.jac, global_ind, 0, 0)
-    pre_instructions = ['<> sum = 0',
-                        ic.default_pre_instructs('Tinv', T_str, 'INV')]
+        mapstore, namestore.jac, global_ind, 0, 0,
+        warn=False)
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
+
+    pre_instructions = ['<> sum = 0 {id=init}',
+                        precompute('Tinv', T_str, 'INV')]
     if conp:
         pre_instructions.append(
-            ic.default_pre_instructs('Vinv', V_str, 'INV'))
+            precompute('Vinv', V_str, 'INV'))
         # sums
         instructions = Template("""
             sum = sum + (1 - ${mw_str}) * (Vinv * ${jac_str} + Tinv * \
@@ -1976,28 +2051,31 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
         # sum finish
         post_instructions = Template("""
             ${jac_str} = ${jac_str} + Ru * ${T_str} * ${V_str} * sum / ${P_str} \
-                {id=jac, dep=${deps}, nosync=sum}
+                {id=jac, dep=${deps}, nosync=sum:jac_split}
             ${jac_str} = ${jac_str} + ${V_str} * Tinv * \
                 (${dTdot_dT_str} - Tinv * ${Tdot_str}) {id=jac_split, dep=${deps},\
-                    nosync=sum}
+                    nosync=sum:jac}
         """).safe_substitute(**locals())
     else:
+        myname = precompute.reserve_name()
         pre_instructions.append(Template(
-            '<> fac = ${T_str} / ${V_str}').safe_substitute(**locals()))
+            '<> fac = ${T_str} / ${V_str} {id=${myname}}').safe_substitute(
+            **locals()))
         instructions = Template("""
             sum = sum + (1 - ${mw_str}) * (${jac_str} * fac + \
                 ${wdot_str}) {id=sum, dep=${deps}}
         """).safe_substitute(**locals())
         post_instructions = Template("""
-            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum, dep=${deps}}
+            ${jac_str} = ${jac_str} + Ru * sum {id=jac, nosync=sum:jac_split,\
+                dep=${deps}}
             ${jac_str} = ${jac_str} + ${P_str} * \
                 (${dTdot_dT_str} - ${Tdot_str} * Tinv) * Tinv {id=jac_split, \
-                dep=${deps}, nosync=sum}
+                dep=${deps}, nosync=sum:jac}
         """).safe_substitute(**locals())
 
     _, instructions = jac_create(
         mapstore, namestore.jac, global_ind, var_name, 0, affine={var_name: 2},
-        insn=instructions, deps='*')
+        insn=instructions, deps='*:init:' + precompute.basename + '*')
     jac_lp, post_instructions = jac_create(
         mapstore, namestore.jac, global_ind, 1, 0, insn=post_instructions,
         deps='sum')
@@ -2052,8 +2130,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     """
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     num_range_dict = {reaction_type.thd: namestore.num_thd_only,
                       falloff_form.lind: namestore.num_lind,
@@ -2079,7 +2156,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     ns = namestore.num_specs[-1]
 
     # create mapstore
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     # setup static mappings
 
@@ -2176,15 +2253,18 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     kernel_data.extend([thd_type_lp, thd_offset_lp, thd_eff_lp, thd_spec_lp,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
                         T_lp, V_lp, P_lp])
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
-    pre_instructions = [ic.default_pre_instructs('Tinv', T_str, 'INV')]
+    pre_instructions = [precompute('Tinv', T_str, 'INV')]
     parameters = {}
     manglers = []
     # by default we are using the third body factors (these may be changed
     # in the falloff types below)
     factor = 'dci_thd_dT_fac'
     thd_fac = ' * {} * rop_net '.format(V_str)
-    fall_instructions = ''
+    # use a no-op for third body reactions, w/ anchor for dependencies
+    fall_instructions = '... nop {id=dfall_final}'
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dT'
@@ -2231,7 +2311,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
                                 troe_T1_lp, troe_T2_lp, troe_T3_lp])
             pre_instructions.append(
-                ic.default_pre_instructs('Tval', T_str, 'VAL'))
+                precompute('Tval', T_str, 'VAL'))
             dFi_instructions = Template("""
                 <> dFcent = -${troe_a_str} * ${troe_T1_str} * \
                 exp(-Tval * ${troe_T1_str}) + (${troe_a_str} - 1) * ${troe_T3_str} *\
@@ -2261,7 +2341,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
             pre_instructions.append(
-                ic.default_pre_instructs('Tval', T_str, 'VAL'))
+                precompute('Tval', T_str, 'VAL'))
             manglers.append(lp_pregen.fmax())
 
             dFi_instructions = Template("""
@@ -2284,20 +2364,20 @@ def __dcidT(loopy_opts, namestore, test_size=None,
         fall_instructions = Template("""
         if ${fall_type_str}
             # chemically activated
-            <>kf_0 = ${kf_str} {id=kf_chem}
-            <>beta_0 = ${s_beta_str} {id=beta0_chem}
-            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem}
-            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem}
-            <>beta_inf = ${f_beta_str} {id=betaf_chem}
-            <>Ta_inf = ${f_Ta_str} {id=Taf_chem}
+            <>kf_0 = ${kf_str} {id=kf_chem, nosync=kf_fall}
+            <>beta_0 = ${s_beta_str} {id=beta0_chem, nosync=beta0_fall}
+            <>Ta_0 = ${s_Ta_str} {id=Ta0_chem, nosync=Ta0_fall}
+            <>kf_inf = ${kf_fall_str} {id=kf_inf_chem, nosync=kf_inf_fall}
+            <>beta_inf = ${f_beta_str} {id=betaf_chem, nosync=betaf_fall}
+            <>Ta_inf = ${f_Ta_str} {id=Taf_chem, nosync=Taf_fall}
         else
             # fall-off
-            kf_0 = ${kf_fall_str} {id=kf_fall}
-            beta_0 = ${f_beta_str} {id=beta0_fall}
-            Ta_0 = ${f_Ta_str} {id=Ta0_fall}
-            kf_inf = ${kf_str} {id=kf_inf_fall}
-            beta_inf = ${s_beta_str} {id=betaf_fall}
-            Ta_inf = ${s_Ta_str} {id=Taf_fall}
+            kf_0 = ${kf_fall_str} {id=kf_fall, nosync=kf_chem}
+            beta_0 = ${f_beta_str} {id=beta0_fall, nosync=beta0_chem}
+            Ta_0 = ${f_Ta_str} {id=Ta0_fall, nosync=Ta0_chem}
+            kf_inf = ${kf_str} {id=kf_inf_fall, nosync=kf_inf_chem}
+            beta_inf = ${s_beta_str} {id=betaf_fall, nosync=betaf_chem}
+            Ta_inf = ${s_Ta_str} {id=Taf_fall, nosync=Taf_chem}
         end
         <> pmod = ${pres_mod_str}
         <> theta_Pr = Tinv * (beta_0 - beta_inf + (Ta_0 - Ta_inf) * Tinv) \
@@ -2321,7 +2401,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
         "${factor} {id=jac, dep=${deps}}").safe_substitute(**locals())
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, spec_k_str, 0, affine={spec_k_str: 2},
-        insn=jac_update_insn)
+        insn=jac_update_insn, deps='dfall_final')
     kernel_data.append(jac_lp)
 
     rop_net_rev_update = ic.get_update_instruction(
@@ -2523,8 +2603,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # check rxn type
     if rxn_type in [reaction_type.plog, reaction_type.cheb] and do_ns:
@@ -2552,7 +2631,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     # number of species
     ns = namestore.num_specs[-1]
 
-    mapstore = arc.MapStore(loopy_opts, num_range, num_range)
+    mapstore = arc.MapStore(loopy_opts, num_range, test_size)
 
     rxn_range_dict = {reaction_type.elementary: namestore.simple_map,
                       reaction_type.plog: namestore.plog_map,
@@ -2622,12 +2701,16 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     # add to data
     kernel_data.extend([T_lp, V_lp, rev_mask_lp, thd_mask_lp, pres_mod_lp,
                         nu_offset_lp, nu_lp, spec_lp])
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions()
 
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
         (k_ind, 'offset <= {} < offset_next'.format(k_ind))]
     parameters = {}
     pre_instructions = []
+    manglers = []
+    preambles = []
     if not do_ns:
         # get rxn parameters, these are based on the simple index
         beta_lp, beta_str = mapstore.apply_maps(
@@ -2646,7 +2729,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         kernel_data.extend([
             beta_lp, Ta_lp, rop_fwd_lp, rop_rev_lp, dB_lp])
 
-        pre_instructions = [ic.default_pre_instructs(
+        pre_instructions = [precompute(
             'Tinv', T_str, 'INV')]
         if rxn_type == reaction_type.plog:
             lo_ind = 'lo'
@@ -2683,8 +2766,33 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
             kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
             # add plog instruction
-            pre_instructions.append(ic.default_pre_instructs(
+            pre_instructions.append(precompute(
                 'logP', P_str, 'LOG'))
+
+            plog_preloads = ''
+            if loopy_opts.is_simd:
+                # add some pre-loads for the plog parameters to avoid
+                # precompute avoid errors with lookup of individual SIMD-vector
+                # elements
+
+                plog_preloads = Template("""
+                with {id_prefix=set_lo, dep=set_lo}
+                    <> p_lo = ${pres_lo_str}
+                    <> beta_lo = ${beta_lo_str}
+                    <> Ta_lo = ${Ta_lo_str}
+                end
+                with {id_prefix=set_hi, dep=set_hi}
+                    <> p_hi = ${pres_hi_str}
+                    <> beta_hi = ${beta_hi_str}
+                    <> Ta_hi = ${Ta_hi_str}
+                end""").safe_substitute(**locals())
+                # and update strings
+                pres_lo_str = 'p_lo'
+                beta_lo_str = 'beta_lo'
+                Ta_lo_str = 'Ta_lo'
+                pres_hi_str = 'p_hi'
+                beta_hi_str = 'beta_hi'
+                Ta_hi_str = 'Ta_hi'
 
             # and dkf instructions
             dkf_instructions = Template("""
@@ -2698,12 +2806,13 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
                         hi = ${param_ind} + 1 {id=set_hi, dep=hi_init}
                     end
                 end
+                ${plog_preloads}
                 if logP > ${pressure_hi} # out of range above
                     <> dkf = (${beta_hi_str} + ${Ta_hi_str} * Tinv) * Tinv \
-                        {id=dkf_init_hi, dep=set_*}
+                        {id=dkf_init_hi, dep=set_*, nosync=dkf_init_lo}
                 else
                     dkf = (${beta_lo_str} + ${Ta_lo_str} * Tinv) * Tinv \
-                        {id=dkf_init_lo, dep=set_*}
+                        {id=dkf_init_lo, dep=set_*, nosync=dkf_init_hi}
                 end
                 if logP > ${pressure_lo} and logP <= ${pressure_hi}
                     # not out of range
@@ -2759,7 +2868,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
 
             # preinstructions
             pre_instructions.extend(
-                [ic.default_pre_instructs('logP', P_str, 'LOG')])
+                [precompute('logP', P_str, 'LOG')])
 
             # various strings for preindexed limits, params, etc
             _, Pmin_str = mapstore.apply_maps(
@@ -2800,30 +2909,30 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
                     (${Tmax_str} - ${Tmin_str})
                 <> Pred = (2 * logP - ${Pmax_str} - ${Pmin_str}) / \
                     (${Pmax_str} - ${Pmin_str})
-                ${ppoly0_str} = 1
-                ${ppoly1_str} = Pred
-                ${tpoly0_str} = 1
-                ${tpoly1_str} = 2 * Tred
+                ${ppoly0_str} = 1 {id=ppoly_init1}
+                ${ppoly1_str} = Pred {id=ppoly_init2}
+                ${tpoly0_str} = 1 {id=tpoly_init1}
+                ${tpoly1_str} = 2 * Tred {id=tpoly_init2}
 
                 # compute polynomial terms
                 for p
                     if p < numP
                         ${ppolyp_str} = 2 * Pred * ${ppolypm1_str} - \
-                            ${ppolypm2_str} {id=ppoly, dep=plim}
+                            ${ppolypm2_str} {id=ppoly, dep=plim:ppoly_init*}
                     end
                     if p < numT
                         ${tpolyp_str} = 2 * Tred * ${tpolypm1_str} - \
-                            ${tpolypm2_str} {id=tpoly, dep=tlim}
+                            ${tpolypm2_str} {id=tpoly, dep=tlim:tpoly_init*}
                     end
                 end
 
                 <> dkf = 0 {id=dkf_init}
                 for m
-                    <>temp = 0
+                    <>temp = 0 {id=temp_init}
                     for k
                         if k < numP
                             temp = temp + ${ppoly_str} * ${params_str} \
-                                {id=temp, dep=ppoly:tpoly}
+                                {id=temp, dep=ppoly:tpoly:temp_init}
                         end
                     end
                     if m < numT
@@ -2846,16 +2955,17 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         <> dRopidT = ${rop_fwd_str} * dkf {id=init, dep=dkf*}
         <> ci = 1 {id=ci_init}
         if ${rev_mask_str} >= 0
-            <> dBk_sum = 0
+            <> dBk_sum = 0 {id=dBk_init}
             for ${net_ind}
                 dBk_sum = dBk_sum + \
-                    (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} {id=up}
+                    (${net_prod_nu_str} - ${net_reac_nu_str}) * ${dBk_str} \
+                    {id=up, dep=dBk_init}
             end
             dRopidT = dRopidT - ${rop_rev_str} * \
                 (dkf - dBk_sum) {id=rev, dep=init:up}
         end
         if ${thd_mask_str} >= 0
-            ci = ${pres_mod_str} {id=ci}
+            ci = ${pres_mod_str} {id=ci, dep=ci_init}
         end
         dRopidT = dRopidT * ci * ${V_str} {id=Ropi_final, dep=rev:ci*}
         """).safe_substitute(**locals())
@@ -2866,6 +2976,18 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
         conc_lp, conc_str = mapstore.apply_maps(
             namestore.conc_arr, global_ind, 'net_spec')
+
+        # TODO: forward allint to this function
+        # create appropriate power functions
+        power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
+                                          guard_nonzero=True)
+        nu_fwd = 'nu_fwd'
+        nu_rev = 'nu_rev'
+        pow_conc_fwd = power_func(conc_str, nu_fwd)
+        pow_conc_rev = power_func(conc_str, nu_rev)
+
+        preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
+        manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
 
         # create Ns nu's
         _, ns_reac_nu_str = mapstore.apply_maps(
@@ -2881,33 +3003,33 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         instructions = Template("""
         <> kr_i = 0 {id=kr_in}
         if ${rev_mask_str} >= 0
-            kr_i = ${kr_str} {id=kr_up}
+            kr_i = ${kr_str} {id=kr_up, dep=kr_in}
         end
         <> ci = 1 {id=ci_init}
         if ${thd_mask_str} >= 0
-            ci = ${pres_mod_str} {id=ci}
+            ci = ${pres_mod_str} {id=ci, dep=ci_init}
         end
         <> Sns_fwd = ${ns_reac_nu_str} {id=Sns_fwd_init}
         <> Sns_rev = ${ns_prod_nu_str} {id=Sns_rev_init}
         for ${net_ind}
-            <> nu_fwd = ${net_reac_nu_str} {id=nuf_inner}
-            <> nu_rev = ${net_prod_nu_str} {id=nur_inner}
+            <> ${nu_fwd} = ${net_reac_nu_str} {id=nuf_inner}
+            <> ${nu_rev} = ${net_prod_nu_str} {id=nur_inner}
             <> net_spec = ${spec_str}
             # handle nu
             if net_spec == ${ns}
-                nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+                ${nu_fwd} = ${nu_fwd} - 1 {id=nuf_inner_up, dep=nuf_inner}
             end
-            Sns_fwd = Sns_fwd * fast_powi(${conc_str}, nu_fwd) \
-                {id=Sns_fwd_up, dep=nuf_inner_up}
+            Sns_fwd = Sns_fwd * ${pow_conc_fwd} {id=Sns_fwd_up, \
+                dep=nuf_inner_up:Sns_fwd_init}
             if net_spec == ${ns}
-                nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                ${nu_rev} = ${nu_rev} - 1 {id=nur_inner_up, dep=nur_inner}
             end
-            Sns_rev = Sns_rev * fast_powi(${conc_str}, nu_rev) \
-                {id=Sns_rev_up, dep=nur_inner_up}
+            Sns_rev = Sns_rev * ${pow_conc_rev} {id=Sns_rev_up, \
+                dep=nur_inner_up:Sns_rev_init}
         end
         <> dRopidT = (Sns_rev * kr_i - Sns_fwd * ${kf_str}) * \
             ${V_str} * ci * ${P_str} / (Ru * ${T_str} * ${T_str}) \
-            {id=Ropi_final, dep=Sns*}
+            {id=Ropi_final, dep=Sns*:ci*:kr*}
         """).substitute(**locals())
 
     # get nuk's
@@ -2950,11 +3072,14 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles=[lp_pregen.fastpowi_PreambleGen(),
-                   lp_pregen.fastpowf_PreambleGen()],
         parameters=parameters,
         can_vectorize=can_vectorize,
-        vectorization_specializer=vec_spec
+        vectorization_specializer=vec_spec,
+        preambles=preambles,
+        manglers=manglers,
+        # expected vectorized scatter load instructions for plog parameters
+        # with wide vectorization (pressure non-constant between vector-lanes)
+        silenced_warnings=['vectorize_failed']
     )
 
 
@@ -3111,8 +3236,7 @@ def thermo_temperature_derivative(nicename, loopy_opts, namestore,
         The generated infos for feeding into the kernel generator
     """
 
-    return rate.polyfit_kernel_gen(
-        nicename, loopy_opts, namestore, test_size)
+    return rate.polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size)
 
 
 @ic.with_conditional_jacobian
@@ -3146,9 +3270,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
     """
 
     # create arrays
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     ns = namestore.num_specs[-1]
     # k loop is _only_ over non-zero dnk/dnj deriviatives
@@ -3171,7 +3293,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
-        }, insn=dnkdnj_insn, deps='*')
+        }, insn=dnkdnj_insn, deps='*:init')
     # and the dedot / dnj instruction
     dedotdnj_insn = Template(
         "${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + "
@@ -3188,7 +3310,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
     _, dTdot_dnj_str = jac_create(
         mapstore, namestore.jac, global_ind, 0, var_name, affine={
             var_name: 2,
-        }, entry_exists=True, index_insn=False)
+        }, entry_exists=True, index_insn=False, warn=False)
 
     P_lp, P_str = mapstore.apply_maps(
         namestore.P_arr, global_ind)
@@ -3196,8 +3318,7 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         namestore.T_arr, global_ind)
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     kernel_data.extend([mw_lp, V_lp, P_lp, T_lp, jac_lp, nonzero_lp])
 
@@ -3256,9 +3377,7 @@ def dTdot_dnj(loopy_opts, namestore, test_size=None,
     """
 
     # create arrays
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs_no_ns,
-                            namestore.num_specs_no_ns)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs_no_ns, test_size)
 
     ns = namestore.num_specs[-1]
     # k loop is _only_ over non-zero dnk/dnj deriviatives
@@ -3294,7 +3413,7 @@ def dTdot_dnj(loopy_opts, namestore, test_size=None,
         mapstore, namestore.jac, global_ind, spec_k, var_name, affine={
             var_name: 2,
             spec_k: 2
-        }, insn=species_jac_insn, deps='*')
+        }, insn=species_jac_insn, deps='*:init')
 
     # dTdot/dnj jacobian set
     tdot_jac_insn = (
@@ -3307,8 +3426,7 @@ def dTdot_dnj(loopy_opts, namestore, test_size=None,
         }, entry_exists=True, insn=tdot_jac_insn, deps='sum')
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     kernel_data.extend([spec_heat_lp, energy_lp, spec_heat_tot_lp, mw_lp,
                         V_lp, T_dot_lp, jac_lp, nonzero_lp])
@@ -3361,9 +3479,7 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
     """
 
     # create arrays
-    mapstore = arc.MapStore(loopy_opts,
-                            namestore.num_specs,
-                            namestore.num_specs)
+    mapstore = arc.MapStore(loopy_opts, namestore.num_specs, test_size)
 
     spec_heat_lp, spec_heat_str = mapstore.apply_maps(
         namestore.spec_heat, *default_inds)
@@ -3373,22 +3489,18 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
         namestore.spec_heat_total, global_ind)
 
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     kernel_data.extend([spec_heat_lp, conc_lp, spec_heat_tot_lp])
 
-    barrier = (
-        '... lbarrier {id=break, dep=init}'
-        if loopy_opts.use_atomics and loopy_opts.depth else
-        '... nop {id=break, dep=init}')
+    barrier = ic.get_barrier(loopy_opts, local_memory=True, id='break', dep='init')
     pre_instructions = Template("""
-        <>spec_tot = 0
+        <>spec_tot = 0 {id=spec_init}
         ${spec_heat_total_str} = 0 {id=init}
         """).safe_substitute(**locals())
     instructions = Template("""
-        spec_tot = spec_tot + ${spec_heat_str} * \
-            ${conc_str} {id=update}
+        spec_tot = spec_tot + ${spec_heat_str} * ${conc_str} {id=update, \
+            dep=spec_init}
     """).safe_substitute(**locals())
     post_instructions = Template("""
         ${barrier}
@@ -3413,7 +3525,7 @@ def total_specific_energy(loopy_opts, namestore, test_size=None,
 
 @ic.with_conditional_jacobian
 def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
-              jac_create=None):
+              test_size=None, jac_create=None):
     """Generates instructions, kernel arguements, and data for calculating
     derivatives of the third body concentrations / falloff blending factors
     with respect to the molar quantity of a species
@@ -3514,12 +3626,11 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
     # main loop is over third body rxns (including falloff / chemically
     # activated)
-    mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+    mapstore = arc.MapStore(loopy_opts, rxn_range, test_size)
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     if fall_type != falloff_form.none:
         # the fall to third map depending on the reaction range
@@ -3720,12 +3831,12 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
         <> Fi_fac = dFi {id=dFi_fac_init, dep=dFi}
         if ${fall_type_str}
             # chemically activated
-            <>k0 = ${kf_str} {id=kf_chem}
-            <>kinf = ${kf_fall_str} {id=kinf_chem}
+            <>k0 = ${kf_str} {id=kf_chem, nosync=kf_fall}
+            <>kinf = ${kf_fall_str} {id=kinf_chem, nosync=kinf_fall}
         else
             # fall-off
-            kinf = ${kf_str} {id=kinf_fall}
-            k0 = ${kf_fall_str} {id=kf_fall}
+            kinf = ${kf_str} {id=kinf_fall, nosync=kinf_chem}
+            k0 = ${kf_fall_str} {id=kf_fall, nosync=kf_chem}
             Fi_fac = ${Pr_str} * Fi_fac + 1 {id=dFi_fac_up, dep=dFi_fac_init}
         end
 
@@ -3753,7 +3864,8 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
     # and jacobian
     jac_lp, jac_update_insn = jac_create(
         mapstore, namestore.jac, global_ind, *jac_map,
-        affine={x: 2 for x in jac_map}, insn=jac_update_insn, deps='fall:spec_k'
+        affine={x: 2 for x in jac_map}, insn=jac_update_insn,
+        deps='fall:spec_k:ropi_up'
     )
     kernel_data.append(jac_lp)
     # update the subtitution args
@@ -3889,8 +4001,8 @@ def dci_thd_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True)
+    infos = [__dci_dnj(loopy_opts, namestore, False, test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -3928,8 +4040,10 @@ def dci_lind_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.lind)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.lind)
+    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.lind,
+                       test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.lind,
+                        test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -3967,8 +4081,10 @@ def dci_sri_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.sri)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.sri)
+    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.sri,
+                       test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.sri,
+                        test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -4006,8 +4122,10 @@ def dci_troe_dnj(loopy_opts, namestore, test_size=None):
         The generated infos for feeding into the kernel generator
     """
 
-    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.troe)]
-    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.troe)
+    infos = [__dci_dnj(loopy_opts, namestore, False, falloff_form.troe,
+                       test_size=test_size)]
+    ns_info = __dci_dnj(loopy_opts, namestore, True, falloff_form.troe,
+                        test_size=test_size)
     if ns_info:
         infos.append(ns_info)
     return infos
@@ -4075,14 +4193,13 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     rxn_range = namestore.num_reacs if not do_ns else namestore.rxn_has_ns
     if do_ns and rxn_range.initializer is None or not rxn_range.initializer.size:
         return None
 
-    mapstore = arc.MapStore(loopy_opts, rxn_range, rxn_range)
+    mapstore = arc.MapStore(loopy_opts, rxn_range, test_size)
     # get net offsets
 
     # may need offset on all arrays on the main loop if do_ns,
@@ -4191,15 +4308,24 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
         extra_inames.append(
             (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
+    # get the appropriate power function and calls
+    power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint,
+                                      guard_nonzero=True)
+    nu_fwd = 'nu_fwd'
+    nu_rev = 'nu_rev'
+    pow_conc_fwd = power_func(conc_inner_str, nu_fwd)
+    pow_conc_rev = power_func(conc_inner_str, nu_rev)
+
     if not do_ns:
         jac_update_insn = (
             "${jac_str} = ${jac_str} + (kf_i * Sj_fwd - kr_i * Sj_rev)"
             "* ci * nu_k {id=jac, dep=${deps}}")
+
         # and finally the jacobian
         jac_lp, jac_update_insn = jac_create(
             mapstore, namestore.jac, global_ind, *jac_map,
             affine={x: 2 for x in jac_map},
-            deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k', insn=jac_update_insn
+            deps='Sj_fwd_up:Sj_rev_up:ci_up:nu_k:spec_k:kf:kr2', insn=jac_update_insn
         )
         inner = ("""
             for ${net_ind_j}
@@ -4208,19 +4334,21 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                     <> Sj_fwd = ${spec_j_reac_nu_str} {id=Sj_fwd_init}
                     <> Sj_rev = ${spec_j_prod_nu_str} {id=Sj_rev_init}
                     for ${net_ind_inner}
-                        <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
-                        <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
+                        <> ${nu_fwd} = ${inner_reac_nu_str} {id=nuf_inner}
+                        <> ${nu_rev} = ${inner_prod_nu_str} {id=nur_inner}
                         <> ${spec_inner} = ${spec_inner_str}
                         # handle nu
                         if ${spec_inner} == ${spec_j}
-                            nu_fwd = nu_fwd - 1 {id=nuf_inner_up, dep=nuf_inner}
+                            ${nu_fwd} = ${nu_fwd} - 1 \
+                                {id=nuf_inner_up, dep=nuf_inner}
                         end
                         if ${spec_inner} == ${spec_j}
-                            nu_rev = nu_rev - 1 {id=nur_inner_up, dep=nur_inner}
+                            ${nu_rev} = ${nu_rev} - 1 \
+                                {id=nur_inner_up, dep=nur_inner}
                         end
-                        Sj_fwd = Sj_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                        Sj_fwd = Sj_fwd * ${pow_conc_fwd} \
                             {id=Sj_fwd_up, dep=Sj_fwd_init:nuf_inner_up}
-                        Sj_rev = Sj_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                        Sj_rev = Sj_rev * ${pow_conc_rev} \
                             {id=Sj_rev_up, dep=Sj_rev_init:nur_inner_up}
                     end
                     # and update Jacobian
@@ -4242,23 +4370,23 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
             <> Sns_fwd = 1.0d {id=Sns_fwd_init}
             <> Sns_rev = 1.0d {id=Sns_rev_init}
             for ${net_ind_inner}
-                <> nu_fwd = ${inner_reac_nu_str} {id=nuf_inner}
-                <> nu_rev = ${inner_prod_nu_str} {id=nur_inner}
+                <> ${nu_fwd} = ${inner_reac_nu_str} {id=nuf_inner}
+                <> ${nu_rev} = ${inner_prod_nu_str} {id=nur_inner}
                 <> ${spec_inner} = ${spec_inner_str}
                 # handle nu
                 if ${spec_inner} == ${ns}
                     Sns_fwd = Sns_fwd * nu_fwd {id=Sns_fwd_up, dep=Sns_fwd_init}
-                    nu_fwd = nu_fwd - 1 \
+                    ${nu_fwd} = ${nu_fwd} - 1 \
                         {id=nuf_inner_up, dep=nuf_inner:Sns_fwd_up}
                 end
-                Sns_fwd = Sns_fwd * fast_powi(${conc_inner_str}, nu_fwd) \
+                Sns_fwd = Sns_fwd * ${pow_conc_fwd} \
                     {id=Sns_fwd_up2, dep=Sns_fwd_up:nuf_inner_up}
                 if ${spec_inner} == ${ns}
                     Sns_rev = Sns_rev * nu_rev {id=Sns_rev_up, dep=Sns_rev_init}
-                    nu_rev = nu_rev - 1 \
+                    ${nu_rev} = ${nu_rev} - 1 \
                         {id=nur_inner_up, dep=nur_inner:Sns_rev_up}
                 end
-                Sns_rev = Sns_rev * fast_powi(${conc_inner_str}, nu_rev) \
+                Sns_rev = Sns_rev * ${pow_conc_rev} \
                     {id=Sns_rev_up2, dep=Sns_rev_up:nur_inner_up}
             end
             # and update Jacobian for all species in this row
@@ -4315,9 +4443,10 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                           kernel_data=kernel_data,
                           extra_inames=extra_inames,
                           mapstore=mapstore,
-                          preambles=[
-                               lp_pregen.fastpowi_PreambleGen(),
-                               lp_pregen.fastpowf_PreambleGen()],
+                          preambles=lp_pregen.power_function_preambles(
+                            loopy_opts, power_func),
+                          manglers=lp_pregen.power_function_manglers(
+                            loopy_opts, power_func),
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec
                           )
@@ -4362,7 +4491,7 @@ def dRopi_dnj(loopy_opts, namestore, allint, test_size=None):
 def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=None,
                                order=1, rtol=1e-8, atol=1e-15,
                                mode=FiniteDifferenceMode.forward,
-                               jac_create=None, mem_limits=''):
+                               jac_create=None, mem_limits='', **kwargs):
     """
     Creates a wrapper around the species rates kernels that evaluates a central,
     forward or backwards finite difference Jacobian of the given :param:`order`,
@@ -4401,16 +4530,15 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
     knl_list : list of :class:`knl_info`
         The generated infos for feeding into the kernel generator
     """
-
-    if test_size is None:
-        test_size = 'problem_size'
 
     # first we create a species rates kernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
@@ -4426,12 +4554,10 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # indicies
     kernel_data = []
-    if namestore.test_size == 'problem_size':
-        kernel_data.append(namestore.problem_size)
+    kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
 
     # need to loop over all non-zero phi entries
-    mapstore = arc.MapStore(loopy_opts, namestore.phi_inds,
-                            namestore.phi_inds)
+    mapstore = arc.MapStore(loopy_opts, namestore.phi_inds, test_size)
 
     # next, define our FD coefficients
     # take from https://en.wikipedia.org/wiki/Finite_difference_coefficient
@@ -4484,9 +4610,10 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     sumv = lp.TemporaryVariable('sum', dtype=np.float64, scope=scopes.PRIVATE)
 
     # and finally the coeffs
-    xcoeffs = np.array(xcoeffs, dtype=np.int32)
-    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=np.int32, initializer=xcoeffs,
-                                   shape=xcoeffs.shape, scope=scopes.PRIVATE,
+    xcoeffs = np.array(xcoeffs, dtype=arc.kint_type)
+    xcoeffs = lp.TemporaryVariable('xcoeffs', dtype=arc.kint_type,
+                                   initializer=xcoeffs, shape=xcoeffs.shape,
+                                   scope=scopes.PRIVATE,
                                    read_only=True)
 
     ycoeffs = np.array(ycoeffs, dtype=np.float64)
@@ -4556,7 +4683,6 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         mem_kind = ', mem_kind=global'
 
     # now create our instructions
-    from pytools import UniqueNameGenerator
     namer = UniqueNameGenerator()
 
     # initialize sum
@@ -4712,8 +4838,7 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
 
     # inputs and outputs
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
-    output_arrays = ['jac']
+    input_arrays, output_arrays = inputs_and_outputs(conp)
 
     # and finally add a reset array
     reset = reset_arrays(loopy_opts, namestore, test_size=test_size)
@@ -4726,8 +4851,8 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
     # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='jacobian_kernel',
-        kernels=sub_kernels + [reset, info],
+        kernel_type=KernelType.jacobian,
+        kernels=[reset, info],
         namestore=namestore,
         depends_on=[sgen],
         input_arrays=input_arrays,
@@ -4735,11 +4860,12 @@ def finite_difference_jacobian(reacs, specs, loopy_opts, conp=True, test_size=No
         test_size=test_size,
         fake_calls={sgen: spec_rate_call},
         barriers=barriers,
-        mem_limits=mem_limits)
+        mem_limits=mem_limits,
+        **kwargs)
 
 
 def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
-                        mem_limits=''):
+                        mem_limits='', **kwargs):
     """Helper function that generates kernels for
        evaluation of analytical jacobian
 
@@ -4761,7 +4887,9 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
+    kwargs: dict
+        Arguements for the construction of the :class:`kernel_generator`
 
     Returns
     -------
@@ -4774,10 +4902,6 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     rate_info = determine_jac_inds(reacs, specs, loopy_opts.rate_spec,
                                    loopy_opts.jac_type)
 
-    # set test size
-    if test_size is None:
-        test_size = 'problem_size'
-
     # create the namestore
     nstore = arc.NameStore(loopy_opts, rate_info, conp, test_size)
 
@@ -4789,7 +4913,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
             klist = kernels
         try:
             klist.extend(knls)
-        except:
+        except (TypeError, AttributeError):
             klist.append(knls)
 
     # barrier management
@@ -4947,8 +5071,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # barrier for dependency on dEdotdE
     __insert_at(kernels[-1].name)
 
-    input_arrays = ['phi', 'P_arr' if conp else 'V_arr']
-    output_arrays = ['jac']
+    input_arrays, output_arrays = inputs_and_outputs(conp)
 
     # create the specrates subkernel
     sgen = rate.get_specrates_kernel(reacs, specs, loopy_opts, conp=conp,
@@ -4961,7 +5084,7 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     # and return the full generator
     return k_gen.make_kernel_generator(
         loopy_opts=loopy_opts,
-        name='jacobian_kernel',
+        kernel_type=KernelType.jacobian,
         kernels=sub_kernels + kernels,
         namestore=nstore,
         depends_on=[sgen],
@@ -4969,7 +5092,8 @@ def get_jacobian_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
         output_arrays=output_arrays,
         test_size=test_size,
         barriers=barriers,
-        mem_limits=mem_limits)
+        mem_limits=mem_limits,
+        **kwargs)
 
 
 def find_last_species(specs, last_spec=None, return_map=False):
@@ -5043,7 +5167,7 @@ def find_last_species(specs, last_spec=None, return_map=False):
         last_spec = len(specs) - 1
 
     if return_map:
-        gas_map = np.arange(len(specs), dtype=np.int32)
+        gas_map = np.arange(len(specs), dtype=arc.kint_type)
         gas_map[last_spec:-1] = gas_map[last_spec + 1:]
         gas_map[-1] = last_spec
         return gas_map
@@ -5054,15 +5178,17 @@ def find_last_species(specs, last_spec=None, return_map=False):
 
 
 def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
-                    vector_size=None, wide=False, deep=False, ilp=None, unr=None,
-                    build_path='./out/', last_spec=None, skip_jac=False, platform='',
-                    data_order='C', rate_specialization='full',
+                    width=None, depth=None, ilp=None, unr=None,
+                    build_path='./out/', last_spec=None,
+                    kernel_type=KernelType.jacobian, platform='',
+                    data_order='C', rate_specialization=RateSpecialization.full,
                     split_rate_kernels=True, split_rop_net_kernels=False,
                     conp=True, data_filename='data.bin', output_full_rop=False,
-                    use_atomics=True, jac_type='exact', jac_format='full',
-                    for_validation=False, seperate_kernels=True,
-                    fd_order=1, fd_mode='forward', mem_limits='',
-                    fixed_size=None, **kwargs
+                    use_atomic_doubles=True, use_atomic_ints=True,
+                    jac_type=JacobianType.exact,
+                    jac_format=JacobianFormat.full, for_validation=False,
+                    fd_order=1, fd_mode=FiniteDifferenceMode.forward, mem_limits='',
+                    work_size=None, explicit_simd=False, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5079,15 +5205,14 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     gas : cantera.Solution, optional
         The mechanism to generate the Jacobian for.  This or ``mech_name`` must be
         specified
-    vector_size : int
-        The SIMD vector width to use.  If the targeted platform is a GPU,
-        this is the GPU block size
-    wide : bool
-        If true, use a 'wide' vectorization strategy. Cannot be specified along with
-        'deep'.
-    deep : bool
-        If true, use a 'deep' vectorization strategy. Cannot be specified along with
-        'wide'.
+    width : int
+        If supplied, use a 'wide' vectorization strategy.
+        The SIMD vector-width to use.  If the targeted platform is a GPU,
+        this is the GPU block size. Cannot be specified along with :param:`depth`.
+    depth : int
+        If supplied, use a 'deep' vectorization strategy.
+        The SIMD vector-width to use.  If the targeted platform is a GPU,
+        this is the GPU block size. Cannot be specified along with :param:`width`.
     unr : int
         If supplied, unroll inner loops (i.e. those that would be affected by a
         deep vectorization). Can be used in conjunction with deep or wide parallelism
@@ -5096,8 +5221,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     last_spec : str, optional
         If specified, the species to assign to the last index.
         Typically should be N2, Ar, He or another inert bath gas
-    skip_jac : bool, optional
-        If ``True``, only the reaction rate subroutines will be generated
+    kernel_type : :class:`KernelType`
+        The type of kernel to generate, defaults to Jacobian
     platform : {'CPU', 'GPU', or other vendor specific name}
         The OpenCL platform to run on.
         *   If 'CPU' or 'GPU', the first available matching platform will be used
@@ -5128,6 +5253,19 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         Useful in testing, as there are serious floating point errors for
         net production rates near equilibrium, invalidating direct comparison to
         Cantera
+    use_atomic_doubles: bool [False]
+        If True, the target language / platform can utilized atomic instructions
+        for double precision floating point types.  This affects how deep-vectorized
+        code is generated in pyJac -- if False, any potential data-races will
+        be run in serial form, resulting in a poor vectorization.
+    use_atomic_ints: bool [False]
+        If True, the target language / platform can utilized atomic instructions
+        for integer types.  This affects the driver kernel generated by pyJac.
+        If True, the driver will be generated in "queue" form, and various threads
+        may run without (weak) synchronziation. If False, the threads should run in
+        "lock-step" form (e.g., the global size in OpenCL should be equal to the
+        number of initial conditions).  :see:`Kernel Driver Types` for more
+        information.
     jac_type: ['exact', 'approximate', 'finite_difference']
         The type of Jacobian kernel to generate.
 
@@ -5150,12 +5288,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     for_validation: bool [False]
         If True, this kernel is being generated to validate pyJac, hence we need
         to save output data to a file
-    seperate_kernels: bool [True]
-        If True, separate evaluation into different functions in the generated kernel
-        in order to improve compiler vectorization / optimization.
-        However, on some platforms / vectorization combinations this breaks
-        (or greatly slows) kernel compilation, hence we provide a method to turn if
-        off if necessary.
     fd_order: int [1]
         The order of the finite difference jacobian -- used if :param:`jac_type` ==
         'finite_difference'
@@ -5167,14 +5299,15 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         desired maximum amount of global / local / or constant memory that
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
-        members of :class:`pyjac.kernel_utils.memory_manager.mem_type`
-    fixed_size: int [None]
+        members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
+    work_size: int [None]
         If specified, this is the number of thermo-chemical states that pyJac
-        should evaluate in the generated source code.  This is most useful for
-        limiting the number of states to one (in order to couple with an external
-        library that that has already been parallelized, e.g., via OpenMP).
-        This setting will also fix array strides as discussed in the documentation,
-        :see:`todo`.
+        should evaluate concurrently in the generated source code. This option is
+        most useful for coupling to an external library that that has already been
+        parallelized, e.g., via OpenMP.
+    explicit_simd: bool [False]
+        If true, use explicit-SIMD instructions in OpenCL if possible.  Currently
+        available for wide-vectorizations only.
 
     Returns
     -------
@@ -5193,45 +5326,15 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
             utils.langs)))
         sys.exit(2)
 
-    if fixed_size is not None and vector_size is not None:
-        if fixed_size % vector_size:
-            logger.error('Cannot used fixed array size of ({}) which is non-evenly'
-                         'divisible by the vector size: ({})'.format(
-                            fixed_size, vector_size))
-            raise IncorrectInputSpecificationException(['fixed_size', 'vector_size'])
-    if fixed_size is not None:
-        logger.critical('Wrapping (and for OpenMP kernel execution) code is not yet '
-                        'configured to handle fixed array sizes.  Use at your own '
-                        'risk.')
-
     # configure options
-    width = None
-    depth = None
-    if wide:
-        width = vector_size
-    elif deep:
-        depth = vector_size
-    if wide and deep:
+    if width and depth:
         logger.error('Cannot apply both a wide and deep vectorization at the same '
                      'time')
-        raise IncorrectInputSpecificationException(['wide', 'deep'])
-    if vector_size is None and (wide or deep):
-        logger.error('Cannot apply {} vectorization without a vector-size, use'
-                     'the -v arguement to supply one'.format(
-                        'wide' if wide else 'deep'))
-        raise IncorrectInputSpecificationException(['wide', 'deep', 'vector_size'])
-
-    # convert enums
-    rate_spec_val = utils.EnumType(lp_utils.RateSpecialization)(
-        rate_specialization.lower())
-    jac_format = utils.EnumType(JacobianFormat)(
-        jac_format.lower())
-    jac_type = utils.EnumType(JacobianType)(
-        jac_type.lower())
+        raise InvalidInputSpecificationException(['wide', 'deep'])
 
     if jac_type == JacobianType.finite_difference:
         # convert mode
-        fd_mode = utils.EnumType(lp_utils.FiniteDifferenceMode)(
+        fd_mode = utils.EnumType(FiniteDifferenceMode)(
             fd_mode.lower())
 
     # load platform if supplied
@@ -5245,7 +5348,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                   (loopy_opts.width, width, 'width'),
                   (loopy_opts.depth, depth, 'depth'),
                   (loopy_opts.lang, lang, 'lang'),
-                  (loopy_opts.use_atomics, use_atomics, 'use_atomics')]
+                  (loopy_opts.use_atomic_ints, use_atomic_ints, 'use_atomic_ints'),
+                  (loopy_opts.use_atomic_doubles, use_atomic_doubles,
+                   'use_atomic_doubles')]
         bad_checks = [x for x in checks if x[0] != x[1] and x[1] is not None]
         if bad_checks:
             raise Exception('Parameters from supplied code-generation platform: '
@@ -5257,10 +5362,18 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         width = loopy_opts.width
         depth = loopy_opts.depth
         lang = loopy_opts.lang
-        use_atomics = loopy_opts.use_atomics
+        use_atomic_ints = loopy_opts.use_atomic_ints
+        use_atomic_doubles = loopy_opts.use_atomic_doubles
         platform = loopy_opts.platform
         device = loopy_opts.device
         device_type = loopy_opts.device_type
+    elif not platform and lang == 'opencl':
+        logger = logging.getLogger(__name__)
+        logger.error('OpenCL platform not specified! '
+                     'This must be supplied to generate wrapping code. '
+                     'To determine the correct platform name, consult documentation.'
+                     )
+        raise InvalidInputSpecificationException("platform")
 
     # create the loopy options
     loopy_opts = lp_utils.loopy_options(width=width,
@@ -5269,16 +5382,18 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         unr=unr,
                                         lang=lang,
                                         order=data_order,
-                                        rate_spec=rate_spec_val,
+                                        rate_spec=rate_specialization,
                                         rate_spec_kernels=split_rate_kernels,
                                         rop_net_kernels=split_rop_net_kernels,
                                         platform=platform,
-                                        use_atomics=use_atomics,
+                                        use_atomic_ints=use_atomic_ints,
+                                        use_atomic_doubles=use_atomic_doubles,
                                         jac_format=jac_format,
                                         jac_type=jac_type,
-                                        seperate_kernels=seperate_kernels,
                                         device=device,
-                                        device_type=device_type)
+                                        device_type=device_type,
+                                        work_size=work_size,
+                                        explicit_simd=explicit_simd)
 
     # create output directory if none exists
     build_path = os.path.abspath(build_path)
@@ -5314,6 +5429,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     if kwargs.pop('test_mech_interpret_vs_backend', False):
         return reacs, specs
 
+    if kwargs:
+        logger.error('Keyword arguments: {} not recognized!'.format(
+            utils.stringify_args(kwargs, kwd=True)))
+        raise InvalidInputSpecificationException(kwargs.keys())
+
     # check for reactions with potentially bad derivatives
     bad_rxns = []
     for irxn, reac in enumerate(reacs):
@@ -5335,20 +5455,26 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     aux.write_aux(build_path, loopy_opts, specs, reacs)
 
     # now begin writing subroutines
-    if not skip_jac and jac_type != JacobianType.finite_difference:
+    if kernel_type == KernelType.jacobian \
+            and jac_type != JacobianType.finite_difference:
         # get Jacobian subroutines
         gen = get_jacobian_kernel(reacs, specs, loopy_opts, conp=conp,
-                                  mem_limits=mem_limits, test_size=fixed_size)
+                                  mem_limits=mem_limits)
         #  write_sparse_multiplier(build_path, lang, touched, len(specs))
-    elif not skip_jac and jac_type == JacobianType.finite_difference:
+    elif kernel_type == KernelType.jacobian and \
+            jac_type == JacobianType.finite_difference:
         gen = finite_difference_jacobian(reacs, specs, loopy_opts, conp=conp,
                                          mode=fd_mode, order=fd_order,
-                                         mem_limits=mem_limits, test_size=fixed_size)
-    else:
+                                         mem_limits=mem_limits)
+    elif kernel_type == KernelType.species_rates:
         # just specrates
         gen = rate.get_specrates_kernel(reacs, specs, loopy_opts,
                                         conp=conp, output_full_rop=output_full_rop,
-                                        mem_limits=mem_limits, test_size=fixed_size)
+                                        mem_limits=mem_limits)
+    elif kernel_type == KernelType.chem_utils:
+        # just chem utils
+        gen = rate.write_chem_utils(reacs, specs, loopy_opts,
+                                    conp=conp, mem_limits=mem_limits)
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,
@@ -5358,4 +5484,4 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 if __name__ == "__main__":
     utils.setup_logging()
-    utils.create()
+    utils.create(kernel_type=KernelType.jacobian)

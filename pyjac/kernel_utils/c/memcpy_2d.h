@@ -21,10 +21,10 @@
  * \brief A convienience method to copy memory between host pointers of different pitches, widths and heights.
  *
  * \param[out]              dst             The destination array
- * \param[in]               pitch_dst       The width (in bytes) of the destination array.
+ * \param[in]               pitch_dst       The width (in number of elements) of the destination array.
                                             This corresponds to the padded number of IVPs to be solved.
  * \param[in]               src             The source pointer
- * \param[in]               pitch_src       The width (in bytes)  of the source array.
+ * \param[in]               pitch_src       The width (in number of elements)  of the source array.
                                             This corresponds to the (non-padded) number of IVPs read by read_initial_conditions
  * \param[in]               offset          The offset within the source array (IVP index) to copy from.
                                             This is useful in the case (for large models) where the solver and state vector memory will not fit in device memory
@@ -46,10 +46,10 @@ static inline void memcpy2D_in(double* dst, const int pitch_dst, double const * 
  * \brief A convienience method to copy memory between host pointers of different pitches, widths and heights.
  *
  * \param[out]              dst             The destination array
- * \param[in]               pitch_dst       The width (in bytes)  of the source array.
+ * \param[in]               pitch_dst       The width (in number of elements) of the source array.
                                             This corresponds to the (non-padded) number of IVPs read by read_initial_conditions
  * \param[in]               src             The source pointer
- * \param[in]               pitch_src       The width (in bytes) of the destination array.
+ * \param[in]               pitch_src       The width (in number of elements) of the destination array.
                                             This corresponds to the padded number of IVPs to be solved.
  * \param[in]               offset          The offset within the destination array (IVP index) to copy to.
                                             This is useful in the case (for large models) where the solver and state vector memory will not fit in device memory

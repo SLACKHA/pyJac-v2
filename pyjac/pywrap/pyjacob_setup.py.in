@@ -1,30 +1,46 @@
-from distutils.core import setup, Extension
-import distutils.ccompiler
-
-from Cython.Distutils import build_ext
-import parallel_compiler as pcc
+from distutils.core import setup
+from distutils.extension import Extension
+from Cython.Build import cythonize
 import numpy
-import os
 
-sources = ['${wrapper}']
-includes = ['$buildpath/', '$homepath/'] + [${extra_include_dirs}]
+"""[[[cog
+    from six.moves import cPickle as pickle
+    from pyjac.utils import stringify_args, listify
+
+    # unserialize the setupgen object
+    with open(setupgen, 'rb') as file:
+        setupgen = pickle.load(file)
+
+    cog.outl('sources = ["{}"]'.format(setupgen.wrapper))
+    cog.outl('includes = [{}]'.format(stringify_args(
+        [setupgen.build_dir] + listify(setupgen.include_dirs), use_quotes=True)))
+    cog.outl('name = "pyjac_{}"'.format(setupgen.package_lang))
+    if setupgen.package_lang == 'c':
+        # include openmp
+        cog.outl('compile_args = ["-fopenmp"]')
+    else:
+        cog.outl('compile_args = []')
+    cog.outl('name = "{}_{}"'.format(setupgen.name, setupgen.package_lang))
+    cog.outl('libname = "{}"'.format(setupgen.libname))
+    cog.outl('libs = [{}]'.format(stringify_args(
+        setupgen.libraries, use_quotes=True)))
+    cog.outl('libdirs = [{}]'.format(stringify_args(
+        setupgen.libdirs, use_quotes=True)))
+]]]
+[[[end]]]"""
 includes = [x for x in includes if x.strip()]
 
-distutils.ccompiler.CCompiler.compile = pcc.parallel_compile
-
-ext_modules = [Extension("pyjac_c",
-                         sources=sources,
-                         include_dirs=includes + [numpy.get_include()],
-                         extra_compile_args=[
-                             '-frounding-math', '-fsignaling-nans', '-fopenmp',
-                             '-std=c99'],
-                         language='c',
-                         extra_objects=[os.path.join('$outpath', '$libname'),
-                                        '-fopenmp']
-                         )]
+ext_module = Extension(name,
+                       sources=sources,
+                       include_dirs=includes + [numpy.get_include()],
+                       language="c++",
+                       extra_compile_args=['-frounding-math', '-fsignaling-nans'] +
+                       compile_args,
+                       extra_objects=[libname],
+                       libraries=libs,
+                       library_dirs=libdirs)
 
 setup(
-    name='pyjac_c',
-    ext_modules=ext_modules,
-    cmdclass={'build_ext': build_ext}
+    name=name,
+    ext_modules=cythonize(ext_module, include_path=includes)
 )

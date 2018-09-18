@@ -1,7 +1,8 @@
 numpy
--e git+git://github.com/inducer/loopy.git@049424df12da70a5ae8d2411c6d12dc2269ff626#egg=loopy
+-e git+git://github.com/arghdos/loopy/archive@working2#egg=loopy
 enum34 >= 1.1.6;python_version=='2.7'
 six
 pyyaml
 cgen
-git+https://github.com/pyeve/cerberus
+cogapp
+Cerberus > 1.1

@@ -16,14 +16,18 @@ import loopy as lp
 from loopy.types import AtomicType
 from pytools import UniqueNameGenerator
 import numpy as np
+import six
 
 from pyjac.core.array_creator import var_name, jac_creator
 
 
 def use_atomics(loopy_opts):
-    """ Convenience method to detect whether atomics will be used or not.
-        Useful in that we need to apply atomic modifiers to some instructions,
-        but _not_ the sequential specializer
+    """
+    Convenience method to detect whether atomic should be for double precision
+    floating point operations.
+
+    Useful in that we need to apply atomic modifiers to some instructions,
+    but _not_ the sequential specializer
 
     Parameters
     ----------
@@ -32,17 +36,49 @@ def use_atomics(loopy_opts):
 
     Returns
     -------
-    use_atomics : [bool]
+    use_atomics: bool
         Whether an atomic specializer would be returned by
         :meth:`get_deep_specializer`
     """
 
-    return loopy_opts.depth and loopy_opts.use_atomics
+    return loopy_opts.depth and loopy_opts.use_atomic_doubles
+
+
+def get_barrier(loopy_opts, local_memory=True, **loopy_kwds):
+    """
+    Returns the correct barrier type depending on the vectorization type / presence
+    of atomics
+
+    Parameters
+    ----------
+    loopy_opts: :class:`loopy_utils.loopy_opts`
+        The loopy options used to create this kernel.
+    local_memory: bool [True]
+        If true, this barrier will be used for memory in the "local" address spaces.
+        Only applicable to OpenCL
+    loopy_kwds: dict
+        Any other loopy keywords to put in the instruction options
+
+    Returns
+    -------
+    barrier: str
+        The built barrier instruction
+    """
+
+    mem_kind = ''
+    barrier_kind = 'nop'
+    if use_atomics(loopy_opts):
+        mem_kind = 'local' if local_memory else 'global'
+        barrier_kind = 'lbarrier'
+        loopy_kwds['mem_kind'] = mem_kind
+
+    return '...' + barrier_kind + '{' + ', '.join([
+        '{}={}'.format(k, v) for k, v in six.iteritems(loopy_kwds)]) + '}'
 
 
 def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
-                         use_atomics=True, is_write_race=True,
-                         split_size=None):
+                         atomic=True, is_write_race=True,
+                         split_size=None, **kwargs):
     """
     Returns a deep specializer to enable deep vectorization using either
     atomic updates or a sequential (single-lane/thread) "dummy" deep
@@ -68,12 +104,14 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         the number of vector lanes contributing
     init_ids: list of str
         List of instructions that initialize atomic variables
-    use_atomics: bool [True]
-        Use atomics if available
+    atomic: bool [True]
+        Use atomics for double precision floating point operations if available
     is_write_race: bool [True]
         If False, this kernel is guarenteed not to have a write race by nature
         of it's access pattern. Hence we only need to return a
         :class:`write_race_silencer` for non-atomic configurations
+    use_atomics: bool [None]
+        If supplied, override the results of :func:`use_atomics`
 
     Returns
     -------
@@ -88,7 +126,9 @@ def get_deep_specializer(loopy_opts, atomic_ids=[], split_ids=[], init_ids=[],
         # no need to do anything
         return True, None
 
-    if loopy_opts.use_atomics and use_atomics:
+    have_atomics = kwargs.get('use_atomics', use_atomics(loopy_opts))
+
+    if have_atomics and atomic:
         return True, atomic_deep_specialization(
             loopy_opts.depth, atomic_ids=atomic_ids,
             split_ids=split_ids, init_ids=init_ids,
@@ -255,33 +295,46 @@ class dummy_deep_specialization(within_inames_specializer):
         return super(dummy_deep_specialization, self).__call__(knl)
 
 
-def default_pre_instructs(result_name, var_str, INSN_KEY):
-    """
-    Simple helper method to return a number of precomputes based off the passed
-    instruction key
+class PrecomputedInstructions(object):
+    def __init__(self, basename='precompute'):
+        self.namer = UniqueNameGenerator()
+        self.basename = basename
 
-    Parameters
-    ----------
-    result_name : str
-        The loopy temporary variable name to store in
-    var_str : str
-        The stringified representation of the variable to construct
-    key : ['INV', 'LOG', 'VAL']
-        The transform / value to precompute
+    def __call__(self, result_name, var_str, INSN_KEY):
+        """
+        Simple helper method to return a number of precomputes based off the passed
+        instruction key
 
-    Returns
-    -------
-    precompute : str
-        A loopy instruction in the form:
-            '<>result_name = fn(var_str)'
-    """
-    default_preinstructs = {'INV': '1 / {}'.format(var_str),
-                            'LOG': 'log({})'.format(var_str),
-                            'VAL': '{}'.format(var_str),
-                            'LOG10': 'log10({})'.format(var_str)}
-    return Template("<>${result} = ${value}").safe_substitute(
-        result=result_name,
-        value=default_preinstructs[INSN_KEY])
+        Parameters
+        ----------
+        result_name : str
+            The loopy temporary variable name to store in
+        var_str : str
+            The stringified representation of the variable to construct
+        key : ['INV', 'LOG', 'VAL']
+            The transform / value to precompute
+
+        Returns
+        -------
+        precompute : str
+            A loopy instruction in the form:
+                '<>result_name = fn(var_str)'
+        """
+        default_preinstructs = {'INV': '1 / {}'.format(var_str),
+                                'LOG': 'log({})'.format(var_str),
+                                'VAL': '{}'.format(var_str),
+                                'LOG10': 'log10({})'.format(var_str)}
+        return Template("<>${result} = ${value} {id=${id}}").safe_substitute(
+            result=result_name,
+            value=default_preinstructs[INSN_KEY],
+            id=self.reserve_name())
+
+    def reserve_name(self):
+        """
+        Let custom PrecomputedInstructions reserve their own name from the same
+        object to avoid comflicts
+        """
+        return self.namer(self.basename)
 
 
 def get_update_instruction(mapstore, mask_arr, base_update_insn):
@@ -313,20 +366,22 @@ def get_update_instruction(mapstore, mask_arr, base_update_insn):
     logger = logging.getLogger(__name__)
     if not mapstore.is_finalized:
         _, _, line_number, function_name, _, _ = inspect.stack()[1]
-        logger.warn('Call to get_update_instruction() from {0}:{1}'
-                    ' used non-finalized mapstore, finalizing now...'.format(
+        logger.warn('Call to get_update_instruction() from {0}:{1} '
+                    'used non-finalized mapstore, finalizing now...'.format(
                          function_name, line_number))
 
         mapstore.finalize()
 
     # empty mask
     if not mask_arr:
-        return ''
+        # get id for noop anchor
+        idx = re.search(r'id=([^,}]+)', base_update_insn)
+        return '... nop {{id={id}}}'.format(id=idx.group(1))
 
     # ensure mask array in domains
     assert mask_arr in mapstore.domain_to_nodes, (
         'Cannot create update instruction - mask array '
-        ' {} not in mapstore domains'.format(
+        '{} not in mapstore domains'.format(
             mask_arr.name))
 
     # check to see if there are any empty mask entries
@@ -475,6 +530,9 @@ def with_conditional_jacobian(func):
             If True, this Jacobian entry exists so do not wrap in a conditonal
         return_arg: bool [True]
             If True, return the created :loopy:`GlobalArg`
+        warn: bool [True]
+            If True, warn if an indirect access will be made w/o supplying
+            :param:`index_insn`
         **kwargs: dict
             Any other arguements will be passed to the :func:`mapstore.apply_maps`
             call
@@ -499,11 +557,13 @@ def with_conditional_jacobian(func):
         index_insn = kwargs.pop('index_insn', is_sparse) and insn != ''
         deps = kwargs.pop('deps', '')
         deps = deps.split(':')
+        warn = kwargs.pop('warn', True)
 
         created_index = _conditional_jacobian.created_index
         if not index_insn and is_sparse:
-            logger.warn('Using a sparse jacobian without precomputing the index'
-                        ' will result in extra indirect lookups.')
+            method = logger.warn if warn else logger.debug
+            method('Using a sparse jacobian without precomputing the index'
+                   ' will result in extra indirect lookups.')
 
         # if we want to precompute the index, do so
         if precompute:

@@ -32,13 +32,18 @@ variable-platform:
             type: string
             isvalidlang: True
             required: True
-        # vectorization type
-        vectype:
+        # wide-vectorization sizes
+        width:
             type: list
             schema:
-                type: string
-                isvectype: True
-            required: True
+                isvecsize: True
+            required: False
+        # deep-vectorization sizes
+        depth:
+            type: list
+            schema:
+                isvecsize: True
+            required: False
         # order
         order:
             type: list
@@ -47,18 +52,19 @@ variable-platform:
                 allowed: ['C', 'F']
             nullable: True
             default: ['C', 'F']
-        # vector size
-        vecsize:
-            type: list
-            schema:
-                type: integer
-                isvecsize: True
-            # can only be specifed for wide / deep vecs
-            dependencies: vectype
-        # #If True, the platform / language support atomics for deep-vectorization
-        atomics:
+        # If True, the platform / language support atomics for deep-vectorization
+        atomic_doubles:
             type: boolean
             default: True
+        # If True, the platform / language supports integer atomics.  These may be
+        # used in the driver kernel queue to reduce global memory usage
+        atomic_ints:
+            type: boolean
+            default: True
+        is_simd:
+            type: list
+            schema:
+                type: boolean
 
 # overrides for individual tests
 override:
@@ -83,25 +89,23 @@ override:
             schema:
                 type: string
                 allowed: ['conp', 'conv']
-        vecsize:
+        width:
             type: list
             schema:
-                type: integer
+                isvecsize: True
+        depth:
+            type: list
+            schema:
+                isvecsize: True
         # vector size overrides for GPUs
-        gpuvecsize:
+        gpuwidth:
             type: list
             schema:
-                type: integer
-        vectype:
+                isvecsize: True
+        gpudepth:
             type: list
             schema:
-                type: string
-                allowed: ['par', 'wide', 'deep']
-        gpuvectype:
-            type: list
-            schema:
-                type: string
-                allowed: ['par', 'wide', 'deep']
+                isvecsize: True
         # allow exclusion of models
         models:
             type: list
