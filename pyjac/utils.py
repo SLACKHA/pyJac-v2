@@ -293,6 +293,13 @@ def setup_logging(
         with open(path, 'rt') as f:
             config = yaml.safe_load(f.read())
         logging.config.dictConfig(config)
+        # double check user-specified level
+        if not logging.getLogger().isEnabledFor(default_level):
+            logger = logging.getLogger('pyjac')
+            logger.setLevel(default_level)
+            for handler in logger.handlers:
+                handler.setLevel(default_level)
+
     else:
         logging.basicConfig(level=default_level)
 
@@ -1012,7 +1019,12 @@ def get_parser():
                              'limiting memory usage during runtime. '
                              'The keys of this file are the members of '
                              ':class:`pyjac.kernel_utils.memory_limits.mem_type`')
-
+    parser.add_argument('--verbose',
+                        action='store_const',
+                        const=logging.DEBUG,
+                        dest='loglevel',
+                        help='Increase verbosity of logging / output messages.',
+                        default=logging.WARNING)
     args = parser.parse_args()
     return args
 
@@ -1020,6 +1032,7 @@ def get_parser():
 def create(**kwargs):
     args = get_parser()
     vars(args).update(kwargs)
+    setup_logging(default_level=args.loglevel)
     from pyjac.core.create_jacobian import create_jacobian
     create_jacobian(lang=args.lang,
                     mech_name=args.input,

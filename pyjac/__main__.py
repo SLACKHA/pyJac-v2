@@ -5,7 +5,6 @@ from pyjac import utils
 
 def main(args=None):
     if args is None:
-        utils.setup_logging()
         utils.create()
 
 

@@ -5483,5 +5483,4 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
 
 if __name__ == "__main__":
-    utils.setup_logging()
     utils.create(kernel_type=KernelType.jacobian)

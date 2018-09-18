@@ -3391,5 +3391,4 @@ def write_chem_utils(reacs, specs, loopy_opts, conp=True,
 
 
 if __name__ == "__main__":
-    utils.setup_logging()
     utils.create(kernel_type=KernelType.species_rates)
