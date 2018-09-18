@@ -1424,8 +1424,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                               **call_kwds)
 
             # generate
-            kgen.generate(
-                build_dir, data_filename=os.path.join(os.getcwd(), 'data.bin'))
+            data_path = os.path.join(lib_dir, 'data.bin')
+            kgen.generate(build_dir, data_filename=data_path)
 
             # write header
             write_aux(build_dir, opts, self.store.specs, self.store.reacs)
@@ -1559,8 +1559,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 np.expand_dims(phi[:, 0], axis=1),
                 np.expand_dims(param, axis=1),
                 phi[:, 1:]), axis=1)
-            with open(os.path.join(lib_dir, 'data.bin'), 'wb') as file:
-                db.flatten(order=opts.order).tofile(file,)
+            with open(data_path, 'wb') as file:
+                db.flatten(order='C').tofile(file,)
 
             looser_tols_str = '[]'
             if looser_tols.size:
