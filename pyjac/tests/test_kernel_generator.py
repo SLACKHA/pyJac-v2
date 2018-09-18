@@ -653,8 +653,8 @@ class SubTest(TestClass):
                     assert 'double* h_{}_local;'.format(arr) in file_src
 
                 # check for operator defn
-                assert ('void JacobianKernel::operator()(double* h_jac, '
-                        'double* h_spec)') in file_src
+                assert ('void JacobianKernel::operator()(double* h_spec, '
+                        'double* h_jac)') in file_src
 
                 if opts.lang == 'c':
                     assert ('void Kernel::threadset(unsigned int num_threads)'
@@ -662,20 +662,42 @@ class SubTest(TestClass):
                 elif opts.lang == 'opencl':
                     assert re.search(
                         r'build_options = [^\n]+-I{}'.format(tdir), file_src)
-                    assert re.search(opts.platform.vendor, file_src)
+                    assert re.search(re.escape(opts.platform.vendor), file_src)
 
                 # and the validation output
-                assert all(x in file_src for x in
+                assert all(x.strip() in file_src for x in
                            """// write output to file if supplied
     char* output_files[1] = {"jac.bin"};
-    size_t output_sizes[1] = {10 * problem_size * sizeof(double)};
+    size_t output_sizes[1] = {10 * problem_size};
     double* outputs[1] = {h_jac_local};
     for(int i = 0; i < 1; ++i)
     {
         write_data(output_files[i], outputs[i], output_sizes[i]);
     }
 
-    kernel.finalize();""".split())
+    kernel.finalize();""".split('\n'))
+
+                # check that kernel arg order matches expected
+                assert [x.name for x in callgen.kernel_args['jacobian']] == [
+                    'spec', 'jac']
+
+                # and check that the call matches the kernel order
+                with open(next(x for x in callgen.source_names if 'jac' in x),
+                          'r') as file:
+                    file_src = file.read()
+                if opts.lang == 'c':
+                    assert ('void jacobian(double const *__restrict__ t, '
+                            'double const *__restrict__ spec, '
+                            'double *__restrict__ jac, double *__restrict__ rwk)'
+                            ) in file_src
+                else:
+                    dtype = 'double' if not opts.is_simd else 'double{}'.format(
+                        opts.vector_width)
+                    assert ('jacobian(__global double const *__restrict__ t, '
+                            '__global {dtype} const *__restrict__ spec, '
+                            '__global {dtype} *__restrict__ jac, '
+                            '__global double *__restrict__ rwk)'.format(
+                                dtype=dtype)) in file_src
 
     def test_call_header_generator(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,

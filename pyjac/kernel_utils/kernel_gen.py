@@ -482,8 +482,8 @@ class CallgenResult(TargetCheckingRecord, DocumentingRecord):
                 data[key].extend(self.work_arrays[:])
 
         # get a clean copy of input / output args for consistent sorting
-        args = sorted(set([x.name for x in self.input_args[self.name] +
-                           self.output_args[self.name]]))
+        args = [x.name for x in self.input_args[self.name] +
+                self.output_args[self.name]]
         for key in data:
             data[key] = utils.kernel_argument_ordering(
                 data[key], dummy_args=args, kernel_type=self.kernel_type,
@@ -1059,7 +1059,7 @@ class kernel_generator(object):
         """
         Returns the ordered kernel arguments for this :class:`kernel_generator`
         """
-        sorting_args = sorted(self.in_arrays + self.out_arrays)
+        sorting_args = self.in_arrays + self.out_arrays
         return utils.kernel_argument_ordering(args, self.kernel_type,
                                               for_validation=self.for_validation,
                                               dummy_args=sorting_args)
@@ -1262,7 +1262,6 @@ class kernel_generator(object):
 
         # update callgen
         callgen = callgen.copy(
-            name=self.name,
             local_size=vec_width,
             order=self.loopy_opts.order,
             lang=self.lang,
@@ -2788,7 +2787,8 @@ class kernel_generator(object):
             [self._with_target(p_size)] + work_arrays)
 
         # update callgen
-        callgen = callgen.copy(source_names=callgen.source_names + [filename],
+        callgen = callgen.copy(name=self.name,
+                               source_names=callgen.source_names + [filename],
                                max_ic_per_run=int(max_ic_per_run),
                                max_ws_per_run=int(max_ws_per_run),
                                input_args={self.name: [
