@@ -5,4 +5,5 @@ six
 pyyaml
 cgen
 cogapp
+Cython
 Cerberus > 1.1

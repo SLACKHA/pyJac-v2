@@ -92,13 +92,13 @@ setup(
         'cgen',
         'cogapp',
         'cerberus>1.1',
+        'Cython',
         'enum34;python_version<"3.4"'],
 
     tests_require=[
           'nose',
           'nose-exclude',
           'nose-testconfig',
-          'Cython',
           'parameterized',
           'optionloop >= 1.0.7',
           'cantera >= 2.3.0',
