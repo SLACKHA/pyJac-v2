@@ -175,7 +175,7 @@ class loopy_options(object):
             assert work_size > 0, 'Work-size must be non-negative'
         self.work_size = work_size
 
-        if self._is_simd:
+        if self._is_simd or self.explicit_simd:
             assert width or depth, (
                 'Cannot use explicit SIMD types without vectorization')
 
@@ -253,9 +253,12 @@ class loopy_options(object):
                                  'non-explicit-SIMD vectorizations on the CPU.  '
                                  'Use the --explicit_simd flag.')
                     raise BrokenPlatformError(self)
-                logger.warn('You may wish to use the --explicit_simd flag to '
-                            'utilize explicit-vector data-types (and avoid implicit '
-                            'vectorization, which may yield sub-optimal results).')
+                if not self.explicit_simd and self._is_simd is None:
+                    # only warn if user didn't supply
+                    logger.warn('You may wish to use the --explicit_simd flag to '
+                                'utilize explicit-vector data-types (and avoid '
+                                'implicit vectorization, which may yield sub-optimal'
+                                ' results).')
 
     @property
     def is_simd(self):
