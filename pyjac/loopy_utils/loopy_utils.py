@@ -249,9 +249,9 @@ class loopy_options(object):
                 if 'intel' in self.platform_name.lower():
                     logger.error('Intel OpenCL is currently broken for wide, '
                                  'non-explicit-SIMD vectorizations on the CPU.  '
-                                 'Use the --explicit-simd flag.')
+                                 'Use the --explicit_simd flag.')
                     raise BrokenPlatformError(self)
-                logger.warn('You may wish to use the --explicit-simd flag to '
+                logger.warn('You may wish to use the --explicit_simd flag to '
                             'utilize explicit-vector data-types (and avoid implicit '
                             'vectorization, which may yield sub-optimal results).')
 
