@@ -87,7 +87,7 @@ def test_load_test_platforms():
         return arr == [2, 4, None] or arr == [2, 4]
     assert __fuzz_equal(amd['width'])
     assert __fuzz_equal(amd['depth'])
-    assert amd['depth'] != amd['width']
+    assert amd['depth'] == amd['width']
 
     # openmp
     openmp = next(p for p in platforms if 'openmp' in p['platform'].lower())
