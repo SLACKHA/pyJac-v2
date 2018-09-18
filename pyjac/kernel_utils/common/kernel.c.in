@@ -62,7 +62,13 @@ Kernel::~Kernel()
 if callgen.lang == 'opencl':
     cog.outl('const char* Kernel::build_options = "{}";'.format(callgen.build_options))
     cog.outl('const char* Kernel::platform_check = "{}";'.format(callgen.platform))
-    cog.outl('const unsigned int Kernel::device_type = {};'.format(int(callgen.device_type)));
+    try:
+        device_type = int(callgen.device_type)
+    except ValueError:
+        assert isinstance(callgen.device_type, str)
+        device_type = callgen.device_type
+
+    cog.outl('const unsigned int Kernel::device_type = {};'.format(device_type))
 ]]]
 [[[end]]]*/
 

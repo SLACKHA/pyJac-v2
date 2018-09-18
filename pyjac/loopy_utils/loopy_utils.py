@@ -217,6 +217,8 @@ class loopy_options(object):
                     raise MissingDeviceError(self.device_type, self.platform)
                 self.device = self.device[0]
                 self.device_type = self.device.get_info(cl.device_info.TYPE)
+        elif self.lang == 'opencl':
+            self.device_type = 'CL_DEVICE_TYPE_ALL'
 
         # check for broken vectorizations
         self.raise_on_broken()
