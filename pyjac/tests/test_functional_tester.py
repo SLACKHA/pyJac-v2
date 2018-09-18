@@ -4,8 +4,8 @@ from __future__ import division
 
 import sys
 
-from pyjac.core.functional_tester import partially_stirred_reactor  # noqa
-from pyjac.core.functional_tester import test # noqa
+from pyjac.functional_tester import partially_stirred_reactor  # noqa
+from pyjac.functional_tester import test # noqa
 
 
 class TestPartiallyStirredReactor(object):
