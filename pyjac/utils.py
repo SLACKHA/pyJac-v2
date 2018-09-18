@@ -7,80 +7,119 @@ import os
 import errno
 import argparse
 import logging.config
-import yaml
-import functools
+import sys
+import subprocess
+from contextlib import contextmanager
+import shutil
+import tempfile
+from string import Template
+import re
+import textwrap
+
 import six
+from six.moves import reduce
+import yaml
+
+from pyjac.core import exceptions
 
 __all__ = ['langs', 'file_ext', 'header_ext', 'line_end', 'exp_10_fun',
            'get_species_mappings', 'get_nu', 'read_str_num', 'split_str',
-           'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser']
+           'create_dir', 'reassign_species_lists', 'is_integer', 'get_parser',
+           'platform_is_gpu', 'stringify_args', 'partition', 'enum_to_string',
+           'listify']
 
 langs = ['c', 'opencl']  # ispc' , 'cuda'
 """list(`str`): list of supported languages"""
 
+package_lang = {'opencl': 'ocl',
+                'c': 'c'}
+"""dict: str->str
+   short-names for the python wrappers for each language
+"""
 
-def stringify_args(arglist, kwd=False, joiner=', '):
+indent = ' ' * 4
+"""
+Standard indentation
+"""
+
+
+def platform_is_gpu(platform):
+    """
+    Attempts to determine if the given platform name corresponds to a GPU
+
+    Parameters
+    ----------
+    platform_name: str or :class:`pyopencl.platform`
+        The name of the platform to check
+
+    Returns
+    -------
+    is_gpu: bool or None
+        True if platform found and the device type is GPU
+        False if platform found and the device type is not GPU
+        None otherwise
+    """
+    # filter out C or other non pyopencl platforms
+    if not platform:
+        return False
+    if isinstance(platform, six.string_types) and 'nvidia' in platform.lower():
+        return True
+    try:
+        import pyopencl as cl
+        if isinstance(platform, cl.Platform):
+            return platform.get_devices()[0].type == cl.device_type.GPU
+
+        for p in cl.get_platforms():
+            if platform.lower() in p.name.lower():
+                # match, get device type
+                dtype = set(d.type for d in p.get_devices())
+                assert len(dtype) == 1, (
+                    "Mixed device types on platform {}".format(p.name))
+                # fix cores for GPU
+                if cl.device_type.GPU in dtype:
+                    return True
+                return False
+    except ImportError:
+        pass
+    return None
+
+
+def stringify_args(arglist, kwd=False, joiner=', ', use_quotes=False,
+                   remove_empty=True):
+    template = '{}' if not use_quotes else '"{}"'
     if kwd:
-        return joiner.join('{}={}'.format(str(k), str(v))
+        template = template + '=' + template
+        return joiner.join(template.format(str(k), str(v))
                            for k, v in six.iteritems(arglist))
     else:
-        return joiner.join(str(a) for a in arglist)
+        if remove_empty:
+            arglist = [x for x in arglist if x]
+        return joiner.join(template.format(str(a)) for a in arglist)
 
 
-def func_logger(*args, **kwargs):
-    # This wrapper is to be used to provide a simple function decorator that logs
-    # function exit / entrance, as well as optional logging of arguements, etc.
+def partition(tosplit, predicate):
+    """
+    Splits the list :param:`tosplit` based on the :param:`predicate` applied to each
+    list element and returns the two resulting lists
 
-    cname = kwargs.pop('name', '')
-    log_args = kwargs.pop('log_args', False)
-    allowed_errors = kwargs.pop('allowed_errors', [])
+    Parameters
+    ----------
+    tosplit: list
+        The list to split
+    predicate: :class:`six.Callable`
+        A callable predicate that takes as an argument a list element to test.
 
-    assert not len(kwargs), 'Unknown keyword args passed to @func_logger: {}'.format(
-        stringify_args(kwargs, True))
-
-    def decorator(func):
-        """
-        A decorator that wraps the passed in function and logs
-        exceptions should one occur
-        """
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            logger = logging.getLogger(__name__)
-            try:
-                name = func.__name__
-                if cname:
-                    name = cname + '::' + name
-                msg = 'Entering function {}'.format(name)
-                if log_args:
-                    msg += ', with arguments: {} and keyword args: {}'.format(
-                        stringify_args(args),
-                        stringify_args(kwargs, True))
-                logger.debug(msg)
-                return func(*args, **kwargs)
-            except Exception as e:
-                # we've explicitly allowed these
-                log = logger.exception
-                if any(isinstance(e, a) for a in allowed_errors):
-                    log = logger.debug
-                    err = 'Allowed error of type {} in '.format(str(e))
-                else:
-                    err = "There was an unhandled exception in "
-                # log the exception
-                err += func.__name__
-                log(err)
-                # re-raise the exception
-                raise e
-            finally:
-                logging.debug('Exiting function {}'.format(name))
-        return wrapper
-    if len(args):
-        assert len(args) == 1, (
-            ('Unknown arguements passed to @func_logger: {}.'
-             ' Was expecting a function and possible keywords.'.format(
-                stringify_args(args))))
-        return decorator(args[0])
-    return decorator
+    Returns
+    -------
+    true_list: list
+        The list of elements in :param:`tosplit` for which :param:`predicate` were
+        True
+    false_list: list
+        The list of elements in :param:`tosplit` for which :param:`predicate` were
+        False
+    """
+    return reduce(lambda x, y: x[not predicate(y)].append(y) or x, tosplit,
+                  ([], []))
 
 
 file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
@@ -105,6 +144,132 @@ exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
                   opencl='exp10({val})', fortran='exp(log(10) * {val})'
                   )
 """dict: exp10 functions for various languages"""
+
+
+def kernel_argument_ordering(args, kernel_type, for_validation=False,
+                             dummy_args=None):
+    """
+    A convenience method to ensure that we have a consistent set of argument
+    orderings throughout pyJac
+
+    Parameters
+    ----------
+    args: list of str, or :class:`loopy.KernelArgument`'s
+        The arguments to determine the order of
+    kernel_type: :class:`KernelType`
+        The type of kernel to use (to avoid spurious placements of non-arguments)
+    for_validation: bool [False]
+        If True, this kernel is being used for validation (affects which arguments
+        are considered kernel arguments)
+    dummy_args: list of str [None]
+        The kernel arguments to be used if :param:`kernel_type` == `KernelType.dummy`
+
+    Returns
+    -------
+    ordered_args: list of str or :class:`loopy.KernelArgument`
+        The ordered kernel arguments
+    """
+
+    from pyjac.core import array_creator as arc
+    from pyjac.core.enum_types import KernelType
+    from pyjac.kernel_utils.kernel_gen import rhs_work_name, local_work_name, \
+        int_work_name, time_array
+    # first create a mapping of names -> original arguments
+    mapping = {}
+    for arg in args:
+        try:
+            mapping[arg.name] = arg
+        except AttributeError:
+            # str
+            mapping[arg] = arg
+
+    value_args = [arc.problem_size.name, arc.work_size.name, time_array.name]
+    va, nva = partition(mapping.keys(), lambda x: x in value_args)
+
+    # now sort ordered by name
+    ordered = sorted(va, key=lambda x: value_args.index(x))
+
+    # next, repeat with kernel arguments
+    if kernel_type != KernelType.dummy:
+        kernel_args = [arc.pressure_array, arc.volume_array, arc.state_vector]
+        if kernel_type == KernelType.jacobian:
+            kernel_args += [arc.jacobian_array]
+        elif kernel_type == KernelType.species_rates:
+            kernel_args += [arc.state_vector_rate_of_change]
+            if for_validation:
+                kernel_args += [
+                    arc.forward_rate_of_progress, arc.reverse_rate_of_progress,
+                    arc.pressure_modification, arc.net_rate_of_progress]
+        elif kernel_type == KernelType.chem_utils:
+            kernel_args += [arc.enthalpy_array, arc.internal_energy_array,
+                            arc.constant_pressure_specific_heat,
+                            arc.constant_volume_specific_heat]
+    else:
+        assert dummy_args
+        kernel_args = listify(dummy_args)
+
+    # and finally, add the work arrays
+    kernel_args += [rhs_work_name, int_work_name, local_work_name]
+
+    # sort non-kernel-data & append
+    kd, nkd = partition(nva, lambda x: x in kernel_args)
+
+    # add non-kernel-data
+    ordered.extend(sorted(nkd))
+
+    # and sorted kernel data
+    ordered.extend(sorted(kd, key=lambda x: kernel_args.index(x)))
+
+    return [mapping[x] for x in ordered]
+
+
+class PowerFunction(object):
+    """
+    A simple wrapper that contains the name of a power function for a given language
+    as well as any options
+    """
+
+    def __init__(self, name, lang, guard_nonzero=False):
+        self.name = name
+        self.lang = lang
+        self.guard_nonzero = guard_nonzero
+
+    def __repr__(self):
+        return self.name
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __call__(self, base, power):
+        template = '{func}({base}, {power})'
+        guard = 'fmax(1e-300d, {base})'
+        if self.guard_nonzero:
+            guard = guard.format(base=base)
+            return template.format(func=self, base=guard, power=power)
+        return template.format(func=self, base=base, power=power)
+
+
+def power_function(lang, is_integer_power=False, is_positive_power=False,
+                   guard_nonzero=False):
+    """
+    Returns the best power function to use for a given :param:`lang` and
+    choice of :param:`is_integer_power` / :param:`is_positive_power`
+    """
+
+    if lang == 'opencl' and is_integer_power:
+        # opencl has it's own integer power function
+        # this also is nice for loopy, as it handles the vectorizability check
+        return PowerFunction('pown', lang, guard_nonzero=guard_nonzero)
+    elif lang == 'opencl' and is_positive_power:
+        # opencl positive power function -- no need for guard
+        return PowerFunction('powr', lang)
+    elif is_integer_power:
+        # use internal integer power function
+        return PowerFunction('fast_powi', lang, guard_nonzero=guard_nonzero)
+    else:
+        # use default
+        return PowerFunction('pow', lang, guard_nonzero=guard_nonzero)
+
 
 inf_cutoff = 1e285
 """float: A cutoff above which values are considered infinite.
@@ -136,6 +301,29 @@ def setup_logging(
     logging.getLogger('pyopencl').setLevel(logging.WARNING)
     logging.getLogger('pytools').setLevel(logging.WARNING)
     logging.getLogger('codepy').setLevel(logging.WARNING)
+
+
+def clean_dir(dirname, remove_dir=True):
+    if not os.path.exists(dirname):
+        return
+    for file in os.listdir(dirname):
+        if os.path.isfile(os.path.join(dirname, file)):
+            os.remove(os.path.join(dirname, file))
+    if remove_dir:
+        shutil.rmtree(dirname, ignore_errors=True)
+
+
+@contextmanager
+def temporary_directory(cleanup=True):
+    dirpath = tempfile.mkdtemp()
+    owd = os.getcwd()
+    try:
+        os.chdir(dirpath)
+        yield dirpath
+    finally:
+        os.chdir(owd)
+        if cleanup:
+            clean_dir(dirpath, remove_dir=True)
 
 
 class EnumType(object):
@@ -174,6 +362,43 @@ def enum_to_string(enum):
 
     enum = str(enum)
     return enum[enum.index('.') + 1:]
+
+
+def to_enum(enum, enum_type):
+    """
+    Attempt to convert the :param:`enum` to type :param:`enum_type`.
+    If :param:`estr` is already an Enum, no effect.
+
+    Parameters
+    ----------
+    enum: str or instance of :class:`Enum`
+        The string or (already converted) enum type to convert
+    enum_type: :class:`Enum`
+        The type of Enum to convert to
+
+    Returns
+    -------
+    enum: :class:`Enum`
+        The converted enum
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If an improper enum type is specified
+    InvalidInputSpecificationException
+        If the :param:`enum` is an Enum but not of the same type as
+        :param:`enum_type`
+    """
+
+    try:
+        return EnumType(enum_type)(enum)
+    except AttributeError:
+        # not a string
+        if enum not in enum_type:
+            logger = logging.getLogger()
+            logger.error('Enum {} is not of type {}'.format(enum, enum_type))
+            raise exceptions.InvalidInputSpecificationException(enum)
+        return enum
 
 
 def is_iterable(value):
@@ -412,19 +637,42 @@ def is_integer(val):
     """
     try:
         return val.is_integer()
-    except:
+    except AttributeError:
         if isinstance(val, int):
             return True
         # last ditch effort
         try:
             return int(val) == float(val)
-        except:
+        except (ValueError, TypeError):
             return False
+
+
+def run_with_our_python(command):
+    """
+    Run the given :param:`command` through subprocess, attempting as best as possible
+    to utilize the same python intepreter as is currently running.
+
+    Notes
+    -----
+    Does not perform any error checking, the calling code is responsible for this.
+
+    Params
+    ------
+    command: list of str
+        The subprocess command to run
+
+    Returns
+    -------
+    None
+    """
+
+    cmd = [sys.executable]
+    subprocess.check_call(cmd + command, env=os.environ.copy())
 
 
 def check_lang(lang):
     """
-    Checks that 'lang' is a valid identified
+    Checks that 'lang' is a valid identifier
 
     Parameters
     ----------
@@ -437,6 +685,130 @@ def check_lang(lang):
     """
     if lang not in langs:
         raise NotImplementedError('Language {} not supported'.format(lang))
+
+
+def check_order(order):
+    """
+    Checks that the :param:`order` is valid
+
+    Parameters
+    ----------
+    order: ['C', 'F']
+        The order to use, 'C' corresponds to a row-major data ordering, while
+        'F' is a column-major data ordering.  See `row major`_ and `col major`_
+        for more info
+
+    .. _row major: https://docs.scipy.org/doc/numpy/glossary.html#term-row-major
+    .. _col major: https://docs.scipy.org/doc/numpy/glossary.html#term-column-major
+
+    Notes
+    -----
+    :class:`InvalidInputSpecificationException` raised if :param:`order` is not
+        valid
+    """
+
+    if order not in ['C', 'F']:
+        logger = logging.getLogger(__name__)
+        logger.error("Invalid data-ordering ('{}') supplied, allowed values are 'C'"
+                     " and 'F'".format(order))
+        raise exceptions.InvalidInputSpecificationException('order')
+
+
+def _find_indent(template_str, key, value):
+    """
+    Finds and returns a formatted value containing the appropriate
+    whitespace to put 'value' in place of 'key' for template_str
+
+    Parameters
+    ----------
+    template_str : str
+        The string to sub into
+    key : str
+        The key in the template string
+    value : str
+        The string to format
+
+    Returns
+    -------
+    formatted_value : str
+        The properly indented value
+    """
+
+    # find the instance of ${key} in kernel_str
+    whitespace = None
+    for i, line in enumerate(template_str.split('\n')):
+        if key in line:
+            # get whitespace
+            whitespace = re.match(r'\s*', line).group()
+            break
+    if whitespace is None:
+        raise Exception('Key {} not found in template: {}'.format(key, template_str))
+    result = [line if i == 0 else whitespace + line for i, line in
+              enumerate(textwrap.dedent(value).splitlines())]
+    return '\n'.join(result)
+
+
+def subs_at_indent(template_str, **kwargs):
+    """
+    Substitutes keys of :params:`kwargs` for values in :param:`template_str`
+    ensuring that the indentation of the value is the same as that of the key
+    for all lines present in the value
+
+    Parameters
+    ----------
+    template_str : str
+        The string to sub into
+    kwargs: dict
+        The dictionary of keys -> values to substituted into the template
+    Returns
+    -------
+    formatted_value : str
+        The formatted string
+    """
+
+    return Template(template_str).safe_substitute(
+        **{key: _find_indent(template_str, '${{{key}}}'.format(key=key),
+                             value if isinstance(value, str) else str(value))
+            for key, value in six.iteritems(kwargs)})
+
+
+def copy_with_extension(lang, file, topath, frompath=None, header=False):
+    """
+    Copies :param:`file` to :param:`topath`, while changing the extension to
+    match that of the given :param:`lang`
+
+    Parameters
+    ----------
+    lang : str
+        The language to determine the extension of
+    file : str
+        Either the full path to the file, or the filename to copy
+    topath : str
+        The path to copy the modified file to
+    frompath : str [None]
+        If specified, :param:`file` is a filename, and is located at
+        :param:`frompath`
+    header : bool [False]
+        If true, this file is a header (and we should use the header extensions)
+
+
+    Returns
+    -------
+    None
+    """
+
+    if frompath:
+        file = os.path.join(frompath, file)
+
+    base_name = os.path.basename(file)
+    outfile = os.path.join(topath, base_name)
+
+    # replace extension
+    ext = header_ext[lang] if header else file_ext[lang]
+    outfile = outfile[:outfile.rindex('.')] + ext
+
+    # and copy
+    shutil.copyfile(file, outfile)
 
 
 def get_parser():
@@ -452,6 +824,10 @@ def get_parser():
         Command line arguments for running pyJac.
 
     """
+
+    # import enums
+    from pyjac.core.enum_types import KernelType, RateSpecialization, \
+        JacobianFormat, JacobianType
 
     # command line arguments
     parser = argparse.ArgumentParser(description='pyJac: Generates source code '
@@ -473,30 +849,31 @@ def get_parser():
                         help='Thermodynamic database filename (e.g., '
                              'therm.dat), or nothing if in mechanism.'
                         )
-    parser.add_argument('-v', '--vector_size',
+    parser.add_argument('-w', '--width',
+                        required=False,
                         type=int,
-                        default=0,
+                        default=None,
+                        help='Use a "wide" vectorization of vector-width "width".'
+                        'The calculation of the Jacobian / source terms'
+                        ' is vectorized over the entire set of thermo-chemical '
+                        'states.  That is, each work-item (CUDA thread) '
+                        'operates independently.')
+    parser.add_argument('-d', '--depth',
                         required=False,
-                        help='The SIMD/SIMT vector width to use in code-generation.'
-                             '  This corresponds to the "blocksize" in CUDA'
-                             'terminology.')
-    parser.add_argument('-w', '--wide',
+                        type=int,
+                        default=None,
+                        help='Use a "deep" vectorization of vector-width "depth".'
+                        'The calculation of the Jacobian / source terms'
+                        ' is vectorized over each individaul thermo-chemical '
+                        'state.  That is, the various work-items (CUDA threads) '
+                        'cooperate.')
+    parser.add_argument('-e', '--explicit_simd',
                         required=False,
                         default=False,
                         action='store_true',
-                        help='Use a "wide" vectorization, where the calculation '
-                        'of Jacobian / species rates is vectorized over the '
-                        'set of thermo-chemical state.  That is, each '
-                        'work-item (CUDA thread) operates independently.')
-    parser.add_argument('-d', '--deep',
-                        required=False,
-                        default=False,
-                        action='store_true',
-                        help='Use a "deep" vectorization, where the calculation '
-                        'of Jacobian / species rates is vectorized within each '
-                        'thermo-chemical state.  That is, all the work-items '
-                        '(CUDA threads) operates cooperate to evaluate a single '
-                        'state.')
+                        help='Use explicit-SIMD instructions in OpenCL if possible. '
+                             'Note: currently available for wide-vectorizations '
+                             'only.')
     parser.add_argument('-u', '--unroll',
                         type=int,
                         default=None,
@@ -520,12 +897,12 @@ def get_parser():
                              'the mechanism. If not specifed, defaults to '
                              'the first of N2, AR, and HE in the mechanism.'
                         )
-    parser.add_argument('-sj', '--skip_jac',
+    parser.add_argument('-k', '--kernel_type',
                         required=False,
-                        default=False,
-                        action='store_true',
-                        help='If specified, this option turns off Jacobian '
-                             'generation i.e. only the rate subs are generated')
+                        type=EnumType(KernelType),
+                        default='jacobian',
+                        help='The type of kernel to generate: {type}'.format(
+                            type=str(EnumType(KernelType))))
     parser.add_argument('-p', '--platform',
                         required=False,
                         default='',
@@ -534,7 +911,7 @@ def get_parser():
                              'to run on, e.g. "Intel", "nvidia", "pocl". '
                              'Must be supplied to properly generate the compilation '
                              'wrapper for OpenCL code, but may be ignored if not '
-                             'using the OpenCL target.')
+                             'using the OpenCL target.'),
     parser.add_argument('-o', '--data_order',
                         default='C',
                         type=str,
@@ -542,24 +919,24 @@ def get_parser():
                         help="The data ordering, 'C' (row-major, recommended for "
                         "CPUs) or 'F' (column-major, recommended for GPUs)")
     parser.add_argument('-rs', '--rate_specialization',
-                        type=str,
                         default='hybrid',
-                        choices=['fixed', 'hybrid', 'full'],
+                        type=EnumType(RateSpecialization),
                         help="The level of specialization in evaluating reaction "
                         "rates. 'Full' is the full form suggested by Lu et al. "
                         "(citation) 'Hybrid' turns off specializations in the "
                         "exponential term (Ta = 0, b = 0) 'Fixed' is a fixed"
-                        " expression exp(logA + b logT + Ta / T)")
-    parser.add_argument('-rk', '--split_rate_kernels',
-                        type=bool,
-                        default=True,
-                        help="If True, and the :param`rate_specialization` is not "
-                        "'Fixed', split different rate evaluation types into "
-                        "different kernels")
-    parser.add_argument('-rn', '--split_rop_net_kernels',
-                        type=bool,
+                        " expression exp(logA + b logT + Ta / T).  Choices:"
+                        ' {type}'.format(type=str(EnumType(RateSpecialization))))
+    parser.add_argument('-rk', '--fused_rate_kernels',
                         default=False,
-                        help="If True, break evaluation of different rate of "
+                        action='store_true',
+                        help="If supplied, and the :param`rate_specialization` "
+                        "is not 'Fixed', different rate evaluation will be evaluated"
+                        " into in the same function.")
+    parser.add_argument('-rn', '--split_rop_net_kernels',
+                        default=False,
+                        action='store_true',
+                        help="If supplied, break evaluation of different rate of "
                         "progress values (fwd / back / pdep) into different "
                         "kernels. Note that for a deep vectorization this will "
                         "introduce additional synchronization requirements.")
@@ -570,18 +947,28 @@ def get_parser():
                         help='If supplied, use the constant volume assumption in '
                         'generation of the rate subs / Jacobian code. Otherwise, '
                         'use the constant pressure assumption [default].')
-    parser.add_argument('-n', '--no_atomics',
-                        dest='use_atomics',
+    parser.add_argument('-nad', '--no_atomic_doubles',
+                        dest='use_atomic_doubles',
                         action='store_false',
                         required=False,
                         help='If supplied, the targeted language / platform is not'
-                        'capable of using atomic instructions.  This affects how'
-                        'deep vectorization code is generated, and will force any'
-                        'potential data-races to be run in serial/sequential form, '
-                        'resulting in suboptimal deep vectorizations.'
+                        'capable of using atomic instructions for double-precision '
+                        'floating point types. This affects how deep vectorization '
+                        'code is generated, and will force any potential data-races '
+                        'to be run in serial/sequential form, resulting in '
+                        'suboptimal deep vectorizations.'
+                        )
+    parser.add_argument('-nai', '--no_atomic_ints',
+                        dest='use_atomic_ints',
+                        action='store_false',
+                        required=False,
+                        help='If supplied, the targeted language / platform is not'
+                        'capable of using atomic instructions for single-precision '
+                        'integer types. This affects the generated driver kernel, '
+                        'see "Driver Kernel Types" in the documentation.'
                         )
     parser.add_argument('-jt', '--jac_type',
-                        choices=['exact', 'approximate', 'finite_difference'],
+                        type=EnumType(JacobianType),
                         required=False,
                         default='exact',
                         help='The type of Jacobian kernel to generate.  An '
@@ -592,28 +979,27 @@ def get_parser():
                         'directly, or as a third-body species with a non-unity '
                         'efficiency, but gives results in an approxmiate Jacobian, '
                         'and thus is more suitable to use with implicit integration '
-                        'techniques.'
+                        'techniques. Choices: {type}'.format(
+                            type=str(EnumType(JacobianType)))
                         )
     parser.add_argument('-jf', '--jac_format',
-                        choices=['sparse', 'full'],
+                        type=EnumType(JacobianFormat),
                         required=False,
                         default='sparse',
                         help='If "sparse", the Jacobian will be encoded using a '
                         'compressed row or column storage format (for a data order '
-                        'of "C" and "F" respectively).'
+                        'of "C" and "F" respectively). Choices: {type}'.format(
+                            type=str(EnumType(JacobianFormat)))
                         )
-    parser.add_argument('-f', '--fixed_size',
+    parser.add_argument('-s', '--work_size',
                         required=False,
                         default=None,
                         type=int,
                         help='If specified, this is the number of thermo-chemical '
-                             'states that pyJac should evaluate in the generated '
-                             'source code.  This is most useful for limiting the '
-                             'number of states to one (in order to couple with an '
-                             'external library that that has already been '
-                             'parallelized, e.g., via OpenMP).  This setting will '
-                             'also fix array strides as discussed in the '
-                             'documentation.'
+                             'states that pyJac should evaluate concurrently in the '
+                             'generated source code. This option is most useful '
+                             'for coupling to an external library that that has '
+                             'already been parallelized, e.g., via OpenMP.'
                         )
     parser.add_argument('-m', '--memory_limits',
                         required=False,
@@ -625,34 +1011,36 @@ def get_parser():
                              'code may allocate.  Useful for testing, or otherwise '
                              'limiting memory usage during runtime. '
                              'The keys of this file are the members of '
-                             ':class:`pyjac.kernel_utils.memory_manager.mem_type`')
+                             ':class:`pyjac.kernel_utils.memory_limits.mem_type`')
 
     args = parser.parse_args()
     return args
 
 
-def create():
+def create(**kwargs):
     args = get_parser()
-    from .core.create_jacobian import create_jacobian
+    vars(args).update(kwargs)
+    from pyjac.core.create_jacobian import create_jacobian
     create_jacobian(lang=args.lang,
                     mech_name=args.input,
                     therm_name=args.thermo,
-                    vector_size=args.vector_size,
-                    wide=args.wide,
-                    deep=args.deep,
+                    width=args.width,
+                    depth=args.depth,
                     unr=args.unroll,
                     build_path=args.build_path,
                     last_spec=args.last_species,
-                    skip_jac=args.skip_jac,
+                    kernel_type=args.kernel_type,
                     platform=args.platform,
                     data_order=args.data_order,
                     rate_specialization=args.rate_specialization,
-                    split_rate_kernels=args.split_rate_kernels,
+                    split_rate_kernels=not args.fused_rate_kernels,
                     split_rop_net_kernels=args.split_rop_net_kernels,
                     conp=args.conp,
-                    use_atomics=args.use_atomics,
+                    use_atomic_doubles=args.use_atomic_doubles,
+                    use_atomic_ints=args.use_atomic_ints,
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,
-                    fixed_size=args.fixed_size
+                    work_size=args.work_size,
+                    explicit_simd=args.explicit_simd
                     )
