@@ -3397,8 +3397,9 @@ class opencl_kernel_generator(kernel_generator):
 
         cast = ''
         if self.loopy_opts.is_simd:
-            # convert to double4 etc.
-            dtype += str(self.vec_width)
+            # convert to double4 etc
+            if not set_null:
+                dtype += str(self.vec_width)
             cast = '({} {}*)'.format(scope_str, dtype)
 
         if set_null:
