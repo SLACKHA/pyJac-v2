@@ -1209,7 +1209,7 @@ class OptionLoopWrapper(object):
             except BrokenPlatformError as e:
                 # expected
                 logger = logging.getLogger(__name__)
-                logger.info('Skipping bad platform: {}'.format(e.message))
+                logger.debug('Skipping bad platform: {}'.format(e.message))
                 continue
             if self.yield_index:
                 return (i, opts)
@@ -1974,38 +1974,8 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
                     return False
                 return value
 
-            def __change_limit(keylist):
-                subdict = mech_info['limits']
-                keylist = [str(key)[str(key).index('.') + 1:].lower()
-                           for key in keylist]
-                for i, key in enumerate(keylist):
-                    if key not in subdict:
-                        return
-                    if i < len(keylist) - 1:
-                        # recurse
-                        subdict = subdict[key]
-                    else:
-                        lim = int(np.floor(subdict[key] / max_vec_width)
-                                  * max_vec_width)
-                        if lim != subdict[key]:
-                            subdict[key] = lim
-                            logger = logging.getLogger(__name__)
-                            logger.info(
-                                'Changing limit for mech {name} ({keys}) '
-                                'from {old} to {new} to ensure even '
-                                'divisbility by vector width'.format(
-                                    name=mech_name,
-                                    keys='.'.join(keylist),
-                                    old=subdict[key],
-                                    new=lim))
-
             for ktype in mech_info['limits']:
                 ktype = __try_convert(KernelType, ktype)
-                if ktype == KernelType.jacobian:
-                    __change_limit([ktype, JacobianFormat.sparse])
-                    __change_limit([ktype, JacobianFormat.full])
-                else:
-                    __change_limit([ktype])
 
         # set T / P arrays from data
         T = data[:num_conditions, 0].flatten()
@@ -2124,7 +2094,7 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
             except BrokenPlatformError as e:
                 # expected
                 logger = logging.getLogger(__name__)
-                logger.info('Skipping bad platform: {}'.format(e.message))
+                logger.debug('Skipping bad platform: {}'.format(e.message))
                 continue
 
             run.run(wrapper.state.copy(), dirs, phi_path, data_output,

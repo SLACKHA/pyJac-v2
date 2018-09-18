@@ -1024,7 +1024,7 @@ def get_parser():
                         const=logging.DEBUG,
                         dest='loglevel',
                         help='Increase verbosity of logging / output messages.',
-                        default=logging.WARNING)
+                        default=logging.INFO)
     args = parser.parse_args()
     return args
 

@@ -169,7 +169,7 @@ class loopy_options(object):
         self.explicit_simd_warned = False
         if self.lang != 'opencl' and self.explicit_simd:
             logger = logging.getLogger(__name__)
-            logger.info('explicit-SIMD flag has no effect on non-OpenCL targets.')
+            logger.warn('explicit-SIMD flag has no effect on non-OpenCL targets.')
         self.kernel_type = utils.to_enum(kernel_type, KernelType)
         if work_size:
             assert work_size > 0, 'Work-size must be non-negative'
@@ -292,7 +292,7 @@ class loopy_options(object):
         if not cl:
             if not self.explicit_simd and not self.explicit_simd_warned:
                 logger = logging.getLogger(__name__)
-                logger.info('Cannot determine whether to use explicit-SIMD '
+                logger.warn('Cannot determine whether to use explicit-SIMD '
                             'instructions as PyOpenCL was not found.  Either '
                             'install PyOpenCL or use the "--explicit_simd" '
                             'command line argument. Assuming not SIMD.')

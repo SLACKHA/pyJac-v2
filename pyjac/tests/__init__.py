@@ -29,12 +29,12 @@ def _get_test_input(key, default=''):
     if key in config:
         logger = logging.getLogger(__name__)
         in_config = True
-        logger.info('Loading value {} = {} from testconfig'.format(
+        logger.debug('Loading value {} = {} from testconfig'.format(
             key, config[key.lower()]))
         value = config[key.lower()]
     if key.upper() in os.environ:
         logger = logging.getLogger(__name__)
-        logger.info('{}Loading value {} = {} from environment'.format(
+        logger.debug('{}Loading value {} = {} from environment'.format(
             'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
         value = os.environ[key.upper()]
     return value

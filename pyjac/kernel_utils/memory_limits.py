@@ -247,7 +247,7 @@ class memory_limits(object):
             if old != limit:
                 stype = str(mtype)
                 stype = stype[stype.index('.') + 3:]
-                logger.info(
+                logger.debug(
                     'Allocation of {} memory array {} '
                     'may result in integer overflow in indexing, and '
                     'cause failure on execution, limiting per-run size to {}.'
@@ -415,8 +415,8 @@ class memory_limits(object):
                     # check in memory type
                     key = 'm_' + key
                     # update with enum
-                    logger.info('Overriding memory-limit for type {} from value '
-                                '({}) to value ({}) from {} limits.'.format(
+                    logger.debug('Overriding memory-limit for type {} from value '
+                                 '({}) to value ({}) from {} limits.'.format(
                                     key,
                                     limits[mtype(key)] if mtype(key) in limits
                                     else None, value,

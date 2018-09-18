@@ -480,7 +480,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
             plats = [plat for plat in plats
                      if plat['platform'] in test['platforms']]
             if len(plats) < len(platforms):
-                logger.info('Platforms ({}) filtered out for test type: {}'.format(
+                logger.debug('Platforms ({}) filtered out for test type: {}'.format(
                     ', '.join([p['platform'] for p in platforms if p not in plats]),
                     ' - '.join([test['test-type'], test['eval-type']])))
         if not len(plats):
@@ -514,8 +514,8 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                 stype = state['stype']
 
                 def override_log(key, old, new):
-                    logging.info('Replacing {} for test type: {}. Old value:'
-                                 ' ({}), New value: ({})'.format(
+                    logging.debug('Replacing {} for test type: {}. Old value:'
+                                  ' ({}), New value: ({})'.format(
                                     key,
                                     stringify_args([
                                         ttype, test['eval-type'],
@@ -538,7 +538,7 @@ def get_test_matrix(work_dir, test_type, test_matrix, for_validation,
                         ttype, 'num_cores', matrix_name, 'num_threads')
                 elif 'num_cores' in overrides and is_gpu:
                     logger = logging.getLogger(__name__)
-                    logger.info(
+                    logger.debug(
                         'Discarding unused "num_cores" override for GPU '
                         'platform {}'.format(plookup['platform']))
                     del overrides['num_cores']
