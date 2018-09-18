@@ -243,6 +243,17 @@ class loopy_options(object):
                 logger.warn('Some GPU implementation(s)--NVIDIA--give incorrect'
                             'values sporadically without either a deep or wide'
                             'vectorization. Use at your own risk.')
+            if self.width and not self.is_simd and \
+                    self.device_type == cl.device_type.CPU:
+                logger = logging.getLogger(__name__)
+                if 'intel' in self.platform_name.lower():
+                    logger.error('Intel OpenCL is currently broken for wide, '
+                                 'non-explicit-SIMD vectorizations on the CPU.  '
+                                 'Use the --explicit-simd flag.')
+                    raise BrokenPlatformError(self)
+                logger.warn('You may wish to use the --explicit-simd flag to '
+                            'utilize explicit-vector data-types (and avoid implicit '
+                            'vectorization, which may yield sub-optimal results).')
 
     @property
     def is_simd(self):
