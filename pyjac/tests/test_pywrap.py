@@ -4,8 +4,8 @@ from __future__ import division
 
 import sys
 
-from ..pywrap import pywrap_gen
-from ..pywrap import parallel_compiler
+from pyjac.pywrap import pywrap_gen  # noqa
+
 
 class TestPywrap_gen(object):
     """
@@ -14,11 +14,3 @@ class TestPywrap_gen(object):
         """Ensure pywrap_gen module imported.
         """
         assert 'pyjac.pywrap.pywrap_gen' in sys.modules
-
-class TestParallelCompiler(object):
-    """
-    """
-    def test_imported(self):
-        """Ensure parallel_compiler module imported.
-        """
-        assert 'pyjac.pywrap.parallel_compiler' in sys.modules

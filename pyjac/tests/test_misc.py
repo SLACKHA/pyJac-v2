@@ -4,6 +4,7 @@ themselves
 """
 
 # standard library
+import sys
 from collections import OrderedDict
 
 # package includes
@@ -20,12 +21,14 @@ except ImportError:
 from pyjac.loopy_utils.loopy_utils import kernel_call
 from pyjac.core.array_creator import array_splitter, kint_type
 import pyjac.core.array_creator as arc
-from pyjac.utils import enum_to_string, listify, to_enum
 from pyjac import utils
+from pyjac.utils import enum_to_string, listify, to_enum
+from pyjac import utils  # noqa
 from pyjac.core.enum_types import (KernelType, JacobianFormat, JacobianType)
 from pyjac.tests.test_utils import get_comparable, skipif, dense_to_sparse_indicies,\
     select_elements, get_split_elements, sparsify, OptionLoopWrapper
 from pyjac.tests import set_seed
+
 
 set_seed()
 
@@ -382,3 +385,12 @@ def test_kernel_argument_ordering():
     assert utils.kernel_argument_ordering(args, KernelType.species_rates,
                                           for_validation=False) == [
         'a', 'b', arc.forward_rate_of_progress, arc.state_vector]
+
+
+class TestUtils(object):
+    """
+    """
+    def test_imported(self):
+        """Ensure utils module imported.
+        """
+        assert 'pyjac.utils' in sys.modules
