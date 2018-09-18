@@ -636,8 +636,9 @@ int main(int argc, char* argv[])
         compilation_time = GetTimer();
     }
 
-    double setup_time = GetTimer();
+    StartTimer();
     kernel.resize(problem_size, work_size, !compile);
+    double setup_time = GetTimer();
     StartTimer();
     /*[[[cog
       local_args = ', '.join([lmem.get_name(False, arr)
