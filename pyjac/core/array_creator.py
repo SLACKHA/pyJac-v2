@@ -13,7 +13,6 @@ import numpy as np
 from loopy.kernel.data import AddressSpace as scopes
 
 from pyjac.core.enum_types import JacobianFormat, JacobianType
-from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.utils import listify, partition
 
 
@@ -1669,6 +1668,8 @@ class jac_creator(creator):
         self.col_inds = kwargs.pop('col_inds')
         # enable non-sparse guarded Jacobian access for FD-jacobian
         self.is_sparse = kwargs.pop('is_sparse', True)
+
+        from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
         self.lookup_call = Template(Template(
             '${lookup}(${start}, ${end}, ${match})').safe_substitute(
                 lookup=lp_pregen.jac_indirect_lookup.name))
