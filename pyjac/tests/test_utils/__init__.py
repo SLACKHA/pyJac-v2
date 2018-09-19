@@ -1388,9 +1388,10 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
         return 'platform' in state and state['platform'] in bad_platforms
     oploops = OptionLoopWrapper.from_get_oploop(
             self, do_conp=True, do_vector=utils.can_vectorize_lang[lang],
-            langs=[lang], **oploop_kwds, skip_test=__skip_test,
+            langs=[lang], skip_test=__skip_test,
             yield_index=True, ignored_state_vals=exceptions,
-            do_sparse=ktype == KernelType.jacobian)
+            do_sparse=ktype == KernelType.jacobian,
+            **oploop_kwds)
 
     from pyjac.core.create_jacobian import determine_jac_inds
     sparse_answers = {}

@@ -38,7 +38,6 @@ from pyjac.core.array_creator import work_size as w_size
 from pyjac.core.array_creator import global_ind
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import DriverType, KernelType
-from pyjac.core import driver_kernels as drivers
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -708,7 +707,7 @@ class kernel_generator(object):
             self.jacobian_lookup = self.extra_preambles[-1].array.name
 
         # calls smuggled past loopy
-        self.fake_calls = fake_calls.copy()
+        self.fake_calls = fake_calls[:]
         # set testing
         self.for_testing = isinstance(test_size, int)
         # setup driver type
@@ -1322,9 +1321,9 @@ class kernel_generator(object):
 
         assert isinstance(temp, lp.TemporaryVariable)
         return lp.ArrayArg(
+            address_space=scopes.LOCAL,
             **{k: v for k, v in six.iteritems(vars(temp))
-               if k in ['name', 'shape', 'dtype', 'dim_tags']},
-            address_space=scopes.LOCAL)
+               if k in ['name', 'shape', 'dtype', 'dim_tags']})
 
     def _migrate_locals(self, kernel, ldecls):
         """
@@ -2660,6 +2659,8 @@ class kernel_generator(object):
         updated_callgen: :class:`CallgenResult`
             The updated callgen result w/ driver source, and IC limits added
         """
+
+        from pyjac.core import driver_kernels as drivers
 
         # make driver kernels
         knl_info = drivers.get_driver(

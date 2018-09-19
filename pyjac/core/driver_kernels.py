@@ -21,7 +21,7 @@ from pytools import UniqueNameGenerator
 from pyjac.utils import listify, stringify_args
 from pyjac.core.exceptions import InvalidInputSpecificationException
 from pyjac.core import array_creator as arc
-from pyjac.kernel_utils import kernel_gen as k_gen
+from pyjac.kernel_utils import knl_info
 from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 
 
@@ -112,8 +112,6 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         if arr_creator is None:
             continue
         arrays[arr] = arr_creator
-
-    del array_names
 
     if len(arrays) != len(to_find):
         missing = to_find - set(arrays.keys())
@@ -269,20 +267,20 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         priorities = ([arc.global_ind + '_outer'] if loopy_opts.pre_split else [
             arc.global_ind]) + [arc.var_name]
         # and return the kernel info
-        return k_gen.knl_info(name=name,
-                              instructions=instructions,
-                              mapstore=mapstore,
-                              var_name=arc.var_name,
-                              extra_inames=extra_inames,
-                              kernel_data=buffers + working_buffers + [
-                                arc.work_size, arc.problem_size, driver_offset],
-                              silenced_warnings=warnings,
-                              vectorization_specializer=vec_spec,
-                              split_specializer=split_spec,
-                              unrolled_vector=True,
-                              loop_priority=set([tuple(priorities + [
-                                iname[0] for iname in extra_inames])]),
-                              **kwargs)
+        return knl_info(name=name,
+                        instructions=instructions,
+                        mapstore=mapstore,
+                        var_name=arc.var_name,
+                        extra_inames=extra_inames,
+                        kernel_data=buffers + working_buffers + [
+                          arc.work_size, arc.problem_size, driver_offset],
+                        silenced_warnings=warnings,
+                        vectorization_specializer=vec_spec,
+                        split_specializer=split_spec,
+                        unrolled_vector=True,
+                        loop_priority=set([tuple(priorities + [
+                          iname[0] for iname in extra_inames])]),
+                        **kwargs)
 
     copy_in = create_interior_kernel(True)
     # create a dummy kernel info that simply calls our internal function
@@ -306,14 +304,14 @@ def get_driver(loopy_opts, namestore, inputs, outputs, driven,
         kwargs['iname_domain_override'] = [(arc.global_ind, '0 <= {} < 1'.format(
             arc.global_ind))]
 
-    func_call = k_gen.knl_info(name='driver',
-                               instructions=instructions,
-                               mapstore=mapstore,
-                               kernel_data=[arc.work_size, arc.problem_size],
-                               var_name=arc.var_name,
-                               extra_inames=copy_in.extra_inames[:],
-                               manglers=[mangler],
-                               **kwargs)
+    func_call = knl_info(name='driver',
+                         instructions=instructions,
+                         mapstore=mapstore,
+                         kernel_data=[arc.work_size, arc.problem_size],
+                         var_name=arc.var_name,
+                         extra_inames=copy_in.extra_inames[:],
+                         manglers=[mangler],
+                         **kwargs)
     copy_out = create_interior_kernel(False)
 
     # and return

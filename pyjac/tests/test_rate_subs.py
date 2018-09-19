@@ -503,10 +503,10 @@ class SubTest(TestClass):
                 get_cheb_arrhenius_rates),
             'fall': (
                 np.arange(len([i for i, x in enumerate(reacs)
-                               if x.match((reaction_type.fall,
-                               reaction_type.chem))])),
+                               if x.match((
+                                    reaction_type.fall, reaction_type.chem))])),
                 lambda *args, **kwargs: get_simple_arrhenius_rates(
-                    *args, **kwargs, falloff=True))}
+                    *args, falloff=True, **kwargs))}
 
         args = {'phi': lambda x: np.array(phi, order=x, copy=True)}
         if rtype != 'fall':

@@ -49,7 +49,7 @@ def __get_ref_answer(base, asplit):
     order = asplit.data_order
 
     def slicify(slicer, inds):
-        slicer = slicer.copy()
+        slicer = slicer[:]
         count = 0
         for i in range(len(slicer)):
             if not slicer[i]:
