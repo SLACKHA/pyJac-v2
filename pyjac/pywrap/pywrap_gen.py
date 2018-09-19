@@ -3,7 +3,6 @@
 import sys
 import os
 import logging
-import multiprocessing
 
 from six.moves import cPickle as pickle
 from pytools import ImmutableRecord
@@ -208,7 +207,7 @@ def generate_wrapper(lang, pyxfile, build_dir, ktype=KernelType.jacobian,
             pickle.dump(wrapper, file)
 
         infile = pyxfile
-        outfile = os.path.basename(pyxfile[:pyxfile.rindex('.in')])
+        outfile = 'pyjac_{}.pyx'.format(utils.package_lang[lang])
         outfile = os.path.join(build_dir, outfile)
         # and cogify
         try:
