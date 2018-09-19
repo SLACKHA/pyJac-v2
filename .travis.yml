@@ -76,9 +76,6 @@ before_install:
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
 install:
-  # currently need our own version of loo.py, as the explicit simd stuff hasn't been
-  # migrated in yet.
-  - pip install https://github.com/arghdos/loopy/archive/working2.zip
   # read from requirements -- install via conda if available
   - pip install -r requirements.txt
   - pip install -r optional-requirements.txt
