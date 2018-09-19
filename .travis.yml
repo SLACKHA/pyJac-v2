@@ -81,10 +81,10 @@ install:
   - pip install -r optional-requirements.txt
   # build siteconf.py
   - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include"
-  - pip install .
-before_script:
   # copy in siteconf
   - cp siteconf.py pyjac/
+  - pip install .
+before_script:
   # openmp
   - export OMP_NUM_THREADS=4
 # run test
