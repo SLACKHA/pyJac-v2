@@ -2021,9 +2021,9 @@ class kernel_generator(object):
         of the given :param:`array`
         """
 
-        replacers = [(re.compile(r'double(\d+)?\s*const\s*\*__restrict__\s*{}'.
+        replacers = [(re.compile(r'(double(?:\d+)?)\s*const\s*\*__restrict__\s*{}'.
                       format(re.escape(arry))),
-                      r'double\1 *__restrict__ {}'.format(arry))]
+                      r'\1 *__restrict__ {}'.format(re.escape(arry)))]
         for r, s in replacers:
             text = r.sub(s, text)
         return text
