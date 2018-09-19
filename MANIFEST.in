@@ -9,6 +9,7 @@ include setup.py
 include setup.cfg
 
 include pyjac/utils.py
+include pyjac/siteconf.py
 include pyjac/__init__.py
 include pyjac/__main__.py
 include pyjac/_version.py
