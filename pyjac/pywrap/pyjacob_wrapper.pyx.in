@@ -6,9 +6,8 @@ cimport numpy as np
 from libcpp cimport bool as bool_t  # noqa
 
 '''[[[cog
-from textwrap import indent
 from six.moves import cPickle as pickle
-from pyjac.utils import indent as stdindent, header_ext
+from pyjac.utils import indent, stdindent, header_ext
 from pyjac.kernel_utils.tools import make_doc_str
 
 with open(wrappergen, 'rb') as file:

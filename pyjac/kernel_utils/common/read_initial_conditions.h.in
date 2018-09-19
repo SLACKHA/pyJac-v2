@@ -15,9 +15,8 @@ Global declarations for Cog:
 
 /*[[[cog
      from six.moves import cPickle as pickle
-     from textwrap import indent
      from pyjac.utils import header_ext
-     from pyjac.utils import indent as stdindent
+     from pyjac.utils import indent, stdindent
      from pyjac.kernel_utils.tools import get_include
 
      with open(readgen, 'rb') as file:

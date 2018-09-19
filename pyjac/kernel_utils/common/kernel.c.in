@@ -17,10 +17,9 @@ Global declarations for Cog:
      import loopy as lp
      import numpy as np
      import re
-     from textwrap import indent
      from six.moves import cPickle as pickle
      from string import Template
-     from pyjac.utils import indent as stdindent
+     from pyjac.utils import indent, stdindent
      from pyjac.utils import header_ext
      from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, \
          max_size, get_include, make_doc_str, get_num_bytes

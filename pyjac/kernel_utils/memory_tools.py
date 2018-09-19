@@ -3,14 +3,13 @@ Standalone memory tools that can be easily imported into Cog / unit-tests
 to generate copys / allocations / etc. for host and device memory.
 """
 
-from textwrap import indent
 from string import Template
 
 import six
 import loopy as lp
 import numpy as np
 
-from pyjac.utils import indent as stdindent
+from pyjac.utils import indent, stdindent
 from pyjac.core.enum_types import DeviceMemoryType
 from pyjac.core.array_creator import problem_size
 

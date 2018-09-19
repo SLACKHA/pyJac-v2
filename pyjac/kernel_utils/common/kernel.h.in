@@ -18,10 +18,10 @@ Global declarations for Cog:
 
 /*[[[cog
     import six
-    from textwrap import indent, dedent
+    from textwrap import dedent
     from six.moves import cPickle as pickle
     import loopy as lp
-    from pyjac.utils import indent as stdindent
+    from pyjac.utils import indent, stdindent
     from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
     from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, get_include, \
         make_doc_str
