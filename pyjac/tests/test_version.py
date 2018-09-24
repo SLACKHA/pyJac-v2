@@ -5,7 +5,7 @@ Test for _version.py
 import pkg_resources
 
 # Local imports
-from .._version import __version__
+from pyjac._version import __version__
 
 
 def test_semantic_version():
