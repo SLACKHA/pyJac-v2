@@ -12,16 +12,10 @@ branches:
 language: python
 matrix:
   include:
-    - python: "2.7"
-      env: ISFLAKE="0" TEST_LANGS="opencl"
     - python: "3.6"
       env: ISFLAKE="0" TEST_LANGS="opencl"
-    - python: "2.7"
-      env: ISFLAKE="0" TEST_LANGS="c"
     - python: "3.6"
       env: ISFLAKE="0" TEST_LANGS="c"
-    - python: "2.7"
-      env: ISFLAKE="1"
     - python: "3.6"
       env: ISFLAKE="1"
 

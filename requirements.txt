@@ -1,6 +1,6 @@
 numpy
 -e git+git://github.com/arghdos/loopy@working2#egg=loopy
-enum34 >= 1.1.6;python_version=='2.7'
+enum34 >= 1.1.6;python_version<'3.4'
 six
 pyyaml
 cgen
