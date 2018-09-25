@@ -981,7 +981,7 @@ def reduce_oploop(base, add=None):
     return out
 
 
-def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=True,
+def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=False,
                 langs=get_test_langs(), do_vector=True, do_sparse=False,
                 do_approximate=False, do_finite_difference=False,
                 sparse_only=False, do_simd=True, **kwargs):
