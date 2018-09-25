@@ -35,17 +35,20 @@ if __name__ == '__main__':
 
     # get non-arrays
     non_array_args = [${non_array_args}]
-
-    # put all args together
-    args = non_array_args + input_args + output_args
-
     if len(sys.argv) > 1:
         # get compile arg
         force_no_compile = int(sys.argv[1])
-        args += [force_no_compile]
+        non_array_args += [force_no_compile]
+
+    # put all args together
+    args = input_args + output_args
+
+    # create the kernel
+    kernel = package.Py${kernel_name}Kernel(*non_array_args)
 
     # finally call
-    package.${call_name}(*args)
+    args = input_args + output_args
+    kernel(*args)
 
     output_files = [${output_files}]
     if output_files:

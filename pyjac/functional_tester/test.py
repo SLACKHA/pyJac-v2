@@ -23,14 +23,14 @@ import tables
 
 # Local imports
 from pyjac.core.mech_interpret import read_mech_ct
-from pyjac.tests.test_jacobian import _get_fd_jacobian
-from pyjac.tests.test_utils import parse_split_index, _run_mechanism_tests, runner, \
-    inNd
+from pyjac.core import array_creator as arc
+from pyjac.tests.test_jacobian import _get_ad_jacobian
+from pyjac.tests.test_utils import _run_mechanism_tests, runner, inNd
 from pyjac.tests import test_utils, get_matrix_file, _get_test_input
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, RateSpecialization
-from pyjac.libgen import build_type, generate_library
+from pyjac.core.enum_types import (KernelType, RateSpecialization)
+from pyjac.libgen import generate_library
 from pyjac.core.create_jacobian import determine_jac_inds
-from pyjac.utils import EnumType, inf_cutoff
+from pyjac.utils import inf_cutoff, kernel_argument_ordering, reassign_species_lists
 
 
 def getf(x):
@@ -168,7 +168,7 @@ class hdf5_store(object):
                 os.remove(f)
         self.handles.clear()
 
-    def output_to_pytables(self, name, dirname, ref_ans, order, asplit,
+    def output_to_pytables(self, name, dirname, ref_ans, order,
                            filename=None, pytables_name=None,
                            num_conditions=None):
         """
@@ -190,9 +190,6 @@ class hdf5_store(object):
             will be taken
         order: ['C', 'F']
             The storage order of the data in the binary file
-        asplit: :class:`pyjac.core.array_creator.array_splitter`
-            The array splitter, needed to find out the shape out the output from
-            the reference answer's shape
         filename: str [None]
             The filename of the output, if not supplied it will be assumed to be
             :param:`dir`/name.bin
@@ -236,9 +233,11 @@ class hdf5_store(object):
         # check for limits
         if num_conditions:
             ref_ans_shape[0] = num_conditions
-        # get the reference answer in order to get shape, etc.
-        shape, grow_axis, split_axis = asplit.split_shape(
-            type('', (object,), {'shape': ref_ans_shape}))
+
+        # with the new version, all data is stored in 'C' or 'F' order in the
+        # non-split format
+        grow_axis = 0
+        shape = tuple(ref_ans_shape[:])
 
         # and set the enlargable shape for the pytables array
         eshape = tuple(shape[i] if i != grow_axis else 0
@@ -252,9 +251,6 @@ class hdf5_store(object):
         num_conds = shape[grow_axis]
         # and cut down by vec width to respect chunk size
         chunk_size = self.chunk_size
-        if split_axis is not None:
-            assert chunk_size % shape[split_axis] == 0
-            chunk_size = int(chunk_size / shape[split_axis])
         # open the data as a memmap to avoid loading it all into memory
         file = np.memmap(filename, mode='r', dtype=ref_ans.dtype,
                          shape=shape, order=order)
@@ -281,7 +277,7 @@ class hdf5_store(object):
 
 
 class validation_runner(runner, hdf5_store):
-    def __init__(self, eval_class, rtype=build_type.jacobian):
+    def __init__(self, eval_class, rtype=KernelType.jacobian):
         """Runs validation testing for pyJac for a mechanism
 
         Properties
@@ -289,7 +285,7 @@ class validation_runner(runner, hdf5_store):
         eval_class: :class:`eval`
             Evaluate the answer and error for the current state, called on every
             iteration
-        rtype: :class:`build_type` [build_type.jacobian]
+        rtype: :class:`KernelType` [KernelType.jacobian]
             The type of test to run
         """
 
@@ -356,20 +352,11 @@ class validation_runner(runner, hdf5_store):
         del V
         del moles
         self.num_conditions = num_conditions
-        self.max_vec_width = max_vec_width
 
         # reset
         self.chunk_size = self.base_chunk_size
 
-        # ensure our chunk size matches vec width
-        if self.chunk_size % max_vec_width != 0:
-            self.chunk_size = int(
-                np.ceil(self.chunk_size / max_vec_width) * max_vec_width)
-
         self.helper = self.eval_class(gas, num_conditions)
-        # and check for helper
-        if self.helper.chunk_size % max_vec_width != 0:
-            self.helper.chunk_size = self.chunk_size
 
     def post(self):
         """
@@ -378,7 +365,7 @@ class validation_runner(runner, hdf5_store):
         self.helper.release()
         self.release()
 
-    def arrays_per_run(self, offset, this_run, order, answers, outputs, asplit):
+    def arrays_per_run(self, offset, this_run, order, answers, outputs):
         """
         Converts reference answers & outputs from :class:`pytable.arrays` to
         in-memory :class:`numpy.ndarrays` arrays, applying splitting if necessary
@@ -395,8 +382,6 @@ class validation_runner(runner, hdf5_store):
             The reference answers
         outputs: list of :class:`pytables.Array`
             The outputs to check
-        asplit: :class:`array_splitter
-            The splitting object
 
         Returns
         -------
@@ -410,23 +395,16 @@ class validation_runner(runner, hdf5_store):
         out = []
         ic_mask = np.arange(offset, offset + this_run)
         for i, arr in enumerate(outputs):
-            mask = parse_split_index(
-                arr, [ic_mask], order, ref_ndim=answers[i].ndim, axis=(0,))
-            # next find the grow dimension
-            _, grow_dim, split_dim = asplit.split_shape(arr)
-            # we need to slice on the grow dim to pull into memory
-            # create empty slices in other dimensions -- vecsize dim is full by
-            # defn
+            # the outputs are now un-split, and in original order
             inds = [slice(None) for x in range(arr.ndim)]
-            inds[grow_dim] = np.unique(mask[grow_dim])
+            inds[0] = np.unique(ic_mask)
             out.append(arr[tuple(inds)])
 
         # simply need to reference and split answers
         answers = [x[offset:offset + this_run, :] for x in answers]
-        answers = asplit.split_numpy_arrays(answers)
         return answers, out
 
-    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
+    def run(self, state, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -435,8 +413,6 @@ class validation_runner(runner, hdf5_store):
         state: dict
             A dictionary containing the state of the current optimization / language
             / vectorization patterns, etc.
-        asplit: :class:`array_splitter`
-            The array splitter to use in modifying state arrays
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
             Has the keys "build", "test", "obj" and "run"
@@ -463,12 +439,10 @@ class validation_runner(runner, hdf5_store):
         my_obj = dirs['obj']
 
         # compile library as executable
-        lib = generate_library(state['lang'], my_build, obj_dir=my_obj,
-                               out_dir=my_test, btype=self.rtype, shared=True,
-                               as_executable=True)
 
-        # store phi array to file
-        np.array(phi, order='C', copy=True).flatten('C').tofile(phi_path)
+        lib = generate_library(state['lang'], my_build, obj_dir=my_obj,
+                               out_dir=my_test, ktype=self.rtype, shared=True,
+                               as_executable=True)
 
         num_conditions = self.num_conditions
         limited_num_conditions = self.have_limit(state, limits)
@@ -486,7 +460,7 @@ class validation_runner(runner, hdf5_store):
         for name, ref_ans in zip(*(self.helper.output_names, answers)):
             outputs.append(
                 self.output_to_pytables(name, my_test, ref_ans, state['order'],
-                                        asplit, num_conditions=num_conditions))
+                                        num_conditions=num_conditions))
 
         # now loop through the output in error chunks increments to get error
         offset = 0
@@ -498,7 +472,7 @@ class validation_runner(runner, hdf5_store):
 
             # convert our chunks to workable numpy arrays
             ans, out = self.arrays_per_run(
-                offset, this_run, state['order'], answers, outputs, asplit)
+                offset, this_run, state['order'], answers, outputs)
 
             # get error
             err_dict = self.helper.eval_error(
@@ -562,9 +536,9 @@ class spec_rate_eval(eval):
             try:
                 gas.reaction(x).efficiencies
                 self.thd_map.append(x)
-            except:
+            except AttributeError:
                 pass
-        self.thd_map = np.array(self.thd_map, dtype=np.int32)
+        self.thd_map = np.array(self.thd_map, dtype=arc.kint_type)
         self.rop_fwd_test = np.zeros((num_conditions, self.fwd_map.size))
         self.rop_rev_test = np.zeros((num_conditions, self.rev_map.size))
         self.rop_net_test = np.zeros((num_conditions, self.fwd_map.size))
@@ -591,7 +565,13 @@ class spec_rate_eval(eval):
     @property
     def output_names(self):
         # outputs
-        return ['dphi', 'rop_fwd', 'rop_rev', 'pres_mod', 'rop_net']
+        return kernel_argument_ordering([
+            arc.state_vector_rate_of_change,
+            arc.forward_rate_of_progress,
+            arc.reverse_rate_of_progress,
+            arc.pressure_modification,
+            arc.net_rate_of_progress],
+            KernelType.species_rates)
 
     def ref_answers(self, state):
         return self.outputs_cp if state['conp'] else self.outputs_cv
@@ -684,41 +664,47 @@ class spec_rate_eval(eval):
             self.conv_extra_rates = self.to_file(
                 self.conv_extra_rates, 'conv_extra_rates.hdf5')
             # and store outputs
-            outputs = [self.rop_fwd_test, self.rop_rev_test, self.pres_mod_test,
-                       self.rop_net_test]
-            self.outputs_cp = [self.dphi_cp] + outputs
-            self.outputs_cv = [self.dphi_cv] + outputs
+            outputs = {arc.forward_rate_of_progress: self.rop_fwd_test,
+                       arc.reverse_rate_of_progress: self.rop_rev_test,
+                       arc.pressure_modification: self.pres_mod_test,
+                       arc.net_rate_of_progress: self.rop_net_test}
+            self.outputs_cp = outputs.copy()
+            self.outputs_cp[arc.state_vector_rate_of_change] = self.dphi_cp
+            self.outputs_cv = outputs.copy()
+            self.outputs_cv[arc.state_vector_rate_of_change] = self.dphi_cv
+
+            def listify(out):
+                order = kernel_argument_ordering(out.keys(),
+                                                 KernelType.species_rates)
+                return [out[key] for key in order]
+
+            self.outputs_cp = listify(self.outputs_cp)
+            self.outputs_cv = listify(self.outputs_cv)
             self.evaled = True
 
     def eval_error(self, offset, this_run, state, output, answers, err_dict):
         # get indicies
         pmod_ind = next(
-            i for i, x in enumerate(self.output_names) if 'pres_mod' in x)
+            i for i, x in enumerate(self.output_names)
+            if x == arc.pressure_modification)
         fwd_ind = next(
-            i for i, x in enumerate(self.output_names) if 'rop_fwd' in x)
+            i for i, x in enumerate(self.output_names)
+            if x == arc.forward_rate_of_progress)
         rev_ind = next(
-            i for i, x in enumerate(self.output_names) if 'rop_rev' in x)
-
-        # pull order
-        order = state['order']
+            i for i, x in enumerate(self.output_names)
+            if x == arc.reverse_rate_of_progress)
 
         # multiply fwd/rev ROP by pressure rates to compare w/ Cantera
         # fwd
-        fwd_masked = parse_split_index(output[fwd_ind], self.thd_map, order)
-        output[fwd_ind][fwd_masked] *= output[pmod_ind][parse_split_index(
-            output[pmod_ind], np.arange(self.thd_map.size, dtype=np.int32),
-            order)]
-        # rev
-        rev_masked = parse_split_index(output[rev_ind], self.rev_to_thd_map,
-                                       order)
+        output[fwd_ind][:, self.thd_map] *= output[pmod_ind][
+            :, np.arange(self.thd_map.size, dtype=arc.kint_type)]
+        # reverse ROP
         # thd to rev map already in thd index list, so don't need to do arange
-        output[rev_ind][rev_masked] *= output[pmod_ind][parse_split_index(
-            output[pmod_ind], self.thd_to_rev_map, order)]
+        output[rev_ind][:, self.rev_to_thd_map] *= output[pmod_ind][
+            :, self.thd_to_rev_map]
 
-        # simple test to get IC index
-        mask_dummy = parse_split_index(answers[0], np.array([this_run]),
-                                       order=order, axis=(0,))
-        IC_axis = next(i for i, ax in enumerate(mask_dummy) if ax != slice(None))
+        # IC index fixed at zero now
+        IC_axis = 0
 
         # load output
         for name, out, check_arr in zip(*(self.output_names, output, answers)):
@@ -732,25 +718,15 @@ class spec_rate_eval(eval):
             def __get_locs_and_mask(arr, locs=None, inds=None):
                 size = int(np.prod(arr.shape) / this_run)
                 if inds is None:
-                    inds = np.arange(size, dtype=np.int32)
-                mask = parse_split_index(arr, inds, order, axis=(1,))
+                    inds = np.arange(size, dtype=arc.kint_type)
+                mask = tuple(slice(None) if i != 1 else inds
+                             for i in range(arr.ndim))
                 # get maximum relative error locations
                 if locs is None:
                     locs = np.argmax(err_compare[mask], axis=IC_axis)
-                if locs.ndim >= 2:
-                    # C-split, need to convert to two 1-d arrays
-                    lrange = np.arange(locs[0].size, dtype=np.int32)
-                    fixed = [np.zeros(size, dtype=np.int32),
-                             np.zeros(size, dtype=np.int32)]
-                    for i, x in enumerate(locs):
-                        # find max in err_locs
-                        ind = np.argmax(err_compare[x, [i], lrange])
-                        fixed[0][i] = x[ind]
-                        fixed[1][i] = ind
-                    mask = (fixed[0], mask[1], fixed[1])
-                else:
-                    mask = tuple(
-                        x if i != IC_axis else locs for i, x in enumerate(mask))
+
+                mask = tuple(
+                    x if i != IC_axis else locs for i, x in enumerate(mask))
                 return locs, mask
 
             err_locs, err_mask = __get_locs_and_mask(err_compare)
@@ -884,6 +860,8 @@ class jacobian_eval(eval):
         self.num_conditions = num_conditions
         # read mech
         _, self.specs, self.reacs = read_mech_ct(gas=gas)
+        # and reassign
+        reassign_species_lists(self.reacs, self.specs)
 
         # predefines
         self.gas = gas
@@ -1014,7 +992,7 @@ class jacobian_eval(eval):
         return jac
 
     def eval_answer(self, phi, state):
-        jac = self.__fast_jac(state['conp'], state['sparse'], state['order'])
+        jac = self.__fast_jac(state['conp'], state['jac_format'], state['order'])
         if jac is not None:
             return jac
 
@@ -1057,7 +1035,7 @@ class jacobian_eval(eval):
 
         # pregenerated kernel for speed
         self.store = __get_state(0, self.chunk_size)
-        pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+        pregen = _get_ad_jacobian(self, self.store.test_size, state['conp'],
                                   None, True)
         store_size = self.store.test_size
         threshold = 0
@@ -1066,13 +1044,13 @@ class jacobian_eval(eval):
             self.store = __get_state(offset, offset + self.chunk_size)
             if self.store.test_size != store_size:
                 # need to regenerate
-                pregen = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+                pregen = _get_ad_jacobian(self, self.store.test_size, state['conp'],
                                           None, True)
                 # and store size to check for regen
                 store_size = self.store.test_size
 
             # and add to Jacobian
-            jtemp = _get_fd_jacobian(self, self.store.test_size, state['conp'],
+            jtemp = _get_ad_jacobian(self, self.store.test_size, state['conp'],
                                      pregen)
 
             # temporary turn off NaN comparison warnings
@@ -1114,7 +1092,7 @@ class jacobian_eval(eval):
         thresh_name = 'threshold_' + 'cp' if state['conp'] else 'cv'
         setattr(self, thresh_name, np.sqrt(threshold))
 
-        if state['sparse'] == 'sparse':
+        if state['jac_format'] == 'sparse':
             name += '_sp'
             thresh_name += '_sp'
 
@@ -1135,7 +1113,7 @@ class jacobian_eval(eval):
     def threshold(self, state):
         # find appropriate threshold from state
         name = 'threshold_' + 'cp' if state['conp'] else 'cv'
-        if state['sparse'] == 'sparse':
+        if state['jac_format'] == 'sparse':
             name += '_sp'
             name += '_{}'.format(state['order'])
         return getattr(self, name)
@@ -1143,10 +1121,11 @@ class jacobian_eval(eval):
     @property
     def output_names(self):
         # outputs
-        return ['jac']
+        return kernel_argument_ordering(
+            [arc.jacobian_array], KernelType.species_rates)
 
     def ref_answers(self, state):
-        return [self.__fast_jac(state['conp'], state['sparse'], state['order'],
+        return [self.__fast_jac(state['conp'], state['jac_format'], state['order'],
                                 require=True)]
 
     def eval_error(self, offset, this_run, state, outputs, answers, err_dict):
@@ -1351,7 +1330,7 @@ def species_rate_tester(work_dir='error_checking', test_matrix=None, prefix=''):
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
 
-    valid = validation_runner(spec_rate_eval, build_type.species_rates)
+    valid = validation_runner(spec_rate_eval, KernelType.species_rates)
     _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
                          raise_on_missing=raise_on_missing)
 
@@ -1383,6 +1362,6 @@ def jacobian_tester(work_dir='error_checking', test_matrix=None, prefix=''):
         # and let the tester know we can pull default opencl values if not found
         raise_on_missing = False
 
-    valid = validation_runner(jacobian_eval, build_type.jacobian)
+    valid = validation_runner(jacobian_eval, KernelType.jacobian)
     _run_mechanism_tests(work_dir, test_matrix, prefix, valid,
                          raise_on_missing=raise_on_missing)

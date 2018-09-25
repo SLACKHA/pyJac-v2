@@ -6,21 +6,16 @@ dist: trusty
 branches:
   only:
     - master
+    - spyJac
 
 # language & environment and matrix spec
 language: python
 matrix:
   include:
-    - python: "2.7"
-      env: ISFLAKE="0" TEST_LANGS="opencl"
     - python: "3.6"
       env: ISFLAKE="0" TEST_LANGS="opencl"
-    - python: "2.7"
-      env: ISFLAKE="0" TEST_LANGS="c"
     - python: "3.6"
       env: ISFLAKE="0" TEST_LANGS="c"
-    - python: "2.7"
-      env: ISFLAKE="1"
     - python: "3.6"
       env: ISFLAKE="1"
 
@@ -29,6 +24,7 @@ env:
   global:
     - PRIORITY=500
     - LLV=5.0
+    - TMPDIR=/tmp
 
 addons:
   apt:
@@ -67,7 +63,7 @@ before_install:
   - conda config --add channels conda-forge
   - conda config --add channels cantera
   # create env
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera=2.3.0 ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl=1.0 adept
+  - conda create -y -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl adept
   - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
@@ -75,23 +71,21 @@ before_install:
   - cd $TRAVIS_BUILD_DIR
 # install pyjac
 install:
-  # currently need the newest loopy version
-  - pip install git+https://github.com/inducer/loopy.git@049424df12da70a5ae8d2411c6d12dc2269ff626
   # read from requirements -- install via conda if available
   - pip install -r requirements.txt
   - pip install -r optional-requirements.txt
   # build siteconf.py
   - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include"
-  - pip install .
-before_script:
   # copy in siteconf
   - cp siteconf.py pyjac/
+  - pip install .
+before_script:
   # openmp
   - export OMP_NUM_THREADS=4
 # run test
 script:
   if [[ "$ISFLAKE" == "0" ]]; then
-      nosetests -a '!verylong' -s;
+      travis_wait 50 nosetests -a '!verylong' -s;
   else
       python -m flake8 pyjac/ --count;
   fi

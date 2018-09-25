@@ -2,21 +2,86 @@
 """
 import sys
 import os
-import subprocess
-from string import Template
 import logging
 
-from pyjac.libgen import generate_library, build_type
+from six.moves import cPickle as pickle
+from pytools import ImmutableRecord
+from cogapp import Cog
+
+from pyjac.libgen import generate_library
+from pyjac.core.enum_types import KernelType
+from pyjac.core.create_jacobian import inputs_and_outputs as jac_args
+from pyjac.core.rate_subs import inputs_and_outputs as rate_args
+from pyjac.kernel_utils.kernel_gen import DocumentingRecord
 from pyjac import siteconf as site
+from pyjac import utils
 
 
-def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
+class WrapperGen(ImmutableRecord, DocumentingRecord):
+    """
+    A serializable class for python wrapper generation
+
+    Attributes
+    ----------
+    name: str
+        The name of the generated kernel
+    kernel_args: list of str
+        The input / output arguments of the kernel
+    lang: str
+        The language this wrapper is being generated for
+    """
+
+    def __init__(self, name='', kernel_args=[], lang='c'):
+        docs = self.init_docs(lang)
+        ImmutableRecord.__init__(self, name=name, kernel_args=kernel_args, lang=lang,
+                                 docs=docs)
+
+
+class SetupGen(ImmutableRecord):
+    """
+    A serializable class for python setup.py generation
+
+    Attributes
+    ----------
+    lang: str
+        The generated language
+    package_lang : str
+        The short-name of the language/wrapper being generated
+    wrapper : str
+        Filename / path to the generated pyx file
+    build_dir : str
+        Build directory path
+    name : str
+        The base-name the generated python wrapper should take
+    libname : str
+        The path to the generated library
+    include_dirs : Optional[list of str]
+        Optional; if supplied, extra include directions for the python wrapper
+    libraries : Optional[list of str]
+        Optional; if supplied extra libraries to use
+    libdirs : Optional[list of str]
+        Optional; if supplied, library directories
+
+    """
+
+    def __init__(self, name='', libname='', include_dirs=[], package_lang='c',
+                 wrapper='', lang='', build_dir='', libraries=[],
+                 libdirs=[]):
+        ImmutableRecord.__init__(self, name=name, lang=lang, libname=libname,
+                                 include_dirs=include_dirs, libraries=libraries,
+                                 package_lang=package_lang, wrapper=wrapper,
+                                 build_dir=build_dir, libdirs=libdirs)
+
+
+def generate_setup(lang, setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
                    extra_include_dirs=[], libraries=[], libdirs=[],
-                   btype=build_type.jacobian):
+                   ktype=KernelType.jacobian):
     """Helper method to fill in the template .in files
 
     Parameters
     ----------
+    lang : str
+        The language of the wrapper being generated
     setupfile : str
         Filename of the setup file template
     pyxfile : str
@@ -38,43 +103,123 @@ def generate_setup(setupfile, pyxfile, home_dir, build_dir, out_dir, libname,
 
     Returns
     -------
-    None
-
+    setup: str
+        The path to the generated setup.py file
     """
 
-    # load and create the setup file
-    with open(setupfile, 'r') as file:
-        src = Template(file.read())
+    setup = SetupGen(name='pyjac',
+                     libname=libname,
+                     include_dirs=extra_include_dirs,
+                     package_lang=utils.package_lang[lang],
+                     wrapper=pyxfile,
+                     lang=lang,
+                     build_dir=build_dir,
+                     libraries=libraries,
+                     libdirs=libdirs)
+    # serialize
+    # dump wrapper
+    with utils.temporary_directory() as tdir:
+        setupgen = os.path.join(tdir, 'setupgen.pickle')
+        with open(setupgen, 'wb') as file:
+            pickle.dump(setup, file)
 
-    def __arr_create(arr):
-        return ', '.join(["'{}'".format(x) for x in arr])
+        infile = setupfile
+        outfile = os.path.basename(infile[:infile.rindex('.in')])
+        outfile = os.path.join(out_dir, outfile)
+        # and cogify
+        try:
+            Cog().callableMain([
+                        'cogapp', '-e', '-d', '-Dsetupgen={}'.format(setupgen),
+                        '-o', outfile, infile])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.error('Error generating python setup file: {}'.format(outfile))
+            raise
 
-    nice_pyx_name = pyxfile[:pyxfile.rindex('.in')]
-    file_data = {'homepath': home_dir,
-                 'buildpath': build_dir,
-                 'libname': libname,
-                 'outpath': out_dir,
-                 'extra_include_dirs': __arr_create(extra_include_dirs),
-                 'libs': __arr_create(libraries),
-                 'libdirs': __arr_create(libdirs),
-                 'wrapper': nice_pyx_name
-                 }
-    src = src.safe_substitute(file_data)
-    with open(setupfile[:setupfile.rindex('.in')], 'w') as file:
-        file.write(src)
+    return outfile
 
-    # and the wrapper file
-    # load and create the setup file
-    with open(pyxfile, 'r') as file:
-        src = Template(file.read())
 
-    nice_name = str(btype)
-    nice_name = nice_name[nice_name.index('.') + 1:]
-    file_data = {'knl': nice_name}
+def generate_wrapper(lang, pyxfile, build_dir, ktype=KernelType.jacobian,
+                     additional_inputs=[], additional_outputs=[],
+                     nice_name=None):
+    """
+    Generate the Cython wrapper file
 
-    src = src.safe_substitute(file_data)
-    with open(nice_pyx_name, 'w') as file:
-        file.write(src)
+    Parameters
+    ----------
+    lang : str
+        The language of the wrapper being generated
+    pyxfile : str
+        Filename of the pyx file template
+    build_dir : str
+        The path to place the generated cython wrapper in
+    ktype : :class:`KernelType` [KernelType.jacobian]
+        The type of wrapper to generate
+    additional_inputs : list of str
+        If supplied, treat these arguments as additional input variables
+    additional_outputs : list of str
+        If supplied, treat these arguments as additional output variables
+    nice_name: str [None]
+        If supplied, use this instead of :param:`ktype` to derive the kernel name
+
+    Returns
+    -------
+    wrapper: str
+        The path to the generated python wrapper
+    """
+
+    # create wrappergen
+    if nice_name is None:
+        nice_name = utils.enum_to_string(ktype)
+
+    if ktype == KernelType.jacobian:
+        inputs, outputs = jac_args(True)
+        # replace 'P_arr' w/ 'param' for clarity
+        replacements = {'P_arr': 'param'}
+    elif ktype != KernelType.dummy:
+        inputs, outputs = rate_args(True, ktype)
+        replacements = {'cp': 'specific_heat',
+                        'cv': 'specific_heat',
+                        'h': 'specific_energy',
+                        'u': 'specific_energy'}
+    else:
+        assert additional_outputs
+        assert additional_inputs
+        replacements = {}
+        inputs = additional_inputs[:]
+        outputs = additional_outputs[:]
+
+    def extend(names, args=[]):
+        for name in names:
+            if name in replacements:
+                name = replacements[name]
+            if name not in args:
+                args.append(name)
+        return args
+
+    args = extend(outputs, extend(inputs))
+    wrapper = WrapperGen(name=nice_name, kernel_args=args, lang=lang)
+
+    # dump wrapper
+    with utils.temporary_directory() as tdir:
+        wrappergen = os.path.join(tdir, 'wrappergen.pickle')
+        with open(wrappergen, 'wb') as file:
+            pickle.dump(wrapper, file)
+
+        infile = pyxfile
+        outfile = 'pyjac_{}.pyx'.format(utils.package_lang[lang])
+        outfile = os.path.join(build_dir, outfile)
+        # and cogify
+        try:
+            Cog().callableMain([
+                        'cogapp', '-e', '-d', '-Dwrappergen={}'.format(wrappergen),
+                        '-o', outfile, infile])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.error('Error generating python wrapper file: {}'.format(outfile))
+            raise
+
+    return outfile
 
 
 def distutils_dir_name(dname):
@@ -90,7 +235,6 @@ def distutils_dir_name(dname):
     Name of a distutils build directory
 
     """
-    import sys
     import sysconfig
     f = "{dirname}.{platform}-{version[0]}.{version[1]}"
     return f.format(dirname=dname,
@@ -102,9 +246,9 @@ def distutils_dir_name(dname):
 home_dir = os.path.abspath(os.path.dirname(__file__))
 
 
-def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
-                     obj_dir=None, platform='', output_full_rop=False,
-                     btype=build_type.jacobian):
+def pywrap(lang, source_dir, build_dir=None, out_dir=None,
+           obj_dir=None, platform='', additional_outputs=[],
+           ktype=KernelType.jacobian, **kwargs):
     """Generates a Python wrapper for the given language and source files
 
     Parameters
@@ -121,35 +265,49 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
         Directory path to place the compiled objects
     platform : Optional[str]
         Optional; if specified, the platform for OpenCL execution
-    output_full_rop : bool
-        If ``True``, output forward and reversse rates of progress
-        -- Useful in testing, as there are serious floating point errors for
-        net production rates near equilibrium, invalidating direct comparison to
-        Cantera
+    additional_outputs : list of str
+        If specified, these additional arguments should be considered outputs of the
+        generated kernel call. Useful in testing, to allow output of the forward,
+        reverse, pressure depenedent and net rates of progress for a more thorough
+        comparison to Cantera (specifically, to quantify floating point errors for
+        net production rates near equilibrium)
+    ktype : :class:`KernelType` [KernelType.jacobian]
+        The type of wrapper to generate
+
+    Keyword Arguments
+    -----------------
+    file_base: str
+        Used for creation of libraries for :param:`ktype`==KernelType.dummy -- the
+        base filename (generator name) for this library
+    additional_inputs: list of str [[]]
+        Use to supply additional input argument names to the generator process;
+        currently this is only used for :param:`ktype`==KernelType.dummy
+
+
     Returns
     -------
     None
 
     """
 
+    utils.check_lang(lang)
     source_dir = os.path.abspath(source_dir)
 
     if out_dir is None:
         out_dir = os.getcwd()
 
-    if build_dir is None:
-        build_dir = os.path.join('build', distutils_dir_name('temp'))
+    if obj_dir is None:
+        obj_dir = os.path.join(os.getcwd(), 'obj')
 
-    shared = False
-    ext = '.so' if shared else '.a'
-    lib = None
-    if lang != 'tchem':
-        # first generate the library
-        lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
-                               shared=shared, btype=btype)
-        lib = os.path.abspath(lib)
-        if shared:
-            lib = lib[lib.index('lib') + len('lib'):lib.index(ext)]
+    if build_dir is None:
+        build_dir = os.path.join(os.getcwd(), 'build', distutils_dir_name('temp'))
+
+    shared = True
+    # first generate the library
+    lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,
+                           shared=shared, ktype=ktype,
+                           file_base=kwargs.get('file_base', None))
+    lib = os.path.abspath(lib)
 
     extra_include_dirs = []
     libraries = []
@@ -159,43 +317,26 @@ def generate_wrapper(lang, source_dir, build_dir=None, out_dir=None,
         extra_include_dirs.extend(site.CL_INC_DIR)
         libraries.extend(site.CL_LIBNAME)
 
-    if lang == 'c':
-        setupfile = 'pyjacob_setup.py.in'
-        pyxfile = 'pyjacob_wrapper.pyx.in'
-    elif lang == 'opencl':
-        setupfile = 'pyocl_setup.py.in'
-        pyxfile = 'pyocl_wrapper.pyx.in'
-    else:
-        logger = logging.getLogger(__name__)
-        logger.error('Language {} not recognized'.format(lang))
-        sys.exit(-1)
+    setupfile = 'pyjacob_setup.py.in'
+    pyxfile = 'pyjacob_wrapper.pyx.in'
 
-    if output_full_rop:
-        # modify the wrapper
-        pyxfile = pyxfile[:pyxfile.rindex('_wrapper')] + '_ropfull' + pyxfile[
-            pyxfile.rindex('_wrapper'):]
+    # generate wrapper
+    wrapper = generate_wrapper(lang, os.path.join(home_dir, pyxfile), build_dir,
+                               ktype=ktype, additional_outputs=additional_outputs,
+                               additional_inputs=kwargs.pop('additional_inputs', []),
+                               nice_name=kwargs.get('file_base', None))
 
-    generate_setup(os.path.join(home_dir, setupfile),
-                   os.path.join(home_dir, pyxfile), home_dir, source_dir,
-                   build_dir, lib, extra_include_dirs, libraries, libdirs,
-                   btype=btype)
+    # generate setup
+    setup = generate_setup(
+        lang, os.path.join(home_dir, setupfile), wrapper,
+        home_dir, source_dir, build_dir, lib,
+        extra_include_dirs, libraries, libdirs,
+        ktype=ktype)
 
-    python_str = 'python{}.{}'.format(sys.version_info[0], sys.version_info[1])
+    # and build / run
+    call = [setup, 'build_ext', '--build-lib', out_dir,
+            '--build-temp', obj_dir]
+    if rpath:
+        call += ['--rpath', rpath]
 
-    # save current
-    cwd = os.getcwd()
-    try:
-        # change to the script dir to avoid long build path
-        os.chdir(home_dir)
-        # buold
-        call = [python_str, os.path.join(home_dir,
-                                         setupfile[:setupfile.index('.in')]),
-                'build_ext', '--build-lib', out_dir
-                ]
-        if rpath:
-            call += ['--rpath', rpath]
-
-        subprocess.check_call(call)
-    finally:
-        # and return to base dir
-        os.chdir(cwd)
+    utils.run_with_our_python(call)

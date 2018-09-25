@@ -6,18 +6,17 @@ the given example specifications against them.
 # system
 from os.path import isfile, join
 from collections import OrderedDict
+from tempfile import NamedTemporaryFile
 
 # external
 import six
 import cantera as ct
 from nose.tools import assert_raises
-from tempfile import NamedTemporaryFile
 from pytools.py_codegen import remove_common_indentation
 
 # internal
-from pyjac.libgen.libgen import build_type
-from pyjac.loopy_utils.loopy_utils import JacobianFormat, JacobianType
-from pyjac.utils import func_logger, enum_to_string, listify, is_iterable
+from pyjac.core.enum_types import KernelType, JacobianFormat, JacobianType
+from pyjac.utils import enum_to_string, listify, is_iterable
 from pyjac.tests.test_utils import xfail
 from pyjac.tests import script_dir as test_mech_dir
 from pyjac.tests.test_utils.get_test_matrix import load_models, load_platforms, \
@@ -26,9 +25,9 @@ from pyjac.examples import examples_dir
 from pyjac.schemas import schema_dir, __prefixify, build_and_validate
 from pyjac.core.exceptions import OverrideCollisionException, \
     DuplicateTestException, InvalidOverrideException, \
-    IncorrectInputSpecificationException
+    InvalidInputSpecificationException, ValidationError
 from pyjac.loopy_utils.loopy_utils import load_platform
-from pyjac.kernel_utils.memory_manager import memory_limits, memory_type
+from pyjac.kernel_utils.memory_limits import memory_limits, memory_type
 
 current_test_langs = ['c', 'opencl']
 """
@@ -39,7 +38,6 @@ current_test_langs = ['c', 'opencl']
 """
 
 
-@func_logger
 def runschema(schema, source, should_fail=False, includes=[]):
 
     # add common
@@ -81,13 +79,15 @@ def test_load_test_platforms():
     # amd
     amd = next(p for p in platforms if 'amd' in p['platform'].lower())
     assert amd['lang'] == 'opencl'
-    assert amd['use_atomics'] is True
+    assert amd['use_atomic_doubles'] is True
+    assert amd['use_atomic_ints'] is True
+    assert amd['is_simd'] == [True]
 
     def __fuzz_equal(arr):
         return arr == [2, 4, None] or arr == [2, 4]
     assert __fuzz_equal(amd['width'])
     assert __fuzz_equal(amd['depth'])
-    assert amd['depth'] != amd['width']
+    assert amd['depth'] == amd['width']
 
     # openmp
     openmp = next(p for p in platforms if 'openmp' in p['platform'].lower())
@@ -96,11 +96,12 @@ def test_load_test_platforms():
     assert openmp['depth'] is None
 
     # nvidia
-    openmp = next(p for p in platforms if 'nvidia' in p['platform'].lower())
-    assert openmp['lang'] == 'opencl'
-    assert openmp['width'] == [64, 128, 256]
-    assert openmp['depth'] is None
-    assert openmp['use_atomics'] is False
+    nvidia = next(p for p in platforms if 'nvidia' in p['platform'].lower())
+    assert nvidia['lang'] == 'opencl'
+    assert nvidia['width'] == [64, 128, 256, None]
+    assert nvidia['depth'] is None
+    assert nvidia['use_atomic_doubles'] is False
+    assert nvidia['use_atomic_ints'] is True
 
     # test empty platform w/ raise -> assert
     with assert_raises(Exception):
@@ -126,7 +127,24 @@ def test_load_codegen():
     assert isinstance(platform.platform, Platform)
     assert platform.width == 4
     assert not platform.depth
-    assert platform.use_atomics is True
+    assert platform.use_atomic_doubles is True
+    assert platform.is_simd
+
+
+def test_bad_simd_specification_in_codegen():
+    with NamedTemporaryFile('w', suffix='.yaml') as file:
+        file.write(remove_common_indentation("""
+        platform:
+            name: portable
+            lang: opencl
+            # deep vectorization
+            depth: 4
+            is_simd: True
+        """))
+        file.seek(0)
+
+        with assert_raises(ValidationError):
+            build_and_validate('codegen_platform.yaml', file.name)
 
 
 def test_matrix_schema_specification():
@@ -158,9 +176,9 @@ def test_parse_models():
             else:
                 root = root[stype]
 
-    __test_limit(build_type.species_rates, 10000000)
-    __test_limit([build_type.jacobian, JacobianFormat.sparse], 100000)
-    __test_limit([build_type.jacobian, JacobianFormat.full], 1000)
+    __test_limit(KernelType.species_rates, 10000000)
+    __test_limit([KernelType.jacobian, JacobianFormat.sparse], 100000)
+    __test_limit([KernelType.jacobian, JacobianFormat.full], 1000)
 
     # test gri-mech
     assert 'CH4' in models
@@ -176,7 +194,7 @@ def test_load_platforms_from_matrix():
 
     intel = next(p for p in platforms if 'intel' in p['platform'].lower())
     assert intel['lang'] == 'opencl'
-    assert intel['use_atomics'] is False
+    assert intel['use_atomic_doubles'] is False
     assert intel['width'] == [2, 4, 8, None]
     assert intel['depth'] is None
 
@@ -200,7 +218,7 @@ def test_load_platforms_from_matrix():
 
 def test_duplicate_tests_fails():
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -208,13 +226,12 @@ def test_duplicate_tests_fails():
         platform-list:
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
           - test-type: performance
             eval-type: both
-        """)
+        """))
         file.seek(0)
 
         with assert_raises(DuplicateTestException):
@@ -222,7 +239,7 @@ def test_duplicate_tests_fails():
             load_tests(tests, file.name)
 
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -230,7 +247,6 @@ def test_duplicate_tests_fails():
         platform-list:
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -239,14 +255,14 @@ def test_duplicate_tests_fails():
                     num_cores: [1]
                 full:
                     num_cores: [1]
-        """)
+        """))
         file.seek(0)
 
         tests = build_and_validate('test_matrix_schema.yaml', file.name)
         load_tests(tests, file.name)
 
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -254,7 +270,6 @@ def test_duplicate_tests_fails():
         platform-list:
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -263,7 +278,7 @@ def test_duplicate_tests_fails():
                     num_cores: [1]
                 full:
                     num_cores: [1]
-        """)
+        """))
         file.seek(0)
 
         with assert_raises(OverrideCollisionException):
@@ -288,9 +303,8 @@ def test_override():
                 order: ['F']
                 gpuorder: ['C']
                 conp: ['conp']
-                vecsize: [2, 4]
-                gpuvecsize: [128]
-                vectype: ['wide']
+                width: [2, 4]
+                gpuwidth: [128]
                 models: ['C2H4']
             """))
         file.flush()
@@ -300,9 +314,8 @@ def test_override():
     assert data['order'] == ['F']
     assert data['gpuorder'] == ['C']
     assert data['conp'] == ['conp']
-    assert data['vecsize'] == [2, 4]
-    assert data['gpuvecsize'] == [128]
-    assert data['vectype'] == ['wide']
+    assert data['width'] == [2, 4]
+    assert data['gpuwidth'] == [128]
     assert data['models'] == ['C2H4']
 
     # now test embedded overrides
@@ -316,7 +329,6 @@ def test_override():
             platform-list:
               - lang: c
                 name: openmp
-                vectype: ['par']
             test-list:
               - test-type: performance
                 # limit to intel
@@ -328,10 +340,8 @@ def test_override():
                         order: [F]
                         gpuorder: [C]
                         conp: [conp]
-                        vecsize: [2, 4]
-                        gpuvecsize: [128]
-                        gpuvectype: [wide]
-                        vectype: [wide]
+                        depth: [2, 4]
+                        gpudepth: [128]
                         models: [C2H4]
             """))
         file.flush()
@@ -344,10 +354,8 @@ def test_override():
     assert data['order'] == ['F']
     assert data['gpuorder'] == ['C']
     assert data['conp'] == ['conp']
-    assert data['vecsize'] == [2, 4]
-    assert data['gpuvecsize'] == [128]
-    assert data['gpuvectype'] == ['wide']
-    assert data['vectype'] == ['wide']
+    assert data['depth'] == [2, 4]
+    assert data['gpudepth'] == [128]
     assert data['models'] == ['C2H4']
 
 
@@ -384,85 +392,82 @@ def test_get_test_matrix():
     test_matrix = __prefixify('test_matrix.yaml', examples_dir)
 
     # get the species validation test
-    _, loop, max_vec_width = get_test_matrix('.', build_type.species_rates,
+    _, loop, max_vec_width = get_test_matrix('.', KernelType.species_rates,
                                              test_matrix, True,
                                              langs=current_test_langs,
                                              raise_on_missing=True)
     assert max_vec_width == 8
     from collections import defaultdict
 
-    def vecsize_check(state, want, seen):
+    def width_check(state, want, seen):
         if state['lang'] == 'c':
-            assert state['vecsize'] is None
-            assert state['wide'] is False
-            assert state['deep'] is False
+            assert state['width'] is None
+            assert state['depth'] is None
         else:
-            seen['vecsize'].add(state['vecsize'])
+            seen['width'].add(state['width'])
 
-    def check_final_vecsizes(seen):
-        return sorted(seen['vecsize']) == [2, 4, 8]
+    def check_final_widths(seen):
+        return not (set(seen['width']) - set([None, 2, 4, 8]))
 
     # check we have reasonable values
     base = {'platform': ['intel', 'openmp'],
-            'wide': [True, False],
-            'vecsize': vecsize_check,
+            'width': width_check,
             'conp': [True, False],
             'order': ['C', 'F'],
             'num_cores': num_cores_default()[0]}
-    run(base, loop, final_checks=check_final_vecsizes)
+    run(base, loop, final_checks=check_final_widths)
 
     # repeat for jacobian
-    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+    _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                  test_matrix, True,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
     jacbase = base.copy()
     jacbase.update({
-        'sparse': [enum_to_string(JacobianFormat.sparse),
-                   enum_to_string(JacobianFormat.full)],
+        'jac_format': [enum_to_string(JacobianFormat.sparse),
+                       enum_to_string(JacobianFormat.full)],
         'jac_type': [enum_to_string(JacobianType.exact)],
-        'use_atomics': [True, False]})  # true for OpenMP by default
-    run(jacbase, loop, final_checks=check_final_vecsizes)
+        'use_atomic_doubles': [True, False]})  # true for OpenMP by default
+    run(jacbase, loop, final_checks=check_final_widths)
 
     # next, do species performance
-    _, loop, _ = get_test_matrix('.', build_type.species_rates,
+    _, loop, _ = get_test_matrix('.', KernelType.species_rates,
                                  test_matrix, False,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
     want = base.copy()
     want.update({'order': ['F']})
-    run(want, loop, final_checks=check_final_vecsizes)
+    run(want, loop, final_checks=check_final_widths)
 
     # and finally, the Jacobian performance
-    _, loop, _ = get_test_matrix('.', build_type.jacobian,
+    _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                  test_matrix, False,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
     want = jacbase.copy()
     # no more openmp
-    want.update({'use_atomics': [False]})
+    want.update({'use_atomic_doubles': [False]})
 
     def update_jactype(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
             assert state['num_cores'] == 1
-            assert state['vecsize'] is None
-            assert state['wide'] is False
-            assert state['depth'] is False
+            assert state['width'] is None
+            assert state['depth'] is None
             assert state['order'] == 'C'
             assert state['conp'] is True
         else:
-            assert state['vecsize'] == 4
+            assert state['width'] in [4, None]
 
     want.update({'platform': ['intel'],
                  'jac_type': update_jactype})
 
-    def check_final_vecsizes(seen):
-        return len(seen['vecsize'] - set([4, None])) == 0
-    run(want, loop, final_checks=check_final_vecsizes)
+    def check_final_widths(seen):
+        return len(seen['width'] - set([4, None])) == 0
+    run(want, loop, final_checks=check_final_widths)
 
     # test gpu vs cpu specs
     with NamedTemporaryFile('w', suffix='.yaml') as file:
-        file.write("""
+        file.write(remove_common_indentation("""
         model-list:
           - name: CH4
             path:
@@ -470,48 +475,46 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide]
-            vecsize: [128]
+            width: [128]
           - name: intel
             lang: opencl
-            vectype: [wide]
-            vecsize: [4]
+            width: [4]
         test-list:
           - test-type: performance
             eval-type: jacobian
             exact:
                 sparse:
-                    gpuvecsize: [64]
+                    gpuwidth: [64]
                     order: ['F']
                 full:
-                    vecsize: [2]
+                    width: [2]
                     gpuorder: ['C']
-        """)
+        """))
         file.flush()
 
-        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+        _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
 
-    from pyjac.tests import platform_is_gpu
+    from pyjac.utils import platform_is_gpu
 
     def sparsetest(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.exact):
-            if state['sparse'] == enum_to_string(JacobianFormat.sparse):
+            if state['jac_format'] == enum_to_string(JacobianFormat.sparse):
                 if platform_is_gpu(state['platform']):
-                    assert state['vecsize'] == 64
+                    assert state['width'] in [64, None]
                 else:
-                    assert state['vecsize'] == 4
+                    assert state['width'] in [4, None]
                     assert state['order'] == 'F'
             else:
                 if platform_is_gpu(state['platform']):
                     assert state['order'] == 'C'
-                    assert state['vecsize'] == 128
+                    assert state['width'] in [128, None]
                 else:
-                    assert state['vecsize'] == 2
+                    assert state['width'] in [2, None]
 
-    want = {'sparse': sparsetest}
+    want = {'jac_format': sparsetest}
     run(want, loop)
 
     # test model override
@@ -527,8 +530,7 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide]
-            vecsize: [128]
+            width: [128]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -538,7 +540,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
-        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+        _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
@@ -565,8 +567,7 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide]
-            vecsize: [128]
+            width: [128]
         test-list:
           - test-type: performance
             eval-type: jacobian
@@ -577,7 +578,7 @@ def test_get_test_matrix():
         file.flush()
 
         with assert_raises(InvalidOverrideException):
-            get_test_matrix('.', build_type.jacobian,
+            get_test_matrix('.', KernelType.jacobian,
                             file.name, False,
                             langs=current_test_langs,
                             raise_on_missing=True)
@@ -595,22 +596,21 @@ def test_get_test_matrix():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
           - name: openmp
             lang: c
-            vectype: [par]
         test-list:
           - test-type: performance
             eval-type: jacobian
             finite_difference:
                 both:
-                    vectype: [par]
-                    gpuvectype: [wide]
+                    width: []
+                    depth: []
+                    gpuwidth: [128]
         """))
         file.flush()
 
-        _, loop, _ = get_test_matrix('.', build_type.jacobian,
+        _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
@@ -618,9 +618,9 @@ def test_get_test_matrix():
     def modeltest(state, want, seen):
         if state['jac_type'] == enum_to_string(JacobianType.finite_difference):
             if state['platform'] == 'openmp':
-                assert not bool(state['vecsize'])
+                assert not bool(state['width'])
             else:
-                assert state['vecsize'] == 128
+                assert state['width'] == 128
 
     want = {'models': modeltest}
     run(want, loop)
@@ -636,7 +636,6 @@ def test_get_test_matrix():
             platform-list:
               - lang: c
                 name: openmp
-                vectype: ['par']
             test-list:
               - test-type: performance
                 # limit to intel
@@ -648,21 +647,18 @@ def test_get_test_matrix():
                         order: [F]
                         gpuorder: [C]
                         conp: [conp]
-                        vecsize: [2, 4]
-                        gpuvecsize: [128]
-                        gpuvectype: [wide]
-                        vectype: [wide]
+                        width: [2, 4]
+                        gpuwidth: [128]
                         models: []
             """))
         file.flush()
-        _, loop, _ = get_test_matrix('.', build_type.species_rates,
+        _, loop, _ = get_test_matrix('.', KernelType.species_rates,
                                      file.name, False,
                                      langs=current_test_langs,
                                      raise_on_missing=True)
 
     want = {'platform': ['openmp'],
-            'wide': [False],
-            'vecsize': [None],
+            'width': [None],
             'conp': [True, False],
             'order': ['C', 'F'],
             'models': ['CH4'],
@@ -709,8 +705,7 @@ def test_load_memory_limits():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
         memory-limits:
           - global: 5 Gb
             platforms: [nvidia]
@@ -722,7 +717,7 @@ def test_load_memory_limits():
         """))
         file.flush()
 
-        with assert_raises(IncorrectInputSpecificationException):
+        with assert_raises(InvalidInputSpecificationException):
             limits = memory_limits.get_limits(
                 __dummy_opts('nvidia'), [],
                 file.name)
@@ -736,8 +731,7 @@ def test_load_memory_limits():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
         memory-limits:
           - global: 5 Gb
           - global: 10 Gb
@@ -747,7 +741,7 @@ def test_load_memory_limits():
         """))
         file.flush()
 
-        with assert_raises(IncorrectInputSpecificationException):
+        with assert_raises(InvalidInputSpecificationException):
             limits = memory_limits.get_limits(
                 __dummy_opts('nvidia'), [],
                 file.name)
@@ -762,8 +756,7 @@ def test_load_memory_limits():
         platform-list:
           - name: nvidia
             lang: opencl
-            vectype: [wide, par]
-            vecsize: [128]
+            width: [128]
         test-list:
           - test-type: performance
             eval-type: jacobian

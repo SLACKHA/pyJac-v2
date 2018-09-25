@@ -12,30 +12,37 @@ platform:
             type: string
             isvalidlang: True
             required: True
-        # vectorization type
-        vectype:
-            type: string
-            isvectype: True
-            # default is parallel
-            default: par
         # order
         order:
             type: string
             nullable: True
             allowed: ['C', 'F']
-        # vector width
-        vecsize:
+        width:
             type: integer
             isvecsize: True
-            dependencies:
-                # can only be specifed for wide / deep vecs
-                vectype:
-                    - wide
-                    - deep
-        #If True, the platform / language support atomics for deep-vectorization
-        atomics:
+            excludes:
+                depth
+        depth:
+            type: integer
+            isvecsize: True
+            excludes:
+                width
+        # If True, the platform / language support atomics for deep-vectorization
+        atomic_doubles:
             type: boolean
             default: True
+        # If True, the platform / language supports integer atomics.  These may be
+        # used in the driver kernel queue to reduce global memory usage
+        atomic_ints:
+            type: boolean
+            default: True
+        # If true, this platform should use explicit-SIMD vectorization, if available
+        is_simd:
+            type: boolean
+            default: False
+            dependencies:
+                # can curretly only be specified for wide-vectorizations
+                width
 
 # optional memory limits
 memory-limits:

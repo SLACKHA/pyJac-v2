@@ -8,76 +8,32 @@ import six
 from string import Template
 
 # package imports
-from enum import IntEnum
 import loopy as lp
 from loopy.target.c.c_execution import CPlusPlusCompiler
 import numpy as np
+import warnings
+
 try:
     import pyopencl as cl
-    import warnings
-except:
+    from pyopencl.tools import clear_first_arg_caches
+except ImportError:
     cl = None
     pass
-from pyopencl.tools import clear_first_arg_caches
 
 # local imports
 from pyjac import utils
-from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
+from pyjac.core.enum_types import (RateSpecialization, JacobianType, JacobianFormat,
+                                   KernelType)
+from pyjac.core import array_creator as arc
 from pyjac.core.exceptions import (MissingPlatformError, MissingDeviceError,
                                    BrokenPlatformError)
+from pyjac.loopy_utils.loopy_edit_script import substitute as codefix
 from pyjac.schemas import build_and_validate
 
 edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                            'loopy_edit_script.py')
 adept_edit_script = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                                  'adept_edit_script.py')
-
-
-class RateSpecialization(IntEnum):
-    fixed = 0,
-    hybrid = 1,
-    full = 2
-
-
-class JacobianType(IntEnum):
-    """
-    The Jacobian type to be constructed.
-
-    - An exact Jacobian has no approximations for reactions including the last
-      species,
-    - An approximate Jacobian ignores the derivatives of these reactions from
-      species not directly involved (i.e. fwd/rev stoich coeff == 0, and not a third
-      body species) while in a reaction including the last species
-    - A finite differnce Jacobian is constructed from finite differences of the
-      species rate kernel
-    """
-    exact = 0,
-    approximate = 1,
-    finite_difference = 2
-
-    # TODO - provide an "approximate" FD?
-
-
-class JacobianFormat(IntEnum):
-    """
-    The Jacobian format to use, full or sparse.
-
-    A full Jacobian will include all zeros, while a sparse Jacobian will use either
-    a Compressed Row/Column storage based format depending on the data-order ('C'
-    and 'F' respectively)
-    """
-    full = 0,
-    sparse = 1
-
-
-class FiniteDifferenceMode(IntEnum):
-    """
-    The mode of finite differences--forwards, backwards or central--used to create
-    the finite difference Jacobian
-    """
-    forward = 0,
-    central = 1,
-    backward = 2
 
 
 def load_platform(codegen):
@@ -102,19 +58,17 @@ def load_platform(codegen):
     """
 
     platform = build_and_validate('codegen_platform.yaml', codegen)['platform']
-    width = platform['vectype'] == 'wide'
-    depth = platform['vectype'] == 'deep'
-    if width:
-        width = platform['vecsize']
-    elif depth:
-        depth = platform['vecsize']
+    width = platform.get('width', None)
+    depth = platform.get('depth', None)
     # TODO: implement memory limits loading here
     # optional params get passed as kwargs
     kwargs = {}
     if 'order' in platform and platform['order'] is not None:
         kwargs['order'] = platform['order']
-    if 'atomics' in platform:
-        kwargs['use_atomics'] = platform['atomics']
+    if 'atomic_doubles' in platform:
+        kwargs['use_atomic_doubles'] = platform['atomic_doubles']
+    if 'atomic_ints' in platform:
+        kwargs['use_atomic_ints'] = platform['atomic_ints']
     return loopy_options(width=width, depth=depth, lang=platform['lang'],
                          platform=platform['name'], **kwargs)
 
@@ -157,37 +111,34 @@ class loopy_options(object):
             used
         *   If a vendor specific string, it will be passed to pyopencl to get
             the platform
-    knl_type : ['mask', 'map']
-        The type of opencl kernels to create:
-        * A masked kernel loops over all available indicies (e.g. reactions)
-            and uses a mask to determine what to do.
-            Note: **Suggested for deep vectorization**
-        * A mapped kernel loops over only necessary indicies
-            (e.g. plog reactions vs all) This may be faster for a
-            non-vectorized kernel or wide-vectorization
-    use_atomics : bool [True]
+    use_atomic_doubles : bool [True]
         Use atomic updates where necessary for proper deep-vectorization
         If not, a sequential deep-vectorization (with only one thread/lane
         active) will be used
-    use_private_memory : bool [False]
-        If True, use private CUDA/OpenCL memory for internal work arrays (e.g.,
-        concentrations).  If False, use global device memory (requiring passing in
-        from kernel call). Note for C use_private_memory==True corresponds to
-        stack based memory allocation
+    use_atomic_ints : bool [True]
+        Use atomic integer operations for the driver kernel.
     jac_type: :class:`JacobianType` [JacobianType.full]
         The type of Jacobian kernel (full or approximate) to generate
     jac_format: :class:`JacobianFormat` [JacobianFormat.full]
         The format of Jacobian kernel (full or sparse) to generate
-    seperate_kernels: bool [True]
-        If true, break the kernel evaluation into calls to individual kernels.
+    is_simd: bool [None]
+        If supplied, specifies whether this loopy object should use explict-SIMD
+        vectors.  Default is True only for CPU-based OpenCL targets
+    work_size: int [None]
+        The number of initial states to evaluate in parallel inside of the driver
+        function; may be specified by user to optimize code or for coupling to
+        external code
+    explicit_simd: bool [False]
+        Attempt to utilize explict-SIMD instructions in OpenCL
     """
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
                  rate_spec_kernels=False, rop_net_kernels=False,
-                 platform='', knl_type='map', auto_diff=False, use_atomics=True,
-                 use_private_memory=False, jac_type=JacobianType.exact,
-                 jac_format=JacobianFormat.full, seperate_kernels=True,
-                 device=None, device_type=None):
+                 platform='', kernel_type=KernelType.jacobian, auto_diff=False,
+                 use_atomic_doubles=True, use_atomic_ints=True,
+                 jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
+                 device=None, device_type=None, is_simd=None,
+                 work_size=None, explicit_simd=False):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -200,53 +151,65 @@ class loopy_options(object):
         self.unr = unr
         utils.check_lang(lang)
         self.lang = lang
-        assert order in ['C', 'F'], 'Order {} unrecognized'.format(order)
+        utils.check_order(order)
         self.order = order
-        self.rate_spec = rate_spec
+        self.rate_spec = utils.to_enum(rate_spec, RateSpecialization)
         self.rate_spec_kernels = rate_spec_kernels
         self.rop_net_kernels = rop_net_kernels
         self.platform = platform
         self.device_type = device_type
         self.device = device
-        assert knl_type in ['mask', 'map']
-        self.knl_type = knl_type
         self.auto_diff = auto_diff
-        self.use_atomics = use_atomics
-        self.use_private_memory = use_private_memory
-        self.jac_format = jac_format
-        self.jac_type = jac_type
-        self.seperate_kernels = seperate_kernels
+        self.use_atomic_doubles = use_atomic_doubles
+        self.use_atomic_ints = use_atomic_ints
+        self.jac_format = utils.to_enum(jac_format, JacobianFormat)
+        self.jac_type = utils.to_enum(jac_type, JacobianType)
+        self._is_simd = is_simd
+        self.explicit_simd = explicit_simd
+        self.explicit_simd_warned = False
+        if self.lang != 'opencl' and self.explicit_simd:
+            logger = logging.getLogger(__name__)
+            logger.warn('explicit-SIMD flag has no effect on non-OpenCL targets.')
+        self.kernel_type = utils.to_enum(kernel_type, KernelType)
+        if work_size:
+            assert work_size > 0, 'Work-size must be non-negative'
+        self.work_size = work_size
+
+        if self._is_simd or self.explicit_simd:
+            assert width or depth, (
+                'Cannot use explicit SIMD types without vectorization')
+
         # need to find the first platform that has the device of the correct
         # type
-        if self.lang == 'opencl' and self.platform and cl is not None:
-            if not isinstance(self.platform, cl.Platform):
-                self.device_type = cl.device_type.ALL
-                check_name = None
-                if platform.lower() == 'cpu':
-                    self.device_type = cl.device_type.CPU
-                elif platform.lower() == 'gpu':
-                    self.device_type = cl.device_type.GPU
-                elif platform.lower() == 'accelerator':
-                    self.device_type = cl.device_type.ACCELERATOR
-                else:
-                    check_name = self.platform
-                self.platform = None
-                platforms = cl.get_platforms()
-                for p in platforms:
-                    try:
-                        cl.Context(
-                            dev_type=self.device_type,
-                            properties=[(cl.context_properties.PLATFORM, p)])
-                        if not check_name or check_name.lower() in p.get_info(
-                                cl.platform_info.NAME).lower():
-                            self.platform = p
-                            break
-                    except cl.cffi_cl.RuntimeError:
-                        pass
-                if not self.platform:
-                    raise MissingPlatformError(platform)
-            if not isinstance(self.device, cl.Device) and \
-                    self.device_type is not None:
+        if self.lang == 'opencl' and not self.platform_is_pyopencl \
+                and cl is not None:
+            self.device_type = cl.device_type.ALL
+            check_name = None
+            if self.platform_name.lower() == 'cpu':
+                self.device_type = cl.device_type.CPU
+            elif self.platform_name.lower() == 'gpu':
+                self.device_type = cl.device_type.GPU
+            elif self.platform_name.lower() == 'accelerator':
+                self.device_type = cl.device_type.ACCELERATOR
+            else:
+                check_name = self.platform
+            self.platform = None
+            platforms = cl.get_platforms()
+            for p in platforms:
+                try:
+                    cl.Context(
+                        dev_type=self.device_type,
+                        properties=[(cl.context_properties.PLATFORM, p)])
+                    if not check_name or check_name.lower() in p.get_info(
+                            cl.platform_info.NAME).lower():
+                        self.platform = p
+                        break
+                except cl.cffi_cl.RuntimeError:
+                    pass
+            if not self.platform:
+                raise MissingPlatformError(platform)
+            if not isinstance(self.device, cl.Device) and (
+                    self.device_type is not None):
                 # finally a matching device
                 self.device = self.platform.get_devices(
                     device_type=self.device_type)
@@ -254,16 +217,11 @@ class loopy_options(object):
                     raise MissingDeviceError(self.device_type, self.platform)
                 self.device = self.device[0]
                 self.device_type = self.device.get_info(cl.device_info.TYPE)
+        elif self.lang == 'opencl':
+            self.device_type = 'CL_DEVICE_TYPE_ALL'
 
         # check for broken vectorizations
         self.raise_on_broken()
-
-    @property
-    def platform_name(self):
-        if self.lang == 'opencl' and cl is not None:
-            if isinstance(self.platform, cl.Platform):
-                return self.platform.name
-        return self.platform
 
     @property
     def limit_int_overflow(self):
@@ -277,16 +235,117 @@ class loopy_options(object):
     def raise_on_broken(self):
         # Currently, NVIDIA w/ neither deep nor wide-vectorizations (
         #   i.e. a "parallel" implementation) breaks sometimes on OpenCL
-        if self.lang == 'opencl':
+        if self.lang == 'opencl' and cl is not None:
             if not (self.width or self.depth) \
                     and self.device_type == cl.device_type.GPU:
-                if 'nvidia' in self.platform.name.lower():
+                if 'nvidia' in self.platform_name.lower():
                     raise BrokenPlatformError(self)
                 # otherwise, simply warn
                 logger = logging.getLogger(__name__)
                 logger.warn('Some GPU implementation(s)--NVIDIA--give incorrect'
                             'values sporadically without either a deep or wide'
                             'vectorization. Use at your own risk.')
+            if self.width and not self.is_simd and \
+                    self.device_type == cl.device_type.CPU:
+                logger = logging.getLogger(__name__)
+                if 'intel' in self.platform_name.lower():
+                    logger.error('Intel OpenCL is currently broken for wide, '
+                                 'non-explicit-SIMD vectorizations on the CPU.  '
+                                 'Use the --explicit_simd flag.')
+                    raise BrokenPlatformError(self)
+                if not self.explicit_simd and self._is_simd is None:
+                    # only warn if user didn't supply
+                    logger.warn('You may wish to use the --explicit_simd flag to '
+                                'utilize explicit-vector data-types (and avoid '
+                                'implicit vectorization, which may yield sub-optimal'
+                                ' results).')
+
+    @property
+    def is_simd(self):
+        """
+        Utility to determine whether to tell Loopy to apply explicit-simd
+        vectorization or not
+
+        Returns
+        -------
+        is_simd: bool
+            True if we should attempt to explicitly vectorize the data / arrays
+        """
+
+        # priority to test-specification
+        if self._is_simd is not None:
+            return self._is_simd
+
+        if not (self.width or self.depth):
+            return False
+
+        # currently SIMD is enabled only wide-CPU vectorizations (
+        # deep-vectorizations will require further loopy upgrades)
+
+        if not self.width:
+            if self.explicit_simd:
+                logger = logging.getLogger(__name__)
+                logger.warn('Explicit-SIMD deep-vectorization currently not '
+                            'implemented, ignoring user-specified SIMD flag')
+            return False
+
+        if not cl:
+            if not self.explicit_simd and not self.explicit_simd_warned:
+                logger = logging.getLogger(__name__)
+                logger.warn('Cannot determine whether to use explicit-SIMD '
+                            'instructions as PyOpenCL was not found.  Either '
+                            'install PyOpenCL or use the "--explicit_simd" '
+                            'command line argument. Assuming not SIMD.')
+                self.explicit_simd_warned = True
+            return self.explicit_simd
+
+        if self.lang == 'opencl':
+            return self.device_type != cl.device_type.GPU
+        return True
+
+    @property
+    def pre_split(self):
+        """
+        It is sometimes advantageous to 'pre-split' the outer loop into an
+        inner (vector) iname and an outer (parallel) iname, particularly when
+        using explicit-SIMD w/ loopy (and avoid having to figure out how to simplify
+        floor-div's of the problem size in loopy)
+
+        If this property is True, utilize a pre-split.
+        """
+
+        return self.width and arc.array_splitter._have_split_static(self)
+
+    @property
+    def initial_condition_dimsize(self):
+        """
+        Return the necessary IC dimension size based on this :class:`loopy_options`
+        """
+        if self.width and not self.is_simd:
+            return '{}*{}'.format(arc.work_size.name, self.width)
+
+        return arc.work_size.name
+
+    @property
+    def initial_condition_loopsize(self):
+        """
+        Return the necessary loop bound for the global index of innder kernel loops
+        based on this :class:`loopy_options`
+        """
+        if self.width:
+            return '{}*{}'.format(arc.work_size.name, self.width)
+
+        return arc.work_size.name
+
+    @property
+    def vector_width(self):
+        """
+        Returns the vector width for this :class:`loopy_options` or None if
+        unvectorized
+        """
+        if not (self.width or self.depth):
+            return None
+        return self.width if self.width else self.depth
 
     @property
     def has_scatter(self):
@@ -305,7 +364,28 @@ class loopy_options(object):
         has_scatter: bool
             Whether the target supports scatter operations or not
         """
-        return not (self.lang == 'opencl' and 'intel' in self.platform.name.lower())
+        return not (self.lang == 'opencl' and 'intel' in self.platform_name.lower())
+
+    @property
+    def platform_is_pyopencl(self):
+        """
+        Return true, IFF :attr:`platform` is an instance of a
+        :class:`pyopencl.Platform`
+        """
+
+        return self.platform and cl is not None and isinstance(
+            self.platform, cl.Platform)
+
+    @property
+    def platform_name(self):
+        """
+        Returns the suppled OpenCL platform name, or None if not available
+        """
+
+        if self.platform_is_pyopencl:
+            return self.platform.name
+
+        return self.platform
 
 
 def get_device_list():
@@ -354,7 +434,7 @@ def get_context(device='0'):
     return ctx
 
 
-def get_header(knl):
+def get_header(knl, codegen_result=None):
     """
     Returns header definition code for a :class:`loopy.LoopKernel`
 
@@ -362,6 +442,9 @@ def get_header(knl):
     ----------
     knl : :class:`loopy.LoopKernel`
         The kernel to generate a header definition for
+    codegen_result : :class:`loopy.CodeGenerationResult`
+        If supplied, the pre-generated code-gen result for this kernel (speeds up
+        header generation)
 
     Returns
     -------
@@ -372,7 +455,7 @@ def get_header(knl):
     The kernel's Target and name should be set for proper functioning
     """
 
-    return str(lp.generate_header(knl)[0])
+    return str(lp.generate_header(knl, codegen_result=codegen_result)[0])
 
 
 def __set_editor(knl, script):
@@ -442,13 +525,13 @@ def set_adept_editor(knl,
 
     # load template
     with open(adept_edit_script + '.in', 'r') as file:
-        src = Template(file.read())
+        src = file.read()
 
     def __get_size_and_stringify(variable):
         sizes = variable.shape
         indicies = ['ad_j', 'i']
         out_str = variable.name + '[{index}]'
-        from ..core.array_creator import creator
+        from pyjac.core.array_creator import creator
         if isinstance(variable, creator):
             if variable.order == 'C':
                 # last index varies fastest, so stride of 'i' is 1
@@ -478,7 +561,10 @@ def set_adept_editor(knl,
         for size, index in zip(sizes, indicies):
             if out_index:
                 out_index += ' + '
-            if size != problem_size:
+            if str(size) == arc.work_size.name:
+                # per work-size = 1 in this context as we're operating per-thread
+                pass
+            elif size != problem_size:
                 assert out_size is None, (
                     'Cannot determine variable size!')
                 out_size = size
@@ -587,18 +673,19 @@ def set_adept_editor(knl,
 
     # fill in template
     with open(adept_edit_script, 'w') as file:
-        file.write(src.substitute(
+        file.write(utils.subs_at_indent(
+            src,
             problem_size=problem_size,
             ad_indep_name='ad_' + independent_variable.name,
-            indep=indep,
-            indep_name=independent_variable.name,
+            # indep=indep,
+            # indep_name=independent_variable.name,
             indep_size=indep_size,
             ad_dep_name='ad_' + dependent_variable.name,
-            dep=dep,
-            dep_name=dependent_variable.name,
+            # dep=dep,
+            # dep_name=dependent_variable.name,
             dep_size=dep_size,
             jac_base_offset=jac_base_offset,
-            jac_size=jac_size,
+            # jac_size=jac_size,
             jac_name=output.name,
             function_defn=header,
             kernel_calls='\n'.join(kernel_calls),
@@ -648,7 +735,7 @@ def get_code(knl, opts=None):
         # ignore
         pass
     elif opts.lang == 'opencl' and (
-        'intel' in opts.platform.name.lower()
+        'intel' in opts.platform_name.lower()
             and ((opts.order == 'C' and opts.width) or (
                  opts.order == 'F' and opts.depth) or (
                  opts.order == 'F' and opts.width))):
@@ -698,7 +785,7 @@ class kernel_call(object):
                  chain=None, check=True, post_process=None,
                  allow_skip=False, other_compare=None, atol=1e-8,
                  rtol=1e-5, equal_nan=False, ref_ans_compare_mask=None,
-                 **input_args):
+                 tiling=True, **input_args):
         """
         The initializer for the :class:`kernel_call` object
 
@@ -720,6 +807,13 @@ class kernel_call(object):
             Necessary for some kernel tests, as the reference answer is not the same
             size as the output, which causes issues for split arrays.
             If not supplied, the regular :param:`compare_mask` will be used
+        tiling: bool, [True]
+            If True (default), the elements in the :param:`compare_mask` should be
+            combined, e.g., if two arrays [[1, 2] and [3, 4]] are supplied to
+            :param:`compare_mask` with tiling turned on, four resulting indicies will
+            be compared -- [1, 3], [1, 4], [2, 3], and [2, 4].  If tiling is turned
+            of, the compare mask will be treated as a list of indicies, e.g., (for
+            the previous example) -- [1, 3] and [2, 4].
         out_mask : int, optional
             The index(ices) of the returned array to aggregate.
             Should match length of ref_answer
@@ -807,8 +901,9 @@ class kernel_call(object):
         self.current_order = None
         self.allow_skip = allow_skip
         self.other_compare = other_compare
+        self.tiling = tiling
         # pull any rtol / atol from env / test config as specified by user
-        from ..tests import _get_test_input
+        from pyjac.tests import _get_test_input
         rtol = float(_get_test_input('rtol', rtol))
         atol = float(_get_test_input('atol', atol))
 
@@ -839,7 +934,7 @@ class kernel_call(object):
 
         Parameters
         ----------
-        array_splitter: :class:`core.instruction_creator.array_splitter`
+        array_splitter: :class:`pyjac.core.array_creator.array_splitter`
             The array splitter of the owning
             :class:`kernek_utils.kernel_gen.kernel.kernel_generator`, used to
             operate on numpy arrays if necessary
@@ -877,6 +972,7 @@ class kernel_call(object):
 
         self.jac_format = jac_format
         if jac_format == JacobianFormat.sparse:
+            from pyjac.tests.test_utils import sparsify
             # need to convert the jacobian arg to a sparse representation
             # the easiest way to deal with this is to convert the kernel argument
             # to the sparse dimensions
@@ -892,6 +988,11 @@ class kernel_call(object):
             # save for comparable
             self.row_inds = namestore.jac_row_inds.initializer
             self.col_inds = namestore.jac_col_inds.initializer
+
+            # sparsify transformed answer
+            self.transformed_ref_ans = [
+                sparsify(array, self.col_inds, self.row_inds, self.current_order)
+                if array.ndim >= 3 else array for array in self.transformed_ref_ans]
 
         # and finally feed through the array splitter
         self.current_split = array_splitter
@@ -953,33 +1054,8 @@ class kernel_call(object):
             # see if it's a supplied callable
             return mask(self, variable, index, is_answer=is_answer)
 
-        try:
-            # test if list of indicies
-            if self.compare_axis == -1:
-                return variable[mask].squeeze()
-            # next try iterable
-
-            # multiple axes
-            outv = variable
-            # account for change in variable size
-            ax_fac = 0
-            for i, ax in enumerate(self.compare_axis):
-                shape = len(outv.shape)
-                inds = mask[i]
-
-                # some versions of numpy complain about implicit casts of
-                # the indicies inside np.take
-                try:
-                    inds = inds.astype('int64')
-                except:
-                    pass
-                outv = np.take(outv, inds, axis=ax-ax_fac)
-                if len(outv.shape) != shape:
-                    ax_fac += shape - len(outv.shape)
-            return outv.squeeze()
-        except TypeError:
-            # finally, take a simple mask
-            return np.take(variable, mask, self.compare_axis).squeeze()
+        from pyjac.tests.test_utils import select_elements
+        return select_elements(variable, mask, self.compare_axis, tiling=self.tiling)
 
     def compare(self, output_variables):
         """
@@ -1005,7 +1081,7 @@ class kernel_call(object):
             #    comparable entries on it's own
             assert (isinstance(mask, list) and
                     len(mask) == len(output_variables)) or \
-                self.compare_axis == -1 or six.callable(mask), (
+                not self.tiling or six.callable(mask), (
                     'Compare mask does not match output variables!')
 
         _check_mask(self.compare_mask)
@@ -1230,7 +1306,9 @@ def get_target(lang, device=None, compiler=None):
 
     # set target
     if lang == 'opencl':
-        return lp.PyOpenCLTarget(device=device)
+        if cl is not None:
+            return lp.PyOpenCLTarget(device=device)
+        return lp.OpenCLTarget()
     elif lang == 'c':
         return lp.ExecutableCTarget(compiler=compiler)
     elif lang == 'cuda':
@@ -1244,12 +1322,8 @@ class AdeptCompiler(CPlusPlusCompiler):
     def __init__(self, *args, **kwargs):
         from ..siteconf import ADEPT_INC_DIR, ADEPT_LIB_DIR, ADEPT_LIBNAME
         from ..siteconf import LDFLAGS, CXXFLAGS
-        from pyjac.libgen.libgen import compile_flags
-
-        defaults = {'cflags': '{opt_flags} -fopenmp -fPIC'.format(
-                        opt_flags=' '.join(compile_flags)).split(),
-                    'ldflags': '{opt_flags} -shared -fopenmp -fPIC'.format(
-                        opt_flags=' '.join(compile_flags)).split()}
+        defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
+                    'ldflags': '-O3 -shared -fopenmp -fPIC'.split()}
         defaults['libraries'] = ADEPT_LIBNAME
         if CXXFLAGS:
             defaults['cflags'].extend([x for x in CXXFLAGS

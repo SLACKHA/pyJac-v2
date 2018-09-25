@@ -4,7 +4,6 @@ Contains custom errors / exceptions / error processing
 
 
 import six
-from pyjac.utils import stringify_args, listify
 
 
 class MissingPlatformError(Exception):
@@ -44,6 +43,28 @@ class CompilationError(Exception):
         super(CompilationError, self).__init__(self.message)
 
 
+class LinkingError(Exception):
+    """
+    Error during linking
+    """
+
+    def __init__(self, files):
+        if isinstance(files, str):
+            files = [files]
+        self.message = 'Error linking file(s): {}.'.format(','.join(files))
+        super(LinkingError, self).__init__(self.message)
+
+
+class LibraryGenerationError(Exception):
+    """
+    Error during library generation
+    """
+
+    def __init__(self):
+        self.message = 'Error generating pyJac library.'
+        super(LibraryGenerationError, self).__init__(self.message)
+
+
 class BrokenPlatformError(Exception):
     """
     The combination of platform and vectorization options is broken
@@ -51,8 +72,10 @@ class BrokenPlatformError(Exception):
 
     def __init__(self, loopy_opts):
         platform = loopy_opts.platform
-        options = 'wide = {}, deep = {}'.format(bool(loopy_opts.width),
-                                                bool(loopy_opts.depth))
+        options = 'wide = {}, deep = {}, explicit simd = {}'.format(
+            bool(loopy_opts.width),
+            bool(loopy_opts.depth),
+            bool(loopy_opts.is_simd))
         self.message = ('The platform {} is currently broken for'
                         ' vectorization options {}'.format(platform, options))
         super(BrokenPlatformError, self).__init__(self.message)
@@ -109,9 +132,11 @@ class UnknownOverrideException(Exception):
 
 class InvalidOverrideException(Exception):
     def __init__(self, otype, value, allowed):
+        from pyjac.utils import stringify_args
         self.message = (
             'Value "{}" for override type "{}" is not allowed. '
-            'Allowed values are: {}'.format(otype, value, stringify_args(allowed)))
+            'Allowed values are: {}'.format(otype, value, stringify_args(
+                allowed)))
         super(InvalidOverrideException, self).__init__(self.message)
 
 
@@ -131,18 +156,19 @@ class DuplicateTestException(Exception):
         super(DuplicateTestException, self).__init__(self.message)
 
 
-class InvalidTestEnivironmentException(Exception):
+class InvalidTestEnvironmentException(Exception):
     def __init__(self, ttype, key, file, envvar):
         self.message = ('Test type "{}"" has overrides for key "{}"" specified in'
                         'test matrix file "{}", however this override cannot be '
                         'applied, as it would invalidate the test environment '
                         'key "{}"'.format(ttype, key, file, envvar))
-        super(InvalidTestEnivironmentException, self).__init__(self.message)
+        super(InvalidTestEnvironmentException, self).__init__(self.message)
 
 
-class IncorrectInputSpecificationException(Exception):
+class InvalidInputSpecificationException(Exception):
     def __init__(self, bad_inputs):
+        from pyjac.utils import stringify_args, listify
         self.message = ('Inputs: ({}) were incorrectly, or conflictingly specified. '
                         'See debug output for more information'.format(
                             stringify_args(listify(bad_inputs))))
-        super(IncorrectInputSpecificationException, self).__init__(self.message)
+        super(InvalidInputSpecificationException, self).__init__(self.message)

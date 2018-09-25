@@ -4,7 +4,8 @@ from __future__ import division
 
 import sys
 
-from ..performance_tester import performance_tester
+from pyjac.performance_tester import performance_tester  # noqa
+
 
 class TestPerformanceTester(object):
     """

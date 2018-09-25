@@ -1,6 +1,8 @@
 Overview
 ########
 
+.. _state-vector:
+
 pyJac creates the C or CUDA source code files necessary to evaluate the
 analytical Jacobian matrix for a constant-pressure reacting system.
 

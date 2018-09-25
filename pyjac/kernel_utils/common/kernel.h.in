@@ -1,0 +1,225 @@
+/*
+
+A cog-templated skeleton for pyJac kernel execution
+
+OpenCL code adapted from:
+    Based on https://www.olcf.ornl.gov/tutorials/opencl-vector-addition/
+    and https://www.fixstars.com/en/opencl/book/OpenCLProgrammingBook/calling-the-kernel/
+
+(C) Nicholas Curtis - 2018
+
+Global declarations for Cog:
+    - codegen: path to a serialized CallgenResult instance
+    that may be loaded to generate this file
+*/
+
+#ifndef KERNEL_H
+#define KERNEL_H
+
+/*[[[cog
+    import six
+    from textwrap import dedent
+    from six.moves import cPickle as pickle
+    import loopy as lp
+    from pyjac.utils import indent, stdindent
+    from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
+    from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, get_include, \
+        make_doc_str
+    from pyjac.utils import enum_to_string, can_vectorize_lang
+
+    # load serialized callgen
+    with open(callgen, 'rb') as file:
+        callgen = pickle.load(file)
+
+    # and create memory tools
+    mem = get_memory(callgen, host_namer=HostNamer(), device_namer=DeviceNamer())
+
+    # headers
+    headers = ['mechanism', 'error_check', 'timer']
+    wrappers = {}
+    if can_vectorize_lang[callgen.lang]:
+        headers.append('vectorization')
+    if callgen.lang != 'opencl':
+        # include driver header
+        headers.append('{}_driver'.format(callgen.name))
+        wrappers[headers[-1]] = dedent(
+        """
+            {include}
+            // undefine work size in main to avoid name collisions
+            #undef work_size
+        """).strip()
+
+    for header in headers:
+        include = get_include(callgen, header)
+        if header in wrappers:
+            include = wrappers[header].format(include=include)
+        cog.outl(include)
+
+  ]]]
+  [[[end]]]*/
+
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+/*[[[cog
+    if callgen.lang == 'opencl':
+        cog.outl("""
+    extern "C" {
+        #include <CL/cl.h>
+    }
+
+    #define NUM_PLATFORMS (16)
+    #define MAX_DEVICE (16)
+
+    // macro definitions
+    """, trimblanklines = True, dedent=True)
+        cog.outl('#define CL_LEVEL {}'.format(callgen.cl_level))
+        cog.outl('#define {}'.format(enum_to_string(callgen.dev_mem_type).upper()))
+  ]]]
+  [[[end]]]*/
+
+
+// base kernel class
+class Kernel
+{
+
+public:
+    Kernel();
+    ~Kernel();
+    /*[[[cog
+         cog.outl(make_doc_str(callgen, ['problem_size', 'work_size',
+                                         'do_not_compile'],
+                  'Resize kernel\'s working data to fit the given sizes.'))
+      ]]]
+      [[[end]]]*/
+    void resize(size_t problem_size, size_t work_size, bool do_not_compile=false);
+    void finalize();
+    /*[[[cog
+         if callgen.lang == 'opencl':
+            # output compiler
+            cog.outl('virtual void compile() = 0;')
+            cog.outl("""
+            // info variables -- common to all kernels
+            static const char* build_options;
+            static const char* platform_check;
+            static const unsigned int device_type;
+            """, trimblanklines=True, dedent=True)
+         elif callgen.lang == 'c':
+            cog.outl('void compile(){}')
+            cog.outl('void threadset(unsigned int num_threads);')
+      ]]]
+      [[[end]]]*/
+
+protected:
+    size_t per_run();
+    size_t per_run(size_t problem_size);
+    size_t this_run(size_t offset);
+
+    /*[[[cog
+        if callgen.lang == 'opencl':
+            cog.outl("""
+            // opencl context, kernel, etc.
+            cl_kernel kernel;
+            cl_program program;
+            cl_context context;
+            cl_command_queue queue;
+            // info variables -- specified per kernel
+            unsigned int num_source;
+            const char* kernel_path;
+            """, trimblanklines=True, dedent=True)
+
+      ]]]
+      [[[end]]]*/
+
+    // flags indicating initialization status, etc.
+    bool initialized;
+    bool compiled;
+
+    // past run sizes
+    size_t d_per_run; // store for device per-run size
+    size_t problem_size;
+    size_t max_per_run;
+    size_t work_size;
+
+
+    /*[[[cog
+        cog.outl(
+            make_doc_str(callgen, ['problem_size', 'work_size'],
+                         'Create the {} kernel.'.format(
+                            callgen.lang.title())))
+      ]]]
+      [[[end]]]*/
+    void init(size_t problem_size, size_t work_size);
+
+    // memory initialization / release accomplished in sub-classes
+    virtual void mem_init(size_t problem_size, size_t work_size) = 0;
+    virtual void finalize_memory() = 0;
+};
+
+// and subclass(es)
+/*[[[cog
+for kernel, args in six.iteritems(callgen.kernel_args):
+    cog.out("""
+class {kernel_name}Kernel : public Kernel
+{{
+protected:
+    // declare device buffers
+""".format(kernel_name=kernel.title()), dedent=True, trimblanklines=True)
+
+    # define kernel args
+    for arg in callgen.kernel_data[kernel]:
+        if not (isinstance(arg, lp.ValueArg) or
+                arg.address_space == lp.AddressSpace.LOCAL):
+            cog.outl(indent(mem.define(True, arg), stdindent))
+    cog.out("""
+    #ifdef PINNED
+        // declare temporary pointers to hold mapped addresses
+    """,  dedent=True, trimblanklines=True)
+    # define temps
+    for temp in get_temporaries(mem, callgen.kernel_data[kernel]):
+        cog.outl(indent(temp, stdindent))
+    cog.out("""
+    #endif
+    """,  dedent=True, trimblanklines=True)
+
+    # overrides
+    cog.outl(indent('void mem_init(size_t problem_size, size_t work_size);', stdindent))
+
+    cog.outl('public:')
+    if callgen.lang == 'opencl':
+        cog.out('void compile();')
+
+    # write constructor
+    cog.out("""
+    /*
+    Base constructor -- no arguments necessary, for use with Cython.
+    {name}Kernel::resize() must be called before use.
+    */
+    {name}Kernel();
+    """.format(name=kernel.title()), dedent=False, trimblanklines=True)
+
+    # write alternate constructor that allows memory initialization
+    cog.out(make_doc_str(
+        callgen, ['problem_size', 'work_size', 'do_not_compile'],
+        'Initializing constructor.'))
+    cog.out("""
+    {name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile=false);
+    """.format(name=kernel.title()), dedent=False, trimblanklines=True)
+
+    cog.out(make_doc_str(
+        callgen, callgen.kernel_args[kernel],
+        "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)))
+    cog.out("""
+    void operator()({knl_args});
+    """.format(knl_args=get_kernel_args(mem, callgen.kernel_args[kernel])), dedent=False, trimblanklines=True)
+
+    # overrides
+    cog.outl(indent('void finalize_memory();', stdindent))
+]]]
+[[[end]]]*/
+};
+
+
+#endif

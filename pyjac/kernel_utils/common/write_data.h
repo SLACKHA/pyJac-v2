@@ -12,12 +12,12 @@
 #include <stdio.h>
 #include <assert.h>
 
-static void write_data(char* filename, double* arr, size_t var_size)
+static void write_data(const char* filename, double* arr, size_t var_size)
 {
 	FILE* fp = fopen(filename, "wb");
 	if (fp == NULL)
 	{
-		char* err = "Error opening file for data output: ";
+		const char* err = "Error opening file for data output: ";
 		size_t buffsize = strlen(filename) + strlen(err) * sizeof(char);
 		char* buff = (char*)malloc(buffsize);
 		snprintf(buff, buffsize, "%s%s", err, filename);

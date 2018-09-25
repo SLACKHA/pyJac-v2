@@ -8,28 +8,32 @@ from __future__ import print_function
 # Standard libraries
 import os
 import subprocess
-from nose.tools import nottest
-import six
+import errno
+from collections import defaultdict
+import logging
 # import io open to ignore any utf-8 characters in file output
 # (e.g., from error'd OpenCL builds)
 from io import open
-from collections import defaultdict
-import logging
+
+from nose.tools import nottest
+import six
 
 # Local imports
-from pyjac.libgen import build_type, generate_library
+from pyjac.libgen import generate_library
+from pyjac.core.enum_types import KernelType
+from pyjac.utils import platform_is_gpu
 from pyjac.tests.test_utils import _run_mechanism_tests, runner
-from pyjac.tests import get_matrix_file, platform_is_gpu
+from pyjac.tests import get_matrix_file
 
 
 class performance_runner(runner):
-    def __init__(self, rtype=build_type.jacobian, repeats=10, steplist=[]):
+    def __init__(self, rtype=KernelType.jacobian, repeats=10, steplist=[]):
         """
         Initialize the performance runner class
 
         Parameters
         ----------
-        rtype: :class:`build_type`
+        rtype: :class:`KernelType`
             The type of run to test (jacobian or species_rates)
         repeats: int [10]
             The number of runs per state
@@ -61,14 +65,12 @@ class performance_runner(runner):
         self.steplist = []
         # initialize steplist
         step = max_vec_size
-        self.max_vec_size = max_vec_size
         while step <= num_conditions:
             self.steplist.append(step)
             step *= 2
         # and put largest value evenly divisible by vecsize in list
-        maxval = (num_conditions // max_vec_size) * max_vec_size
-        if maxval not in self.steplist:
-            self.steplist.append(maxval)
+        if num_conditions not in self.steplist:
+            self.steplist.append(num_conditions)
 
     def check_file(self, filename, state, limits={}):
         """
@@ -132,10 +134,16 @@ class performance_runner(runner):
                 except ValueError:
                     pass
             return runs
-        except:
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                logger = logging.getLogger(__name__)
+                logger.exception('Error reading performance file {}'.format(
+                    filename))
+            return 0
+        except Exception:
             logger = logging.getLogger(__name__)
             logger.exception('Error reading performance file {}'.format(filename))
-            return runs
+            return 0
 
     def check_full_file(self, filename, num_conditions):
         """Checks a file for existing data, returns number of completed runs
@@ -174,12 +182,18 @@ class performance_runner(runner):
                 except ValueError:
                     pass
             return num_completed
-        except:
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                logger = logging.getLogger(__name__)
+                logger.exception('Error reading performance file {}'.format(
+                    filename))
+            return 0
+        except Exception:
             logger = logging.getLogger(__name__)
             logger.exception('Error reading performance file {}'.format(filename))
             return 0
 
-    def run(self, state, asplit, dirs, phi_path, data_output, limits={}):
+    def run(self, state, dirs, phi_path, data_output, limits={}):
         """
         Run the validation test for the given state
 
@@ -188,8 +202,6 @@ class performance_runner(runner):
         state: dict
             A dictionary containing the state of the current optimization / language
             / vectorization patterns, etc.
-        asplit: :class:`array_splitter`
-            Not used
         dirs: dict
             A dictionary of directories to use for building / testing, etc.
             Has the keys "build", "test", "obj" and "run"
@@ -217,7 +229,7 @@ class performance_runner(runner):
         # first create the executable (via libgen)
         tester = generate_library(state['lang'], dirs['build'],
                                   obj_dir=dirs['obj'], out_dir=dirs['test'],
-                                  shared=True, btype=self.rtype, as_executable=True)
+                                  shared=True, ktype=self.rtype, as_executable=True)
 
         # and do runs
         with open(data_output, 'a+') as file:
@@ -257,7 +269,7 @@ def species_performance_tester(work_dir='performance', test_matrix=None,
         raise_on_missing = False
 
     _run_mechanism_tests(work_dir, test_matrix, prefix,
-                         performance_runner(build_type.species_rates),
+                         performance_runner(KernelType.species_rates),
                          raise_on_missing=raise_on_missing)
 
 
@@ -289,5 +301,5 @@ def jacobian_performance_tester(work_dir='performance',  test_matrix=None,
         raise_on_missing = False
 
     _run_mechanism_tests(work_dir, test_matrix, prefix,
-                         performance_runner(build_type.jacobian),
+                         performance_runner(KernelType.jacobian),
                          raise_on_missing=raise_on_missing)

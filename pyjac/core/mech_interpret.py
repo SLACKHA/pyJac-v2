@@ -55,6 +55,51 @@ act_energy_fact = dict({'kelvins': 1.0,
 elem_wt = chem.get_elem_wt()
 
 
+def sort_reactions(reacs, sort_type, return_order=False):
+    """
+    reacs : list of `ReacInfo`
+        List of reactions in mechanism to be sorted.
+    sort_type : :class:`enum_types.reaction_sorting`
+        If not None, sort the reactions in this mechanism according to the supplied
+        scheme
+    return_order : bool [False]
+        If True, return new order of sorted reactions, if false, return the sorted
+        reactions themselves
+
+    """
+
+    from pyjac.core.enum_types import (
+        reaction_type, falloff_form, reversible_type, thd_body_type)
+
+    # we consider the following enums:
+    # column #1, reaction type
+    # column #2, falloff form
+    # column #3, third body form
+    # column #4, reversible type
+
+    enum_order = (reaction_type, falloff_form, thd_body_type, reversible_type)
+    sort_matrix = np.empty((len(reacs), 4))
+    for i, rxn in enumerate(reacs):
+        for j, enum in enumerate(enum_order):
+            e_val = rxn.get_type(enum)
+            assert len(e_val) == 1
+            sort_matrix[i, j] = int(e_val[0])
+
+    ordering = np.arange(len(reacs))
+
+    # now sort by column -- https://stackoverflow.com/a/38194077
+    for i in reversed(range(len(enum_order))):
+        inds = sort_matrix[:, i].argsort(kind='mergesort')
+        ordering = ordering[inds]
+        sort_matrix = sort_matrix[inds]
+
+    if return_order:
+        return ordering
+
+    # sort reactions
+    return [reacs[i] for i in ordering]
+
+
 def read_mech(mech_filename, therm_filename, sort_type=None):
     """Read and interpret mechanism file for elements, species, and reactions.
 
@@ -64,8 +109,9 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
         Reaction mechanism filename (e.g. 'mech.dat')
     therm_filename : str, optional
         Thermodynamic database filename (e.g., 'therm.dat')
-    sort_type : ?
-        If not none, call the mechanism sorter
+    sort_type : :class:`enum_types.reaction_sorting`
+        If not None, sort the reactions in this mechanism according to the supplied
+        scheme
 
     Returns
     -------
@@ -99,7 +145,7 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
                 break
 
             # skip blank or commented lines
-            if re.search('^\s*$', line) or re.search('^\s*!', line):
+            if re.search(r'^\s*$', line) or re.search(r'^\s*!', line):
                 continue
 
             # don't convert to lowercase, since thermo
@@ -748,14 +794,14 @@ def read_mech(mech_filename, therm_filename, sort_type=None):
         logger.error('Missing thermo data for ' + ', '.join(missing_mw))
         sys.exit(1)
 
-    if sort_type:
-        pass  # stub for mechanism sorting
-
     # determine reaction type enums
     for reac in reacs:
         reac.finalize(len(specs))
     for spec in specs:
         spec.finalize()
+
+    if sort_type:
+        reacs = sort_reactions(reacs, sort_type)
 
     return (elems, specs, reacs)
 
@@ -792,7 +838,7 @@ def read_thermo(filename, elems, specs):
             line = file.readline()
 
             # skip blank or commented lines
-            if re.search('^\s*$', line) or re.search('^\s*!', line):
+            if re.search(r'^\s*$', line) or re.search(r'^\s*!', line):
                 continue
 
             # skip 'thermo' at beginning
@@ -823,7 +869,7 @@ def read_thermo(filename, elems, specs):
                 break
 
             # skip blank/commented line
-            if re.search('^\s*$', line) or re.search('^\s*!', line):
+            if re.search(r'^\s*$', line) or re.search(r'^\s*!', line):
                 continue
 
             # species name, columns 0:18
@@ -929,8 +975,9 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
         Reaction mechanism filename (e.g. 'mech.cti'). Optional.
     gas : `cantera.Solution` object
         Existing Cantera Solution object to be used. Optional.
-    sort_type : ?
-        If not none, call the mechanism sorter
+    sort_type : :class:`enum_types.reaction_sorting`
+        If not None, sort the reactions in this mechanism according to the supplied
+        scheme
 
     Returns
     -------
@@ -1181,13 +1228,13 @@ def read_mech_ct(filename=None, gas=None, sort_type=None):
 
         reacs.append(reac)
 
-    if sort_type:
-        pass  # stub for mechanism sorting
-
     # determine reaction type enums
     for reac in reacs:
         reac.finalize(len(specs))
     for spec in specs:
         spec.finalize()
+
+    if sort_type:
+        reacs = sort_reactions(reacs, sort_type)
 
     return (elems, specs, reacs)

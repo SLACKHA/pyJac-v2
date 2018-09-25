@@ -8,19 +8,12 @@ import numpy as np
 import unittest
 import loopy as lp
 from nose.tools import nottest
-import six
 
 # local imports
 from pyjac.core.mech_interpret import read_mech_ct
+from pyjac.core import array_creator as arc
 from pyjac import utils
 from pyjac.schemas import build_and_validate
-
-# various testing globals
-test_size = 8192  # required to be a power of 2 for the moment
-script_dir = os.path.abspath(os.path.dirname(__file__))
-build_dir = os.path.join(script_dir, 'out')
-obj_dir = os.path.join(script_dir, 'obj')
-lib_dir = os.path.join(script_dir, 'lib')
 
 
 @nottest
@@ -36,15 +29,24 @@ def _get_test_input(key, default=''):
     if key in config:
         logger = logging.getLogger(__name__)
         in_config = True
-        logger.info('Loading value {} = {} from testconfig'.format(
+        logger.debug('Loading value {} = {} from testconfig'.format(
             key, config[key.lower()]))
         value = config[key.lower()]
     if key.upper() in os.environ:
         logger = logging.getLogger(__name__)
-        logger.info('{}Loading value {} = {} from environment'.format(
+        logger.debug('{}Loading value {} = {} from environment'.format(
             'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
         value = os.environ[key.upper()]
     return value
+
+
+# various testing globals
+# required to be a power of 2 for the moment
+test_size = int(_get_test_input('test_size', 8192))
+script_dir = os.path.abspath(os.path.dirname(__file__))
+build_dir = os.path.join(script_dir, 'out')
+obj_dir = os.path.join(script_dir, 'obj')
+lib_dir = os.path.join(script_dir, 'lib')
 
 
 def get_platform_file():
@@ -76,6 +78,7 @@ def get_mechanism_file():
     return _get_test_input('gas', os.path.join(script_dir, 'test.cti'))
 
 
+@nottest
 def get_test_langs():
     """
     Returns the languages to use in unit testing, defaults to OpenCL & C
@@ -84,49 +87,11 @@ def get_test_langs():
     return [x.strip() for x in _get_test_input('test_langs', 'opencl,c').split(',')]
 
 
-def platform_is_gpu(platform):
-    """
-    Attempts to determine if the given platform name corresponds to a GPU
-
-    Parameters
-    ----------
-    platform_name: str or :class:`pyopencl.platform`
-        The name of the platform to check
-
-    Returns
-    -------
-    is_gpu: bool or None
-        True if platform found and the device type is GPU
-        False if platform found and the device type is not GPU
-        None otherwise
-    """
-    # filter out C or other non pyopencl platforms
-    if not platform:
-        return False
-    if isinstance(platform, six.string_types) and 'nvidia' in platform.lower():
-        return True
-    try:
-        import pyopencl as cl
-        if isinstance(platform, cl.Platform):
-            return platform.get_devices()[0].type == cl.device_type.GPU
-
-        for p in cl.get_platforms():
-            if platform.lower() in p.name.lower():
-                # match, get device type
-                dtype = set(d.type for d in p.get_devices())
-                assert len(dtype) == 1, (
-                    "Mixed device types on platform {}".format(p.name))
-                # fix cores for GPU
-                if cl.device_type.GPU in dtype:
-                    return True
-                return False
-    except ImportError:
-        pass
-    return None
+def set_seed(seed=0):
+    np.random.seed(seed)
 
 
 class storage(object):
-
     def __init__(self, test_platforms, gas, specs, reacs):
         self.test_platforms = test_platforms
         self.gas = gas
@@ -151,7 +116,7 @@ class storage(object):
         self.jac_dim = self.gas.n_species - 1 + 2
 
         # create states
-        np.random.seed(0)
+        set_seed()
         self.T = np.random.uniform(600, 2200, size=test_size)
         self.P = np.random.uniform(0.5, 50, size=test_size) * ct.one_atm
         self.V = np.random.uniform(1e-3, 1, size=test_size)
@@ -194,7 +159,7 @@ class storage(object):
         # various indicies and mappings
         self.rev_inds = np.array(
             [i for i in range(gas.n_reactions) if gas.is_reversible(i)],
-            dtype=np.int32)
+            dtype=arc.kint_type)
         self.rev_rate_constants = np.zeros((test_size, self.rev_inds.size))
         self.rev_rxn_rate = np.zeros((test_size, self.rev_inds.size))
         self.equilibrium_constants = np.zeros((test_size, self.rev_inds.size))
@@ -216,12 +181,14 @@ class storage(object):
             [np.where(self.fall_inds == j)[0][0] for j in self.sri_inds])
         self.lind_to_pr_map = np.array(
             [np.where(self.fall_inds == j)[0][0] for j in self.lind_inds])
+        self.fall_rate_constants = np.zeros((test_size, self.fall_inds.size))
         self.ref_Pr = np.zeros((test_size, self.fall_inds.size))
         self.ref_Sri = np.zeros((test_size, self.sri_inds.size))
         self.ref_Troe = np.zeros((test_size, self.troe_inds.size))
         self.ref_Lind = np.ones((test_size, self.lind_inds.size))
         self.ref_Fall = np.ones((test_size, self.fall_inds.size))
         self.ref_B_rev = np.zeros((test_size, gas.n_species))
+        self.mw = np.zeros(test_size)
         # and the corresponding reactions
         fall_reacs = [gas.reaction(j) for j in self.fall_inds]
         sri_reacs = [gas.reaction(j) for j in self.sri_inds]
@@ -234,11 +201,26 @@ class storage(object):
             reac = fall_reacs[j]
             return reac.low_rate(self.T[i]) / reac.high_rate(self.T[i])
 
+        def kf_fall_eval(i, j):
+            reac = fall_reacs[j]
+            # note: here we are evauating the _other_ kf, i.e., the one that
+            # works as a part the reduced pressure only, and not the forward rxn rate
+            # directly -- this is why the rates below are opposite of what
+            # you might think
+            if isinstance(reac, ct.ChemicallyActivatedReaction):
+                rate = reac.high_rate
+            else:
+                rate = reac.low_rate
+            return rate(self.T[i])
+
         thd_to_fall_map = np.where(np.in1d(self.thd_inds, self.fall_inds))[0]
 
         for i in range(test_size):
             self.gas.TPY = self.T[i], self.P[i], self.Y[i, :]
             self.concs[i, :] = self.gas.concentrations[:]
+            self.mw[i] = self.gas.mean_molecular_weight
+            # and reset Y from gas mass fractions for normalized
+            self.Y[i, :] = self.gas.Y[:]
 
             # set moles
             self.n[i, :] = self.concs[i, :-1] * self.V[i]
@@ -279,6 +261,7 @@ class storage(object):
                 -np.dot(self.spec_u[i, :], self.species_rates[i, :]) / np.dot(
                     self.spec_cv[i, :], self.concs[i, :]))
             for j in range(self.fall_inds.size):
+                self.fall_rate_constants[i, j] = kf_fall_eval(i, j)
                 arrhen_temp[j] = pr_eval(i, j)
             self.ref_Pr[i, :] = self.ref_thd[i, thd_to_fall_map] * arrhen_temp
             for j in range(self.sri_inds.size):
@@ -398,4 +381,4 @@ class TestClass(unittest.TestCase):
 
 
 __all__ = ["TestClass", "_get_test_input", "get_platform_file", "get_mechanism_file",
-           "get_test_langs", "platform_is_gpu"]
+           "get_test_langs"]

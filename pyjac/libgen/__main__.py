@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 
-from pyjac.libgen import generate_library, build_type
+from pyjac.libgen import generate_library
+from pyjac.core.enum_types import KernelType
 from pyjac import utils
 
 if __name__ == '__main__':
@@ -38,12 +39,12 @@ if __name__ == '__main__':
                         help='If specified, the generated library will be'
                              'a static library (required for CUDA).'
                         )
-    parser.add_argument('-bt', '--build_type',
+    parser.add_argument('-kt', '--kernel_type',
                         required=False,
-                        type=utils.EnumType(build_type),
+                        type=utils.EnumType(KernelType),
                         default='jacobian',
                         help='The type of library to build: {type}'.format(
-                            type=str(utils.EnumType(build_type))))
+                            type=str(utils.EnumType(KernelType))))
     parser.add_argument('-e', '--executable',
                         required=False,
                         default=False,
@@ -54,4 +55,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     generate_library(args.lang, args.source_dir, args.obj_dir, args.out_dir,
-                     not args.static, args.build_type, args.executable)
+                     not args.static, args.kernel_type, args.executable)

@@ -4,8 +4,9 @@ from __future__ import division
 
 import sys
 
-from ..functional_tester import partially_stirred_reactor
-from ..functional_tester import test
+from pyjac.functional_tester import partially_stirred_reactor  # noqa
+from pyjac.functional_tester import test # noqa
+
 
 class TestPartiallyStirredReactor(object):
     """
@@ -14,6 +15,7 @@ class TestPartiallyStirredReactor(object):
         """Ensure partially_stirred_reactor module imported.
         """
         assert 'pyjac.functional_tester.partially_stirred_reactor' in sys.modules
+
 
 class TestTest(object):
     """

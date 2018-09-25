@@ -1,24 +1,69 @@
+# distutils: language = c++
+
 import cython
 import numpy as np
 cimport numpy as np
+from libcpp cimport bool as bool_t  # noqa
 
-cdef extern from "${knl}_kernel_main.h":
-    void ${knl}_kernel_call(np.uint_t problem_size, np.int_t num_threads, double* phi, double* P, double* dphi)
-    void finalize()
+'''[[[cog
+from six.moves import cPickle as pickle
+from pyjac.utils import indent, stdindent, header_ext
+from pyjac.kernel_utils.tools import make_doc_str
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def ${knl}(np.int_t problem_size,
-            np.int_t num_threads,
-            np.ndarray[np.float64_t] phi,
-            np.ndarray[np.float64_t] param,
-            np.ndarray[np.float64_t] out,
-            np.uint_t dummy = 0):
-    # note, the dummy parameter here is inserted simply to match the signature
-    # of the opencl wrapper, which accepts a flag determining whether to compile
-    # the opencl code or not.
-    ${knl}_kernel_call(problem_size, num_threads, &phi[0], &param[0], &out[0])
-    return None
+with open(wrappergen, 'rb') as file:
+    wrappergen = pickle.load(file)
 
-def __dealloc__(self):
-    finalize()
+kernel_args =  ', '.join(['double* {}'.format(x) for x in wrappergen.kernel_args])
+kernel_name = '{name}Kernel'.format(name=wrappergen.name.title())
+# write Cython defns
+cog.outl("""
+cdef extern from "{name}_main{ext}":
+    cdef cppclass {kernel_name}:
+        {kernel_name}() except +
+        {kernel_name}(size_t, size_t, bool_t) except +
+        void resize(size_t, size_t, bool_t) except +
+        void operator()({args}) except +
+        void finalize() except +
+    """.format(name=wrappergen.name, kernel_name=kernel_name, args=kernel_args,
+               ext=header_ext[wrappergen.lang]),
+        trimblanklines=True, dedent=False)
+   ]]]
+[[[end]]]'''
+
+
+'''[[[cog
+# and write the python wrapper class
+# get args
+numpy_args = []
+args = []
+for arg in wrappergen.kernel_args:
+    numpy_args.append('np.ndarray[np.float64_t] {name}'.format(name=arg))
+    args.append('&{arg}[0]'.format(arg=arg))
+numpy_args = ', '.join(numpy_args)
+args = ', '.join(args)
+
+cog.out("""
+cdef class Py{name}:
+    cdef {name} kernel  # hold our kernel
+
+    def __cinit__(self, size_t problem_size, size_t work_size,
+                  bool_t do_not_compile=False):
+        self.kernel.resize(problem_size, work_size, do_not_compile)
+
+    def __dealloc__(self):
+        self.kernel.finalize()
+
+    def resize(self, np.uint_t problem_size, np.uint_t work_size,
+               bool_t do_not_compile=False):""".format(name=kernel_name))
+cog.out(indent(
+  make_doc_str(wrappergen, ['problem_size', 'work_size', 'do_not_compile'],
+                      'Resize the {} memory buffers'.format(wrappergen.lang.title()),
+                      comment_type='python'), 2 * stdindent))
+cog.outl("""
+        self.kernel.resize(problem_size, work_size, do_not_compile)
+
+    def __call__(self, {numpy_args}):
+        self.kernel({args})
+""".format(numpy_args=numpy_args, args=args))
+]]]
+[[[end]]]'''
