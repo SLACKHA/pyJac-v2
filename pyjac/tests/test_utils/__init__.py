@@ -42,7 +42,7 @@ try:
     np_divmod = np.divmod
 except AttributeError:
     def np_divmod(a, b, **kwargs):
-        div, mod = divmod(a, b)
+        div, mod = divmod(np.array(a), np.array(b))
         return np.asarray(div, **kwargs), np.asarray(mod, **kwargs)
 
 import six
