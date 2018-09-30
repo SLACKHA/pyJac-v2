@@ -5332,11 +5332,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                      'time')
         raise InvalidInputSpecificationException(['wide', 'deep'])
 
-    if jac_type == JacobianType.finite_difference:
-        # convert mode
-        fd_mode = utils.EnumType(FiniteDifferenceMode)(
-            fd_mode.lower())
-
     # load platform if supplied
     device = None
     device_type = None
