@@ -1325,7 +1325,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         # TODO: forward allint to this function
         # get the appropriate power function and calls
         power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
-                                          guard_nonzero=True)
+                                          guard_nonzero=True,
+                                          is_vector=loopy_opts.is_simd)
         nu_fwd = 'nu_fwd'
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
@@ -2980,7 +2981,8 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         # TODO: forward allint to this function
         # create appropriate power functions
         power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
-                                          guard_nonzero=True)
+                                          guard_nonzero=True,
+                                          is_vector=loopy_opts.is_simd)
         nu_fwd = 'nu_fwd'
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
@@ -4310,7 +4312,8 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
 
     # get the appropriate power function and calls
     power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint,
-                                      guard_nonzero=True)
+                                      guard_nonzero=True,
+                                      is_vector=loopy_opts.is_simd)
     nu_fwd = 'nu_fwd'
     nu_rev = 'nu_rev'
     pow_conc_fwd = power_func(conc_inner_str, nu_fwd)

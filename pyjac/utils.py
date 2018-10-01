@@ -271,22 +271,23 @@ class PowerFunction(object):
 
 
 def power_function(lang, is_integer_power=False, is_positive_power=False,
-                   guard_nonzero=False):
+                   guard_nonzero=False, is_vector=False):
     """
     Returns the best power function to use for a given :param:`lang` and
-    choice of :param:`is_integer_power` / :param:`is_positive_power`
+    choice of :param:`is_integer_power` / :param:`is_positive_power` and
+    the :param:`is_vector` status of the instruction in question
     """
 
-    if lang == 'opencl' and is_integer_power:
-        # opencl has it's own integer power function
-        # this also is nice for loopy, as it handles the vectorizability check
-        return PowerFunction('pown', lang, guard_nonzero=guard_nonzero)
-    elif lang == 'opencl' and is_positive_power:
+    if lang == 'opencl' and is_positive_power:
         # opencl positive power function -- no need for guard
         return PowerFunction('powr', lang)
     elif is_integer_power:
-        # use internal integer power function
-        return PowerFunction('fast_powi', lang, guard_nonzero=guard_nonzero)
+        # 10/01/18 -- don't use OpenCL's pown -> VERY SLOW on intel
+        # instead use internal integer power function
+        if is_vector:
+            return PowerFunction('fast_powiv', lang, guard_nonzero=guard_nonzero)
+        else:
+            return PowerFunction('fast_powi', lang, guard_nonzero=guard_nonzero)
     else:
         # use default
         return PowerFunction('pow', lang, guard_nonzero=guard_nonzero)
