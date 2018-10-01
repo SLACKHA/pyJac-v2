@@ -1049,7 +1049,7 @@ def get_parser():
     from pyjac.core.enum_types import reaction_sorting
     parser.add_argument('--reaction_sorting',
                         type=EnumType(reaction_sorting),
-                        default=reaction_sorting.non,
+                        default=reaction_sorting.none,
                         help='Enable sorting of reactions [beta].')
     args = parser.parse_args()
     return args
