@@ -1081,5 +1081,6 @@ def create(**kwargs):
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,
                     work_size=args.work_size,
-                    explicit_simd=args.explicit_simd
+                    explicit_simd=args.explicit_simd,
+                    rsort=args.reaction_sorting
                     )
