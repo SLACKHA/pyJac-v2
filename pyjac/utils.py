@@ -1046,6 +1046,11 @@ def get_parser():
                         dest='loglevel',
                         help='Increase verbosity of logging / output messages.',
                         default=logging.INFO)
+    from pyjac.core.enum_types import reaction_sorting
+    parser.add_argument('--reaction_sorting',
+                        type=EnumType(reaction_sorting),
+                        default=reaction_sorting.non,
+                        help='Enable sorting of reactions [beta].')
     args = parser.parse_args()
     return args
 

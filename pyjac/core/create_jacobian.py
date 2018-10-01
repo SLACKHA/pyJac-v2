@@ -33,7 +33,7 @@ from pyjac.loopy_utils import load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
-    KernelType
+    KernelType, reaction_sorting
 from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
@@ -5188,7 +5188,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     jac_type=JacobianType.exact,
                     jac_format=JacobianFormat.full, for_validation=False,
                     fd_order=1, fd_mode=FiniteDifferenceMode.forward, mem_limits='',
-                    work_size=None, explicit_simd=False, **kwargs
+                    work_size=None, explicit_simd=False,
+                    rsort=reaction_sorting.none, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5399,9 +5400,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # Interpret reaction mechanism file, depending on Cantera or
     # Chemkin format.
     if gas is not None or mech_name.endswith(tuple(['.cti', '.xml'])):
-        elems, specs, reacs = mech.read_mech_ct(mech_name, gas)
+        elems, specs, reacs = mech.read_mech_ct(mech_name, gas, rsort)
     else:
-        elems, specs, reacs = mech.read_mech(mech_name, therm_name)
+        elems, specs, reacs = mech.read_mech(mech_name, therm_name, rsort)
 
     if not specs:
         logger.error('No species found in file: {}'.format(mech_name))
