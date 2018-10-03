@@ -68,30 +68,33 @@ def sort_reactions(reacs, sort_type, return_order=False):
 
     """
 
-    from pyjac.core.enum_types import (
-        reaction_type, falloff_form, reversible_type, thd_body_type)
-
-    # we consider the following enums:
-    # column #1, reaction type
-    # column #2, falloff form
-    # column #3, third body form
-    # column #4, reversible type
-
-    enum_order = (reaction_type, falloff_form, thd_body_type, reversible_type)
-    sort_matrix = np.empty((len(reacs), 4))
-    for i, rxn in enumerate(reacs):
-        for j, enum in enumerate(enum_order):
-            e_val = rxn.get_type(enum)
-            assert len(e_val) == 1
-            sort_matrix[i, j] = int(e_val[0])
-
     ordering = np.arange(len(reacs))
+    from pyjac.core.enum_types import reaction_sorting
+    if sort_type is not None and sort_type != reaction_sorting.none:
+        from pyjac.core.enum_types import (
+            reaction_type, falloff_form, reversible_type, thd_body_type)
 
-    # now sort by column -- https://stackoverflow.com/a/38194077
-    for i in reversed(range(len(enum_order))):
-        inds = sort_matrix[:, i].argsort(kind='mergesort')
-        ordering = ordering[inds]
-        sort_matrix = sort_matrix[inds]
+        # we consider the following enums:
+        # column #1, reaction type
+        # column #2, falloff form
+        # column #3, third body form
+        # column #4, reversible type
+
+        enum_order = (reaction_type, falloff_form, thd_body_type, reversible_type)
+        sort_matrix = np.empty((len(reacs), 4))
+        for i, rxn in enumerate(reacs):
+            for j, enum in enumerate(enum_order):
+                e_val = rxn.get_type(enum)
+                assert len(e_val) == 1
+                sort_matrix[i, j] = int(e_val[0])
+
+        ordering = np.arange(len(reacs))
+
+        # now sort by column -- https://stackoverflow.com/a/38194077
+        for i in reversed(range(len(enum_order))):
+            inds = sort_matrix[:, i].argsort(kind='mergesort')
+            ordering = ordering[inds]
+            sort_matrix = sort_matrix[inds]
 
     if return_order:
         return ordering

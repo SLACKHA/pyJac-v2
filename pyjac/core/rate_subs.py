@@ -1451,7 +1451,8 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                          spec_ind=spec_ind)
 
         power_func = utils.power_function(loopy_opts.lang,
-                                          is_integer_power=allint['net'])
+                                          is_integer_power=allint['net'],
+                                          is_vector=loopy_opts.is_simd)
         # if all integers, it's much faster to use multiplication
         roptemp_eval = Template(
             """
@@ -1697,7 +1698,9 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
 
     # get the right power function
     power_func = utils.power_function(loopy_opts.lang,
-                                      is_integer_power=allint['net'])
+                                      is_integer_power=allint['net'],
+                                      # both values here are scalar
+                                      is_vector=False)
 
     # create the pressure product loop
     pressure_prod = Template("""
@@ -2386,7 +2389,8 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
 
     # get generic power function
     power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
-                                      is_positive_power=True)
+                                      is_positive_power=True,
+                                      is_vector=loopy_opts.is_simd)
 
     # make the instructions
     troe_instructions = Template("""
@@ -2491,10 +2495,12 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
 
     # get generic power function
     pos_power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
-                                          is_positive_power=True)
+                                          is_positive_power=True,
+                                          is_vector=loopy_opts.is_simd)
     gen_power_func = utils.power_function(loopy_opts.lang,
-                                          is_positive_power=isinstance(
-                                            sri_e_lp.dtype, np.integer))
+                                          is_integer_power=isinstance(
+                                            sri_e_lp.dtype, np.integer),
+                                          is_vector=loopy_opts.is_simd)
 
     # create instruction set
     sri_instructions = Template("""
@@ -2779,7 +2785,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         elif rtype == 1:
             if beta_iter > 1:
                 power_func = utils.power_function(
-                    loopy_opts.lang, is_integer_power=True, is_positive_power=True)
+                    loopy_opts.lang, is_integer_power=True, is_positive_power=True,
+                    is_vector=loopy_opts.is_simd)
                 beta_iter_str = Template("""
                 <int32> b_end = abs(${b_str})
                 kf_temp = kf_temp * ${power_func}(T_iter, b_end) \

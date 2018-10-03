@@ -10,8 +10,10 @@ import loopy as lp
 from nose.tools import nottest
 
 # local imports
-from pyjac.core.mech_interpret import read_mech_ct
+from pyjac.core.mech_interpret import read_mech_ct, sort_reactions
 from pyjac.core import array_creator as arc
+from pyjac.core.enum_types import reaction_sorting
+from pyjac.utils import EnumType
 from pyjac import utils
 from pyjac.schemas import build_and_validate
 
@@ -32,7 +34,8 @@ def _get_test_input(key, default=''):
         logger.debug('Loading value {} = {} from testconfig'.format(
             key, config[key.lower()]))
         value = config[key.lower()]
-    if key.upper() in os.environ:
+    if 'PYJAC_' + key.upper() in os.environ:
+        key = 'PYJAC_' + key.upper()
         logger = logging.getLogger(__name__)
         logger.debug('{}Loading value {} = {} from environment'.format(
             'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
@@ -76,6 +79,13 @@ def get_mechanism_file():
     This can be set in :file:`test_setup.py` or via the command line
     """
     return _get_test_input('gas', os.path.join(script_dir, 'test.cti'))
+
+
+def get_rxn_sorting():
+    """
+    Returns the user specied or default reaction sorting method
+    """
+    return EnumType(reaction_sorting)(_get_test_input('rxn_sort', 'none'))
 
 
 @nottest
@@ -362,6 +372,19 @@ class TestClass(unittest.TestCase):
             gas = ct.Solution(gasname)
             # the mechanism
             elems, specs, reacs = read_mech_ct(gasname)
+            # get sort type
+            sorting = get_rxn_sorting()
+            if sorting != reaction_sorting.none:
+                # get ordering
+                ordering = sort_reactions(reacs, sorting, return_order=True)
+                # and apply
+                reacs = sort_reactions(reacs, sorting)
+                ct_reacs = gas.reactions()
+                # and apply to gas
+                gas = ct.Solution(thermo='IdealGas', kinetics='GasKinetics',
+                                  species=gas.species(), reactions=[
+                                    ct_reacs[i] for i in ordering])
+
             # and reassign
             utils.reassign_species_lists(reacs, specs)
             # and finally check for a test platform

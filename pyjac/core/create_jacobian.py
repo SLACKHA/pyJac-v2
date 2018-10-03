@@ -33,7 +33,7 @@ from pyjac.loopy_utils import load_platform
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type, \
-    KernelType
+    KernelType, reaction_sorting
 from pyjac.core import chem_model as chem
 from pyjac.core import instruction_creator as ic
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
@@ -1325,7 +1325,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         # TODO: forward allint to this function
         # get the appropriate power function and calls
         power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
-                                          guard_nonzero=True)
+                                          guard_nonzero=True,
+                                          is_vector=loopy_opts.is_simd)
         nu_fwd = 'nu_fwd'
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
@@ -2980,7 +2981,8 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         # TODO: forward allint to this function
         # create appropriate power functions
         power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
-                                          guard_nonzero=True)
+                                          guard_nonzero=True,
+                                          is_vector=loopy_opts.is_simd)
         nu_fwd = 'nu_fwd'
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
@@ -4310,7 +4312,8 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
 
     # get the appropriate power function and calls
     power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint,
-                                      guard_nonzero=True)
+                                      guard_nonzero=True,
+                                      is_vector=loopy_opts.is_simd)
     nu_fwd = 'nu_fwd'
     nu_rev = 'nu_rev'
     pow_conc_fwd = power_func(conc_inner_str, nu_fwd)
@@ -5188,7 +5191,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     jac_type=JacobianType.exact,
                     jac_format=JacobianFormat.full, for_validation=False,
                     fd_order=1, fd_mode=FiniteDifferenceMode.forward, mem_limits='',
-                    work_size=None, explicit_simd=False, **kwargs
+                    work_size=None, explicit_simd=False,
+                    rsort=reaction_sorting.none, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.
 
@@ -5332,11 +5336,6 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                      'time')
         raise InvalidInputSpecificationException(['wide', 'deep'])
 
-    if jac_type == JacobianType.finite_difference:
-        # convert mode
-        fd_mode = utils.EnumType(FiniteDifferenceMode)(
-            fd_mode.lower())
-
     # load platform if supplied
     device = None
     device_type = None
@@ -5404,9 +5403,9 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
     # Interpret reaction mechanism file, depending on Cantera or
     # Chemkin format.
     if gas is not None or mech_name.endswith(tuple(['.cti', '.xml'])):
-        elems, specs, reacs = mech.read_mech_ct(mech_name, gas)
+        elems, specs, reacs = mech.read_mech_ct(mech_name, gas, rsort)
     else:
-        elems, specs, reacs = mech.read_mech(mech_name, therm_name)
+        elems, specs, reacs = mech.read_mech(mech_name, therm_name, rsort)
 
     if not specs:
         logger.error('No species found in file: {}'.format(mech_name))

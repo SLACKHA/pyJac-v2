@@ -2728,9 +2728,10 @@ class kernel_generator(object):
             elif arry.name in [rhs_work_name, local_work_name, int_work_name]:
                 def _size(a):
                     from pymbolic import substitute
-                    from pymbolic.primitives import Product
+                    from pymbolic.primitives import Product, Sum
                     assert len(a.shape) == 1
-                    if isinstance(a.shape[0], Product):
+                    if isinstance(a.shape[0], Product) or isinstance(
+                            a.shape[0], Sum):
                         return substitute(a.shape[0], **{w_size.name: 1})
                     return a.shape[0]
 

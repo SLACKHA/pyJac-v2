@@ -55,6 +55,9 @@ setup(
     # Choose your license
     license='MIT License',
 
+    # version
+    version=__version__,
+
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
         'Development Status :: 5 - Production/Stable',

@@ -121,11 +121,15 @@ class PreambleGen(object):
 
 
 class fastpowi_PreambleGen(PreambleGen):
-    def __init__(self, integer_dtype=np.int32):
+    def __init__(self, integer_dtype=np.int32, vector=None,
+                 name='fast_powi'):
         int_str = 'int' if integer_dtype == np.int32 else 'long'
+        double_str = 'double'
+        if vector:
+            double_str += str(vector)
         # operators
-        self.code = Template("""
-   inline double fast_powi(double val, ${int_str} pow)
+        code = Template("""
+   inline ${double_str} ${name}(${double_str} val, ${int_str} pow)
    {
         // account for negatives
         if (pow < 0)
@@ -149,22 +153,30 @@ class fastpowi_PreambleGen(PreambleGen):
             case 5:
                 return val * val * val * val * val;
         }
-        double retval = 1;
-        for (${int_str} i = 0; i < pow; ++i)
+        ${double_str} retval = val * val * val * val * val * val;
+        for (${int_str} i = 6; i < pow; ++i)
         {
             retval *= val;
         }
         return retval;
    }
-            """).substitute(int_str=int_str)
+            """).substitute(int_str=int_str, double_str=double_str,
+                            name=name)
 
         super(fastpowi_PreambleGen, self).__init__(
-            'fast_powi', self.code,
+            name, code,
             (np.float64, integer_dtype),
             (np.float64))
 
     def get_descriptor(self, func_match):
-        return 'cust_funcs_fastpowi'
+        return 'cust_funcs_{}'.format(self.name)
+
+
+class fastpowiv_PreambleGen(fastpowi_PreambleGen):
+    def __init__(self, integer_dtype=np.int32, vector_width=None):
+        assert vector_width is not None
+        super(fastpowiv_PreambleGen, self).__init__(
+            integer_dtype, vector=vector_width, name='fast_powiv')
 
 
 def power_function_preambles(loopy_opts, power_function):
@@ -183,6 +195,8 @@ def power_function_preambles(loopy_opts, power_function):
 
     if 'fast_powi' in [x.name for x in utils.listify(power_function)]:
         return [fastpowi_PreambleGen(arc.kint_type)]
+    if 'fast_powiv' in [x.name for x in utils.listify(power_function)]:
+        return [fastpowiv_PreambleGen(arc.kint_type, loopy_opts.vector_width)]
     return []
 
 
@@ -224,7 +238,10 @@ def power_function_manglers(loopy_opts, power_functions):
 
     def __manglers(power_function):
         pow_name = power_function.name
-        if loopy_opts.lang == 'opencl' and 'pow' in pow_name:
+        if pow_name in ['fast_powi', 'fast_powiv']:
+            # skip, handled as preamble
+            return []
+        elif loopy_opts.lang == 'opencl' and 'pow' in pow_name:
             # opencl only
             # create manglers
             manglers = []
@@ -259,9 +276,6 @@ def power_function_manglers(loopy_opts, power_functions):
                 manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
                                              result_dtypes=np.float64))
             return manglers
-        elif pow_name == 'fast_powi':
-            # skip, handled as preamble
-            return []
         else:
             return [powf()]
 
