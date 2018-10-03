@@ -4,9 +4,10 @@
 # c) the maximum number of threads to test
 # d) the relative / absolute tolerances
 # e) the languages to test
+# f) the reaction sorting method to use
 # All test configuration variables  can be specified on the command line via
-# ENV variables if desired
-# e.g. GAS=mymech.cti TEST_PLATFORM=my_platform.yaml nosetests ...
+# ENV variables (prefixed with PYJAC_) if desired
+# e.g. PYJAC_GAS=mymech.cti PYJAC_TEST_PLATFORM=my_platform.yaml nosetests ...
 # or simply feel free to modify the below...
 # NOTE: supplied enviroment variables with override variables set in this test config
 
@@ -32,3 +33,5 @@ config['test_langs'] = 'opencl,c'
 # config['atol'] = 1
 # Set the number of initial conditions for pyJac testing
 # config['test_size'] = 8192
+# Set the type of reaction sorting to utilize
+# config['rxn_sort'] = 'simd'

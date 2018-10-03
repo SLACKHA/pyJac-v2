@@ -17,7 +17,8 @@ from nose import SkipTest
 
 from pyjac.loopy_utils.loopy_utils import (
     get_device_list, kernel_call, populate, auto_run, loopy_options)
-from pyjac.core.enum_types import RateSpecialization, JacobianType, JacobianFormat
+from pyjac.core.enum_types import RateSpecialization, JacobianType, JacobianFormat,\
+    reaction_sorting
 from pyjac.core.exceptions import MissingPlatformError, BrokenPlatformError
 from pyjac.kernel_utils import kernel_gen as k_gen
 from pyjac.core import array_creator as arc
@@ -1870,9 +1871,10 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
     for_validation = isinstance(run, validation_runner)
 
     # imports needed only for this tester
+    from pyjac.tests import get_rxn_sorting
     from pyjac.tests.test_utils import get_test_matrix as tm
     from pyjac.tests.test_utils import data_bin_writer as dbw
-    from pyjac.core.mech_interpret import read_mech_ct
+    from pyjac.core.mech_interpret import read_mech_ct, sort_reactions
     from pyjac.core.create_jacobian import find_last_species, create_jacobian
     import cantera as ct
 
@@ -1941,16 +1943,25 @@ def _run_mechanism_tests(work_dir, test_matrix, prefix, run,
         gas.basis = 'molar'
 
         # read our species for MW's
-        _, specs, _ = read_mech_ct(gas=gas)
+        _, specs, reacs = read_mech_ct(gas=gas)
 
         # find the last species
         gas_map = find_last_species(specs, return_map=True)
         del specs
+
+        # get the sorted reactions, if applicable
+        rsort = get_rxn_sorting()
+        ct_reacs = gas.reactions()
+        if rsort != reaction_sorting.none:
+            # get ordering
+            ordering = sort_reactions(reacs, rsort, return_order=True)
+            ct_reacs = [reacs[i] for i in range(ordering)]
+
         # update the gas
         specs = gas.species()[:]
         gas = ct.Solution(thermo='IdealGas', kinetics='GasKinetics',
                           species=[specs[x] for x in gas_map],
-                          reactions=gas.reactions())
+                          reactions=ct_reacs)
         del specs
 
         # first load data to get species rates, jacobian etc.

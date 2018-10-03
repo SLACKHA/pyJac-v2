@@ -96,8 +96,8 @@ def sort_reactions(reacs, sort_type, return_order=False):
             ordering = ordering[inds]
             sort_matrix = sort_matrix[inds]
 
-        if return_order:
-            return ordering
+    if return_order:
+        return ordering
 
     # sort reactions
     return [reacs[i] for i in ordering]
