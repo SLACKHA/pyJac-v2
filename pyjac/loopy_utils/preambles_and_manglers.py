@@ -172,7 +172,7 @@ class fastpowi_PreambleGen(PreambleGen):
         return 'cust_funcs_{}'.format(self.name)
 
 
-class fastpowiv_PreambleGen(PreambleGen):
+class fastpowiv_PreambleGen(fastpowi_PreambleGen):
     def __init__(self, integer_dtype=np.int32, vector_width=None):
         assert vector_width is not None
         super(fastpowiv_PreambleGen, self).__init__(
@@ -238,7 +238,10 @@ def power_function_manglers(loopy_opts, power_functions):
 
     def __manglers(power_function):
         pow_name = power_function.name
-        if loopy_opts.lang == 'opencl' and 'pow' in pow_name:
+        if pow_name in ['fast_powi', 'fast_powiv']:
+            # skip, handled as preamble
+            return []
+        elif loopy_opts.lang == 'opencl' and 'pow' in pow_name:
             # opencl only
             # create manglers
             manglers = []
@@ -273,9 +276,6 @@ def power_function_manglers(loopy_opts, power_functions):
                 manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
                                              result_dtypes=np.float64))
             return manglers
-        elif pow_name in ['fast_powi', 'fast_powiv']:
-            # skip, handled as preamble
-            return []
         else:
             return [powf()]
 
