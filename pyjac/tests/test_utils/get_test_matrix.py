@@ -359,7 +359,7 @@ def num_cores_default():
             if mt % 2:
                 break
 
-    return default_num_cores, can_override_cores
+    return sorted(default_num_cores), can_override_cores
 
 
 def get_overrides(test, eval_type, jac_type, sparse_type):
