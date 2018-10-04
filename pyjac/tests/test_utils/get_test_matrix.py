@@ -332,20 +332,33 @@ def num_cores_default():
         max_threads
 
     If neither are specified, it will return powers of 2 under the maximum
-    hardware cores
+    hardware cores.
+
+    In addition -- the maximum number of cores will be tested, and any power of two
+    factor of this will be tested.  This is to ensure we test with full socket
+    utilization.  For instance, on a CPU w/ two 12 socket cores,  we will ensure that
+    [6, 12, 24] cores are tested
     """
     nc = 1
-    default_num_cores = []
+    default_num_cores = set()
     can_override_cores = True
     if _get_test_input('num_threads', None) is not None:
         can_override_cores = False
-        default_num_cores = [int(_get_test_input('num_threads'))]
+        default_num_cores.add(int(_get_test_input('num_threads')))
     else:
         max_threads = int(_get_test_input('max_threads',
                                           psutil.cpu_count(logical=False)))
         while nc <= max_threads:
-            default_num_cores.append(nc)
+            default_num_cores.add(nc)
             nc *= 2
+        # and ensure we have powers of max threads for full socket test
+        mt = max_threads
+        while True:
+            default_num_cores.add(mt)
+            mt = int(mt / 2)
+            if mt % 2:
+                break
+
     return default_num_cores, can_override_cores
 
 
