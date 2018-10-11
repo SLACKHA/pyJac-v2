@@ -63,6 +63,7 @@ Global declarations for Cog:
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sstream.h>
 /*[[[cog
     if callgen.lang == 'opencl':
         cog.outl("""
@@ -81,7 +82,7 @@ Global declarations for Cog:
   [[[end]]]*/
 
 
-// base kernel class
+//! \brief The base kernel class
 class Kernel
 {
 
@@ -96,16 +97,64 @@ public:
       [[[end]]]*/
     void resize(size_t problem_size, size_t work_size, bool do_not_compile=false);
     void finalize();
+
+    //! \brief Returns the ordered list of species names in the chemical model
+    static const std::vector<std::string>& speciesNames()
+    {
+        return _species_names;
+    }
+
+    /** \brief Returns the list of reaction strings in the chemical model
+
+        \note Currently only implemented for pyJac codes generated using Cantera
+              mechanisms.  If this file has been generated using a Chemkin mechanism
+              this function will return an empty vector.
+     */
+    static const std::vector<std::string>& reactionStrings()
+    {
+        return _rxn_strings;
+    }
+
+    //! \brief Return the data-ordering used in this kernel, either 'C' (row-major)
+    //!        or 'F' (column-major)
+    static const std::string& order()
+    {
+        return _order;
+    }
+
+    /*[[[cog
+         if can_vectorize_lang[lang]:
+            cog.outl("""
+            //! \brief Return the vector-width used by this kernel
+            static const unsigned int vectorWidth()
+            {
+                return _vector_width;
+            }""", dedent=True, trimblanklines=True)
+      ]]]
+      [[[end]]]*/
+
+    /** \brief Returns the total amount of working memory required per-thermochemical
+      *        state for this kernel, in bytes.
+      *
+      * \note  This includes vectorization considerations.
+      */
+    virtual const std::size_t requiredMemorySize() const = 0;
+
     /*[[[cog
          if callgen.lang == 'opencl':
             # output compiler
             cog.outl('virtual void compile() = 0;')
             cog.outl("""
             // info variables -- common to all kernels
-            static const char* build_options;
-            static const char* platform_check;
-            static const unsigned int device_type;
+
+            //! \brief Return the OpenCL build options used in kernel compilation
+            static const std::string& buildOptions() { return Kernel::build_options; }
+            //! \brief Return the name of the OpenCL platform used for kernel execution
+            static const std::string& platform() { return Kernel::platform; };
+            //! \brief return the type of OpenCL device used for kernel execution
+            static const unsigned int deviceType() { return Kernel::device_type; }
             """, trimblanklines=True, dedent=True)
+
          elif callgen.lang == 'c':
             cog.outl('void compile(){}')
             cog.outl('void threadset(unsigned int num_threads);')
@@ -130,6 +179,19 @@ protected:
             const char* kernel_path;
             """, trimblanklines=True, dedent=True)
 
+            # write build options / platform / device dtype
+            cog.outl('static constexpr char* build_options = "{}";'.format(
+                callgen.build_options))
+            cog.outl('static constexpr char* platform_check = "{}";'.format(
+                callgen.build_options))
+            try:
+                device_type = int(callgen.device_type)
+            except ValueError:
+                assert isinstance(callgen.device_type, str)
+                device_type = callgen.device_type
+            cog.outl('static constexpr unsigned int device_type = {};'.format(
+                device_type))
+
       ]]]
       [[[end]]]*/
 
@@ -142,6 +204,30 @@ protected:
     size_t problem_size;
     size_t max_per_run;
     size_t work_size;
+
+    // info variables
+
+    // species names
+    //[[[cog cog.outl('static constexpr std::vector<std::string> _species_names = '
+    //                '{{ {} }};').format(stringify_args(callgen.species_names)))]]]
+    //[[[end]]]
+    // reaction strings
+    //[[[cog cog.outl('static constexpr std::vector<std::string> _rxn_strings = '
+    //                '{{ {} }};').format(stringify_args(callgen.rxn_strings)))]]]
+    //[[[end]]]
+    // data order
+    //[[[cog cog.outl('static constexpr std::string _order = "{}"'.format(
+    //                 callgen.order)]]]
+    //[[[end]]]
+    /*[[[cog
+         if can_vectorize_lang[lang]:
+            cog.outl("""
+            // vector width
+            //! \brief Return the vector-width used by this kernel
+            static constexpr unsigned int _vector_width = {};
+            """.format(callgen.local_size, dedent=True, trimblanklines=True)
+      ]]]
+      [[[end]]]*/
 
 
     /*[[[cog

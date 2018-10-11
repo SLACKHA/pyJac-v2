@@ -5477,7 +5477,8 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
 
     # write the kernel
     gen.generate(build_path, data_filename=data_filename,
-                 for_validation=for_validation)
+                 for_validation=for_validation, species_names=[
+                 x.name for x in specs], rxn_strings=[str(rxn) for rxn in reacs])
     return 0
 
 

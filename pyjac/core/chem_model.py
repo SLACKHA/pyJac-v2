@@ -268,7 +268,6 @@ class ReacInfo(object):
         self.plog = False
         # List of arrays with [pressure [Pa], A, b, E]
         self.plog_par = None
-
         # enums
         self.type = []
 
@@ -337,6 +336,49 @@ class ReacInfo(object):
             self.A = 0
             self.b = 0
             self.E = 0
+
+        def __eqn_side(species, nu):
+            estr = ''
+            for (s, nu) in zip(*(species, nu)):
+                if estr:
+                    estr += ' + '
+                estr += ('{} {}'.format(s, nu) if nu != 1 else s)
+
+            if self.pdep:
+                estr += ' + (+M)'
+            elif self.thd:
+                estr += ' + M'
+            return estr
+
+        rxn_str = ''
+        if self.match([reaction_type.fall]):
+            rxn_str += 'FalloffReaction: '
+        elif self.match([reaction_type.chem]):
+            rxn_str += 'ChemicallyActivatedReaction: '
+        elif self.match([reaction_type.thd]):
+            rxn_str += 'ThreeBodyReaction: '
+        elif self.match([reaction_type.plog]):
+            rxn_str += 'PLOGReaction: '
+        elif self.match([reaction_type.cheb]):
+            rxn_str += 'ChebyshevReaction: '
+        else:
+            rxn_str += 'ElementaryReaction: '
+
+        # finally create a rxn string
+        rxn_str += __eqn_side(self.reac, self.reac_nu)
+        if self.rev:
+            rxn_str += ' <=> '
+        else:
+            rxn_str += ' => '
+        rxn_str = __eqn_side(self.prod, self.prod_nu)
+        self.rxn_str = rxn_str
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        assert self.type, 'Reaction must be finalized to stringify.'
+        return self.rxn_str
 
     def get_type(self, reaction_enum_type):
         """

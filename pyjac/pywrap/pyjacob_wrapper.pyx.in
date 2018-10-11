@@ -4,6 +4,8 @@ import cython
 import numpy as np
 cimport numpy as np
 from libcpp cimport bool as bool_t  # noqa
+from libcpp cimport string as string_t # noqa
+from libcpp import vector
 
 '''[[[cog
 from six.moves import cPickle as pickle
@@ -21,6 +23,10 @@ cdef extern from "{name}_main{ext}":
     cdef cppclass {kernel_name}:
         {kernel_name}() except +
         {kernel_name}(size_t, size_t, bool_t) except +
+
+        vector[string_t] speciesNames() except+
+        vector[string_t] reactionStrings() except+
+        string_t order() except+
         void resize(size_t, size_t, bool_t) except +
         void operator()({args}) except +
         void finalize() except +
