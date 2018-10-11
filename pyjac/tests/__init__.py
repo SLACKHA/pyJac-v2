@@ -13,34 +13,14 @@ from nose.tools import nottest
 from pyjac.core.mech_interpret import read_mech_ct, sort_reactions
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import reaction_sorting
-from pyjac.utils import EnumType
+from pyjac.utils import EnumType, get_env_val
 from pyjac import utils
 from pyjac.schemas import build_and_validate
 
 
 @nottest
 def _get_test_input(key, default=''):
-    try:
-        from testconfig import config
-    except ImportError:
-        # not nose
-        config = {}
-
-    value = default
-    in_config = False
-    if key in config:
-        logger = logging.getLogger(__name__)
-        in_config = True
-        logger.debug('Loading value {} = {} from testconfig'.format(
-            key, config[key.lower()]))
-        value = config[key.lower()]
-    if 'PYJAC_' + key.upper() in os.environ:
-        key = 'PYJAC_' + key.upper()
-        logger = logging.getLogger(__name__)
-        logger.debug('{}Loading value {} = {} from environment'.format(
-            'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
-        value = os.environ[key.upper()]
-    return value
+    return get_env_val(key, default)
 
 
 # various testing globals

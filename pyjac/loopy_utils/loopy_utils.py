@@ -903,9 +903,9 @@ class kernel_call(object):
         self.other_compare = other_compare
         self.tiling = tiling
         # pull any rtol / atol from env / test config as specified by user
-        from pyjac.tests import _get_test_input
-        rtol = float(_get_test_input('rtol', rtol))
-        atol = float(_get_test_input('atol', atol))
+        from pyjac.utils import get_env_val
+        rtol = float(get_env_val('rtol', rtol))
+        atol = float(get_env_val('atol', atol))
 
         self.rtol = rtol
         self.atol = atol

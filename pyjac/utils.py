@@ -43,6 +43,30 @@ Standard indentation
 """
 
 
+def get_env_val(key, default=''):
+    try:
+        from testconfig import config
+    except ImportError:
+        # not nose
+        config = {}
+
+    value = default
+    in_config = False
+    if key in config:
+        logger = logging.getLogger(__name__)
+        in_config = True
+        logger.debug('Loading value {} = {} from testconfig'.format(
+            key, config[key.lower()]))
+        value = config[key.lower()]
+    if 'PYJAC_' + key.upper() in os.environ:
+        key = 'PYJAC_' + key.upper()
+        logger = logging.getLogger(__name__)
+        logger.debug('{}Loading value {} = {} from environment'.format(
+            'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
+        value = os.environ[key.upper()]
+    return value
+
+
 def indent(text, prefix, predicate=None):
     """Adds 'prefix' to the beginning of selected lines in 'text'.
 

@@ -72,9 +72,9 @@ def get_toolchain(lang, shared=True, executable=True):
 
     # compilation flags
     compile_flags = opt_flags
-    from pyjac.tests import _get_test_input
+    from pyjac.utils import get_env_val
     # read debug flag from ENV or config
-    if _get_test_input('debug'):
+    if get_env_val('debug'):
         compile_flags = debug_flags
 
     # link flags
