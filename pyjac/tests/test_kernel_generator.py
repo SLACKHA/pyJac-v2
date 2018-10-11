@@ -1,5 +1,4 @@
 import os
-from collections import OrderedDict
 import shutil
 from tempfile import NamedTemporaryFile
 import re
@@ -7,17 +6,14 @@ import textwrap
 
 import numpy as np
 import loopy as lp
-from optionloop import OptionLoop
 from loopy.kernel.array import ArrayBase
 from loopy.kernel.data import AddressSpace as scopes
 from loopy.types import to_loopy_type
 from nose.tools import assert_raises
 import six
 
-from pyjac.core.create_jacobian import get_jacobian_kernel
-from pyjac.core.enum_types import JacobianFormat, KernelType
-from pyjac.core.rate_subs import get_specrates_kernel
-from pyjac.core.mech_auxiliary import write_aux
+from pyjac.core.create_jacobian import get_jacobian_kernel, determine_jac_inds
+from pyjac.core.enum_types import JacobianFormat, KernelType, RateSpecialization
 from pyjac.core import array_creator as arc
 from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup, \
     PreambleGen
@@ -26,7 +22,7 @@ from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord
     knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name
 from pyjac.utils import partition, temporary_directory, clean_dir, \
     can_vectorize_lang, header_ext, file_ext
-from pyjac.tests import TestClass, get_test_langs
+from pyjac.tests import TestClass
 from pyjac.tests.test_utils import OptionLoopWrapper
 
 
@@ -67,26 +63,6 @@ class SubTest(TestClass):
             shutil.rmtree(dist_build)
         # clean sources
         clean_dir(self.store.build_dir, remove_dirs)
-
-    def __get_spec_lib(self, state, opts):
-        build_dir = self.store.build_dir
-        conp = state['conp']
-        kgen = get_specrates_kernel(self.store.reacs, self.store.specs, opts,
-                                    conp=conp)
-        # generate
-        kgen.generate(build_dir)
-        # write header
-        write_aux(build_dir, opts, self.store.specs, self.store.reacs)
-
-    def __get_oploop(self):
-        oploop = OptionLoop(OrderedDict([
-            ('conp', [True]),
-            ('shared', [True, False]),
-            ('lang', get_test_langs()),
-            ('width', [4, None]),
-            ('depth', [4, None]),
-            ('order', ['C', 'F'])]))
-        return oploop
 
     def test_process_args(self):
         # we only really need to test OpenCL here, as we just want to ensure
@@ -156,6 +132,96 @@ class SubTest(TestClass):
             assert any(arc.problem_size.name in str(y) for y in next(
                 x for x in newrecord.args if x.name == new.name).shape)
 
+    def _kernel_gen(self, opts, include_jac_lookup=False):
+        """
+        Returns a good substitute (much faster) kernel generator for various tests
+        """
+
+        # we need:
+        # - a constant (to test host constant migration)
+        # - a local array (to test locals), if opts.depth
+        # - a few global arrays
+
+        # create namestore
+        jac_inds = determine_jac_inds(self.store.reacs, self.store.specs,
+                                      RateSpecialization.fixed)
+        namestore = arc.NameStore(opts, jac_inds)
+        # two kernels (one for each generator)
+        instructions0 = (
+            """
+                {arg0} = {const}
+            """
+        )
+        instructions1 = (
+            """
+                {arg1} = {arg0}
+            """
+        )
+
+        # create mapstore
+        domain = arc.creator('domain', arc.kint_type, (10,), 'C',
+                             initializer=np.arange(10, dtype=arc.kint_type))
+        mapstore = arc.MapStore(opts, domain, None)
+        # create global arg
+        arg0 = arc.creator('arg1', np.float64, (arc.problem_size.name, 10),
+                           opts.order)
+        arg1 = arc.creator('arg0', np.float64, (arc.problem_size.name, 10),
+                           opts.order)
+        const = arc.creator('const', np.int32, (10,),
+                            opts.order, initializer=np.arange(10, dtype=np.int32),
+                            is_temporary=True)
+
+        # create array / array string
+        arg0_lp, arg0_str = mapstore.apply_maps(arg0, 'j', 'i')
+        arg1_lp, arg1_str = mapstore.apply_maps(arg1, 'j', 'i')
+        const_lp, const_str = mapstore.apply_maps(const, 'i')
+
+        # create kernel infos
+        knl0 = knl_info('knl0', instructions0.format(arg0=arg0_str, const=const_str),
+                        mapstore, kernel_data=[arg0_lp, const_lp, arc.work_size])
+
+        # create generators
+        gen0 = make_kernel_generator(
+             opts, KernelType.dummy, [knl0],
+             namestore,
+             name=knl0.name, output_arrays=['arg0'])
+
+        # include
+        knl1_data = [arg1_lp, arg0_lp, arc.work_size]
+        if include_jac_lookup and opts.jac_format == JacobianFormat.sparse:
+            assert gen0.jacobian_lookup is not None
+            look = getattr(namestore, gen0.jacobian_lookup)
+            ptr = gen0.jacobian_lookup.replace('row', 'col') if 'row' in \
+                gen0.jacobian_lookup else gen0.jacobian_lookup.replace('col', 'row')
+            ptr = getattr(namestore, ptr)
+            lookup_lp, lookup_str = mapstore.apply_maps(look, '0')
+            ptr_lp, ptr_str = mapstore.apply_maps(ptr, '0')
+            instructions1 += (
+                """
+                    <>temp = {lookup} + {ptr}
+                """
+            ).format(lookup=lookup_str, ptr=ptr_str)
+            knl1_data += [lookup_lp, ptr_lp]
+
+        if opts.depth:
+            local = arc.creator('local', np.int32, (opts.vector_width),
+                                opts.order, scope=scopes.LOCAL)
+            local_lp, local_str = mapstore.apply_maps(local, '0')
+            instructions1 += (
+                """
+            {local} = 1
+                """.format(local=local_str))
+            knl1_data += [local_lp]
+
+        knl1 = knl_info('knl1', instructions1.format(
+            arg0=arg0_str, arg1=arg1_str), mapstore,
+            kernel_data=knl1_data)
+        gen1 = make_kernel_generator(
+             opts, KernelType.dummy, [knl0, knl1],
+             namestore, depends_on=[gen0],
+             name=knl1.name, output_arrays=['arg1'])
+        return gen1
+
     def test_process_memory(self):
         # test sparse in order to ensure the Jacobian preambles aren't removed
         oploop = OptionLoopWrapper.from_get_oploop(self,
@@ -163,10 +229,9 @@ class SubTest(TestClass):
                                                    do_vector=False,
                                                    do_sparse=True)
         for opts in oploop:
-            # create a jacobian kernel generator for this state so that we have
-            # a large number of arrays to test
-            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
-                                       conp=oploop.state['conp'])
+            # get the dummy generator
+            kgen = self._kernel_gen(opts, include_jac_lookup=True)
+
             # make kernels
             kgen._make_kernels()
 
@@ -214,7 +279,6 @@ class SubTest(TestClass):
                                record.constants)
 
                 # and because we can, test the host constant migration at this point
-
                 kernels = rec_kernel(kgen)
                 kernels = kgen._migrate_host_constants(
                     kernels, noconst.host_constants)
@@ -659,10 +723,6 @@ class SubTest(TestClass):
                 if opts.lang == 'c':
                     assert ('void Kernel::threadset(unsigned int num_threads)'
                             in file_src)
-                elif opts.lang == 'opencl':
-                    assert re.search(
-                        r'build_options = [^\n]+-I{}'.format(tdir), file_src)
-                    assert re.search(re.escape(opts.platform.vendor), file_src)
 
                 # and the validation output
                 assert all(x.strip() in file_src for x in
@@ -730,9 +790,16 @@ class SubTest(TestClass):
 
                 if opts.lang == 'opencl':
                     # check build options
-                    assert 'static const char* build_options;' in file_src
-                    assert r'static const char* platform_check;' in file_src
-                    assert r'static const unsigned int device_type;' in file_src
+                    assert re.search(
+                        r'static constexpr char* build_options = "[^\n]+-I{}"'
+                        .format(tdir), file_src)
+                    assert re.search(
+                        r'static const char* platform_check = "{}";'.format(
+                            re.escape(opts.platform.vendor), file_src))
+                    assert r'static constexpr unsigned int device_type = ' in \
+                        file_src
+                    assert r'static constexpr unsigned int _vector_width = {};'.format(
+                        opts.vector_width) in file_src
 
                     # check arguments
                     for x in jac_gen.in_arrays + jac_gen.out_arrays:
