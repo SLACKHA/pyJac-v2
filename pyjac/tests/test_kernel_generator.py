@@ -789,14 +789,14 @@ class SubTest(TestClass):
                     # check build options
                     assert re.search(
                         r'static constexpr char* build_options = "[^\n]+-I{}"'
-                        .format(tdir), file_src)
+                        .format(re.escape(tdir)), file_src)
                     assert re.search(
                         r'static const char* platform_check = "{}";'.format(
                             re.escape(opts.platform.vendor), file_src))
                     assert r'static constexpr unsigned int device_type = ' in \
                         file_src
-                    assert r'static constexpr unsigned int _vector_width = {};'.format(
-                        opts.vector_width) in file_src
+                    assert r'static constexpr unsigned int _vector_width = {};' \
+                        .format(opts.vector_width) in file_src
 
                     # check arguments
                     for x in jac_gen.in_arrays + jac_gen.out_arrays:
