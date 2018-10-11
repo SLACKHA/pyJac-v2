@@ -785,13 +785,17 @@ class SubTest(TestClass):
                 assert all('#include "{}"'.format(header + header_ext[opts.lang])
                            in file_src for header in headers)
 
+                assert re.search(
+                        r'static constexpr std::string _order = "{}";'.format(
+                            re.escape(opts.order), file_src))
+
                 if opts.lang == 'opencl':
                     # check build options
                     assert re.search(
-                        r'static constexpr char* build_options = "[^\n]+-I{}"'
+                        r'static constexpr char\* build_options = "[^\n]+-I{}'
                         .format(re.escape(tdir)), file_src)
                     assert re.search(
-                        r'static const char* platform_check = "{}";'.format(
+                        r'static constexpr char\* platform_check = "{}";'.format(
                             re.escape(opts.platform.vendor), file_src))
                     assert r'static constexpr unsigned int device_type = ' in \
                         file_src

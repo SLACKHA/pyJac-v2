@@ -21,11 +21,11 @@ Global declarations for Cog:
     from textwrap import dedent
     from six.moves import cPickle as pickle
     import loopy as lp
-    from pyjac.utils import indent, stdindent
+    from pyjac.utils import indent, stdindent, stringify_args, enum_to_string, \
+        can_vectorize_lang
     from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
     from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, get_include, \
         make_doc_str
-    from pyjac.utils import enum_to_string, can_vectorize_lang
 
     # load serialized callgen
     with open(callgen, 'rb') as file:
@@ -183,7 +183,7 @@ protected:
             cog.outl('static constexpr char* build_options = "{}";'.format(
                 callgen.build_options))
             cog.outl('static constexpr char* platform_check = "{}";'.format(
-                callgen.build_options))
+                callgen.platform))
             try:
                 device_type = int(callgen.device_type)
             except ValueError:
@@ -208,17 +208,23 @@ protected:
     // info variables
 
     // species names
-    //[[[cog cog.outl('static constexpr std::vector<std::string> _species_names = '
-    //                '{{ {} }};').format(stringify_args(callgen.species_names)))]]]
-    //[[[end]]]
+    /*[[[cog
+         cog.outl('static constexpr std::vector<std::string> _species_names = '
+                  '{{ {} }};'.format(stringify_args(callgen.species_names)))
+      ]]]
+      [[[end]]]*/
     // reaction strings
-    //[[[cog cog.outl('static constexpr std::vector<std::string> _rxn_strings = '
-    //                '{{ {} }};').format(stringify_args(callgen.rxn_strings)))]]]
-    //[[[end]]]
+    /*[[[cog
+         cog.outl('static constexpr std::vector<std::string> _rxn_strings = '
+                  '{{ {} }};'.format(stringify_args(callgen.rxn_strings)))
+      ]]]
+      [[[end]]]*/
     // data order
-    //[[[cog cog.outl('static constexpr std::string _order = "{}"'.format(
-    //                 callgen.order)]]]
-    //[[[end]]]
+    /*[[[cog
+         cog.outl('static constexpr std::string _order = "{}"'.format(
+                  callgen.order))
+      ]]]
+      [[[end]]]*/
     /*[[[cog
          if can_vectorize_lang[callgen.lang]:
             cog.outl("""
