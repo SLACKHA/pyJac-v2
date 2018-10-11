@@ -1366,8 +1366,10 @@ class kernel_generator(object):
         """
 
         assert all(x.address_space == scopes.LOCAL for x in ldecls)
-        names = set([x.name for x in ldecls])
-
+        ltemps, largs = utils.partition(ldecls, lambda x: isinstance(
+            x, lp.TemporaryVariable))
+        # only need to process the local temporaries
+        names = set([x.name for x in ltemps])
         return kernel.copy(
             args=kernel.args[:] + [self._temporary_to_arg(x) for x in ldecls],
             temporary_variables={
@@ -1633,6 +1635,10 @@ class kernel_generator(object):
                     local.extend([x for x in lt if x not in local])
                     # and remove from temps
                     temps = [x for x in temps if x not in lt]
+        # and add any local args
+        largs, args = utils.partition(args,
+                                      lambda x: x.address_space == scopes.LOCAL)
+        local.extend(largs)
 
         # finally, separate the constants from the temporaries
         # for opencl < 2.0, a constant global can only be a

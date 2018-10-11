@@ -1567,10 +1567,11 @@ class creator(object):
         # set default args
         arg_dict = {'shape': self.shape,
                     'dtype': self.dtype,
+                    'address_space': self.scope,
                     'order': self.order}
         # and update any supplied overrides
         arg_dict.update(kwargs)
-        return lp.GlobalArg(self.name, **arg_dict)
+        return lp.ArrayArg(self.name, **arg_dict)
 
     def __call__(self, *indicies, **kwargs):
         """

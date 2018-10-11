@@ -300,10 +300,9 @@ class SubTest(TestClass):
                                                    do_vector=True,
                                                    do_sparse=False)
         for opts in oploop:
-            # create a jacobian kernel generator for this state so that we have
-            # a large number of arrays to test
-            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
-                                       conp=oploop.state['conp'])
+            # get the dummy generator
+            kgen = self._kernel_gen(opts, include_jac_lookup=True)
+
             # make kernels
             kgen._make_kernels()
 
