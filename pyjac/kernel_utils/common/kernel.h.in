@@ -123,7 +123,7 @@ public:
     }
 
     /*[[[cog
-         if can_vectorize_lang[lang]:
+         if can_vectorize_lang[callgen.lang]:
             cog.outl("""
             //! \brief Return the vector-width used by this kernel
             static const unsigned int vectorWidth()
@@ -220,12 +220,11 @@ protected:
     //                 callgen.order)]]]
     //[[[end]]]
     /*[[[cog
-         if can_vectorize_lang[lang]:
+         if can_vectorize_lang[callgen.lang]:
             cog.outl("""
             // vector width
-            //! \brief Return the vector-width used by this kernel
             static constexpr unsigned int _vector_width = {};
-            """.format(callgen.local_size, dedent=True, trimblanklines=True)
+            """.format(callgen.local_size), dedent=True, trimblanklines=True)
       ]]]
       [[[end]]]*/
 

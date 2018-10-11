@@ -462,7 +462,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     {{
         return {rwk_size};
     }}
-    """.format(), dedent=False, trimblanklines=True)
+    """.format(rwk_size=rwk_size), dedent=False, trimblanklines=True)
 
     # write constructor
     cog.outl(make_doc_str(callgen, [], 'Default constructor (requires resize before use)'))
