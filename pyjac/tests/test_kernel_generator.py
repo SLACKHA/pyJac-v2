@@ -65,15 +65,10 @@ class SubTest(TestClass):
         clean_dir(self.store.build_dir, remove_dirs)
 
     def test_process_args(self):
-        # we only really need to test OpenCL here, as we just want to ensure
-        # deep vectorizations have local args
-        oploop = OptionLoopWrapper.from_get_oploop(self, do_conp=False,
-                                                   langs=['opencl'])
+        oploop = OptionLoopWrapper.from_get_oploop(self, do_conp=False)
         for opts in oploop:
-            # create a species rates kernel generator for this state
-            kgen = get_jacobian_kernel(self.store.reacs, self.store.specs, opts,
-                                       conp=oploop.state['conp'])
-            # make kernels
+            kgen = self._kernel_gen(opts)
+
             kgen._make_kernels()
 
             # and process the arguements
@@ -89,8 +84,11 @@ class SubTest(TestClass):
                 assert all(any(kgen._compare_args(a1, a2)
                            for a2 in record.args) for a1 in arrays)
                 if local:
-                    assert all(any(kgen._compare_args(a1, kgen._temporary_to_arg(a2))
-                               for a2 in record.local) for a1 in local)
+                    converted = [kgen._temporary_to_arg(a2)
+                                 if isinstance(a2, lp.TemporaryVariable) else a2
+                                 for a2 in record.local]
+                    assert all(any(kgen._compare_args(a1, a2)
+                               for a2 in converted) for a1 in local)
                 assert all(val in record.valueargs for val in values)
                 assert not any(read in kernel.get_written_variables()
                                for read in record.readonly)
