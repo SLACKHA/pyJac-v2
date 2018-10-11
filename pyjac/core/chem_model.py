@@ -11,6 +11,7 @@ import logging
 import numpy as np
 from pyjac.core.enum_types import reaction_type, thd_body_type, falloff_form, \
     reversible_type
+from pyjac.utils import is_integer
 
 __all__ = ['RU', 'RUC', 'RU_JOUL', 'PA', 'get_elem_wt',
            'ReacInfo', 'SpecInfo', 'calc_spec_smh']
@@ -342,11 +343,16 @@ class ReacInfo(object):
             for (s, nu) in zip(*(species, nu)):
                 if estr:
                     estr += ' + '
-                estr += ('{} {}'.format(s, nu) if nu != 1 else s)
 
-            if self.pdep:
-                estr += ' + (+M)'
-            elif self.thd:
+                nu_str = '{}'.format(int(nu) if is_integer(nu) else nu)
+                estr += ('{} {}'.format(nu_str, s) if nu != 1 else s)
+
+            if self.match([reaction_type.fall, reaction_type.chem]):
+                if self.pdep_sp:
+                    estr += ' (+{})'.format(self.pdep_sp)
+                else:
+                    estr += ' (+M)'
+            elif self.match([reaction_type.thd]):
                 estr += ' + M'
             return estr
 
@@ -370,7 +376,7 @@ class ReacInfo(object):
             rxn_str += ' <=> '
         else:
             rxn_str += ' => '
-        rxn_str = __eqn_side(self.prod, self.prod_nu)
+        rxn_str += __eqn_side(self.prod, self.prod_nu)
         self.rxn_str = rxn_str
 
     def __repr__(self):
