@@ -717,9 +717,24 @@ class SubTest(TestClass):
                 assert ('void JacobianKernel::operator()(double* h_spec, '
                         'double* h_jac)') in file_src
 
+                assert re.search(r'const char\* Kernel::_order =', file_src)
+                assert re.search(r'const unsigned int Kernel::_nsp =', file_src)
+                assert re.search(r'const unsigned int Kernel::_nrxn =', file_src)
+
                 if opts.lang == 'c':
                     assert ('void Kernel::threadset(unsigned int num_threads)'
                             in file_src)
+                else:
+                    # check build options
+                    assert re.search(
+                        r'const char\* Kernel::build_options = "[^\n]+-I{}'
+                        .format(re.escape(tdir)), file_src)
+                    assert re.search(
+                        r'const char\* Kernel::platform_check = "{}";'.format(
+                            re.escape(opts.platform.vendor)), file_src)
+                    assert r'const unsigned int Kernel::device_type = ' in \
+                        file_src
+                    assert r'const unsigned int Kernel::_vector_width = ' in file_src
 
                 # and the validation output
                 assert all(x.strip() in file_src for x in
@@ -747,7 +762,7 @@ class SubTest(TestClass):
                             'double const *__restrict__ spec, '
                             'double *__restrict__ jac, double *__restrict__ rwk)'
                             ) in file_src
-                else:
+                elif opts.lang == 'opencl':
                     dtype = 'double' if not opts.is_simd else 'double{}'.format(
                         opts.vector_width)
                     assert ('jacobian(__global double const *__restrict__ t, '
@@ -785,22 +800,19 @@ class SubTest(TestClass):
                 assert all('#include "{}"'.format(header + header_ext[opts.lang])
                            in file_src for header in headers)
 
-                assert re.search(
-                        r'static constexpr std::string _order = "{}";'.format(
-                            re.escape(opts.order), file_src))
+                assert re.search(r'static const char\* _order;', file_src)
+                assert re.search(r'static const unsigned int _nsp;', file_src)
+                assert re.search(r'static const unsigned int _nrxn;', file_src)
+                assert re.search(r'static const char\* _order;', file_src)
 
                 if opts.lang == 'opencl':
                     # check build options
                     assert re.search(
-                        r'static constexpr char\* build_options = "[^\n]+-I{}'
-                        .format(re.escape(tdir)), file_src)
+                        r'static const char\* build_options;', file_src)
                     assert re.search(
-                        r'static constexpr char\* platform_check = "{}";'.format(
-                            re.escape(opts.platform.vendor), file_src))
-                    assert r'static constexpr unsigned int device_type = ' in \
-                        file_src
-                    assert r'static constexpr unsigned int _vector_width = {};' \
-                        .format(opts.vector_width) in file_src
+                        r'static const char\* platform_check;', file_src)
+                    assert r'static const unsigned int device_type;' in file_src
+                    assert r'static const unsigned int _vector_width;' in file_src
 
                     # check arguments
                     for x in jac_gen.in_arrays + jac_gen.out_arrays:

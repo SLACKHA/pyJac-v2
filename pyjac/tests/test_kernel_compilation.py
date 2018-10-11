@@ -44,7 +44,9 @@ class SubTest(TestClass):
                 kgen = method(self.store.reacs, self.store.specs, opts,
                               conp=conp)
                 # generate
-                kgen.generate(build_dir)
+                kgen.generate(build_dir, species_names=[
+                    x.name for x in self.store.specs], rxn_strings=[
+                    str(x) for x in self.store.reacs])
                 # write header
                 write_aux(build_dir, opts, self.store.specs, self.store.reacs)
                 if test_python_wrapper:
@@ -55,7 +57,10 @@ class SubTest(TestClass):
 
                     imp = test_utils.get_import_source()
                     with open(os.path.join(lib_dir, 'test_import.py'), 'w') as file:
-                        file.write(imp.substitute(path=lib_dir, package=package))
+                        file.write(imp.substitute(
+                            path=lib_dir, package=package,
+                            kernel=utils.enum_to_string(ktype).title(),
+                            nsp=len(self.store.specs), nrxn=len(self.store.reacs)))
 
                     utils.run_with_our_python([
                         os.path.join(lib_dir, 'test_import.py')])
