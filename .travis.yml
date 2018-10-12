@@ -28,7 +28,6 @@ env:
   global:
     - PRIORITY=500
     - LLV=5.0
-    - TMPDIR=/tmp
 
 addons:
   apt:
@@ -73,6 +72,8 @@ before_install:
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
+  - mkdir -p $TRAVIS_BUILD_DIR/working/
+  - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # install pyjac
 install:
   # read from requirements -- install via conda if available
