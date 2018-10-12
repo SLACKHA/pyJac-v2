@@ -506,7 +506,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     # req'd memory size
 
     rwk = next(x for x in callgen.kernel_data[kernel] if x.name == 'rwk')
-    rwk_size = mem.non_ic_size(arr)
+    rwk_size = mem.buffer_size(False, rwk, num_ics='1', include_sizeof=True)
     cog.out("""
     const std::size_t {kernel_name}::requiredMemorySize() const
     {{
