@@ -89,7 +89,7 @@ before_script:
 # run test
 script:
   if [[ "$ISFLAKE" == "0" ]]; then
-      travis_wait 50 nosetests -a '!verylong' -s;
+      nosetests -a '!verylong' -s --with-timer;
   else
       python -m flake8 pyjac/ --count;
   fi

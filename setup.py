@@ -100,6 +100,7 @@ setup(
           'nose',
           'nose-exclude',
           'nose-testconfig',
+          'nose-timer',
           'parameterized',
           'optionloop >= 1.0.7',
           'cantera >= 2.3.0',
