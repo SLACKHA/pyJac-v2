@@ -389,9 +389,13 @@ def test_get_test_matrix():
         if final_checks:
             assert final_checks(seen)
 
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug('loading test matrix schema')
     test_matrix = __prefixify('test_matrix.yaml', examples_dir)
 
     # get the species validation test
+    logger.debug('loading test matrix from file')
     _, loop, max_vec_width = get_test_matrix('.', KernelType.species_rates,
                                              test_matrix, True,
                                              langs=current_test_langs,
@@ -415,9 +419,11 @@ def test_get_test_matrix():
             'conp': [True, False],
             'order': ['C', 'F'],
             'num_cores': num_cores_default()[0]}
+    logger.debug('check 1')
     run(base, loop, final_checks=check_final_widths)
 
     # repeat for jacobian
+    logger.debug('loading test matrix from file [1]')
     _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                  test_matrix, True,
                                  langs=current_test_langs,
@@ -428,18 +434,22 @@ def test_get_test_matrix():
                        enum_to_string(JacobianFormat.full)],
         'jac_type': [enum_to_string(JacobianType.exact)],
         'use_atomic_doubles': [True, False]})  # true for OpenMP by default
+    logger.debug('check 2')
     run(jacbase, loop, final_checks=check_final_widths)
 
     # next, do species performance
+    logger.debug('loading test matrix from file [2]')
     _, loop, _ = get_test_matrix('.', KernelType.species_rates,
                                  test_matrix, False,
                                  langs=current_test_langs,
                                  raise_on_missing=True)
     want = base.copy()
     want.update({'order': ['F']})
+    logger.debug('check 3')
     run(want, loop, final_checks=check_final_widths)
 
     # and finally, the Jacobian performance
+    logger.debug('loading test matrix from file [4]')
     _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                  test_matrix, False,
                                  langs=current_test_langs,
@@ -463,9 +473,11 @@ def test_get_test_matrix():
 
     def check_final_widths(seen):
         return len(seen['width'] - set([4, None])) == 0
+    logger.debug('check 5')
     run(want, loop, final_checks=check_final_widths)
 
     # test gpu vs cpu specs
+    logger.debug('writing temp file')
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
         model-list:
@@ -492,6 +504,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
+        logger.debug('loading test matrix from file [5]')
         _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
@@ -515,9 +528,11 @@ def test_get_test_matrix():
                     assert state['width'] in [2, None]
 
     want = {'jac_format': sparsetest}
+    logger.debug('check 6')
     run(want, loop)
 
     # test model override
+    logger.debug('writing temp file 2')
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
         model-list:
@@ -540,6 +555,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
+        logger.debug('loading test matrix from file [6]')
         _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
@@ -552,9 +568,11 @@ def test_get_test_matrix():
             assert set(state['models']) == set(['H2', 'CH4'])
 
     want = {'models': modeltest}
+    logger.debug('check 7')
     run(want, loop)
 
     # finally test bad model spec
+    logger.debug('writing temp file 3')
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
         model-list:
@@ -577,6 +595,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
+        logger.debug('loading test matrix from file [7]')
         with assert_raises(InvalidOverrideException):
             get_test_matrix('.', KernelType.jacobian,
                             file.name, False,
@@ -584,6 +603,7 @@ def test_get_test_matrix():
                             raise_on_missing=True)
 
     # test gpu vectype specification
+    logger.debug('writing temp file 4')
     with NamedTemporaryFile('w', suffix='.yaml') as file:
         file.write(remove_common_indentation("""
         model-list:
@@ -610,6 +630,7 @@ def test_get_test_matrix():
         """))
         file.flush()
 
+        logger.debug('loading test matrix from file [8]')
         _, loop, _ = get_test_matrix('.', KernelType.jacobian,
                                      file.name, False,
                                      langs=current_test_langs,
@@ -623,9 +644,11 @@ def test_get_test_matrix():
                 assert state['width'] == 128
 
     want = {'models': modeltest}
+    logger.debug('check 8')
     run(want, loop)
 
     # test that source terms evaluations don't inherit exact jacobian overrides
+    logger.debug('writing temp file 5')
     with NamedTemporaryFile(mode='w', suffix='.yaml') as file:
         file.write(remove_common_indentation(
             """
@@ -652,6 +675,7 @@ def test_get_test_matrix():
                         models: []
             """))
         file.flush()
+        logger.debug('loading test matrix from file [9]')
         _, loop, _ = get_test_matrix('.', KernelType.species_rates,
                                      file.name, False,
                                      langs=current_test_langs,
@@ -663,6 +687,7 @@ def test_get_test_matrix():
             'order': ['C', 'F'],
             'models': ['CH4'],
             'num_cores': num_cores_default()[0]}
+    logger.debug('check 9')
     run(want, loop)
 
 
