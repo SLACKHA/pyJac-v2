@@ -138,7 +138,7 @@ class loopy_options(object):
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
-                 work_size=None, explicit_simd=False):
+                 work_size=None, explicit_simd=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -289,8 +289,12 @@ class loopy_options(object):
                             'implemented, ignoring user-specified SIMD flag')
             return False
 
+        if self.explicit_simd is not None:
+            # user specified
+            return self.explicit_simd
+
         if not cl:
-            if not self.explicit_simd and not self.explicit_simd_warned:
+            if self.explicit_simd is None and not self.explicit_simd_warned:
                 logger = logging.getLogger(__name__)
                 logger.warn('Cannot determine whether to use explicit-SIMD '
                             'instructions as PyOpenCL was not found.  Either '
