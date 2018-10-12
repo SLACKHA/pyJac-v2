@@ -122,8 +122,8 @@ class loopy_options(object):
     jac_format: :class:`JacobianFormat` [JacobianFormat.full]
         The format of Jacobian kernel (full or sparse) to generate
     is_simd: bool [None]
-        If supplied, specifies whether this loopy object should use explict-SIMD
-        vectors.  Default is True only for CPU-based OpenCL targets
+        If supplied, override the user-specified flag :param:`explicit_simd`, used
+        for testing.
     work_size: int [None]
         The number of initial states to evaluate in parallel inside of the driver
         function; may be specified by user to optimize code or for coupling to

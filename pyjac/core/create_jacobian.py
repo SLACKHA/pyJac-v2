@@ -5191,7 +5191,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     jac_type=JacobianType.exact,
                     jac_format=JacobianFormat.full, for_validation=False,
                     fd_order=1, fd_mode=FiniteDifferenceMode.forward, mem_limits='',
-                    work_size=None, explicit_simd=False,
+                    work_size=None, explicit_simd=None,
                     rsort=reaction_sorting.none, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.

@@ -920,13 +920,18 @@ def get_parser():
                         ' is vectorized over each individaul thermo-chemical '
                         'state.  That is, the various work-items (CUDA threads) '
                         'cooperate.')
-    parser.add_argument('-e', '--explicit_simd',
+    parser.add_argument('-se', '--explicit_simd',
                         required=False,
-                        default=False,
+                        default=None,
                         action='store_true',
                         help='Use explicit-SIMD instructions in OpenCL if possible. '
                              'Note: currently available for wide-vectorizations '
                              'only.')
+    parser.add_argument('-si', '--implicit_simd',
+                        required=False,
+                        action='store_false',
+                        dest='explicit_simd',
+                        help='Use implict-SIMD vectorization in OpenCL.')
     parser.add_argument('-u', '--unroll',
                         type=int,
                         default=None,
@@ -1044,7 +1049,7 @@ def get_parser():
                         'of "C" and "F" respectively). Choices: {type}'.format(
                             type=str(EnumType(JacobianFormat)))
                         )
-    parser.add_argument('-s', '--work_size',
+    parser.add_argument('-sw', '--work_size',
                         required=False,
                         default=None,
                         type=int,
