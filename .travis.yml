@@ -72,8 +72,6 @@ before_install:
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
   # and go back to pyjac
   - cd $TRAVIS_BUILD_DIR
-  - mkdir -p $TRAVIS_BUILD_DIR/working/
-  - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # install pyjac
 install:
   # read from requirements -- install via conda if available
@@ -87,6 +85,8 @@ install:
 before_script:
   # openmp
   - export OMP_NUM_THREADS=4
+  - mkdir -p $TRAVIS_BUILD_DIR/working/
+  - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # run test
 script:
   if [[ "$ISFLAKE" == "0" ]]; then
