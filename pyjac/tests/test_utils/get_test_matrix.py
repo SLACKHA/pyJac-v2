@@ -353,7 +353,7 @@ def num_cores_default():
             nc *= 2
         # and ensure we have powers of max threads for full socket test
         mt = max_threads
-        while True:
+        while mt:
             default_num_cores.add(mt)
             mt = int(mt / 2)
             if mt % 2:
