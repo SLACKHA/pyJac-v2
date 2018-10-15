@@ -302,6 +302,11 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
     if build_dir is None:
         build_dir = os.path.join(os.getcwd(), 'build', distutils_dir_name('temp'))
 
+    # get all abspaths
+    out_dir = os.path.abspath(out_dir)
+    obj_dir = os.path.abspath(obj_dir)
+    build_dir = os.path.abspath(build_dir)
+
     shared = True
     # first generate the library
     lib = generate_library(lang, source_dir, out_dir=build_dir, obj_dir=obj_dir,

@@ -39,8 +39,8 @@ opt_flags = ['-O3', '-mtune=native']
 debug_flags = ['-O0', '-g']
 
 
-flags = dict(c=site.CC_FLAGS + ['-fopenmp'],
-             opencl=site.CC_FLAGS + ['-xc++'])
+flags = dict(c=site.CC_FLAGS + ['-fopenmp', '-std=c++11'],
+             opencl=site.CC_FLAGS + ['-xc++', '-std=c++11'])
 ldflags = dict(c=['-fopenmp'],
                opencl=[])
 libs = dict(c=['m'],
@@ -72,9 +72,9 @@ def get_toolchain(lang, shared=True, executable=True):
 
     # compilation flags
     compile_flags = opt_flags
-    from pyjac.tests import _get_test_input
+    from pyjac.utils import get_env_val
     # read debug flag from ENV or config
-    if _get_test_input('debug'):
+    if get_env_val('debug'):
         compile_flags = debug_flags
 
     # link flags

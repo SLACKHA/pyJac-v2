@@ -19,8 +19,8 @@ Global declarations for Cog:
      import re
      from six.moves import cPickle as pickle
      from string import Template
-     from pyjac.utils import indent, stdindent
-     from pyjac.utils import header_ext
+     from pyjac.utils import indent, stdindent, header_ext, stringify_args, \
+         can_vectorize_lang
      from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, \
          max_size, get_include, make_doc_str, get_num_bytes
 
@@ -48,6 +48,7 @@ Kernel::Kernel():
         if callgen.lang != 'opencl':
             # only OpenCL has runtime compilation
             cog.outl('this->compiled=true;')
+
       ]]]
       [[[end]]]*/
 }
@@ -56,20 +57,6 @@ Kernel::~Kernel()
 {
     this->finalize();
 }
-
-/*[[[cog
-if callgen.lang == 'opencl':
-    cog.outl('const char* Kernel::build_options = "{}";'.format(callgen.build_options))
-    cog.outl('const char* Kernel::platform_check = "{}";'.format(callgen.platform))
-    try:
-        device_type = int(callgen.device_type)
-    except ValueError:
-        assert isinstance(callgen.device_type, str)
-        device_type = callgen.device_type
-
-    cog.outl('const unsigned int Kernel::device_type = {};'.format(device_type))
-]]]
-[[[end]]]*/
 
 void Kernel::resize(size_t problem_size, size_t work_size, bool do_not_compile)
 {
@@ -122,6 +109,55 @@ size_t Kernel::this_run(size_t offset)
                 // and store
                 this->work_size = num_threads;
             }""", dedent=True, trimblanklines=True)
+     elif callgen.lang == 'opencl':
+        # write build options / platform / device dtype
+        cog.outl('const char* Kernel::build_options = "{}";'.format(
+                 callgen.build_options))
+        cog.outl('const char* Kernel::platform_check = "{}";'.format(
+                 callgen.platform))
+        try:
+            device_type = int(callgen.device_type)
+        except ValueError:
+            assert isinstance(callgen.device_type, str)
+            device_type = callgen.device_type
+        cog.outl('const unsigned int Kernel::device_type = {};'.format(
+            device_type))
+  ]]]
+  [[[end]]]*/
+
+/*[[[cog
+     cog.outl('const char* Kernel::_species_names[] = '
+              '{{ {} }};'.format(stringify_args(
+                callgen.species_names, use_quotes=True)))
+  ]]]
+  [[[end]]]*/
+/*[[[cog
+     cog.outl('const char* Kernel::_rxn_strings[] = '
+              '{{ {} }};'.format(
+                stringify_args(callgen.rxn_strings, use_quotes=True)))
+  ]]]
+  [[[end]]]*/
+/*[[[cog
+     cog.outl('const char* Kernel::_order = "{}";'.format(
+              callgen.order))
+  ]]]
+  [[[end]]]*/
+/*[[[cog
+     cog.outl('const unsigned int Kernel::_nsp = {};'.format(len(
+        callgen.species_names)))
+  ]]]
+  [[[end]]]*/
+/*[[[cog
+     cog.outl('const unsigned int Kernel::_nrxn = {};'.format(len(
+        callgen.rxn_strings)))
+  ]]]
+  [[[end]]]*/
+/*[[[cog
+     if can_vectorize_lang[callgen.lang]:
+        cog.outl("""
+        // vector width
+        const unsigned int Kernel::_vector_width = {};
+        """.format(callgen.local_size), dedent=True, trimblanklines=True)
   ]]]
   [[[end]]]*/
 
@@ -466,6 +502,18 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
             cog.outl(indent(kmem.free(True, arr), stdindent))
 
     cog.outl('}\n')
+
+    # req'd memory size
+
+    rwk = next(x for x in callgen.kernel_data[kernel] if x.name == 'rwk')
+    rwk_size = mem.buffer_size(False, rwk, num_ics='1', include_sizeof=True)
+    cog.out("""
+    const std::size_t {kernel_name}::requiredMemorySize() const
+    {{
+        return {rwk_size};
+    }}
+    """.format(kernel_name=kernel_name, rwk_size=rwk_size),
+        dedent=True, trimblanklines=True)
 
     # write constructor
     cog.outl(make_doc_str(callgen, [], 'Default constructor (requires resize before use)'))

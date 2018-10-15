@@ -74,3 +74,9 @@ class SubTest(TestClass):
                     assert thd_body_type.mix in reac.type
                     assert all(x not in reac.type for x in thd_body_type
                                if x != thd_body_type.mix)
+
+    def test_rxn_strings(self):
+        for i, rxn in enumerate(self.store.reacs):
+            rstr = str(rxn)
+            rstr = rstr[rstr.index(': ') + 2:]
+            assert str(rstr) == str(self.store.gas.reaction(i).equation)

@@ -21,11 +21,11 @@ Global declarations for Cog:
     from textwrap import dedent
     from six.moves import cPickle as pickle
     import loopy as lp
-    from pyjac.utils import indent, stdindent
+    from pyjac.utils import indent, stdindent, stringify_args, enum_to_string, \
+        can_vectorize_lang
     from pyjac.kernel_utils.memory_tools import get_memory, HostNamer, DeviceNamer
     from pyjac.kernel_utils.tools import get_kernel_args, get_temporaries, get_include, \
         make_doc_str
-    from pyjac.utils import enum_to_string, can_vectorize_lang
 
     # load serialized callgen
     with open(callgen, 'rb') as file:
@@ -59,10 +59,11 @@ Global declarations for Cog:
   [[[end]]]*/
 
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
+#include <cstdlib>
+#include <cstdio>
+#include <string>
+#include <vector>
+
 /*[[[cog
     if callgen.lang == 'opencl':
         cog.outl("""
@@ -81,7 +82,7 @@ Global declarations for Cog:
   [[[end]]]*/
 
 
-// base kernel class
+//! \\brief The base kernel class
 class Kernel
 {
 
@@ -96,16 +97,79 @@ public:
       [[[end]]]*/
     void resize(size_t problem_size, size_t work_size, bool do_not_compile=false);
     void finalize();
+
+    //! \\brief Returns the ordered list of species names in the chemical model
+    static std::vector<const char*> speciesNames()
+    {
+        /*[[[cog
+             cog.outl('return std::vector<const char*>(_species_names, '
+                      '_species_names + {});'.format(len(callgen.species_names)))
+          ]]]
+          [[[end]]]*/
+    }
+
+    //! \\brief Returns the list of reaction strings in the chemical model
+    static std::vector<const char*> reactionStrings()
+    {
+        /*[[[cog
+             cog.outl('return std::vector<const char*>(_rxn_strings, '
+                      '_rxn_strings + {});'.format(len(callgen.rxn_strings)))
+          ]]]
+          [[[end]]]*/
+    }
+
+    //! \\brief Return the data-ordering used in this kernel, either 'C' (row-major)
+    //!        or 'F' (column-major)
+    static const char* order()
+    {
+        return _order;
+    }
+
+    //! \\brief Return the number of species in the mode;
+    static unsigned int numSpecies()
+    {
+        return _nsp;
+    }
+
+    //! \\brief Return the number of species in the mode;
+    static unsigned int numReactions()
+    {
+        return _nrxn;
+    }
+
+    /*[[[cog
+         if can_vectorize_lang[callgen.lang]:
+            cog.outl("""
+            //! \\brief Return the vector-width used by this kernel
+            static const unsigned int vectorWidth()
+            {
+                return _vector_width;
+            }""", dedent=True, trimblanklines=True)
+      ]]]
+      [[[end]]]*/
+
+    /** \\brief Returns the total amount of working memory required per-thermochemical
+      *        state for this kernel, in bytes.
+      *
+      * \note  This includes vectorization considerations.
+      */
+    virtual const std::size_t requiredMemorySize() const = 0;
+
     /*[[[cog
          if callgen.lang == 'opencl':
             # output compiler
             cog.outl('virtual void compile() = 0;')
             cog.outl("""
             // info variables -- common to all kernels
-            static const char* build_options;
-            static const char* platform_check;
-            static const unsigned int device_type;
+
+            //! \\brief Return the OpenCL build options used in kernel compilation
+            static const char* buildOptions() { return build_options; }
+            //! \\brief Return the name of the OpenCL platform used for kernel execution
+            static const char* platform() { return platform_check; };
+            //! \\brief return the type of OpenCL device used for kernel execution
+            static const unsigned int deviceType() { return Kernel::device_type; }
             """, trimblanklines=True, dedent=True)
+
          elif callgen.lang == 'c':
             cog.outl('void compile(){}')
             cog.outl('void threadset(unsigned int num_threads);')
@@ -130,6 +194,16 @@ protected:
             const char* kernel_path;
             """, trimblanklines=True, dedent=True)
 
+            # write build options / platform / device dtype
+            cog.outl('static const char* build_options;')
+            cog.outl('static const char* platform_check;')
+            try:
+                device_type = int(callgen.device_type)
+            except ValueError:
+                assert isinstance(callgen.device_type, str)
+                device_type = callgen.device_type
+            cog.outl('static const unsigned int device_type;')
+
       ]]]
       [[[end]]]*/
 
@@ -143,6 +217,41 @@ protected:
     size_t max_per_run;
     size_t work_size;
 
+    // info variables
+
+    // species names
+    /*[[[cog
+         cog.outl('static const char* _species_names[];')
+      ]]]
+      [[[end]]]*/
+    // reaction strings
+    /*[[[cog
+         cog.outl('static const char* _rxn_strings[];')
+      ]]]
+      [[[end]]]*/
+    // data order
+    /*[[[cog
+         cog.outl('static const char* _order;')
+      ]]]
+      [[[end]]]*/
+    /*[[[cog
+         if can_vectorize_lang[callgen.lang]:
+            cog.outl("""
+            // vector width
+            static const unsigned int _vector_width;
+            """.format(callgen.local_size), dedent=True, trimblanklines=True)
+      ]]]
+      [[[end]]]*/
+    // number of species
+    /*[[[cog
+         cog.outl('static const unsigned int _nsp;')
+      ]]]
+      [[[end]]]*/
+    // number of reactions
+    /*[[[cog
+         cog.outl('static const unsigned int _nrxn;')
+      ]]]
+      [[[end]]]*/
 
     /*[[[cog
         cog.outl(
@@ -189,7 +298,7 @@ protected:
 
     cog.outl('public:')
     if callgen.lang == 'opencl':
-        cog.out('void compile();')
+        cog.outl(indent('void compile();', stdindent))
 
     # write constructor
     cog.out("""
@@ -201,22 +310,24 @@ protected:
     """.format(name=kernel.title()), dedent=False, trimblanklines=True)
 
     # write alternate constructor that allows memory initialization
-    cog.out(make_doc_str(
+    cog.out(indent(make_doc_str(
         callgen, ['problem_size', 'work_size', 'do_not_compile'],
-        'Initializing constructor.'))
+        'Initializing constructor.'), stdindent))
     cog.out("""
     {name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile=false);
     """.format(name=kernel.title()), dedent=False, trimblanklines=True)
 
-    cog.out(make_doc_str(
+    cog.out(indent(make_doc_str(
         callgen, callgen.kernel_args[kernel],
-        "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)))
+        "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)),
+        stdindent))
     cog.out("""
     void operator()({knl_args});
     """.format(knl_args=get_kernel_args(mem, callgen.kernel_args[kernel])), dedent=False, trimblanklines=True)
 
     # overrides
     cog.outl(indent('void finalize_memory();', stdindent))
+    cog.outl(indent('const std::size_t requiredMemorySize() const;', stdindent))
 ]]]
 [[[end]]]*/
 };

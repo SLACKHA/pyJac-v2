@@ -16,3 +16,13 @@ if __name__ == '__main__':
     # load package
     package = '${package}'
     package = importlib.import_module(package)
+
+    kernel = package.Py${kernel}Kernel(1, 1, testing_only_skip_compilation=True)
+    assert len(kernel.species_names()) == ${nsp}
+    assert len(kernel.reaction_strings()) == ${nrxn}
+    # this is misleading, but since we skip compilation the work-size is never set
+    # hence, we expect a 0 required working memory (but include this test here to
+    # make sure we can access the method)
+    kernel.required_working_memory()
+    assert kernel.num_species() == ${nsp}
+    assert kernel.num_reactions() == ${nrxn}

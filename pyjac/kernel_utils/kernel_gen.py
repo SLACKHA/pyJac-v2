@@ -418,6 +418,10 @@ class CallgenResult(TargetCheckingRecord, DocumentingRecord):
         The language this kernel is being generated for.
     order: str {'C', 'F'}
         The data ordering
+    species_names : list of str
+        The species names for this model
+    rxn_strings : list of str
+        The stringified versions of the reactions for this model
     dev_mem_type: :class:`DeviceMemoryType`
         The type of device memory to used, 'pinned', or 'mapped'
     type_map: dict of :class:`LoopyType` -> str
@@ -441,8 +445,8 @@ class CallgenResult(TargetCheckingRecord, DocumentingRecord):
 
     def __init__(self, name='', work_arrays=[], input_args={}, output_args={},
                  cl_level='', docs={}, local_size=1, max_ic_per_run=None,
-                 max_ws_per_run=None, order='C', lang='c',
-                 dev_mem_type=DeviceMemoryType.mapped, type_map={},
+                 max_ws_per_run=None, lang='c', order='C', species_names=[],
+                 rxn_strings=[], dev_mem_type=DeviceMemoryType.mapped, type_map={},
                  host_constants={}, source_names={}, platform='', build_options='',
                  device_type=None, input_data_path='', for_validation=False,
                  binname='', language_docs=None):
@@ -453,6 +457,8 @@ class CallgenResult(TargetCheckingRecord, DocumentingRecord):
                                  cl_level=cl_level, docs=docs, local_size=local_size,
                                  max_ic_per_run=max_ic_per_run,
                                  max_ws_per_run=max_ws_per_run, order=order,
+                                 species_names=species_names,
+                                 rxn_strings=rxn_strings,
                                  lang=lang, dev_mem_type=dev_mem_type,
                                  type_map=type_map, host_constants=host_constants,
                                  source_names=source_names, platform=platform,
@@ -1064,7 +1070,7 @@ class kernel_generator(object):
                                               dummy_args=sorting_args)
 
     def generate(self, path, data_order=None, data_filename='data.bin',
-                 for_validation=False):
+                 for_validation=False, species_names=[], rxn_strings=[]):
         """
         Generates wrapping kernel, compiling program (if necessary) and
         calling / executing program for this kernel
@@ -1082,6 +1088,10 @@ class kernel_generator(object):
         for_validation: bool [False]
             If True, this kernel is being generated to validate pyJac, hence we need
             to save output data to a file
+        species_names: list of str
+            The list of species in the model
+        rxn_strings: list of str
+            Stringified versions of the reactions in the model
 
         Returns
         -------
@@ -1095,7 +1105,8 @@ class kernel_generator(object):
         callgen = self._generate_driver_kernel(path, record, result, callgen)
         callgen = self._generate_compiling_program(path, callgen)
         _, callgen = self._generate_calling_program(
-            path, data_filename, callgen, record, for_validation=for_validation)
+            path, data_filename, callgen, record, for_validation=for_validation,
+            species_names=species_names, rxn_strings=rxn_strings)
         self._generate_calling_header(path, callgen)
         self._generate_common(path, record)
 
@@ -1223,7 +1234,8 @@ class kernel_generator(object):
         return sorted(set(arr), key=lambda x: arr.index(x))
 
     def _generate_calling_program(self, path, data_filename, callgen, record,
-                                  for_validation=False):
+                                  for_validation=False, species_names=[],
+                                  rxn_strings=[]):
         """
         Needed for all languages, this generates a simple C file that
         reads in data, sets up the kernel call, executes, etc.
@@ -1241,6 +1253,11 @@ class kernel_generator(object):
         for_validation: bool [False]
             If True, this kernel is being generated to validate pyJac, hence we need
             to save output data to a file
+        species_names: list of str
+            The list of species in the model
+        rxn_strings: list of str
+            Stringified versions of the reactions in the model
+
 
         Returns
         -------
@@ -1266,7 +1283,9 @@ class kernel_generator(object):
             lang=self.lang,
             type_map=self.type_map.copy(),
             input_data_path=data_filename,
-            for_validation=for_validation)
+            for_validation=for_validation,
+            species_names=species_names,
+            rxn_strings=rxn_strings)
 
         # any target specific substitutions
         callgen = self._special_kernel_subs(path, callgen)
@@ -1347,8 +1366,10 @@ class kernel_generator(object):
         """
 
         assert all(x.address_space == scopes.LOCAL for x in ldecls)
-        names = set([x.name for x in ldecls])
-
+        ltemps, largs = utils.partition(ldecls, lambda x: isinstance(
+            x, lp.TemporaryVariable))
+        # only need to process the local temporaries
+        names = set([x.name for x in ltemps])
         return kernel.copy(
             args=kernel.args[:] + [self._temporary_to_arg(x) for x in ldecls],
             temporary_variables={
@@ -1614,6 +1635,10 @@ class kernel_generator(object):
                     local.extend([x for x in lt if x not in local])
                     # and remove from temps
                     temps = [x for x in temps if x not in lt]
+        # and add any local args
+        largs, args = utils.partition(args,
+                                      lambda x: x.address_space == scopes.LOCAL)
+        local.extend(largs)
 
         # finally, separate the constants from the temporaries
         # for opencl < 2.0, a constant global can only be a

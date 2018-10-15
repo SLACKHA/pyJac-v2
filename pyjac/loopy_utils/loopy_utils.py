@@ -122,8 +122,8 @@ class loopy_options(object):
     jac_format: :class:`JacobianFormat` [JacobianFormat.full]
         The format of Jacobian kernel (full or sparse) to generate
     is_simd: bool [None]
-        If supplied, specifies whether this loopy object should use explict-SIMD
-        vectors.  Default is True only for CPU-based OpenCL targets
+        If supplied, override the user-specified flag :param:`explicit_simd`, used
+        for testing.
     work_size: int [None]
         The number of initial states to evaluate in parallel inside of the driver
         function; may be specified by user to optimize code or for coupling to
@@ -138,7 +138,7 @@ class loopy_options(object):
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
-                 work_size=None, explicit_simd=False):
+                 work_size=None, explicit_simd=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -289,8 +289,12 @@ class loopy_options(object):
                             'implemented, ignoring user-specified SIMD flag')
             return False
 
+        if self.explicit_simd is not None:
+            # user specified
+            return self.explicit_simd
+
         if not cl:
-            if not self.explicit_simd and not self.explicit_simd_warned:
+            if self.explicit_simd is None and not self.explicit_simd_warned:
                 logger = logging.getLogger(__name__)
                 logger.warn('Cannot determine whether to use explicit-SIMD '
                             'instructions as PyOpenCL was not found.  Either '
@@ -903,9 +907,9 @@ class kernel_call(object):
         self.other_compare = other_compare
         self.tiling = tiling
         # pull any rtol / atol from env / test config as specified by user
-        from pyjac.tests import _get_test_input
-        rtol = float(_get_test_input('rtol', rtol))
-        atol = float(_get_test_input('atol', atol))
+        from pyjac.utils import get_env_val
+        rtol = float(get_env_val('rtol', rtol))
+        atol = float(get_env_val('atol', atol))
 
         self.rtol = rtol
         self.atol = atol
