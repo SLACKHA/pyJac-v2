@@ -42,5 +42,6 @@ ext_module = Extension(name,
 
 setup(
     name=name,
-    ext_modules=cythonize(ext_module, include_path=includes)
+    ext_modules=cythonize(ext_module, include_path=includes,
+                          compiler_directives={'language_level': 3})
 )
