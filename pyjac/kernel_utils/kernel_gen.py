@@ -2533,11 +2533,17 @@ class kernel_generator(object):
         else:
             # make local copies of inputs
             result = result.copy()
+            owner_record = record.copy()
 
             record, _ = self._process_args([x.copy() for x in self.kernels])
 
             # specialize the pointers
             result = self._specialize_pointers(record, result)
+
+            # add any working buffers from the owner
+            record = record.copy(kernel_data=record.kernel_data + [
+                x for x in owner_record.kernel_data if x.name in [
+                    int_work_name, rhs_work_name, local_work_name]])
 
         # get the kernel arguments for this :class:`kernel_generator`
         record = self._set_kernel_data(record)

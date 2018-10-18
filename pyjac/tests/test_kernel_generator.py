@@ -19,7 +19,8 @@ from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup, \
     PreambleGen
 from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
-    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name
+    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name, \
+    int_work_name
 from pyjac.utils import partition, temporary_directory, clean_dir, \
     can_vectorize_lang, header_ext, file_ext
 from pyjac.tests import TestClass
@@ -516,9 +517,14 @@ class SubTest(TestClass):
 
                 # and finally, check the signature of the dependent kernel gen
                 # via the kernel
-                (_, dep) = kgen._generate_wrapping_kernel(
+                (owner, dep) = kgen._generate_wrapping_kernel(
                     tdir, return_memgen_records=True)
+                dep_kd = set([x.name for x in dep.kernel_data])
+                own_kd = set([x.name for x in owner.kernel_data])
                 assert 'arg1' not in [x.name for x in dep.kernel_data]
+                # and test that any working buffers in the owner are in the subrecord
+                for wbuf in [int_work_name, local_work_name, rhs_work_name]:
+                    assert (wbuf in dep_kd) == (wbuf in own_kd)
 
     def test_deduplication(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,
