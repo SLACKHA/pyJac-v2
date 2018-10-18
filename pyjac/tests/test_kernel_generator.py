@@ -3,6 +3,7 @@ import shutil
 from tempfile import NamedTemporaryFile
 import re
 import textwrap
+from string import Template
 
 import numpy as np
 import loopy as lp
@@ -19,7 +20,8 @@ from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup, \
     PreambleGen
 from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
-    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name
+    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name, \
+    time_array, int_work_name
 from pyjac.utils import partition, temporary_directory, clean_dir, \
     can_vectorize_lang, header_ext, file_ext
 from pyjac.tests import TestClass
@@ -147,7 +149,7 @@ class SubTest(TestClass):
         # two kernels (one for each generator)
         instructions0 = (
             """
-                {arg0} = {const}
+                {arg0} = {arg} + {const}
             """
         )
         instructions1 = (
@@ -161,28 +163,37 @@ class SubTest(TestClass):
                              initializer=np.arange(10, dtype=arc.kint_type))
         mapstore = arc.MapStore(opts, domain, None)
         # create global arg
-        arg0 = arc.creator('arg1', np.float64, (arc.problem_size.name, 10),
+        arg = arc.creator('arg', np.float64, (arc.problem_size.name, 10),
+                          opts.order)
+        arg0 = arc.creator('arg0', np.float64, (arc.problem_size.name, 10),
                            opts.order)
-        arg1 = arc.creator('arg0', np.float64, (arc.problem_size.name, 10),
+        arg1 = arc.creator('arg1', np.float64, (arc.problem_size.name, 10),
                            opts.order)
         const = arc.creator('const', np.int32, (10,),
                             opts.order, initializer=np.arange(10, dtype=np.int32),
                             is_temporary=True)
+        # set args in case we need to actually generate the file
+        setattr(namestore, 'arg', arg)
+        setattr(namestore, 'arg0', arg0)
+        setattr(namestore, 'arg1', arg1)
+        setattr(namestore, 'const', const)
 
         # create array / array string
+        arg_lp, arg_str = mapstore.apply_maps(arg, 'j', 'i')
         arg0_lp, arg0_str = mapstore.apply_maps(arg0, 'j', 'i')
         arg1_lp, arg1_str = mapstore.apply_maps(arg1, 'j', 'i')
         const_lp, const_str = mapstore.apply_maps(const, 'i')
 
         # create kernel infos
-        knl0 = knl_info('knl0', instructions0.format(arg0=arg0_str, const=const_str),
-                        mapstore, kernel_data=[arg0_lp, const_lp, arc.work_size])
+        knl0 = knl_info('knl0', instructions0.format(
+            arg=arg_str, arg0=arg0_str, const=const_str),
+            mapstore, kernel_data=[arg_lp, arg0_lp, const_lp, arc.work_size])
 
         # create generators
         gen0 = make_kernel_generator(
              opts, KernelType.dummy, [knl0],
              namestore,
-             name=knl0.name, output_arrays=['arg0'])
+             name=knl0.name, input_arrays=['arg'], output_arrays=['arg0'])
 
         # include
         knl1_data = [arg1_lp, arg0_lp, arc.work_size]
@@ -217,7 +228,7 @@ class SubTest(TestClass):
         gen1 = make_kernel_generator(
              opts, KernelType.dummy, [knl0, knl1],
              namestore, depends_on=[gen0],
-             name=knl1.name, output_arrays=['arg1'])
+             name=knl1.name, input_arrays=['arg0'], output_arrays=['arg1'])
         return gen1
 
     def test_process_memory(self):
@@ -461,6 +472,63 @@ class SubTest(TestClass):
             for kernel in all_kernels:
                 assert re.search(
                     r'\b' + kernel.name + r'\b', '\n'.join(result.instructions))
+
+    def test_subkernel_file_sanity(self):
+        # this test is designed to ensure that we get the corrected / expected
+        # signature / pointer unwrapping in subkernels
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+
+        for opts in oploop:
+            def var_creator(name, readonly=False, use_simd=True):
+                v = opts.vector_width if opts.is_simd and use_simd else ''
+                readonly = ' const' if readonly else ''
+                scope = ''
+                dtype = 'double'
+                if opts.lang == 'opencl':
+                    scope = '__global'
+                    if name == local_work_name:
+                        scope = '__local'
+                        dtype = 'int'
+                    template = ('${scope} ${dtype}${v}${readonly} *'
+                                '__restrict__ ${name}')
+                elif opts.lang == 'c':
+                    template = '${dtype}${readonly} *__restrict__ ${name}'
+
+                return Template(template).safe_substitute(v=v, readonly=readonly,
+                                                          name=name, scope=scope,
+                                                          dtype=dtype)
+
+            # create generators
+            kgen = self._kernel_gen(opts)
+
+            with temporary_directory() as tdir:
+                kgen._make_kernels()
+                _, record, result = kgen._generate_wrapping_kernel(tdir)
+                with open(os.path.join(tdir, 'knl0' + file_ext[opts.lang]),
+                          'r') as file:
+                    file = file.read()
+
+                dep = kgen.depends_on[0]
+                kdata = [x.name for x in record.kernel_data if x not in record.args
+                         and x.name != arc.work_size.name]
+                arrays = []
+                work_arrays = [local_work_name, rhs_work_name, int_work_name]
+                for name in dep.order_kernel_args(
+                        kdata + dep.in_arrays + dep.out_arrays):
+                    arrays.append(var_creator(
+                        name,
+                        readonly=name in [time_array.name] + dep.in_arrays,
+                        use_simd=name not in work_arrays + [time_array.name]))
+
+                kstr = 'knl0({})'.format(', '.join(arrays))
+
+                # TODO: check pointer unpacks for sub-kernels?
+
+                # check
+                assert kstr in file
 
     def test_deduplication(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,

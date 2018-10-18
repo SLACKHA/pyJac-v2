@@ -2469,49 +2469,29 @@ class kernel_generator(object):
         # whether this is the top-level kernel
         is_owner = record is None
         assert (kernels is not None) != is_owner
-        if is_owner:
+        if not kernels:
             kernels = self.kernels
-            record, kernels = self._process_args(kernels)
-            # process memory
-            record, mem_limits = self._process_memory(record)
+        record, kernels = self._process_args(kernels)
+        # process memory
+        record, mem_limits = self._process_memory(record)
 
-            # update subkernels for host constants
-            if record.host_constants:
-                kernels = self._migrate_host_constants(
-                    kernels, record.host_constants)
+        # update subkernels for host constants
+        if record.host_constants:
+            kernels = self._migrate_host_constants(
+                kernels, record.host_constants)
 
-            # get the kernel arguments for this :class:`kernel_generator`
-            record = self._set_kernel_data(record)
+        # get the kernel arguments for this :class:`kernel_generator`
+        record = self._set_kernel_data(record)
 
-            # generate working buffer
-            record, result = self._compress_to_working_buffer(record)
+        # generate working buffer
+        record, result = self._compress_to_working_buffer(record)
 
-            # get the kernel arguments for this :class:`kernel_generator`
-            record = self._set_kernel_data(record)
+        # get the kernel arguments for this :class:`kernel_generator`
+        record = self._set_kernel_data(record)
 
-            # add work size
-            record = record.copy(kernel_data=record.kernel_data + [self._with_target(
-                w_size)])
-
-            # finally, preprocess kernels such that code-gen in dependencies is
-            # faster
-            kernels = [lp.preprocess_kernel(k) for k in kernels]
-        else:
-
-            # get our arguments
-            our_record, _ = self._process_args(self.kernels)
-            # set correct kernel data for this record
-            our_record = self._set_kernel_data(our_record)
-
-            # create a new codegen result that contains only our pointer unpacks
-            our_args = set([x.name for x in our_record.args + our_record.local])
-            pointer_offsets = {k: v for k, v in six.iteritems(
-                result.pointer_offsets) if k in our_args}
-            pointer_unpacks = [x for x in result.pointer_unpacks if any(
-                re.search(r'\b' + y + r'\b', x) for y in pointer_offsets)]
-
-            result = CodegenResult(pointer_unpacks=pointer_unpacks,
-                                   pointer_offsets=pointer_offsets)
+        # add work size
+        record = record.copy(kernel_data=record.kernel_data + [self._with_target(
+            w_size)])
 
         # get the instructions, preambles and kernel
         result = self._merge_kernels(record, result, kernels=kernels)
@@ -2522,7 +2502,7 @@ class kernel_generator(object):
             deps = self._get_deps(include_self=False)
             # generate subkernels
             for kgen in deps:
-                _, _, dr = kgen._generate_wrapping_kernel('', record, result,
+                _, _, dr = kgen._generate_wrapping_kernel(path, record, result,
                                                           kernels=kernels)
                 results.append(dr)
             # remove duplicate constant/preamble definitions
