@@ -1785,11 +1785,6 @@ class kernel_generator(object):
             # duplicated kernel args are placed at the end and can be safely
             # extracted in the driver
             args = self.order_kernel_args(args)
-            # exclude arguments that are in our own kernel args
-            # note: driver work array contains kernel args in the form of the local
-            # copies
-            if not for_driver:
-                args = [x for x in args if x not in record.kernel_data]
 
             if not (len(args) or for_driver):
                 if result is None:
@@ -1844,6 +1839,42 @@ class kernel_generator(object):
             record = record.copy(kernel_data=record.kernel_data + [wb])
 
         return record, codegen
+
+    def _specialize_pointers(self, record, result):
+        """
+        Specialize the base pointers in the :param:`result` such that:
+            1. The pointer unpacks only contain arrays that correspond to the kernels
+               in the calling :class:`kernel_generator`
+            2. The pointer unpacks do not contain any of the calling
+               :class:`kernel_generator`'s input or output args
+
+        Parameters
+        ----------
+        record: :class:`MemoryGenerationResult`
+            The memory record that holds the kernel arguments
+        result: :class:`CodegenResult`
+            The current codegen result containing the pointer unpacks
+
+        Returns
+        -------
+        updated_result: :class:`CodegenResult`
+            The updated code generation result with pointers specialized for
+            the calling :class:`kernel_generator`
+        """
+
+        args = set(self.in_arrays + self.out_arrays)
+        data = set([x.name for x in record.args])
+
+        unpacks = []
+        offsets = {}
+
+        for (arry, offset), unpack in zip(*(six.iteritems(result.pointer_offsets),
+                                            result.pointer_unpacks)):
+            if (arry not in args) and (arry in data):
+                offsets[arry] = offset
+                unpacks.append(unpack)
+
+        return result.copy(pointer_unpacks=unpacks, pointer_offsets=offsets)
 
     def _dummy_wrapper_kernel(self, kernel_data, readonly, vec_width,
                               as_dummy_call=False, for_driver=False):
@@ -2436,7 +2467,7 @@ class kernel_generator(object):
         return record.copy(kernel_data=kernel_data)
 
     def _generate_wrapping_kernel(self, path, record=None, result=None,
-                                  kernels=None):
+                                  kernels=None, **kwargs):
         """
         Generates a wrapper around the various subkernels in this
         :class:`kernel_generator` (rather than working through loopy's fusion)
@@ -2451,6 +2482,15 @@ class kernel_generator(object):
         result: :class:`CodegenResult` [None]
             If not None, this wrapping kernel is being generated as a sub-kernel
             (and hence, should reuse the owning kernel's results)
+        kernels: list of :class:`LoopKernel` [None]
+            The kernels to generate, if not supplied (i.e., for the top-level
+            kernel generator) use :attr:`kernels`
+
+        Keyword Arguments
+        -----------------
+        return_codegen_results: bool [False]
+            For testing only -- if True, return the codegen results for each of the
+            dependent :class:`kernel_generator`
 
         Returns
         -------
@@ -2471,20 +2511,31 @@ class kernel_generator(object):
         assert (kernels is not None) != is_owner
         if not kernels:
             kernels = self.kernels
-        record, kernels = self._process_args(kernels)
-        # process memory
-        record, mem_limits = self._process_memory(record)
 
-        # update subkernels for host constants
-        if record.host_constants:
-            kernels = self._migrate_host_constants(
-                kernels, record.host_constants)
+        if is_owner:
+            # we must process the kernel args / memory / host constants on the owner
+            # such that we have a consistent working buffer
+            record, kernels = self._process_args(kernels)
+            # process memory
+            record, mem_limits = self._process_memory(record)
+            # update subkernels for host constants
+            if record.host_constants:
+                kernels = self._migrate_host_constants(
+                    kernels, record.host_constants)
+            # generate working buffer
+            record, result = self._compress_to_working_buffer(record)
 
-        # get the kernel arguments for this :class:`kernel_generator`
-        record = self._set_kernel_data(record)
+            # specialize the pointers
+            result = self._specialize_pointers(record, result)
+        else:
+            # make local copies of inputs
+            record = record.copy()
+            result = result.copy()
 
-        # generate working buffer
-        record, result = self._compress_to_working_buffer(record)
+            our_record, _ = self._process_args([x.copy() for x in self.kernels])
+
+            # specialize the pointers
+            result = self._specialize_pointers(our_record, result)
 
         # get the kernel arguments for this :class:`kernel_generator`
         record = self._set_kernel_data(record)
@@ -2516,6 +2567,9 @@ class kernel_generator(object):
             # write kernels to file
             for dr in codegen_results:
                 source_names.append(self._to_file(path, dr))
+
+        if is_owner and kwargs.get('return_codegen_results', False):
+            return codegen_results
 
         return CallgenResult(source_names=source_names), record, result
 
