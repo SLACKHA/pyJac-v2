@@ -2491,6 +2491,9 @@ class kernel_generator(object):
         return_codegen_results: bool [False]
             For testing only -- if True, return the codegen results for each of the
             dependent :class:`kernel_generator`
+        return_memgen_records: bool [False]
+            For testing only -- if True, return the memory generation results for
+            each of the dependent :class:`kernel_generator`
 
         Returns
         -------
@@ -2529,13 +2532,12 @@ class kernel_generator(object):
             result = self._specialize_pointers(record, result)
         else:
             # make local copies of inputs
-            record = record.copy()
             result = result.copy()
 
-            our_record, _ = self._process_args([x.copy() for x in self.kernels])
+            record, _ = self._process_args([x.copy() for x in self.kernels])
 
             # specialize the pointers
-            result = self._specialize_pointers(our_record, result)
+            result = self._specialize_pointers(record, result)
 
         # get the kernel arguments for this :class:`kernel_generator`
         record = self._set_kernel_data(record)
@@ -2551,11 +2553,13 @@ class kernel_generator(object):
             results = [result]
             # generate wrapper for deps
             deps = self._get_deps(include_self=False)
+            memgen_records = [record]
             # generate subkernels
             for kgen in deps:
-                _, _, dr = kgen._generate_wrapping_kernel(path, record, result,
-                                                          kernels=kernels)
+                _, mr, dr = kgen._generate_wrapping_kernel(path, record, result,
+                                                           kernels=kernels)
                 results.append(dr)
+                memgen_records.append(mr)
             # remove duplicate constant/preamble definitions
             codegen_results = self._deduplicate(record, results)
             # and set sub-kernel dependencies
@@ -2570,6 +2574,9 @@ class kernel_generator(object):
 
         if is_owner and kwargs.get('return_codegen_results', False):
             return codegen_results
+
+        if is_owner and kwargs.get('return_memgen_records', False):
+            return memgen_records
 
         return CallgenResult(source_names=source_names), record, result
 

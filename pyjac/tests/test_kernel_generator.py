@@ -514,6 +514,12 @@ class SubTest(TestClass):
                 assert top.pointer_offsets['punpack1'] == dep.pointer_offsets[
                     'punpack1']
 
+                # and finally, check the signature of the dependent kernel gen
+                # via the kernel
+                (_, dep) = kgen._generate_wrapping_kernel(
+                    tdir, return_memgen_records=True)
+                assert 'arg1' not in [x.name for x in dep.kernel_data]
+
     def test_deduplication(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,
                                                    do_conp=False,
