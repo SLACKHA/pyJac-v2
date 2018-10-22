@@ -1052,7 +1052,7 @@ class kernel_generator(object):
             os.path.join(scan_path, x)) and not x.endswith('.in')]
         for dep in deps:
             dep_dest = dep
-            dep_is_header = dep.endswith('.h')
+            dep_is_header = dep.endswith(utils.header_ext[self.lang])
             ext = (utils.file_ext[self.lang] if not dep_is_header
                    else utils.header_ext[self.lang])
             if change_extension and not dep.endswith(ext):
