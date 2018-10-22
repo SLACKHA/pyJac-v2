@@ -100,8 +100,9 @@ class SubTest(TestClass):
                             data_order='F', build_path=build_dir,
                             kernel_type=KernelType.species_rates)
 
-            files = ['species_rates.c', 'species_rates.h', 'chem_utils.c',
-                     'chem_utils.h']
+            files = ['species_rates{}', 'chem_utils{}']
+            files = [f.format(ext) for f in files for ext in [utils.file_ext['c'],
+                     utils.header_ext['c']]]
             for file in files:
                 # read resulting file
                 with open(os.path.join(build_dir, file), 'r') as file:
