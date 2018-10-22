@@ -1434,8 +1434,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
             # generate wrapper
             pywrap(opts.lang, build_dir, build_dir=obj_dir,
-                   obj_dir=obj_dir, out_dir=lib_dir,
-                   platform=str(opts.platform), ktype=ktype)
+                   obj_dir=obj_dir, out_dir=lib_dir, ktype=ktype)
 
             # get arrays
             phi = np.array(
