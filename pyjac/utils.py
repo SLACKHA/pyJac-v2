@@ -167,11 +167,11 @@ def partition(tosplit, predicate):
                   ([], []))
 
 
-file_ext = dict(c='.c', cuda='.cu', opencl='.ocl')
+file_ext = dict(c='.cpp', cuda='.cu', opencl='.ocl')
 """dict: source code file extensions based on language"""
 
 
-header_ext = dict(c='.h', cuda='.cuh', opencl='.oclh')
+header_ext = dict(c='.hpp', cuda='.cuh', opencl='.oclh')
 """dict: header extensions based on language"""
 
 line_end = dict(c=';', cuda=';',
