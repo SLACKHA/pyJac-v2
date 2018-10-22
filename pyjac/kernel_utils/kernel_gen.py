@@ -1159,12 +1159,12 @@ class kernel_generator(object):
 
         common = os.path.join(script_dir, 'common')
         # generate reader
-        infile = os.path.join(common, 'read_initial_conditions.c.in')
+        infile = os.path.join(common, 'read_initial_conditions.cpp.in')
         outfile = os.path.join(path, 'read_initial_conditions' +
                                utils.file_ext[self.lang])
         run(infile, outfile)
         # generate header
-        infile = os.path.join(common, 'read_initial_conditions.h.in')
+        infile = os.path.join(common, 'read_initial_conditions.hpp.in')
         outfile = os.path.join(path, 'read_initial_conditions' +
                                utils.header_ext[self.lang])
         run(infile, outfile)
@@ -1194,7 +1194,7 @@ class kernel_generator(object):
         with open(callout, 'wb') as file:
             pickle.dump(callgen, file)
 
-        infile = os.path.join(script_dir, 'common', 'kernel.h.in')
+        infile = os.path.join(script_dir, 'common', 'kernel.hpp.in')
         filename = os.path.join(path, self.name + '_main' + utils.header_ext[
                 self.lang])
 
@@ -1295,7 +1295,7 @@ class kernel_generator(object):
         with open(callout, 'wb') as file:
             pickle.dump(callgen, file)
 
-        infile = os.path.join(script_dir, 'common', 'kernel.c.in')
+        infile = os.path.join(script_dir, 'common', 'kernel.cpp.in')
         filename = os.path.join(path, self.name + '_main' + utils.file_ext[
                 self.lang])
 
@@ -3602,7 +3602,7 @@ class opencl_kernel_generator(kernel_generator):
 
         # input
         infile = os.path.join(
-            script_dir, self.lang, 'opencl_kernel_compiler.c.in')
+            script_dir, self.lang, 'opencl_kernel_compiler.cpp.in')
 
         # output
         filename = os.path.join(
