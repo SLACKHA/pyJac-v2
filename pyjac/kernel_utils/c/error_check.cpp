@@ -4,7 +4,7 @@
  * Nicholas Curtis - 2017
  */
 
-#include "error_check.h"
+#include "error_check.hpp"
 
 void cpu_assert(bool x, const char* message, const char *file, int line) {
     if (!x)
