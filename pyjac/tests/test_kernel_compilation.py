@@ -91,7 +91,7 @@ class SubTest(TestClass):
     def test_unique_pointer_specification(self):
         with utils.temporary_directory() as build_dir:
             # test good fixed size
-            create_jacobian('c', gas=self.store.gas, unique_oointers=True,
+            create_jacobian('c', gas=self.store.gas, unique_pointers=True,
                             data_order='F', build_path=build_dir,
                             kernel_type=KernelType.species_rates)
 

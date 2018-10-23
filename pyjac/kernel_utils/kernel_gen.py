@@ -2002,8 +2002,6 @@ class kernel_generator(object):
         size_per_work_item = 0
         static_size = 0
         offsets = {}
-        work_size = self.work_size
-
         mapping = {}
         if self.unique_pointers:
             mapping = {v.name: v
@@ -2011,6 +2009,9 @@ class kernel_generator(object):
                        if isinstance(v, arc.creator)}
 
         def _offset():
+            # if we have unique pointers, the work-size is fixed to an integer, and
+            # will already be baked into the size of the array
+            work_size = self.work_size if not self.unique_pointers else 1
             return '{} * {}'.format(size_per_work_item, work_size)
 
         for arg in args:
@@ -3523,7 +3524,7 @@ class opencl_kernel_generator(kernel_generator):
 
         unique = ''
         if self.unique_pointers and for_driver:
-            unique = ' + {} * {}'.format(size, 'get_global_size(0)')
+            unique = ' + {} * {}'.format(size, 'get_group_id(0)')
 
         if set_null:
             return '{scope}{volatile} {dtype}* __restrict__ {array} = 0;'.format(
