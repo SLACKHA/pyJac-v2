@@ -64,7 +64,7 @@ def get_env_val(key, default=''):
         logger.debug('{}Loading value {} = {} from environment'.format(
             'OVERRIDE: ' if in_config else '', key, os.environ[key.upper()]))
         value = os.environ[key.upper()]
-    return value
+    return type(default)(value)
 
 
 def indent(text, prefix, predicate=None):
