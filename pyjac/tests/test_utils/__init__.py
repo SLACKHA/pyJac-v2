@@ -1017,6 +1017,10 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=False,
     if do_simd:
         oploop += [('is_simd', [True, False])]
 
+    if _get_test_input('unique_pointers', False):
+        # allow specification of unique pointers via the ENV
+        oploop+= [('unique_pointers', [True])]
+
     for key in sorted(kwargs.keys()):
         # enable user to pass in additional args
         oploop += [(key, utils.listify(kwargs[key]))]
@@ -1385,9 +1389,6 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
     bad_platforms = set()
 
-    # allow specification of unique pointers via the ENV
-    oploop_kwds['unique_pointers'] = _get_test_input('unique_pointers', False)
-
     def __skip_test(state):
         return 'platform' in state and state['platform'] in bad_platforms
     oploops = OptionLoopWrapper.from_get_oploop(
@@ -1555,7 +1556,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             #   1 for GPU
             num_devices = _get_test_input(
                 'num_threads', psutil.cpu_count(logical=False))
-            if platform_is_gpu(opts.platform) or opts.unique_pointers:
+            if platform_is_gpu(opts.platform):
                 # force to one thread
                 num_devices = 1
 

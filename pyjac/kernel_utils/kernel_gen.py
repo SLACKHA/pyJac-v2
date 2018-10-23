@@ -2044,7 +2044,7 @@ class kernel_generator(object):
         return size_per_work_item, static_size, offsets
 
     def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
-                            set_null=False):
+                            set_null=False, for_driver=False):
         """
         A method stub to implement the pattern:
         ```
@@ -2066,6 +2066,9 @@ class kernel_generator(object):
             The memory scope
         set_null: bool [False]
             If True, set the unpacked pointer to NULL
+        for_driver: bool [False]
+            If True, this pointer is being unpacked for the driver, as such
+            any value of :attr:`unique_pointers` should be ignored
 
         Returns
         -------
@@ -2699,16 +2702,24 @@ class kernel_generator(object):
         def _name(arg):
             return arg.name + arc.local_name_suffix
 
-        unpacks = {_name(x): wrapper.pointer_offsets[x.name] for x in args
-                   if isinstance(x, lp.ArrayArg)}
+        unpacks = [(_name(x), wrapper.pointer_offsets[x.name]) for x in args
+                   if isinstance(x, lp.ArrayArg)]
         for null in null_args:
-            unpacks[null.name] = (null.dtype, 0, 0)
+            unpacks.append((null.name, (null.dtype, 0, 0)))
 
-        unpacks = [self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL,
-                                            set_null=any(k == null.name for null
-                                                         in null_args))
-                   for k, (dtype, size, offset) in six.iteritems(unpacks)]
-        return CodegenResult(pointer_unpacks=unpacks)
+        local_unpacks = []
+        for k, (dtype, size, offset) in unpacks:
+            if self.unique_pointers:
+                # reset from inner kernel where each pointer had a single
+                # workgroup / thread under consideration
+                offset = '{} * {}'.format(offset, arc.work_size.name)
+            local_unpacks.append(
+                self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL,
+                                         set_null=any(k == null.name for null
+                                                      in null_args), for_driver=True)
+                )
+
+        return CodegenResult(pointer_unpacks=local_unpacks)
 
     def _generate_driver_kernel(self, path, wrapper_memory, wrapper_result,
                                 callgen):
@@ -2761,8 +2772,13 @@ class kernel_generator(object):
             Return a copy of the kernel w/ our argument names converted to 'local'
             equivalensts
             """
+            to_local_names = our_arg_names[:]
+            if self.unique_pointers:
+                to_local_names.extend([rhs_work_name, local_work_name,
+                                       int_work_name])
+
             return kernel.copy(args=[
-                x if x.name not in our_arg_names
+                x if x.name not in to_local_names
                 else x.copy(name=x.name + arc.local_name_suffix)
                 for x in kernel.args])
 
@@ -2819,6 +2835,30 @@ class kernel_generator(object):
         # we need in the driver live
         result = self._get_local_unpacks(driver_result, record.kernel_data,
                                          null_args=[time_array])
+        if self.unique_pointers:
+            # add a local pointer unpack to the working buffers
+            wrk = next((x for x in work_arrays if x.name == rhs_work_name), None)
+            if wrk:
+                # find pointer unpack with smallest matching offset
+                smallest = None
+                for x, (dtype, size, offset) in six.iteritems(
+                        driver_result.pointer_offsets):
+                    if not any(x == y.name for y in record.kernel_data):
+                        continue
+                    if smallest is None:
+                        smallest = eval(offset)
+                    elif eval(offset) < smallest:
+                        smallest = eval(offset)
+
+                # correct offset
+                smallest -= 1
+                # and add a local unpack for the work buffer
+                unpack = self._get_pointer_unpack(
+                    rhs_work_name + '_local', smallest,
+                    '{} * {}'.format(smallest, arc.work_size.name), dtype,
+                    scopes.GLOBAL, for_driver=True)
+                result = result.copy(pointer_unpacks=result.pointer_unpacks +
+                                     [unpack])
 
         record = record.copy(kernel_data=self.order_kernel_args(
             record.kernel_data + work_arrays + [self._with_target(w_size)]))
@@ -3226,7 +3266,7 @@ class c_kernel_generator(kernel_generator):
         return [global_ind],  ['0 <= {} < {}'.format(global_ind, test_size)]
 
     def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
-                            set_null=False):
+                            set_null=False, for_driver=False):
         """
         A method stub to implement the pattern:
         ```
@@ -3249,6 +3289,9 @@ class c_kernel_generator(kernel_generator):
             The memory scope
         set_null: bool [False]
             If True, set the unpacked pointer to NULL
+        for_driver: bool [False]
+            If True, this pointer is being unpacked for the driver, as such
+            any value of :attr:`unique_pointers` should be ignored
 
         Returns
         -------
@@ -3261,8 +3304,8 @@ class c_kernel_generator(kernel_generator):
                 dtype=self.type_map[dtype],
                 array=array)
 
-        unique = '+ {size} * omp_get_thread_num()'.format(size=size)
-        if self.unique_pointers:
+        unique = ' + {size} * omp_get_thread_num()'.format(size=size)
+        if self.unique_pointers and not for_driver:
             unique = ''
 
         return ('{dtype}* __restrict__ {array} = {work} + {offset}'
@@ -3435,7 +3478,7 @@ class opencl_kernel_generator(kernel_generator):
         return [work_size]
 
     def _get_pointer_unpack(self, array, size, offset, dtype, scope=scopes.GLOBAL,
-                            set_null=False):
+                            set_null=False, for_driver=False):
         """
         Implement the pattern
         ```
@@ -3457,6 +3500,9 @@ class opencl_kernel_generator(kernel_generator):
             The memory scope
         set_null: bool [False]
             If True, set the unpacked pointer to NULL
+        for_driver: bool [False]
+            If True, this pointer is being unpacked for the driver, as such
+            any value of :attr:`unique_pointers` should be ignored
 
         Returns
         -------
