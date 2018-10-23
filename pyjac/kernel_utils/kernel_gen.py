@@ -2850,12 +2850,9 @@ class kernel_generator(object):
                     elif eval(offset) < smallest:
                         smallest = eval(offset)
 
-                # correct offset
-                smallest -= 1
                 # and add a local unpack for the work buffer
                 unpack = self._get_pointer_unpack(
-                    rhs_work_name + '_local', smallest,
-                    '{} * {}'.format(smallest, arc.work_size.name), dtype,
+                    rhs_work_name + '_local', smallest, '0', dtype,
                     scopes.GLOBAL, for_driver=True)
                 result = result.copy(pointer_unpacks=result.pointer_unpacks +
                                      [unpack])
