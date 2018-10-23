@@ -56,9 +56,9 @@ enable conversion to/from the calling code's state variables to pyJac's state-ve
 
 .. _work-size:
 
-========================
-Specifying the Work-Size
-========================
+==========
+Work Sizes
+==========
 
 In pyJac, the work-size is defined as the total number of separate (potentially
 vectorized) evaluations of the chemical kinetic properties / source rates / Jacobian
@@ -122,6 +122,42 @@ For vectorized execution, the shape of the arrays changes slightly to
 ```
 where the `vector_width` is typically 2--8 for CPUs and MICs, and 64--1024 for GPUs
 (note: this corresponds to the block-size in CUDA).
+
+==========================
+Coupling to external codes
+==========================
+
+One downside of pyJac's data-storage format is that it requires each OpenMP thread
+/ OpenCL work-group to be passed the **addresses to the beginning of the arrays
+that contain memory for the entire set of threads / work-groups.**  In code this
+might look something like this:
+
+```
+    double* phi = (double*)malloc(work_size * (N_s + 1) * sizeof(double));
+    double* dphi = (double*)malloc(work_size * (N_s + 1) * sizeof(double));
+    double* rwk = (double*)malloc(work_size * kernel.requiredMemorySize());
+    // populate state vector
+    // copy temperatures
+    memcpy(&phi[0], &T[0], work_size * sizeof(double));
+    ...
+    // call source rates
+    species_rates(0, phi, dphi, rwk);
+```
+
+However, many codes operate on local-copies of the state vector array, e.g.:
+
+```
+    double phi[N_s];
+    double dphi[N_s];
+    double* rwk = (double*)malloc(kernel.requiredMemorySize());
+    //populate state vector
+    phi[0] = T;
+    ...
+    species_rates(0, phi, dphi, rwk);
+```
+
+For this sort of code, you may supply the `-up` or `--unique_pointers` flag to the
+command line interface of pyJac.
 
 
 =====================

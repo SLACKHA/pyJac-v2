@@ -932,7 +932,7 @@ def get_parser():
                         action='store_false',
                         dest='explicit_simd',
                         help='Use implict-SIMD vectorization in OpenCL.')
-    parser.add_argument('-u', '--unroll',
+    parser.add_argument('-unr', '--unroll',
                         type=int,
                         default=None,
                         required=False,
@@ -1049,15 +1049,15 @@ def get_parser():
                         'of "C" and "F" respectively). Choices: {type}'.format(
                             type=str(EnumType(JacobianFormat)))
                         )
-    parser.add_argument('-sw', '--work_size',
+    parser.add_argument('-up', '--unique_pointers',
                         required=False,
-                        default=None,
-                        type=int,
-                        help='If specified, this is the number of thermo-chemical '
-                             'states that pyJac should evaluate concurrently in the '
-                             'generated source code. This option is most useful '
-                             'for coupling to an external library that that has '
-                             'already been parallelized, e.g., via OpenMP.'
+                        default=False,
+                        action='store_true',
+                        help='If specified, this indicates that the pointers passed '
+                             'to the generated pyJac methods will be unique (i.e., '
+                             'distinct per OpenMP thread / OpenCL work-group). '
+                             'This option is most useful for coupling to external '
+                             'codes an that have already been parallelized.'
                         )
     parser.add_argument('-m', '--memory_limits',
                         required=False,
@@ -1110,7 +1110,7 @@ def create(**kwargs):
                     jac_type=args.jac_type,
                     jac_format=args.jac_format,
                     mem_limits=args.memory_limits,
-                    work_size=args.work_size,
+                    unique_pointers=args.unique_pointers,
                     explicit_simd=args.explicit_simd,
                     rsort=args.reaction_sorting
                     )

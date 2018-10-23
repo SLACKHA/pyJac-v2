@@ -124,10 +124,11 @@ class loopy_options(object):
     is_simd: bool [None]
         If supplied, override the user-specified flag :param:`explicit_simd`, used
         for testing.
-    work_size: int [None]
-        The number of initial states to evaluate in parallel inside of the driver
-        function; may be specified by user to optimize code or for coupling to
-        external code
+    unique_pointers: bool [False]
+        If specified, this indicates that the pointers passed to the generated pyJac
+        methods will be unique (i.e., distinct per OpenMP thread /
+        OpenCL work-group). This option is most useful for coupling to external
+        codes an that have already been parallelized.
     explicit_simd: bool [False]
         Attempt to utilize explict-SIMD instructions in OpenCL
     """
@@ -138,7 +139,7 @@ class loopy_options(object):
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
-                 work_size=None, explicit_simd=None):
+                 unique_pointers=False, explicit_simd=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -171,9 +172,7 @@ class loopy_options(object):
             logger = logging.getLogger(__name__)
             logger.warn('explicit-SIMD flag has no effect on non-OpenCL targets.')
         self.kernel_type = utils.to_enum(kernel_type, KernelType)
-        if work_size:
-            assert work_size > 0, 'Work-size must be non-negative'
-        self.work_size = work_size
+        self.unique_pointers = unique_pointers
 
         if self._is_simd or self.explicit_simd:
             assert width or depth, (
@@ -325,20 +324,22 @@ class loopy_options(object):
         """
         Return the necessary IC dimension size based on this :class:`loopy_options`
         """
-        if self.width and not self.is_simd:
-            return '{}*{}'.format(arc.work_size.name, self.width)
 
-        return arc.work_size.name
+        ws = self.initial_condition_loopsize
+        if self.width and not self.is_simd:
+            return '{}*{}'.format(ws, self.width)
+
+        return ws
 
     @property
     def initial_condition_loopsize(self):
         """
-        Return the necessary loop bound for the global index of innder kernel loops
+        Return the necessary loop bound for the global index of inner kernel loops
         based on this :class:`loopy_options`
         """
-        if self.width:
-            return '{}*{}'.format(arc.work_size.name, self.width)
 
+        if self.unique_pointers:
+            return 1
         return arc.work_size.name
 
     @property

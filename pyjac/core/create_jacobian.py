@@ -5191,7 +5191,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                     jac_type=JacobianType.exact,
                     jac_format=JacobianFormat.full, for_validation=False,
                     fd_order=1, fd_mode=FiniteDifferenceMode.forward, mem_limits='',
-                    work_size=None, explicit_simd=None,
+                    unique_pointers=False, explicit_simd=None,
                     rsort=reaction_sorting.none, **kwargs
                     ):
     """Create Jacobian subroutine from mechanism.
@@ -5304,11 +5304,11 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
         the generated pyjac code may allocate.  Useful for testing, or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
-    work_size: int [None]
-        If specified, this is the number of thermo-chemical states that pyJac
-        should evaluate concurrently in the generated source code. This option is
-        most useful for coupling to an external library that that has already been
-        parallelized, e.g., via OpenMP.
+    unique_pointers: bool [False]
+        If specified, this indicates that the pointers passed to the generated pyJac
+        methods will be unique (i.e., distinct per OpenMP thread /
+        OpenCL work-group). This option is most useful for coupling to external
+        codes an that have already been parallelized.
     explicit_simd: bool [False]
         If true, use explicit-SIMD instructions in OpenCL if possible.  Currently
         available for wide-vectorizations only.
@@ -5391,7 +5391,7 @@ def create_jacobian(lang, mech_name=None, therm_name=None, gas=None,
                                         jac_type=jac_type,
                                         device=device,
                                         device_type=device_type,
-                                        work_size=work_size,
+                                        unique_pointers=unique_pointers,
                                         explicit_simd=explicit_simd)
 
     # create output directory if none exists

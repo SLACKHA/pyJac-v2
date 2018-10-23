@@ -1385,6 +1385,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
     bad_platforms = set()
 
+    # allow specification of unique pointers via the ENV
+    oploop_kwds['unique_pointers'] = _get_test_input('unique_pointers', False)
+
     def __skip_test(state):
         return 'platform' in state and state['platform'] in bad_platforms
     oploops = OptionLoopWrapper.from_get_oploop(
@@ -1552,7 +1555,8 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             #   1 for GPU
             num_devices = _get_test_input(
                 'num_threads', psutil.cpu_count(logical=False))
-            if platform_is_gpu(opts.platform):
+            if platform_is_gpu(opts.platform) or opts.unique_pointers:
+                # force to one thread
                 num_devices = 1
 
             # and save the data.bin file in case of testing

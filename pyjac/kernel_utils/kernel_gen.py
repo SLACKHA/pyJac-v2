@@ -768,11 +768,11 @@ class kernel_generator(object):
         return utils.enum_to_string(self.kernel_type)
 
     @property
-    def user_specified_work_size(self):
+    def unique_pointers(self):
         """
-        Return True IFF the user specified the :attr:`loopy_opts.work_size`
+        Return True IFF the user specified the :attr:`loopy_opts.unique_pointers`
         """
-        return self.loopy_opts.work_size is not None
+        return self.loopy_opts.unique_pointers
 
     @property
     def work_size(self):
@@ -781,8 +781,8 @@ class kernel_generator(object):
         user) or the name of the `work_size` variable
         """
 
-        if self.user_specified_work_size:
-            return self.loopy_opts.work_size
+        if self.unique_pointers:
+            return self.vec_width if self.vec_width else 1
         return w_size.name
 
     @property
@@ -873,15 +873,7 @@ class kernel_generator(object):
             List of assumptions to apply to the generated sub kernel
         """
 
-        if self.for_testing or not for_driver:
-            return []
-
-        # set test size
-        assumpt_list = ['{0} > 0'.format(p_size.name)]
-        if bool(self.vec_width):
-            assumpt_list.append('{0} mod {1} = 0'.format(
-                p_size.name, self.vec_width))
-        return assumpt_list
+        return []
 
     def get_inames(self, test_size, for_driver=False):
         """
@@ -910,14 +902,11 @@ class kernel_generator(object):
         pre_split = self.loopy_opts.pre_split
 
         gind = global_ind
-        if not (self.for_testing or for_driver):
+        if not self.for_testing:
             # if we're not testing, or in a driver function the kernel must only be
             # executed once, as the loop over the work-size has been lifted to the
             # driver kernels
             test_size = self.loopy_opts.initial_condition_loopsize
-
-        elif for_driver:
-            test_size = p_size.name
 
         if pre_split:
             gind += '_outer'
@@ -930,7 +919,7 @@ class kernel_generator(object):
             lind = global_ind + '_inner'
             inames[-1] = (gind, lind)
             domains[-1] = ('0 <= {lind} < {vw} and '
-                           '0 <= {lind} + {vw}{gind} < {end}'.format(
+                           '0 <= {gind} < {end}'.format(
                             lind=lind, gind=gind, end=test_size,
                             vw=self.vec_width))
 
@@ -2014,6 +2003,12 @@ class kernel_generator(object):
         offsets = {}
         work_size = self.work_size
 
+        mapping = {}
+        if self.unique_pointers:
+            mapping = {v.name: v
+                       for k, v in six.iteritems(vars(self.namestore))
+                       if isinstance(v, arc.creator)}
+
         def _offset():
             return '{} * {}'.format(size_per_work_item, work_size)
 
@@ -2032,7 +2027,15 @@ class kernel_generator(object):
                 # static size
                 buffer_size = int(np.prod(isizes))
                 offset = _offset()
-                static_size += buffer_size
+                ic_dep = False
+                if self.unique_pointers:
+                    # need to test if this is per work-item or not
+                    if not mapping[arg.name].is_temporary:
+                        size_per_work_item += buffer_size
+                        ic_dep = True
+
+                if not ic_dep:
+                    static_size += buffer_size
 
             # store offset and increment size
             offsets[arg.name] = (arg.dtype, buffer_size, offset)
@@ -3040,7 +3043,7 @@ class kernel_generator(object):
         # fix parameters
         if info.parameters:
             knl = lp.fix_parameters(knl, **info.parameters)
-        if self.user_specified_work_size:
+        if self.unique_pointers:
             # fix work size
             knl = lp.fix_parameters(knl, **{w_size.name: self.work_size})
         if not knl.loop_priority:
@@ -3257,13 +3260,17 @@ class c_kernel_generator(kernel_generator):
                 dtype=self.type_map[dtype],
                 array=array)
 
-        return ('{dtype}* __restrict__ {array} = {work} + {offset} + '
-                '{size} * omp_get_thread_num();'.format(
+        unique = '+ {size} * omp_get_thread_num()'.format(size=size)
+        if self.unique_pointers:
+            unique = ''
+
+        return ('{dtype}* __restrict__ {array} = {work} + {offset}'
+                '{unique};'.format(
                     dtype=self.type_map[dtype],
                     array=array,
                     work=rhs_work_name,
                     offset=offset,
-                    size=size))
+                    unique=unique))
 
     @property
     def target_preambles(self):
@@ -3281,7 +3288,7 @@ class c_kernel_generator(kernel_generator):
             The string preambles for this :class:`kernel_generator`
         """
 
-        if self.user_specified_work_size:
+        if self.unique_pointers:
             return []
 
         work_size = """
@@ -3415,7 +3422,7 @@ class opencl_kernel_generator(kernel_generator):
             The string preambles for this :class:`kernel_generator`
         """
 
-        if self.user_specified_work_size:
+        if self.unique_pointers:
             return []
 
         work_size = """
