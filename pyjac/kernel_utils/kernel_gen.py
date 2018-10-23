@@ -2032,7 +2032,7 @@ class kernel_generator(object):
                 ic_dep = False
                 if self.unique_pointers:
                     # need to test if this is per work-item or not
-                    if not mapping[arg.name].is_temporary:
+                    if arg.name in mapping and not mapping[arg.name].is_temporary:
                         size_per_work_item += buffer_size
                         ic_dep = True
 
