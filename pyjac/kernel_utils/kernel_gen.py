@@ -3332,9 +3332,6 @@ class c_kernel_generator(kernel_generator):
             The string preambles for this :class:`kernel_generator`
         """
 
-        if self.unique_pointers:
-            return []
-
         work_size = """
         #ifndef work_size
             #define work_size (omp_get_num_threads())
@@ -3465,9 +3462,6 @@ class opencl_kernel_generator(kernel_generator):
         premables: list of str
             The string preambles for this :class:`kernel_generator`
         """
-
-        if self.unique_pointers:
-            return []
 
         work_size = """
         #ifndef work_size
