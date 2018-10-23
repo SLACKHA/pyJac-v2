@@ -88,20 +88,16 @@ class SubTest(TestClass):
             finite_difference_jacobian, test_python_wrapper=False,
             ktype=KernelType.jacobian, do_finite_difference=True)
 
-    def test_fixed_work_size(self):
-        # test bad fixed size
-        with assert_raises(InvalidInputSpecificationException):
-            create_jacobian(
-                'opencl', gas=self.store.gas, vector_size=4, wide=True, work_size=1)
-
+    def test_unique_pointer_specification(self):
         with utils.temporary_directory() as build_dir:
             # test good fixed size
-            create_jacobian('c', gas=self.store.gas, work_size=1,
+            create_jacobian('c', gas=self.store.gas, unique_oointers=True,
                             data_order='F', build_path=build_dir,
                             kernel_type=KernelType.species_rates)
 
-            files = ['species_rates.c', 'species_rates.h', 'chem_utils.c',
-                     'chem_utils.h']
+            files = ['species_rates', 'chem_utils']
+            files = [f + ext for f in files for ext in [utils.header_ext['c'],
+                                                        utils.file_ext['c']]]
             for file in files:
                 # read resulting file
                 with open(os.path.join(build_dir, file), 'r') as file:
