@@ -1,9 +1,7 @@
 import os
-import shutil
 import re
 
 import numpy as np
-from nose.tools import assert_raises
 from nose.plugins.attrib import attr
 from cogapp import Cog
 
@@ -15,7 +13,6 @@ from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import KernelType
 from pyjac.core.mech_auxiliary import write_aux
 from pyjac.core.array_creator import work_size
-from pyjac.core.exceptions import InvalidInputSpecificationException
 from pyjac.kernel_utils.kernel_gen import knl_info, make_kernel_generator
 from pyjac.libgen import generate_library
 from pyjac.pywrap.pywrap_gen import pywrap
@@ -96,8 +93,7 @@ class SubTest(TestClass):
                             kernel_type=KernelType.species_rates)
 
             files = ['species_rates', 'chem_utils']
-            files = [f + ext for f in files for ext in [utils.header_ext['c'],
-                                                        utils.file_ext['c']]]
+            files = [f + ext for f in files for ext in [utils.file_ext['c']]]
             for file in files:
                 # read resulting file
                 with open(os.path.join(build_dir, file), 'r') as file:
