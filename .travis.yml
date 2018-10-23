@@ -18,9 +18,15 @@ matrix:
     - python: "3.6"
       env: ISFLAKE="0" PYJAC_TEST_LANGS="c"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl" PYJAC_RXN_SORTING="simd"
-    - python: "3.6"
       env: ISFLAKE="0" PYJAC_TEST_LANGS="c" PYJAC_RXN_SORTING="simd"
+    - python: "3.6"
+      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="true"
+    - python: "3.6"
+      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="true" PYJAC_UNIQUE_POINTERS="1"
+    - python: "3.6"
+      env: ISFLAKE="0" PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="true"
+    - python: "3.6"
+      env: ISFLAKE="0" PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="true" PYJAC_UNIQUE_POINTERS="1"
     - python: "3.6"
       env: ISFLAKE="1"
 
@@ -91,7 +97,9 @@ before_script:
 # run test
 script:
   if [[ "$ISFLAKE" == "0" ]]; then
-      nosetests -a '!verylong' -s --with-timer;
+      nosetests -a '!verylong' -a '!fullkernel' -s --with-timer;
+  elif [[ "$RUN_LONG_TESTS" == "1" ]]; then
+      nosetests -a 'fullkernel' -s --with-timer;
   else
       python -m flake8 pyjac/ --count;
   fi

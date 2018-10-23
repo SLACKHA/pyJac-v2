@@ -2672,14 +2672,14 @@ class SubTest(TestClass):
         return self._generic_jac_tester(__kernel_creator, kc, sparse_only=True)
 
     @parameterized.expand([(x,) for x in get_test_langs()])
-    @attr('verylong')
+    @attr('fullkernel')
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
                           ktype=KernelType.jacobian, call_name='jacobian')
 
     @parameterized.expand([(x,) for x in get_test_langs()])
-    @attr('verylong')
+    @attr('fullkernel')
     @xfail(msg='Finite Difference Jacobian currently broken')
     def test_fd_jacobian(self, lang):
         def __looser_tol_finder(arr, order, have_split, conp):

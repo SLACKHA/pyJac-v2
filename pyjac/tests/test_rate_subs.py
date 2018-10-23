@@ -998,7 +998,7 @@ class SubTest(TestClass):
         self.__generic_rate_tester(reset_arrays, kc)
 
     @parameterized.expand([(x,) for x in get_test_langs()])
-    @attr('verylong')
+    @attr('fullkernel')
     def test_specrates(self, lang):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp
