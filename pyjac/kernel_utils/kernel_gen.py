@@ -1037,11 +1037,12 @@ class kernel_generator(object):
             extension, see :any:`utils.file_ext`
 
         """
+
         deps = [x for x in os.listdir(scan_path) if os.path.isfile(
             os.path.join(scan_path, x)) and not x.endswith('.in')]
         for dep in deps:
             dep_dest = dep
-            dep_is_header = dep.endswith(utils.header_ext[self.lang])
+            dep_is_header = dep.endswith(utils.header_ext['c'])
             ext = (utils.file_ext[self.lang] if not dep_is_header
                    else utils.header_ext[self.lang])
             if change_extension and not dep.endswith(ext):
