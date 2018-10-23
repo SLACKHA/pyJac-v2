@@ -915,6 +915,9 @@ class kernel_generator(object):
         domains = ['0 <= {} < {}'.format(gind, test_size)]
 
         if pre_split:
+            if self.for_testing:
+                # reduced test size
+                test_size = int(test_size / self.vec_width)
             # add/fixup dummy j_inner domain
             lind = global_ind + '_inner'
             inames[-1] = (gind, lind)
