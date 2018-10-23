@@ -3521,16 +3521,20 @@ class opencl_kernel_generator(kernel_generator):
                 dtype += str(self.vec_width)
             cast = '({} {}*)'.format(scope_str, dtype)
 
+        unique = ''
+        if self.unique_pointers and for_driver:
+            unique = ' + {} * {}'.format(size, 'get_global_size(0)')
+
         if set_null:
             return '{scope}{volatile} {dtype}* __restrict__ {array} = 0;'.format(
                 scope=scope_str, volatile=volatile,
                 dtype=dtype, array=array)
 
         return ('{scope}{volatile} {dtype}* __restrict__ {array}'
-                ' = {cast}({work_str} + {offset});').format(
+                ' = {cast}({work_str} + {offset}{unique});').format(
             scope=scope_str, volatile=volatile,
             dtype=dtype, array=array, cast=cast,
-            work_str=work_str, offset=offset)
+            work_str=work_str, offset=offset, unique=unique)
 
     def _special_kernel_subs(self, path, callgen):
         """
