@@ -519,8 +519,8 @@ def test_strided_copy():
                                 '#include "error_check.oclh"'])
             elif lang == 'c':
                 lang_headers.extend([
-                    '#include "memcpy_2d.h"',
-                    '#include "error_check.h"'])
+                    '#include "memcpy_2d.hpp"',
+                    '#include "error_check.hpp"'])
             cog.outl('\\n'.join(lang_headers))
             ]]]
             [[[end]]]*/
