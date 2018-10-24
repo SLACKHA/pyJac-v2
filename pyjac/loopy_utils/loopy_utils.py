@@ -331,11 +331,7 @@ class loopy_options(object):
         Return the necessary IC dimension size based on this :class:`loopy_options`
         """
 
-        ws = self.initial_condition_loopsize
-        if self.width and not self.is_simd:
-            return '{}*{}'.format(ws, self.width)
-
-        return ws
+        return self.initial_condition_loopsize
 
     @property
     def initial_condition_loopsize(self):
@@ -346,6 +342,8 @@ class loopy_options(object):
 
         if self.unique_pointers:
             return 1
+        if self.width and not self.is_simd:
+            return '{}*{}'.format(arc.work_size.name, self.width)
         return arc.work_size.name
 
     @property
