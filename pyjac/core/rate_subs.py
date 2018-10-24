@@ -3145,7 +3145,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                    nstore, test_size=test_size, conp=conp))
     # and finally the extra variable rates
     __add_knl(get_extra_var_rates(loopy_opts, nstore, conp=conp,
-                                  test_size=None))
+                                  test_size=test_size))
 
     # get a wrapper for the dependecies
     thermo_in, thermo_out = inputs_and_outputs(conp, KernelType.chem_utils)
