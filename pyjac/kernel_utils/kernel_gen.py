@@ -914,7 +914,7 @@ class kernel_generator(object):
         inames = [gind]
         domains = ['0 <= {} < {}'.format(gind, test_size)]
 
-        if pre_split:
+        if self.loopy_opts.pre_split:
             if self.for_testing:
                 # reduced test size
                 test_size = int(test_size / self.vec_width)
