@@ -7,7 +7,6 @@ branches:
   only:
     - master
     - spyJac
-    - spyJac-working
 
 # language & environment and matrix spec
 language: python
@@ -98,7 +97,7 @@ before_script:
 script:
   if [[ "$ISFLAKE" == "0" && "$RUN_LONG_TESTS" == "0" ]]; then
       nosetests -a '!verylong' -a '!fullkernel' -s --with-timer;
-  elif [[ "$RUN_LONG_TESTS" == "1" ]]; then
+  elif [[ "$ISFLAKE" == "0" && "$RUN_LONG_TESTS" == "1" ]]; then
       nosetests -a 'fullkernel' -s --with-timer;
   else
       python -m flake8 pyjac/ --count;
