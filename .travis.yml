@@ -13,19 +13,19 @@ language: python
 matrix:
   include:
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl"
+      env: PYJAC_TEST_LANGS="opencl"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="c"
+      env: PYJAC_TEST_LANGS="c"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="c" PYJAC_RXN_SORTING="simd"
+      env: PYJAC_TEST_LANGS="c" PYJAC_RXN_SORTING="simd"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="true"
+      env: PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="1"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="true" PYJAC_UNIQUE_POINTERS="1"
+      env: PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="1" PYJAC_UNIQUE_POINTERS="1"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="true"
+      env: PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="1"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="true" PYJAC_UNIQUE_POINTERS="1"
+      env: PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="1" PYJAC_UNIQUE_POINTERS="1"
     - python: "3.6"
       env: ISFLAKE="1"
 
@@ -95,9 +95,9 @@ before_script:
   - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # run test
 script:
-  if [[ "$ISFLAKE" == "0" && "$RUN_LONG_TESTS" == "0" ]]; then
+  if [[ -z "$ISFLAKE" && -z "$RUN_LONG_TESTS" ]]; then
       nosetests -a '!verylong' -a '!fullkernel' -s --with-timer;
-  elif [[ "$ISFLAKE" == "0" && "$RUN_LONG_TESTS" == "1" ]]; then
+  elif [[ -z "$ISFLAKE" && -n "$RUN_LONG_TESTS" ]]; then
       nosetests -a 'fullkernel' -s --with-timer;
   else
       python -m flake8 pyjac/ --count;
