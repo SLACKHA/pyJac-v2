@@ -96,7 +96,7 @@ before_script:
   - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # run test
 script:
-  if [[ "$ISFLAKE" == "0" ]]; then
+  if [[ "$ISFLAKE" == "0" && "$RUN_LONG_TESTS" == "0" ]]; then
       nosetests -a '!verylong' -a '!fullkernel' -s --with-timer;
   elif [[ "$RUN_LONG_TESTS" == "1" ]]; then
       nosetests -a 'fullkernel' -s --with-timer;
