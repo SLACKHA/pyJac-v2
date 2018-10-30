@@ -560,7 +560,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
         "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)),
         dedent=True, trimblanklines=True)
 
-    write destructor
+    # write destructor
     cog.out("""
     {name}Kernel::~{name}Kernel()
     {
