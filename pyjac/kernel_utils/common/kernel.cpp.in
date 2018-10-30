@@ -563,9 +563,9 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     # write destructor
     cog.out("""
     {name}Kernel::~{name}Kernel()
-    {
+    {{
       this->finalize_memory();
-    }""".format(name=kernel.title()), dedent=True, trimblanklines=True)
+    }}""".format(name=kernel.title()), dedent=True, trimblanklines=True)
 
     # write kernel defn
     cog.out("""
