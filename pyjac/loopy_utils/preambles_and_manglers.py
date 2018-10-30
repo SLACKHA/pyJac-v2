@@ -129,7 +129,7 @@ class fastpowi_PreambleGen(PreambleGen):
             double_str += str(vector)
         # operators
         code = Template("""
-   inline ${double_str} ${name}(${double_str} val, ${int_str} pow)
+   ${double_str} ${name}(${double_str} val, ${int_str} pow)
    {
         // account for negatives
         if (pow < 0)
