@@ -88,7 +88,7 @@ class Kernel
 
 public:
     Kernel();
-    ~Kernel();
+    virtual ~Kernel();
     /*[[[cog
          cog.outl(make_doc_str(callgen, ['problem_size', 'work_size',
                                          'do_not_compile'],
@@ -316,6 +316,9 @@ protected:
     cog.out("""
     {name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile=false);
     """.format(name=kernel.title()), dedent=False, trimblanklines=True)
+
+    # write destructor
+    cog.outl(indent('virtual ~{kernel_name}();'.format(kernel_name=kernel.title(), stdindent))
 
     cog.out(indent(make_doc_str(
         callgen, callgen.kernel_args[kernel],

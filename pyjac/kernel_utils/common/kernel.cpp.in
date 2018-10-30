@@ -344,7 +344,6 @@ void Kernel::finalize()
 {
     if(this->initialized)
     {
-        this->finalize_memory();
         /*[[[cog
             if callgen.lang == 'opencl':
                 cog.outl('check_err(clReleaseProgram(this->program));')
@@ -560,6 +559,13 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
         callgen, callgen.kernel_args[kernel],
         "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)),
         dedent=True, trimblanklines=True)
+
+    write destructor
+    cog.out("""
+    {name}Kernel::~{name}Kernel()
+    {
+      this->finalize_memory();
+    }""".format(name=kernel.title()), dedent=True, trimblanklines=True))
 
     # write kernel defn
     cog.out("""
