@@ -458,6 +458,19 @@ def assign_rates(reacs, specs, rate_spec):
     mws = np.array([spec.mw for spec in specs])
     mw_post = mws[:-1] / mws[-1]
 
+    # min / max T
+    minT = None
+    maxT = None
+    for spec in specs:
+        if minT is None:
+            minT = spec.Trange[0]
+        else:
+            minT = np.maximum(minT, spec.Trange[0])
+        if maxT is None:
+            maxT = spec.Trange[-1]
+        else:
+            maxT = np.minimum(maxT, spec.Trange[-1])
+
     return {'simple': {'A': A, 'b': b, 'Ta': Ta, 'type': simple_rate_type,
                        'num': num_simple, 'map': simple_map},
             'plog': {'map': plog_map, 'num': num_plog,
@@ -515,13 +528,14 @@ def assign_rates(reacs, specs, rate_spec):
             'thermo': {
                 'a_lo': a_lo,
                 'a_hi': a_hi,
-                'T_mid': T_mid
-    },
-        'mws': mws,
-        'mw_post': mw_post,
-        'reac_has_ns': reac_has_ns,
-        'ns_nu': ns_nu
-    }
+                'T_mid': T_mid},
+            'mws': mws,
+            'mw_post': mw_post,
+            'reac_has_ns': reac_has_ns,
+            'ns_nu': ns_nu,
+            'minT': minT,
+            'maxT': maxT
+            }
 
 
 def reset_arrays(loopy_opts, namestore, test_size=None):
