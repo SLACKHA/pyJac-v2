@@ -527,8 +527,8 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        ad_opts = loopy_options(order='C', lang='c',
-                                auto_diff=True)
+        ad_opts = loopy_options(order='C', lang='c', auto_diff=True,
+                                guard_temperature=False)
 
         # create namestore
         namestore = arc.NameStore(ad_opts, rate_info, conp, self.store.test_size)
