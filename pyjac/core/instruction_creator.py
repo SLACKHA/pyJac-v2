@@ -295,12 +295,39 @@ class dummy_deep_specialization(within_inames_specializer):
         return super(dummy_deep_specialization, self).__call__(knl)
 
 
+class Guard(object):
+    """
+    A helper class to pass to a :class:`PrecomputedInstructions` that specifies
+    min / max ranges for the variable in question
+
+    Attributes
+    ----------
+    min: float
+        If specified, the minimum range of this guarded variable
+    max: float
+        If specified, the maximum range of this guarded variable
+    """
+
+    def __init__(self, minv=None, maxv=None):
+        self.min = minv
+        self.max = maxv
+
+    def __call__(self, varname):
+        template = '${varname}'
+        if self.min is not None:
+            template = 'fmax(' + template + ', ${min})'
+        if self.max is not None:
+            template = 'fmin(' + template + ', ${max})'
+        return Template(template).safe_substitute(varname=varname, min=self.min,
+                                                  max=self.max)
+
+
 class PrecomputedInstructions(object):
     def __init__(self, basename='precompute'):
         self.namer = UniqueNameGenerator()
         self.basename = basename
 
-    def __call__(self, result_name, var_str, INSN_KEY):
+    def __call__(self, result_name, var_str, INSN_KEY, guard=None):
         """
         Simple helper method to return a number of precomputes based off the passed
         instruction key
@@ -313,6 +340,8 @@ class PrecomputedInstructions(object):
             The stringified representation of the variable to construct
         key : ['INV', 'LOG', 'VAL']
             The transform / value to precompute
+        guard: :class:`Guard` [None]
+            If specified, use this guard on the computed value
 
         Returns
         -------
@@ -320,10 +349,13 @@ class PrecomputedInstructions(object):
             A loopy instruction in the form:
                 '<>result_name = fn(var_str)'
         """
+        if guard:
+            var_str = guard(var_str[:])
         default_preinstructs = {'INV': '1 / {}'.format(var_str),
                                 'LOG': 'log({})'.format(var_str),
                                 'VAL': '{}'.format(var_str),
                                 'LOG10': 'log10({})'.format(var_str)}
+
         return Template("<>${result} = ${value} {id=${id}}").safe_substitute(
             result=result_name,
             value=default_preinstructs[INSN_KEY],

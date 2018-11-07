@@ -131,6 +131,9 @@ class loopy_options(object):
         codes an that have already been parallelized.
     explicit_simd: bool [False]
         Attempt to utilize explict-SIMD instructions in OpenCL
+    guard_temperature: bool [True]
+        If true, bound all temperature accesses between the min and max temperature
+        in the mechanism
     """
     def __init__(self, width=None, depth=None, ilp=False, unr=None,
                  lang='opencl', order='C', rate_spec=RateSpecialization.fixed,
@@ -139,7 +142,7 @@ class loopy_options(object):
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
-                 unique_pointers=False, explicit_simd=None):
+                 unique_pointers=False, explicit_simd=None, guard_temperature=True):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -173,6 +176,7 @@ class loopy_options(object):
             logger.warn('explicit-SIMD flag has no effect on non-OpenCL targets.')
         self.kernel_type = utils.to_enum(kernel_type, KernelType)
         self.unique_pointers = unique_pointers
+        self.guard_temperature = guard_temperature
 
         if self._is_simd or self.explicit_simd:
             assert width or depth, (

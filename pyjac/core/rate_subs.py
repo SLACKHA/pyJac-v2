@@ -650,6 +650,12 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     P_arr, P_str = mapstore.apply_maps(namestore.P_arr, *fixed_inds)
     V_arr, V_str = mapstore.apply_maps(namestore.V_arr, *fixed_inds)
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, *fixed_inds)
+
+    # guard temperature range if desired
+    Tguard = namestore.get_temperature_guard()
+    if Tguard:
+        T_str = Tguard(T_str)
+
     conc_arr, conc_str = mapstore.apply_maps(namestore.conc_arr, *default_inds)
 
     _, conc_ns_str = mapstore.apply_maps(namestore.conc_ns_arr, *fixed_inds)
@@ -844,6 +850,11 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                                             *fixed_inds)
 
     T_lp, T_str = mapstore.apply_maps(namestore.T_arr, *fixed_inds)
+    # guard temperature range if desired
+    Tguard = namestore.get_temperature_guard()
+    if Tguard:
+        T_str = Tguard(T_str)
+
     P_lp, P_str = mapstore.apply_maps(namestore.P_arr, *fixed_inds)
     Tdot_lp, Tdot_str = mapstore.apply_maps(namestore.T_dot, *fixed_inds)
     mw_lp, mw_str = mapstore.apply_maps(namestore.mw_post_arr, *(var_name,))
@@ -1822,6 +1833,11 @@ def get_thd_body_concs(loopy_opts, namestore, test_size=None):
 
     # get T and P arrays
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    # guard temperature range if desired
+    Tguard = namestore.get_temperature_guard()
+    if Tguard:
+        T_str = Tguard(T_str)
+
     P_arr, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
 
     # and the third body descriptions
@@ -1986,7 +2002,8 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
     precompute = ic.PrecomputedInstructions()
 
     preinstructs = [precompute(logP, P_str, 'LOG'),
-                    precompute(Tinv, T_str, 'INV')]
+                    precompute(Tinv, T_str, 'INV',
+                               guard=namestore.get_temperature_guard())]
 
     # various strings for preindexed limits, params, etc
     _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
@@ -2215,13 +2232,14 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
 
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
+    Tguard = namestore.get_temperature_guard()
 
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
                            pre_instructions=[
-                               precompute(Tinv, T_str, 'INV'),
-                               precompute(logT, T_str, 'LOG'),
+                               precompute(Tinv, T_str, 'INV', guard=Tguard),
+                               precompute(logT, T_str, 'LOG', guard=Tguard),
                                precompute(logP, P_str, 'LOG')],
                            var_name=var_name,
                            kernel_data=kernel_data,
@@ -2430,8 +2448,9 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     precompute = ic.PrecomputedInstructions()
 
     return [k_gen.knl_info('fall_troe',
-                           pre_instructions=[precompute(
-                               'T', T_str, 'VAL')],
+                           pre_instructions=[
+                            precompute('T', T_str, 'VAL',
+                                       guard=namestore.get_temperature_guard())],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
@@ -2534,12 +2553,13 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     """).safe_substitute(**locals())
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
+    Tguard = namestore.get_temperature_guard()
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
                            pre_instructions=[
-                               precompute(Tval, T_str, 'VAL'),
-                               precompute(Tinv, T_str, 'INV')],
+                               precompute(Tval, T_str, 'VAL', guard=Tguard),
+                               precompute(Tinv, T_str, 'INV', guard=Tguard)],
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2708,12 +2728,13 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     Tval = 'Tval'
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
+    Tguard = namestore.get_temperature_guard()
     default_preinstructs = {Tinv:
-                            precompute(Tinv, T_str, 'INV'),
+                            precompute(Tinv, T_str, 'INV', guard=Tguard),
                             logT:
-                            precompute(logT, T_str, 'LOG'),
+                            precompute(logT, T_str, 'LOG', guard=Tguard),
                             Tval:
-                            precompute(Tval, T_str, 'VAL')}
+                            precompute(Tval, T_str, 'VAL', guard=Tguard)}
 
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate} {id=rate_eval0, \
@@ -3324,11 +3345,12 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     Tval = 'T'
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
-    preinstructs = [precompute(Tval, T_str, 'VAL')]
+    Tguard = namestore.get_temperature_guard()
+    preinstructs = [precompute(Tval, T_str, 'VAL', guard=Tguard)]
     if nicename in ['db', 'b']:
-        preinstructs.append(precompute('Tinv', T_str, 'INV'))
+        preinstructs.append(precompute('Tinv', T_str, 'INV', guard=Tguard))
         if nicename == 'b':
-            preinstructs.append(precompute('logT', T_str, 'LOG'))
+            preinstructs.append(precompute('logT', T_str, 'LOG', guard=Tguard))
 
     return k_gen.knl_info(instructions=Template("""
         if ${Tval} < ${T_mid_str}
