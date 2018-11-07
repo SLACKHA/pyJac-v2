@@ -55,7 +55,6 @@ Kernel::Kernel():
 
 Kernel::~Kernel()
 {
-    this->finalize();
 }
 
 void Kernel::resize(size_t problem_size, size_t work_size, bool do_not_compile)
@@ -565,6 +564,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     {name}Kernel::~{name}Kernel()
     {{
       this->finalize_memory();
+      this->finalize();
     }}""".format(name=kernel.title()), dedent=True, trimblanklines=True)
 
     # write kernel defn
@@ -736,7 +736,6 @@ int main(int argc, char* argv[])
             dedent=True, trimblanklines=True)
       ]]]
       [[[end]]]*/
-    kernel.finalize();
 
     // local frees
     /*[[[cog

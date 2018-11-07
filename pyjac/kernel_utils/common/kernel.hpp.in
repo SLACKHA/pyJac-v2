@@ -96,7 +96,6 @@ public:
       ]]]
       [[[end]]]*/
     void resize(size_t problem_size, size_t work_size, bool do_not_compile=false);
-    void finalize();
 
     //! \\brief Returns the ordered list of species names in the chemical model
     static std::vector<const char*> speciesNames()
@@ -265,6 +264,7 @@ protected:
     // memory initialization / release accomplished in sub-classes
     virtual void mem_init(size_t problem_size, size_t work_size) = 0;
     virtual void finalize_memory() = 0;
+    void finalize();
 };
 
 // and subclass(es)

@@ -32,7 +32,6 @@ cdef extern from "{name}_main{ext}":
         string_t order() except+
         void resize(size_t, size_t, bool_t) except +
         void operator()({args}) except +
-        void finalize() except +
     """.format(name=wrappergen.name, kernel_name=kernel_name, args=kernel_args,
                ext=header_ext[wrappergen.lang]),
         trimblanklines=True, dedent=False)
@@ -76,9 +75,6 @@ cdef class Py{name}:
 
     def required_working_memory(self):
         return self.kernel.requiredMemorySize()
-
-    def __dealloc__(self):
-        self.kernel.finalize()
 
     def resize(self, np.uint_t problem_size, np.uint_t work_size,
                bool_t do_not_compile=False):""".format(name=kernel_name))
