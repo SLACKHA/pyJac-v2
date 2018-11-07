@@ -174,7 +174,10 @@ def _get_ad_jacobian(self, test_size, conp=True, pregen=None, return_kernel=Fals
         self.store.reacs, self.store.specs, RateSpecialization.fixed)
 
     # create loopy options
-    ad_opts = loopy_options(order='C', lang='c', auto_diff=True)
+    # --> have to turn off the temperature guard to avoid fmin / max issues with
+    #     Adept
+    ad_opts = loopy_options(order='C', lang='c', auto_diff=True,
+                            guard_temperature=False)
 
     # create namestore
     store = arc.NameStore(ad_opts, rate_info, conp, test_size)

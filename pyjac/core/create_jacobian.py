@@ -494,6 +494,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
 
     # T, P, V
     T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    T_str = namestore.get_temperature_guard()(T_str)
     V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
     P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
     pres_mod_lp, pres_mod_str = mapstore.apply_maps(
@@ -1107,10 +1108,11 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                 kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
                 # add plog instruction
+                T_guard = namestore.get_temperature_guard()
                 pre_instructions.extend([precompute(
                     'logP', P_str, 'LOG'), precompute(
-                    'logT', T_str, 'LOG'), precompute(
-                    'Tinv', T_str, 'INV')])
+                    'logT', T_str, 'LOG', guard=T_guard), precompute(
+                    'Tinv', T_str, 'INV', guard=T_guard)])
 
                 plog_preloads = ''
                 if loopy_opts.is_simd:
@@ -1218,9 +1220,10 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                                     P_lp, tlim_lp, pres_poly_lp, temp_poly_lp])
 
                 # preinstructions
+                T_guard = namestore.get_temperature_guard()
                 pre_instructions.extend(
                     [precompute('logP', P_str, 'LOG'),
-                     precompute('Tinv', T_str, 'INV')])
+                     precompute('Tinv', T_str, 'INV', guard=T_guard)])
 
                 # various strings for preindexed limits, params, etc
                 _, Pmin_str = mapstore.apply_maps(
@@ -1334,6 +1337,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
         preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
 
+        T_str = namestore.get_temperature_guard()(T_str)
         if conp:
             pre_instructions.append(Template(
                 '<>fac = ${P_str} / (Ru * ${T_str})'
@@ -1680,6 +1684,9 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
             sum = sum + (${spec_energy_str} - ${spec_energy_ns_str} * \
                 ${mw_str}) * ${jac_str} {id=up, dep=${deps}}
         """).safe_substitute(**locals()))]
+
+        # guard T
+        T_str = namestore.get_temperature_guard(T_str)
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str})
             ${jac_str} = ${jac_str} - (${Tdot_str} * ${spec_heat_ns_str} \
@@ -1762,6 +1769,8 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
         namestore.T_arr, global_ind)
+    T_str = namestore.get_temperature_guard()(T_str)
+
     V_lp, V_str = mapstore.apply_maps(
         namestore.V_arr, global_ind)
     P_lp, P_str = mapstore.apply_maps(
@@ -1935,9 +1944,10 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
         * ${conc_ns_str}) {id=split}
     <> rate_sum = 0 {id=rate_sum}
     """).safe_substitute(**locals()).split('\n')
+    T_guard = namestore.get_temperature_guard()
     pre_instructions.extend([
         precompute('Vinv', V_str, 'INV'),
-        precompute('Tinv', T_str, 'INV')])
+        precompute('Tinv', T_str, 'INV', guard=T_guard)])
 
     # add create molar rate update insn
     jac_update = Template("""
@@ -2038,9 +2048,12 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
         warn=False)
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
+    T_guard = namestore.get_temperature_guard()
+    T_str = T_guard(T_str)
 
     pre_instructions = ['<> sum = 0 {id=init}',
                         precompute('Tinv', T_str, 'INV')]
+
     if conp:
         pre_instructions.append(
             precompute('Vinv', V_str, 'INV'))
@@ -2257,7 +2270,8 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
 
-    pre_instructions = [precompute('Tinv', T_str, 'INV')]
+    T_guard = namestore.get_temperature_guard()
+    pre_instructions = [precompute('Tinv', T_str, 'INV', guard=T_guard)]
     parameters = {}
     manglers = []
     # by default we are using the third body factors (these may be changed
@@ -2311,8 +2325,9 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                 namestore.troe_T3, var_name)
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
                                 troe_T1_lp, troe_T2_lp, troe_T3_lp])
+            T_guard = namestore.get_temperature_guard()
             pre_instructions.append(
-                precompute('Tval', T_str, 'VAL'))
+                precompute('Tval', T_str, 'VAL', guard=T_guard))
             dFi_instructions = Template("""
                 <> dFcent = -${troe_a_str} * ${troe_T1_str} * \
                 exp(-Tval * ${troe_T1_str}) + (${troe_a_str} - 1) * ${troe_T3_str} *\
@@ -2341,8 +2356,9 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             d_lp, d_str = mapstore.apply_maps(namestore.sri_d, var_name)
             e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
+            T_guard = namestore.get_temperature_guard()
             pre_instructions.append(
-                precompute('Tval', T_str, 'VAL'))
+                precompute('Tval', T_str, 'VAL', guard=T_guard))
             manglers.append(lp_pregen.fmax())
 
             dFi_instructions = Template("""
@@ -2674,6 +2690,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     # common variables
     # temperature
     T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
+    T_str = namestore.get_temperature_guard()(T_str)
     # Volume
     V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
     # get rev / thd mask
@@ -2730,8 +2747,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         kernel_data.extend([
             beta_lp, Ta_lp, rop_fwd_lp, rop_rev_lp, dB_lp])
 
-        pre_instructions = [precompute(
-            'Tinv', T_str, 'INV')]
+        pre_instructions = [precompute('Tinv', T_str, 'INV')]
         if rxn_type == reaction_type.plog:
             lo_ind = 'lo'
             hi_ind = 'hi'
@@ -3287,6 +3303,18 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         namestore.mw_post_arr, spec_k)
     V_lp, V_str = mapstore.apply_maps(
         namestore.V_arr, global_ind)
+    P_lp, P_str = mapstore.apply_maps(
+        namestore.P_arr, global_ind)
+    T_lp, T_str = mapstore.apply_maps(
+        namestore.T_arr, global_ind)
+
+    precompute = ic.PrecomputedInstructions()
+    T_inv = 'T_inv'
+    T_val = 'T_val'
+    T_guard = namestore.get_temperature_guard()
+    pre_instructions = [precompute(T_inv, T_str, 'INV', guard=T_guard),
+                        precompute(T_val, T_str, 'VAL', guard=T_guard)]
+
     # dnk/dnj jacobian set
     dnkdnj_insn = Template(
         "sum = sum + (1 - ${mw_str}) * ${jac_str} {id=sum, dep=${deps}}"
@@ -3298,8 +3326,8 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         }, insn=dnkdnj_insn, deps='*:init')
     # and the dedot / dnj instruction
     dedotdnj_insn = Template(
-        "${jac_str} = ${jac_str} + ${T_str} * Ru * sum / ${fixed_var_str} + "
-        "${extra_var_str} * ${dTdot_dnj_str} / ${T_str} "
+        "${jac_str} = ${jac_str} + ${T_val} * Ru * sum / ${fixed_var_str} + "
+        "${extra_var_str} * ${dTdot_dnj_str} * ${T_inv} "
         "{id=jac, dep=${deps}, nosync=sum}").safe_substitute(**locals())
     _, dedotdnj_insn = jac_create(
         mapstore, namestore.jac, global_ind, 1, var_name, affine={
@@ -3313,11 +3341,6 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
         mapstore, namestore.jac, global_ind, 0, var_name, affine={
             var_name: 2,
         }, entry_exists=True, index_insn=False, warn=False)
-
-    P_lp, P_str = mapstore.apply_maps(
-        namestore.P_arr, global_ind)
-    T_lp, T_str = mapstore.apply_maps(
-        namestore.T_arr, global_ind)
 
     kernel_data = []
     kernel_data.extend(arc.initial_condition_dimension_vars(loopy_opts, test_size))
@@ -3345,7 +3368,8 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
                           mapstore=mapstore,
                           parameters={'Ru': chem.RU},
                           can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec
+                          vectorization_specializer=vec_spec,
+                          pre_instructions=pre_instructions
                           )
 
 

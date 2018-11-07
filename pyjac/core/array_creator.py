@@ -1917,11 +1917,13 @@ class NameStore(object):
     def get_temperature_guard(self):
         """
         Returns the :class:`Guard` for the temperature variable, if necessary
-        else None
+        else a callable that returns the passed argument
         """
         if self.loopy_opts.guard_temperature:
             from pyjac.core.instruction_creator import Guard
             return Guard(self.rate_info['minT'], self.rate_info['maxT'])
+        else:
+            return lambda x: x
 
     def __getattr__(self, name):
         """
