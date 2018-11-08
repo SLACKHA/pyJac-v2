@@ -121,15 +121,16 @@ class PreambleGen(object):
 
 
 class fastpowi_PreambleGen(PreambleGen):
-    def __init__(self, integer_dtype=np.int32, vector=None,
+    def __init__(self, lang, integer_dtype=np.int32, vector=None,
                  name='fast_powi'):
         int_str = 'int' if integer_dtype == np.int32 else 'long'
+        inline = 'static inline' if lang == 'c' else ''
         double_str = 'double'
         if vector:
             double_str += str(vector)
         # operators
         code = Template("""
-   ${double_str} ${name}(${double_str} val, ${int_str} pow)
+   ${inline}${double_str} ${name}(${double_str} val, ${int_str} pow)
    {
         // account for negatives
         if (pow < 0)
@@ -161,7 +162,7 @@ class fastpowi_PreambleGen(PreambleGen):
         return retval;
    }
             """).substitute(int_str=int_str, double_str=double_str,
-                            name=name)
+                            name=name, inline=inline)
 
         super(fastpowi_PreambleGen, self).__init__(
             name, code,
@@ -173,10 +174,10 @@ class fastpowi_PreambleGen(PreambleGen):
 
 
 class fastpowiv_PreambleGen(fastpowi_PreambleGen):
-    def __init__(self, integer_dtype=np.int32, vector_width=None):
+    def __init__(self, lang, integer_dtype=np.int32, vector_width=None):
         assert vector_width is not None
         super(fastpowiv_PreambleGen, self).__init__(
-            integer_dtype, vector=vector_width, name='fast_powiv')
+            lang, integer_dtype, vector=vector_width, name='fast_powiv')
 
 
 def power_function_preambles(loopy_opts, power_function):
