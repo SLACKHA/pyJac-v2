@@ -337,6 +337,10 @@ V_min = 1e-30
           volumes that can occur inside internal integration steps
 """
 
+small = 1e-300
+"""float: A 'small' number used to bound values above zero (e.g., for logarithms)
+"""
+
 
 # https://fangpenlin.com/posts/2012/08/26/good-logging-practice-in-python/
 def setup_logging(

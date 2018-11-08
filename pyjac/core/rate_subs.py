@@ -679,11 +679,13 @@ def get_concentrations(loopy_opts, namestore, conp=True,
 
     instructions = Template(
         """
-            ${conc_str} = ${n_str} * V_inv {id=cn_init}
-            n_sum = n_sum + ${n_str} {id=n_update, dep=n_init}
+            <> n = fmax(${small}, ${n_str})
+            ${conc_str} = n * V_inv {id=cn_init}
+            n_sum = n_sum + n {id=n_update, dep=n_init}
         """).substitute(
             conc_str=conc_str,
-            n_str=n_str
+            n_str=n_str,
+            small=utils.small
     )
 
     barrier = ic.get_barrier(loopy_opts, id='break', dep='cns_init')
