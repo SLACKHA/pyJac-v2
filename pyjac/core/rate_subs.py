@@ -765,8 +765,7 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
     ndot_lp, ndot_str = mapstore.apply_maps(namestore.n_dot,
                                             *default_inds)
 
-    V_lp, V_str = mapstore.apply_maps(namestore.V_arr,
-                                      *fixed_inds)
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, *fixed_inds)
 
     V_val = 'V_val'
     # create a precomputed instruction generator
@@ -872,10 +871,11 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     pre = ['<>dE = 0.0d {id=dE_init}']
     precompute = ic.PrecomputedInstructions()
-    V_val = 'V_val'
-    pre.append(precompute(V_val, V_str, 'VAL', guard=ic.Guard(utils.V_min)))
 
     if conp:
+        V_val = 'V_val'
+        pre.append(precompute(V_val, V_str, 'VAL', guard=ic.Guard(utils.V_min)))
+
         pre_instructions = [
             Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_str} \
                      {id=init}').safe_substitute(
