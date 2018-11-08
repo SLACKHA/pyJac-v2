@@ -1921,7 +1921,7 @@ class NameStore(object):
         """
         if self.loopy_opts.guard_temperature:
             from pyjac.core.instruction_creator import Guard
-            return Guard(self.rate_info['minT'], self.rate_info['maxT'])
+            return Guard(1e2, 1e4)
         else:
             return lambda x: x
 
