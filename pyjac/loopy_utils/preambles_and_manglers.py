@@ -195,9 +195,10 @@ def power_function_preambles(loopy_opts, power_function):
     """
 
     if 'fast_powi' in [x.name for x in utils.listify(power_function)]:
-        return [fastpowi_PreambleGen(arc.kint_type)]
+        return [fastpowi_PreambleGen(loopy_opts.lang, arc.kint_type)]
     if 'fast_powiv' in [x.name for x in utils.listify(power_function)]:
-        return [fastpowiv_PreambleGen(arc.kint_type, loopy_opts.vector_width)]
+        return [fastpowiv_PreambleGen(loopy_opts.lang,
+                                      arc.kint_type, loopy_opts.vector_width)]
     return []
 
 
