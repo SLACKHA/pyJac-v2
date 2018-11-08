@@ -663,13 +663,17 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     # add arrays
     kernel_data.extend([n_arr, P_arr, V_arr, T_arr, conc_arr])
 
+    precompute = ic.PrecomputedInstructions()
+    V_inv = 'V_inv'
+    V_inv_insn = precompute(V_inv, V_str, 'INV', ic.Guard(utils.V_min))
+
     pre_instructions = Template(
-        """<>V_inv = 1.0d / ${V_str}
+        """${V_inv_insn}
            <>n_sum = 0 {id=n_init}
            ${cns_str} = ${P_str} / (R_u * ${T_str}) {id=cns_init}
         """).substitute(
+            V_inv_insn=V_inv_insn,
             P_str=P_str,
-            V_str=V_str,
             T_str=T_str,
             cns_str=conc_ns_str)
 
@@ -703,7 +707,8 @@ def get_concentrations(loopy_opts, namestore, conp=True,
                           kernel_data=kernel_data,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
-                          parameters={'R_u': np.float64(chem.RU)})
+                          parameters={'R_u': np.float64(chem.RU)},
+                          manglers=[lp_pregen.fmax()])
 
 
 def get_molar_rates(loopy_opts, namestore, conp=True,
@@ -765,7 +770,7 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
 
-    pre_instructions = precompute(V_val, V_str, 'VAL')
+    pre_instructions = precompute(V_val, V_str, 'VAL', ic.Guard(utils.V_min))
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
@@ -792,7 +797,8 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
                           var_name=var_name,
                           kernel_data=kernel_data,
                           can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec)
+                          vectorization_specializer=vec_spec,
+                          manglers=[lp_pregen.fmax()])
 
 
 def get_extra_var_rates(loopy_opts, namestore, conp=True,
@@ -862,22 +868,23 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     kernel_data.extend([wdot_lp, Edot_lp, T_lp, P_lp, Tdot_lp, mw_lp])
 
-    dE_init = '<>dE = 0.0d {id=dE_init}'
+    pre = ['<>dE = 0.0d {id=dE_init}']
+    precompute = ic.PrecomputedInstructions()
+    V_val = 'V_val'
+    pre.append(precompute(V_val, V_str, 'VAL', guard=ic.Guard(utils.V_min)))
 
     if conp:
         pre_instructions = [
-            Template('${Edot_str} = ${V_str} * ${Tdot_str} / ${T_str} \
+            Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_str} \
                      {id=init}').safe_substitute(
                 **locals()),
-            dE_init
-        ]
+        ] + pre
     else:
         pre_instructions = [
             Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_str}\
                      {id=init}').safe_substitute(
                 **locals()),
-            dE_init
-        ]
+        ] + pre
 
     instructions = Template(
         """
@@ -890,14 +897,14 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = [dE_init]
+            pre_instructions = pre[:]
             post_instructions = [Template(
                 """
-                temp_sum[0] = ${V_str} * ${Tdot_str} / ${T_str} \
+                temp_sum[0] = ${V_val} * ${Tdot_str} / ${T_str} \
                     {id=temp_init, dep=*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
                 temp_sum[0] = temp_sum[0] + \
-                    ${V_str} * dE * ${T_str} * R_u / ${P_str} \
+                    ${V_val} * dE * ${T_str} * R_u / ${P_str} \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
@@ -909,7 +916,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         else:
             post_instructions = [Template(
                 """
-                ${Edot_str} = ${Edot_str} + ${V_str} * dE * ${T_str} * R_u / \
+                ${Edot_str} = ${Edot_str} + ${V_val} * dE * ${T_str} * R_u / \
                     ${P_str} {id=end, dep=sum:init, nosync=init}
                 """).safe_substitute(**locals())
             ]
@@ -917,7 +924,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
     else:
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = [dE_init]
+            pre_instructions = pre[:]
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_str} \

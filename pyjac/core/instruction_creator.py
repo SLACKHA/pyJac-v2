@@ -315,9 +315,9 @@ class Guard(object):
     def __call__(self, varname):
         template = '${varname}'
         if self.min is not None:
-            template = 'fmax(' + template + ', ${min})'
+            template = 'fmax(${min}, ' + template + ')'
         if self.max is not None:
-            template = 'fmin(' + template + ', ${max})'
+            template = 'fmin(${max}, ' + template + ')'
         return Template(template).safe_substitute(varname=varname, min=self.min,
                                                   max=self.max)
 
