@@ -124,7 +124,7 @@ class fastpowi_PreambleGen(PreambleGen):
     def __init__(self, lang, integer_dtype=np.int32, vector=None,
                  name='fast_powi'):
         int_str = 'int' if integer_dtype == np.int32 else 'long'
-        inline = 'static inline' if lang == 'c' else ''
+        inline = 'static inline ' if lang == 'c' else ''
         double_str = 'double'
         if vector:
             double_str += str(vector)
