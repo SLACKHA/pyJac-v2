@@ -1686,7 +1686,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
         """).safe_substitute(**locals()))]
 
         # guard T
-        T_str = namestore.get_temperature_guard(T_str)
+        T_str = namestore.get_temperature_guard()(T_str)
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str})
             ${jac_str} = ${jac_str} - (${Tdot_str} * ${spec_heat_ns_str} \
