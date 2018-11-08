@@ -1751,7 +1751,7 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
             B_sum = B_sum + net_nu * ${B_val} {id=B_accum, dep=B_init}
         end
     end
-    B_sum = exp(B_sum) {id=B_final, dep=B_accum}
+    B_sum = exp(fmin(B_sum, ${exp_max})) {id=B_final, dep=B_accum}
     """).substitute(spec_offset=num_spec_offsets_str,
                     spec_offset_next=num_spec_offsets_next_str,
                     spec_loop=spec_loop,
@@ -1760,7 +1760,8 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                     nu_val=nu_sum_str,
                     prod_nu_str=prod_nu_str,
                     reac_nu_str=reac_nu_str,
-                    B_val=B_str
+                    B_val=B_str,
+                    exp_max=utils.exp_max
                     )
 
     Rate_assign = Template("""
@@ -1785,7 +1786,7 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                               'P_a': np.float64(chem.PA),
                               'R_u': np.float64(chem.RU)},
                           manglers=lp_pregen.power_function_manglers(
-                                loopy_opts, power_func),
+                                loopy_opts, power_func) + [lp_pregen.fmin()],
                           preambles=lp_pregen.power_function_preambles(
                                 loopy_opts, power_func))
 

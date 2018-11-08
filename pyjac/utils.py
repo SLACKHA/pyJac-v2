@@ -325,6 +325,13 @@ inf_cutoff = 1e285
           Used in testing and validation to filter values that should only
           be compared as 'large numbers'"""
 
+exp_max = 300.0
+"""float: the maximum allowed exponential value (evaluates to ~2e130)
+          useful to avoid FPE's / overflow if necessary.
+          The actual IEEE-standard specifies 709.8, but we use a slightly smaller
+          value for some wiggle-room
+"""
+
 
 # https://fangpenlin.com/posts/2012/08/26/good-logging-practice-in-python/
 def setup_logging(

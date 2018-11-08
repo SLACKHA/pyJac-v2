@@ -297,6 +297,12 @@ class fmax(MangleGen):
         super(fmax, self).__init__(name, arg_dtypes, result_dtypes)
 
 
+class fmin(MangleGen):
+    def __init__(self, name='fmin', arg_dtypes=(np.float64, np.float64),
+                 result_dtypes=np.float64):
+        super(fmin, self).__init__(name, arg_dtypes, result_dtypes)
+
+
 class jac_indirect_lookup(PreambleGen):
     name = 'jac_indirect'
 
