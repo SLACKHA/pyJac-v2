@@ -903,7 +903,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${V_val} * ${Tdot_str} / ${T_str} \
-                    {id=temp_init, dep=*, atomic}
+                    {id=temp_init, dep=*:precompute*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
                 temp_sum[0] = temp_sum[0] + \
                     ${V_val} * dE * ${T_str} * R_u / ${P_str} \
@@ -966,7 +966,8 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                           kernel_data=kernel_data,
                           parameters={'R_u': np.float64(chem.RU)},
                           can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec)
+                          vectorization_specializer=vec_spec,
+                          silenced_warnings=['write_race(end)'])
 
 
 def get_temperature_rate(loopy_opts, namestore, conp=True,
