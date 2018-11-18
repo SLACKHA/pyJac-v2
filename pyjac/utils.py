@@ -332,7 +332,7 @@ exp_max = 300.0
           value for some wiggle-room
 """
 
-V_min = 1e-30
+V_min = 1e-300
 """float: The minimum allowed volume for evaluation to avoid issues with negative
           volumes that can occur inside internal integration steps
 """
