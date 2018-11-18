@@ -810,8 +810,7 @@ class SubTest(TestClass):
     {
         write_data(output_files[i], outputs[i], output_sizes[i]);
     }
-
-    kernel.finalize();""".split('\n'))
+    """.split('\n'))
 
                 # check that kernel arg order matches expected
                 assert [x.name for x in callgen.kernel_args['jacobian']] == [
