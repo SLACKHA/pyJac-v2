@@ -332,11 +332,6 @@ exp_max = 300.0
           value for some wiggle-room
 """
 
-V_min = 1e-300
-"""float: The minimum allowed volume for evaluation to avoid issues with negative
-          volumes that can occur inside internal integration steps
-"""
-
 small = 1e-300
 """float: A 'small' number used to bound values above zero (e.g., for logarithms)
 """

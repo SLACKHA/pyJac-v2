@@ -665,7 +665,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
 
     precompute = ic.PrecomputedInstructions()
     V_inv = 'V_inv'
-    V_inv_insn = precompute(V_inv, V_str, 'INV', ic.Guard(utils.V_min))
+    V_inv_insn = precompute(V_inv, V_str, 'INV')
 
     pre_instructions = Template(
         """${V_inv_insn}
@@ -677,23 +677,21 @@ def get_concentrations(loopy_opts, namestore, conp=True,
             T_str=T_str,
             cns_str=conc_ns_str)
 
+    small = utils.small
     instructions = Template(
         """
-            <> n = fmax(${small}, ${n_str})
-            ${conc_str} = n * V_inv {id=cn_init}
+            <> n = ${n_str}
+            ${conc_str} = fmax(${small}, n * V_inv) {id=cn_init}
             n_sum = n_sum + n {id=n_update, dep=n_init}
-        """).substitute(
-            conc_str=conc_str,
-            n_str=n_str,
-            small=utils.small
+        """).substitute(**locals()
     )
 
     barrier = ic.get_barrier(loopy_opts, id='break', dep='cns_init')
     post_instructions = Template(
         """
         ${barrier}
-        ${conc_ns_str} = ${conc_ns_str} - n_sum * V_inv {id=cns_set,\
-            dep=n_update:break, nosync=cns_init}
+        ${conc_ns_str} = fmax(${small}, ${conc_ns_str} - n_sum * V_inv) \
+            {id=cns_set, dep=n_update:break, nosync=cns_init}
         """).substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
@@ -771,7 +769,7 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions()
 
-    pre_instructions = precompute(V_val, V_str, 'VAL', ic.Guard(utils.V_min))
+    pre_instructions = precompute(V_val, V_str, 'VAL')
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
@@ -874,7 +872,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     if conp:
         V_val = 'V_val'
-        pre.append(precompute(V_val, V_str, 'VAL', guard=ic.Guard(utils.V_min)))
+        pre.append(precompute(V_val, V_str, 'VAL'))
 
         pre_instructions = [
             Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_str} \
