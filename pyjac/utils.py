@@ -19,6 +19,7 @@ import textwrap
 import six
 from six.moves import reduce
 import yaml
+import numpy as np
 
 from pyjac.core import exceptions
 
@@ -188,10 +189,15 @@ can_vectorize_lang = {'c': False,
                       'ispc': True}
 """dict: defines whether a language can be 'vectorized' in the loopy sense"""
 
-exp_10_fun = dict(c='exp(log(10) * {val})', cuda='exp10({val})',
-                  opencl='exp10({val})', fortran='exp(log(10) * {val})'
-                  )
+exp_10_fun = dict(c='exp({log10} * {{val}})'.format(log10=np.log(10)),
+                  cuda='exp10({val})',
+                  opencl='exp10({val})')
 """dict: exp10 functions for various languages"""
+
+log_10_fun = dict(c='log10({val})',
+                  cuda='log10({val})',
+                  opencl='log10({val})')
+"""dict: log10 functions for various languages"""
 
 
 def kernel_argument_ordering(args, kernel_type, for_validation=False,
@@ -271,61 +277,12 @@ def kernel_argument_ordering(args, kernel_type, for_validation=False,
     return [mapping[x] for x in ordered]
 
 
-class PowerFunction(object):
-    """
-    A simple wrapper that contains the name of a power function for a given language
-    as well as any options
-    """
-
-    def __init__(self, name, lang, guard_nonzero=False):
-        self.name = name
-        self.lang = lang
-        self.guard_nonzero = guard_nonzero
-
-    def __repr__(self):
-        return self.name
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __call__(self, base, power):
-        template = '{func}({base}, {power})'
-        guard = 'fmax(1e-300d, {base})'
-        if self.guard_nonzero:
-            guard = guard.format(base=base)
-            return template.format(func=self, base=guard, power=power)
-        return template.format(func=self, base=base, power=power)
-
-
-def power_function(lang, is_integer_power=False, is_positive_power=False,
-                   guard_nonzero=False, is_vector=False):
-    """
-    Returns the best power function to use for a given :param:`lang` and
-    choice of :param:`is_integer_power` / :param:`is_positive_power` and
-    the :param:`is_vector` status of the instruction in question
-    """
-
-    if lang == 'opencl' and is_positive_power:
-        # opencl positive power function -- no need for guard
-        return PowerFunction('powr', lang)
-    elif is_integer_power:
-        # 10/01/18 -- don't use OpenCL's pown -> VERY SLOW on intel
-        # instead use internal integer power function
-        if is_vector:
-            return PowerFunction('fast_powiv', lang, guard_nonzero=guard_nonzero)
-        else:
-            return PowerFunction('fast_powi', lang, guard_nonzero=guard_nonzero)
-    else:
-        # use default
-        return PowerFunction('pow', lang, guard_nonzero=guard_nonzero)
-
-
 inf_cutoff = 1e285
 """float: A cutoff above which values are considered infinite.
           Used in testing and validation to filter values that should only
           be compared as 'large numbers'"""
 
-exp_max = 300.0
+exp_max = 690.775527898
 """float: the maximum allowed exponential value (evaluates to ~2e130)
           useful to avoid FPE's / overflow if necessary.
           The actual IEEE-standard specifies 709.8, but we use a slightly smaller

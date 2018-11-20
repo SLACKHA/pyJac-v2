@@ -494,7 +494,6 @@ def __dcidE(loopy_opts, namestore, test_size=None,
 
     # T, P, V
     T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
-    T_str = namestore.get_temperature_guard()(T_str)
     V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
     P_lp, P_str = mapstore.apply_maps(namestore.P_arr, global_ind)
     pres_mod_lp, pres_mod_str = mapstore.apply_maps(
@@ -523,7 +522,11 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     # the pressure modification term to use (pres_mod for thd, Pr for falloff)
     fall_instructions = ''
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    # compute guarded exponentials / logs
+    expg = ic.GuardedExp()
+    logg = ic.GuardedLog()
+    guard = ic.Guard(minv=utils.small)
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dE'
@@ -556,18 +559,19 @@ def __dcidE(loopy_opts, namestore, test_size=None,
             Fcent_lp, Fcent_str = mapstore.apply_maps(
                 namestore.Fcent, *default_inds)
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp])
+
+            Pr_g = guard(Pr_str)
+            log_fcent = logg(Fcent_str)
             dFi_instructions = Template("""
                 <> absqsq = ${Atroe_str} * ${Atroe_str} + \
                     ${Btroe_str} * ${Btroe_str} {id=ab_init}
                 absqsq = absqsq * absqsq {id=ab_fin, dep=ab_init}
-                <> dFi = -2 * ${Atroe_str} * ${Btroe_str} * log(${Fcent_str}) \
+                <> dFi = -2 * ${Atroe_str} * ${Btroe_str} * ${log_fcent} \
                 * (0.14 * ${Atroe_str} + ${Btroe_str}) * \
                 (mod ${conp_theta_pr_fac}) / \
-                (fmax(1e-300d, ${Pr_str}) * absqsq * logten) \
-                    {id=dFi_final, dep=ab_fin:mod_final}
+                (${Pr_g} * absqsq * logten) {id=dFi_final, dep=ab_fin:mod_final}
             """).safe_substitute(**locals())
             parameters['logten'] = log(10)
-            manglers.append(lp_pregen.fmax())
         elif rxn_type == falloff_form.sri:
             X_lp, X_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
             a_lp, a_str = mapstore.apply_maps(namestore.sri_a, var_name)
@@ -576,21 +580,28 @@ def __dcidE(loopy_opts, namestore, test_size=None,
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp])
             pre_instructions.append(precompute('Tval', T_str, 'VAL'))
             pre_instructions.append(precompute('Tinv', T_str, 'INV'))
-            manglers.append(lp_pregen.fmax())
 
-            sri_fac = (Template("""\
-                log((${a_str} * exp(Tval * cinv) + exp(${b_str} * Tinv)) * \
-                     exp(-${b_str} * Tinv - Tval * cinv))\
-                """) if conp else Template("""\
-                log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv))\
-                """)).safe_substitute(
-                **locals())
+            if conp:
+                exp_cinv = expg('Tval * cinv')
+                exp_b = expg('${b_str} * Tinv')
+                exp_bc = expg('-${b_str} * Tinv - Tval * cinv')
+                inner = '(${a_str} * ${exp_cinv} + ${exp_b}) * ${exp_bc}'
+                inner = logg(inner)
+            else:
+                exp_b = expg('-${b_str} * Tinv')
+                exp_cinv = expg('-Tval * cinv')
+                inner = logg('${a_str} * ${exp_b} + ${exp_cinv}')
+
+            sri_fac = Template(inner).safe_substitute(**locals())
+            log_pr = logg(Pr_str)
+            Pr_g = guard(Pr_str)
+
+            # create insns
             dFi_instructions = Template("""
                 <> cinv = 1 / ${c_str}
                 <> dFi = -2 * ${X_str} * ${X_str} * (\
                     mod ${conp_theta_pr_fac}) * ${sri_fac} * \
-                    log(fmax(1e-300d, ${Pr_str})) / \
-                    (fmax(1e-300d, ${Pr_str}) * logtensquared) \
+                    ${log_pr} / (${Pr_g} * logtensquared) \
                         {id=dFi_final, dep=mod_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
@@ -636,6 +647,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
             {id=dci_fall_final, dep=dci_fall_up1:rop_net_up}
         """).safe_substitute(**locals())
 
+    # and update manglers
+    manglers.extend([precompute, expg, logg, guard])
     rop_net_rev_update = ic.get_update_instruction(
         mapstore, namestore.rop_rev,
         Template(
@@ -1014,9 +1027,8 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
     parameters = {}
     pre_instructions = []
     manglers = []
-    preambles = []
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
     if not do_ns:
         if not conp and \
@@ -1108,11 +1120,10 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                 kernel_data.extend([P_lp, plog_num_param_lp, plog_params_lp])
 
                 # add plog instruction
-                T_guard = namestore.get_temperature_guard()
-                pre_instructions.extend([precompute(
-                    'logP', P_str, 'LOG'), precompute(
-                    'logT', T_str, 'LOG', guard=T_guard), precompute(
-                    'Tinv', T_str, 'INV', guard=T_guard)])
+                pre_instructions.extend([
+                    precompute('logP', P_str, 'LOG'),
+                    precompute('logT', T_str, 'LOG'),
+                    precompute('Tinv', T_str, 'INV')])
 
                 plog_preloads = ''
                 if loopy_opts.is_simd:
@@ -1220,10 +1231,9 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
                                     P_lp, tlim_lp, pres_poly_lp, temp_poly_lp])
 
                 # preinstructions
-                T_guard = namestore.get_temperature_guard()
                 pre_instructions.extend(
                     [precompute('logP', P_str, 'LOG'),
-                     precompute('Tinv', T_str, 'INV', guard=T_guard)])
+                     precompute('Tinv', T_str, 'INV')])
 
                 # various strings for preindexed limits, params, etc
                 _, Pmin_str = mapstore.apply_maps(
@@ -1327,17 +1337,14 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
             namestore.conc_arr, global_ind, 'net_spec')
         # TODO: forward allint to this function
         # get the appropriate power function and calls
-        power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
-                                          guard_nonzero=True,
-                                          is_vector=loopy_opts.is_simd)
+        power_func = ic.power_function(loopy_opts, is_integer_power=True,
+                                       guard_nonzero=True,
+                                       is_vector=loopy_opts.is_simd)
         nu_fwd = 'nu_fwd'
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
         pow_conc_rev = power_func(conc_str, nu_rev)
-        manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
-        preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
-
-        T_str = namestore.get_temperature_guard()(T_str)
+        manglers.append(power_func)
         if conp:
             pre_instructions.append(Template(
                 '<>fac = ${P_str} / (Ru * ${T_str})'
@@ -1438,8 +1445,7 @@ def __dRopidE(loopy_opts, namestore, test_size=None,
         var_name=var_name,
         kernel_data=kernel_data,
         mapstore=mapstore,
-        preambles=preambles,
-        manglers=manglers,
+        manglers=manglers + [precompute],
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec,
@@ -1655,7 +1661,7 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     mw_lp, mw_str = mapstore.apply_maps(
         namestore.mw_post_arr, var_name)
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
     # setup instructions
     parameters = {}
@@ -1685,8 +1691,6 @@ def dTdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
                 ${mw_str}) * ${jac_str} {id=up, dep=${deps}}
         """).safe_substitute(**locals()))]
 
-        # guard T
-        T_str = namestore.get_temperature_guard()(T_str)
         post_instructions = Template("""
             <> spec_inv = 1 / (${spec_heat_total_str})
             ${jac_str} = ${jac_str} - (${Tdot_str} * ${spec_heat_ns_str} \
@@ -1769,8 +1773,6 @@ def dEdotdE(loopy_opts, namestore, test_size, conp=True, jac_create=None):
     # create arrays
     T_lp, T_str = mapstore.apply_maps(
         namestore.T_arr, global_ind)
-    T_str = namestore.get_temperature_guard()(T_str)
-
     V_lp, V_str = mapstore.apply_maps(
         namestore.V_arr, global_ind)
     P_lp, P_str = mapstore.apply_maps(
@@ -1937,17 +1939,16 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
                         spec_energy_lp, mw_lp, conc_lp, V_lp, wdot_lp, T_lp])
 
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
     pre_instructions = Template("""
     <> dTsum = ((${spec_heat_ns_str} * Tinv - ${dspec_heat_ns_str}) \
         * ${conc_ns_str}) {id=split}
     <> rate_sum = 0 {id=rate_sum}
     """).safe_substitute(**locals()).split('\n')
-    T_guard = namestore.get_temperature_guard()
     pre_instructions.extend([
         precompute('Vinv', V_str, 'INV'),
-        precompute('Tinv', T_str, 'INV', guard=T_guard)])
+        precompute('Tinv', T_str, 'INV')])
 
     # add create molar rate update insn
     jac_update = Template("""
@@ -1992,6 +1993,7 @@ def dTdotdT(loopy_opts, namestore, test_size=None, conp=True, jac_create=None):
                           mapstore=mapstore,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
+                          manglers=[precompute]
                           )
 
 
@@ -2047,10 +2049,7 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
         mapstore, namestore.jac, global_ind, 0, 0,
         warn=False)
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
-    T_guard = namestore.get_temperature_guard()
-    T_str = T_guard(T_str)
-
+    precompute = ic.PrecomputedInstructions(loopy_opts)
     pre_instructions = ['<> sum = 0 {id=init}',
                         precompute('Tinv', T_str, 'INV')]
 
@@ -2109,7 +2108,8 @@ def dEdotdT(loopy_opts, namestore, test_size=None, conp=False, jac_create=None):
                           mapstore=mapstore,
                           parameters=parameters,
                           can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec
+                          vectorization_specializer=vec_spec,
+                          manglers=[precompute]
                           )
 
 
@@ -2268,10 +2268,8 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                         nu_offset_lp, nu_lp, spec_lp, rop_fwd_lp, rop_rev_lp,
                         T_lp, V_lp, P_lp])
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
-
-    T_guard = namestore.get_temperature_guard()
-    pre_instructions = [precompute('Tinv', T_str, 'INV', guard=T_guard)]
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    pre_instructions = [precompute('Tinv', T_str, 'INV')]
     parameters = {}
     manglers = []
     # by default we are using the third body factors (these may be changed
@@ -2280,6 +2278,11 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     thd_fac = ' * {} * rop_net '.format(V_str)
     # use a no-op for third body reactions, w/ anchor for dependencies
     fall_instructions = '... nop {id=dfall_final}'
+
+    # compute guarded exponentials / logs
+    expg = ic.GuardedExp()
+    logg = ic.GuardedLog()
+    guard = ic.Guard(minv=utils.small)
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dT'
@@ -2325,15 +2328,19 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                 namestore.troe_T3, var_name)
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp, troe_a_lp,
                                 troe_T1_lp, troe_T2_lp, troe_T3_lp])
-            T_guard = namestore.get_temperature_guard()
-            pre_instructions.append(
-                precompute('Tval', T_str, 'VAL', guard=T_guard))
+            pre_instructions.append(precompute('Tval', T_str, 'VAL'))
+            # compute exponentials / logs
+            exp_T1 = expg('-Tval * {troe_T1_str}'.format(troe_T1_str=troe_T1_str))
+            exp_T3 = expg('-Tval * ${troe_T3_str}'.format(troe_T3_str=troe_T3_str))
+            exp_T2 = expg('-${troe_T2_str} * Tinv'.format(troe_T2_str=troe_T2_str))
+            log_fcent = log(Fcent_str)
+            Pr_g = guard(Pr_str)
+
             dFi_instructions = Template("""
                 <> dFcent = -${troe_a_str} * ${troe_T1_str} * \
-                exp(-Tval * ${troe_T1_str}) + (${troe_a_str} - 1) * ${troe_T3_str} *\
-                exp(-Tval * ${troe_T3_str}) + ${troe_T2_str} * Tinv * Tinv * \
-                    exp(-${troe_T2_str} * Tinv)
-                <> logFcent = log(${Fcent_str})
+                ${exp_T1} + (${troe_a_str} - 1) * ${troe_T3_str} *\
+                ${exp_T3} + ${troe_T2_str} * Tinv * Tinv * ${exp_T2}
+                <> logFcent = ${log_fcent}
                 <> absq = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} \
                     {id=ab_init}
                 <> absqsq = absq * absq {id=ab_fin}
@@ -2343,10 +2350,9 @@ def __dcidT(loopy_opts, namestore, test_size=None,
                 ${Pr_str} * dFcent * (2 * ${Atroe_str} * \
                 (1.1762 * ${Atroe_str} - 0.67 * ${Btroe_str}) * logFcent \
                 - ${Btroe_str} * absq * logten)) / \
-                (${Fcent_str} * fmax(1e-300d, ${Pr_str}) * absqsq * logten) \
+                (${Fcent_str} * ${Pr_g} * absqsq * logten) \
                     {id=dFi_final}
             """).safe_substitute(**locals())
-            manglers.append(lp_pregen.fmax())
             parameters['logten'] = log(10)
         elif rxn_type == falloff_form.sri:
             X_lp, X_str = mapstore.apply_maps(namestore.X_sri, *default_inds)
@@ -2356,27 +2362,31 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             d_lp, d_str = mapstore.apply_maps(namestore.sri_d, var_name)
             e_lp, e_str = mapstore.apply_maps(namestore.sri_e, var_name)
             kernel_data.extend([X_lp, a_lp, b_lp, c_lp, d_lp, e_lp])
-            T_guard = namestore.get_temperature_guard()
-            pre_instructions.append(
-                precompute('Tval', T_str, 'VAL', guard=T_guard))
-            manglers.append(lp_pregen.fmax())
+            pre_instructions.append(precompute('Tval', T_str, 'VAL'))
+
+            exp_cinv = expg('-Tval * cinv')
+            exp_b = expg('-{b_str} * Tinv'.format(b_str=b_str))
+            Pr_g = guard(Pr_str)
+            log_pr = logg(Pr_str)
+            log_val = Template('${a_str} * ${exp_b} + ${exp_cinv}').safe_substitute(
+                **locals())
+            log_val = logg(log_val)
 
             dFi_instructions = Template("""
                 <> cinv = 1 / ${c_str}
                 <> dFi = -${X_str} * (\
-                exp(-Tval * cinv) * cinv - ${a_str} * ${b_str} * Tinv * \
-                Tinv * exp(-${b_str} * Tinv)) / \
-                (${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) \
+                ${exp_cinv} * cinv - ${a_str} * ${b_str} * Tinv * \
+                    Tinv * ${exp_b}) / (${a_str} * ${exp_b} + ${exp_cinv}) \
                 + ${e_str} * Tinv - \
-                2 * ${X_str} * ${X_str} * \
-                log(${a_str} * exp(-${b_str} * Tinv) + exp(-Tval * cinv)) * \
-                (${Pr_str} * theta_Pr + theta_no_Pr) * \
-                log(fmax(1e-300d, ${Pr_str})) / \
-                (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi_final}
+                2 * ${X_str} * ${X_str} * ${log_val} * \
+                (${Pr_str} * theta_Pr + theta_no_Pr) * ${log_pr} / \
+                (${Pr_g} * logtensquared) {id=dFi_final}
             """).safe_substitute(**locals())
             parameters['logtensquared'] = log(10) * log(10)
         else:
             dFi_instructions = '<> dFi = 0 {id=dFi_final}'
+
+        manglers.extend([expg, logg, guard, precompute])
 
         fall_instructions = Template("""
         if ${fall_type_str}
@@ -2690,7 +2700,6 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     # common variables
     # temperature
     T_lp, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
-    T_str = namestore.get_temperature_guard()(T_str)
     # Volume
     V_lp, V_str = mapstore.apply_maps(namestore.V_arr, global_ind)
     # get rev / thd mask
@@ -2720,7 +2729,7 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     kernel_data.extend([T_lp, V_lp, rev_mask_lp, thd_mask_lp, pres_mod_lp,
                         nu_offset_lp, nu_lp, spec_lp])
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
     extra_inames = [
         (net_ind, 'offset <= {} < offset_next'.format(net_ind)),
@@ -2728,7 +2737,6 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
     parameters = {}
     pre_instructions = []
     manglers = []
-    preambles = []
     if not do_ns:
         # get rxn parameters, these are based on the simple index
         beta_lp, beta_str = mapstore.apply_maps(
@@ -2996,16 +3004,14 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
 
         # TODO: forward allint to this function
         # create appropriate power functions
-        power_func = utils.power_function(loopy_opts.lang, is_integer_power=True,
-                                          guard_nonzero=True,
-                                          is_vector=loopy_opts.is_simd)
+        power_func = ic.power_function(loopy_opts, is_integer_power=True,
+                                       guard_nonzero=True,
+                                       is_vector=loopy_opts.is_simd)
         nu_fwd = 'nu_fwd'
         nu_rev = 'nu_rev'
         pow_conc_fwd = power_func(conc_str, nu_fwd)
         pow_conc_rev = power_func(conc_str, nu_rev)
-
-        preambles.extend(lp_pregen.power_function_preambles(loopy_opts, power_func))
-        manglers.extend(lp_pregen.power_function_manglers(loopy_opts, power_func))
+        manglers.append(power_func)
 
         # create Ns nu's
         _, ns_reac_nu_str = mapstore.apply_maps(
@@ -3093,7 +3099,6 @@ def __dRopidT(loopy_opts, namestore, test_size=None,
         parameters=parameters,
         can_vectorize=can_vectorize,
         vectorization_specializer=vec_spec,
-        preambles=preambles,
         manglers=manglers,
         # expected vectorized scatter load instructions for plog parameters
         # with wide vectorization (pressure non-constant between vector-lanes)
@@ -3308,12 +3313,11 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
     T_lp, T_str = mapstore.apply_maps(
         namestore.T_arr, global_ind)
 
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
     T_inv = 'T_inv'
     T_val = 'T_val'
-    T_guard = namestore.get_temperature_guard()
-    pre_instructions = [precompute(T_inv, T_str, 'INV', guard=T_guard),
-                        precompute(T_val, T_str, 'VAL', guard=T_guard)]
+    pre_instructions = [precompute(T_inv, T_str, 'INV'),
+                        precompute(T_val, T_str, 'VAL')]
 
     # dnk/dnj jacobian set
     dnkdnj_insn = Template(
@@ -3369,7 +3373,8 @@ def dEdot_dnj(loopy_opts, namestore, test_size=None,
                           parameters={'Ru': chem.RU},
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
-                          pre_instructions=pre_instructions
+                          pre_instructions=pre_instructions,
+                          manglers=[precompute]
                           )
 
 
@@ -3768,6 +3773,10 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
     parameters = {}
     manglers = []
 
+    expg = ic.GuardedExp()
+    logg = ic.GuardedLog()
+    guard = ic.Guard(minv=utils.small)
+
     fall_update = ''
     # if we have a falloff term, need to calcule the dFi
     if fall_type != falloff_form.none:
@@ -3802,23 +3811,23 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
             # add data, and put together falloff string
             kernel_data.extend([sri_a_lp, sri_b_lp, sri_c_lp, sri_X_lp, T_lp])
 
+            exp_b = expg('-{sri_b_str} / {T_str}'.format(
+                sri_b_str=sri_b_str, T_str=T_str))
+            exp_c = expg('-${T_str} / ${sri_c_str}'.format(
+                sri_c_str=sri_c_str, T_str=T_str))
+            inner = Template('${sri_a_str} * ${exp_b} + ${exp_c}').safe_substitute(
+                **locals())
+            log_val = logg(inner)
+            log_pr = logg(Pr_str)
+            pr_g = guard(Pr_str)
+
             dFi = Template(
                 """
-        <> dFi = -2 * ${sri_X_str} * ${sri_X_str} * log(${sri_a_str} * \
-           exp(-${sri_b_str} / ${T_str}) + exp(-${T_str} / ${sri_c_str})) * \
-           log(fmax(1e-300d, ${Pr_str})) / \
-           (fmax(1e-300d, ${Pr_str}) * logtensquared) {id=dFi}
-        """).substitute(
-                sri_X_str=sri_X_str,
-                sri_a_str=sri_a_str,
-                sri_b_str=sri_b_str,
-                sri_c_str=sri_c_str,
-                T_str=T_str,
-                Pr_str=Pr_str
-            )
+        <> dFi = -2 * ${sri_X_str} * ${sri_X_str} * ${log_val} * ${log_pr} / \
+            (${pr_g} * logtensquared) {id=dFi}
+        """).safe_substitute(**locals())
 
             parameters['logtensquared'] = log(10) * log(10)
-            manglers.append(lp_pregen.fmax())
 
         elif fall_type == falloff_form.troe:
             Atroe_lp, Atroe_str = mapstore.apply_maps(
@@ -3830,21 +3839,18 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
             kernel_data.extend([Atroe_lp, Btroe_lp, Fcent_lp])
 
+            log_fcent = logg(Fcent_str)
+            pr_g = guard(Pr_str)
+
             dFi = Template(
                 """
         <> dFi = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} \
             {id=dFi_init}
         dFi = -2 * ${Atroe_str} * ${Btroe_str} * \
-        (0.14 * ${Atroe_str} + ${Btroe_str}) * log(fmax(${Fcent_str}, 1e-300d)) / \
-        (fmax(${Pr_str}, 1e-300d) * dFi * dFi * logten) {id=dFi, dep=dFi_init}
-        """).substitute(
-                Atroe_str=Atroe_str,
-                Btroe_str=Btroe_str,
-                Fcent_str=Fcent_str,
-                Pr_str=Pr_str
-            )
+        (0.14 * ${Atroe_str} + ${Btroe_str}) * log_fcent / \
+        (${pr_g} * dFi * dFi * logten) {id=dFi, dep=dFi_init}
+        """).substitute(**locals())
             parameters['logten'] = log(10)
-            manglers.append(lp_pregen.fmax())
         else:
             # lindeman
             dFi = '<> dFi = 0d {id=dFi}'
@@ -3881,6 +3887,8 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
     else:
         # use a no-op to simplify the dependencies
         fall_update = '... nop {id=fall}'
+
+    manglers.extend([expg, logg, guard])
 
     # create the jacobian update
     jac_update_insn = Template(
@@ -4335,9 +4343,9 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
             (ind, 'inner_offset <= {} < inner_offset_next'.format(ind)))
 
     # get the appropriate power function and calls
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=allint,
-                                      guard_nonzero=True,
-                                      is_vector=loopy_opts.is_simd)
+    power_func = ic.power_function(loopy_opts, is_integer_power=allint,
+                                   guard_nonzero=True,
+                                   is_vector=loopy_opts.is_simd)
     nu_fwd = 'nu_fwd'
     nu_rev = 'nu_rev'
     pow_conc_fwd = power_func(conc_inner_str, nu_fwd)
@@ -4470,10 +4478,7 @@ def __dropidnj(loopy_opts, namestore, allint, test_size=None,
                           kernel_data=kernel_data,
                           extra_inames=extra_inames,
                           mapstore=mapstore,
-                          preambles=lp_pregen.power_function_preambles(
-                            loopy_opts, power_func),
-                          manglers=lp_pregen.power_function_manglers(
-                            loopy_opts, power_func),
+                          manglers=[power_func],
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec
                           )

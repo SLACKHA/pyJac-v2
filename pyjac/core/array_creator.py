@@ -1914,17 +1914,6 @@ class NameStore(object):
         self.jac_type = loopy_opts.jac_type
         self._add_arrays(rate_info, test_size)
 
-    def get_temperature_guard(self):
-        """
-        Returns the :class:`Guard` for the temperature variable, if necessary
-        else a callable that returns the passed argument
-        """
-        if self.loopy_opts.guard_temperature:
-            from pyjac.core.instruction_creator import Guard
-            return Guard(1e2, 1e4)
-        else:
-            return lambda x: x
-
     def __getattr__(self, name):
         """
         Override of getattr such that NameStore.nonexistantkey -> None

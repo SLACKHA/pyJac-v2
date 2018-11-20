@@ -38,6 +38,7 @@ from pyjac.core.array_creator import work_size as w_size
 from pyjac.core.array_creator import global_ind
 from pyjac.core import array_creator as arc
 from pyjac.core.enum_types import DriverType, KernelType
+from pyjac.core.instruction_creator import PreambleMangler
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -3763,8 +3764,6 @@ class knl_info(object):
     vectorization_specializer : function
         If specified, use this specialization function to fix problems that would
         arise in vectorization
-    preambles : :class:`preamble.PreambleGen`
-        A list of preamble generators to insert code into loopy / opencl
     split_specializer : function
         If specified, run this function to fixup an hanging ends after the
         kernel splits are applied
@@ -3783,10 +3782,10 @@ class knl_info(object):
                  vectorization_specializer=None,
                  can_vectorize=True,
                  manglers=[],
-                 preambles=[],
                  iname_domain_override=[],
                  split_specializer=None,
                  unrolled_vector=False,
+                 preambles=[],
                  **kwargs):
 
         def __listify(arr):
@@ -3809,8 +3808,18 @@ class knl_info(object):
         self.can_vectorize = can_vectorize
         self.vectorization_specializer = vectorization_specializer
         self.split_specializer = split_specializer
-        self.manglers = manglers[:]
-        self.preambles = preambles[:]
+        self.manglers = []
+        self.preambles = []
+        for mangler in manglers:
+            if isinstance(mangler, PreambleMangler):
+                self.manglers.extend(mangler.manglers)
+                self.preambles.extend(mangler.preambles)
+            elif isinstance(mangler, lp_pregen.MangleGen):
+                self.manglers.append(mangler)
+            else:
+                self.preambles.append(mangler)
+                self.manglers.append(mangler.func_mangler())
+
         self.iname_domain_override = iname_domain_override[:]
         self.kwargs = kwargs.copy()
         self.unrolled_vector = unrolled_vector
