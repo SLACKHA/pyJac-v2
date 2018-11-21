@@ -176,8 +176,7 @@ def _get_ad_jacobian(self, test_size, conp=True, pregen=None, return_kernel=Fals
     # create loopy options
     # --> have to turn off the temperature guard to avoid fmin / max issues with
     #     Adept
-    ad_opts = loopy_options(order='C', lang='c', auto_diff=True,
-                            guard_temperature=False)
+    ad_opts = loopy_options(order='C', lang='c', auto_diff=True)
 
     # create namestore
     store = arc.NameStore(ad_opts, rate_info, conp, test_size)
@@ -527,8 +526,7 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        ad_opts = loopy_options(order='C', lang='c', auto_diff=True,
-                                guard_temperature=False)
+        ad_opts = loopy_options(order='C', lang='c', auto_diff=True)
 
         # create namestore
         namestore = arc.NameStore(ad_opts, rate_info, conp, self.store.test_size)

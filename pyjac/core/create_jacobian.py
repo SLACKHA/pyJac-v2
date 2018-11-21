@@ -524,8 +524,8 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions(loopy_opts)
     # compute guarded exponentials / logs
-    expg = ic.GuardedExp()
-    logg = ic.GuardedLog()
+    expg = ic.GuardedExp(loopy_opts)
+    logg = ic.GuardedLog(loopy_opts)
     guard = ic.Guard(minv=utils.small)
     if rxn_type != reaction_type.thd:
         # update factors
@@ -2280,8 +2280,8 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     fall_instructions = '... nop {id=dfall_final}'
 
     # compute guarded exponentials / logs
-    expg = ic.GuardedExp()
-    logg = ic.GuardedLog()
+    expg = ic.GuardedExp(loopy_opts)
+    logg = ic.GuardedLog(loopy_opts)
     guard = ic.Guard(minv=utils.small)
     if rxn_type != reaction_type.thd:
         # update factors
@@ -3773,8 +3773,8 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
     parameters = {}
     manglers = []
 
-    expg = ic.GuardedExp()
-    logg = ic.GuardedLog()
+    expg = ic.GuardedExp(loopy_opts)
+    logg = ic.GuardedLog(loopy_opts)
     guard = ic.Guard(minv=utils.small)
 
     fall_update = ''

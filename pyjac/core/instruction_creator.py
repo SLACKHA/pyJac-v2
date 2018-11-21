@@ -336,6 +336,7 @@ class Guard(PreambleMangler):
     def __init__(self, loopy_opts, minv=None, maxv=None):
         self.min = minv
         self.max = maxv
+        self.auto_diff = loopy_opts.auto_diff
 
     def __operation__(self, value):
         """
@@ -345,9 +346,9 @@ class Guard(PreambleMangler):
 
     def __call__(self, varname):
         template = '${varname}'
-        if self.min is not None:
+        if self.min is not None and not self.auto_diff:
             template = 'fmax(${min}, ' + template + ')'
-        if self.max is not None:
+        if self.max is not None and not self.auto_diff:
             template = 'fmin(${max}, ' + template + ')'
         template = self.__operation__(template)
         return Template(template).safe_substitute(
@@ -464,11 +465,10 @@ class PowerFunction(PreambleMangler):
         self.vector_width = loopy_opts.vector_width
         self.is_simd = loopy_opts.is_simd
         self.guard_nonzero = guard_nonzero
+        self.loopy_opts = loopy_opts
 
     def guard(self, value=None):
-        g = Guard(type('', (object,), {
-            'lang': self.lang, 'vector_width': self.vector_width,
-            'is_simd': self.is_simd}), minv=utils.small)
+        g = Guard(self.loopy_opts, minv=utils.small)
         if value is not None:
             return g(value)
         return g
