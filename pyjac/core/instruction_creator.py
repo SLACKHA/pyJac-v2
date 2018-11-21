@@ -387,7 +387,7 @@ class VolumeGuard(Guard):
         V = max(V_min, V)
     """
 
-    def __init__(self, loopy_opts, V_min=1e-50):
+    def __init__(self, loopy_opts, V_min=1e-30):
         super(VolumeGuard, self).__init__(loopy_opts, minv=V_min)
 
 

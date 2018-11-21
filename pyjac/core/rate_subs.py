@@ -667,17 +667,16 @@ def get_concentrations(loopy_opts, namestore, conp=True,
         """${V_inv_insn}
            ${T_val_insn}
            <>n_sum = 0 {id=n_init}
-           ${cns_str} = ${P_str} / (R_u * ${T_val}) {id=cns_init}
-        """).substitute(
-            V_inv_insn=V_inv_insn,
-            T_val_insn=T_val_insn,
-            P_str=P_str,
-            T_str=T_str,
-            cns_str=conc_ns_str)
+           ${conc_ns_str} = ${P_str} / (R_u * ${T_val}) {id=cns_init}
+        """).substitute(**locals())
+
+    mole_guard = ic.Guard(loopy_opts, minv=utils.small)
+    n_guarded = mole_guard(n_str)
+    nsp_guarded = mole_guard('n_sum')
 
     instructions = Template(
         """
-            <> n = ${n_str}
+            <> n = ${n_guarded}
             ${conc_str} = n * V_inv {id=cn_init}
             n_sum = n_sum + n {id=n_update, dep=n_init}
         """).substitute(**locals())
@@ -686,7 +685,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     post_instructions = Template(
         """
         ${barrier}
-        ${conc_ns_str} = ${conc_ns_str} - n_sum * V_inv \
+        ${conc_ns_str} = ${conc_ns_str} - ${nsp_guarded} * V_inv \
             {id=cns_set, dep=n_update:break, nosync=cns_init}
         """).substitute(**locals())
 
@@ -703,6 +702,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
                           kernel_data=kernel_data,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
+                          manglers=mole_guard.manglers,
                           parameters={'R_u': np.float64(chem.RU)})
 
 
@@ -764,7 +764,8 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions(loopy_opts)
 
-    pre_instructions = precompute(V_val, V_str, 'VAL')
+    pre_instructions = precompute(V_val, V_str, 'VAL', guard=ic.VolumeGuard(
+        loopy_opts))
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
