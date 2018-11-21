@@ -2629,7 +2629,7 @@ class SubTest(TestClass):
                             name='index_test',
                             kernel_data=kernel_data,
                             extra_inames=extra_inames,
-                            preambles=[lookup],
+                            manglers=[lookup],
                             seq_dependencies=True,
                             silenced_warnings=['write_race(set1)',
                                                'write_race(set2)',

@@ -582,11 +582,11 @@ class SubTest(TestClass):
             # create kernel infos
             knl0 = knl_info('knl0', instructions0.format(arg=arg_str), mapstore,
                             kernel_data=[arg_lp, shared, nonshared, arc.work_size],
-                            preambles=pre)
+                            manglers=pre)
             knl1 = knl_info('knl1', instructions1.format(arg=arg_str), mapstore,
                             kernel_data=[arg_lp, shared, nonshared_top,
                                          arc.work_size],
-                            preambles=pre)
+                            manglers=pre)
             # create generators
             gen0 = make_kernel_generator(
                  opts, KernelType.dummy, [knl0],

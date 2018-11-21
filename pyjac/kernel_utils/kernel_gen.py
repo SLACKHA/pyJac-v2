@@ -3818,7 +3818,7 @@ class knl_info(object):
                 self.manglers.append(mangler)
             else:
                 self.preambles.append(mangler)
-                self.manglers.append(mangler.func_mangler())
+                self.manglers.append(mangler.func_mangler)
 
         self.iname_domain_override = iname_domain_override[:]
         self.kwargs = kwargs.copy()
