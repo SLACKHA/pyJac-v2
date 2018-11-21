@@ -526,7 +526,7 @@ def __dcidE(loopy_opts, namestore, test_size=None,
     # compute guarded exponentials / logs
     expg = ic.GuardedExp(loopy_opts)
     logg = ic.GuardedLog(loopy_opts)
-    guard = ic.Guard(minv=utils.small)
+    guard = ic.Guard(loopy_opts, minv=utils.small)
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dE'
@@ -2282,7 +2282,7 @@ def __dcidT(loopy_opts, namestore, test_size=None,
     # compute guarded exponentials / logs
     expg = ic.GuardedExp(loopy_opts)
     logg = ic.GuardedLog(loopy_opts)
-    guard = ic.Guard(minv=utils.small)
+    guard = ic.Guard(loopy_opts, minv=utils.small)
     if rxn_type != reaction_type.thd:
         # update factors
         factor = 'dci_fall_dT'
@@ -3775,7 +3775,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
     expg = ic.GuardedExp(loopy_opts)
     logg = ic.GuardedLog(loopy_opts)
-    guard = ic.Guard(minv=utils.small)
+    guard = ic.Guard(loopy_opts, minv=utils.small)
 
     fall_update = ''
     # if we have a falloff term, need to calcule the dFi
