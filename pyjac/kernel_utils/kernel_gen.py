@@ -3809,7 +3809,8 @@ class knl_info(object):
         self.vectorization_specializer = vectorization_specializer
         self.split_specializer = split_specializer
         self.manglers = []
-        self.preambles = []
+        # copy if supplied
+        self.preambles = [x for x in preambles]
         for mangler in manglers:
             if isinstance(mangler, PreambleMangler):
                 self.manglers.extend(mangler.manglers)

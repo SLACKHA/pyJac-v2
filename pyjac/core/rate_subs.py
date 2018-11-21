@@ -868,13 +868,13 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         pre.append(precompute(V_val, V_str, 'VAL', guard=ic.VolumeGuard(loopy_opts)))
         pre_instructions = [
             Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_val} \
-                     {id=init}').safe_substitute(
+                     {id=init, dep=precompute*}').safe_substitute(
                 **locals()),
         ] + pre
     else:
         pre_instructions = [
-            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_val\
-                     {id=init}').safe_substitute(
+            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_val} \
+                     {id=init, dep=precompute*}').safe_substitute(
                 **locals()),
         ] + pre
 
@@ -920,7 +920,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
             post_instructions = [Template(
                 """
                 temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_val} \
-                    {id=temp_init, dep=*, atomic}
+                    {id=temp_init, dep=*:precompute*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
                 temp_sum[0] = temp_sum[0] + ${T_val} * R_u * dE \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
@@ -2844,23 +2844,20 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 loopy_opts, is_integer_power=True,
                 is_positive_power=True,
                 is_vector=loopy_opts.is_simd)
-            T_power = power_func('T_iter', 'b_end')
+            T_power = power_func(Tval, 'b_end')
             beta_iter_str = Template("""
-            <int32> b_end = abs(${b_str})
-            kf_temp = kf_temp * ${T_power} {id=a4, dep=a3:a2:a1}
-            ${kf_str} = kf_temp {id=rate_eval1, dep=a4, nosync=${deps}}
+            <int32> b_end = ${b_str}
+            kf_temp = kf_temp * ${T_power} {id=a2, dep=a1}
+            ${kf_str} = kf_temp {id=rate_eval1, dep=a2, nosync=${deps}}
             """).safe_substitute(b_str=b_str, deps=__deps(''), T_power=T_power)
             # this is about the one place where we must do this directly
-            manglers.extend(power_func.manglers)
+            manglers.extend(power_func.manglers + [
+                x.func_mangler for x in power_func.preambles])
             preambles.extend(power_func.preambles)
 
             retv = Template(
                 """
-                <> T_iter = ${Tval} {id=a1}
-                if ${b_str} < 0
-                    T_iter = Tinv {id=a2, dep=a1}
-                end
-                <>kf_temp = ${A_str} {id=a3}
+                <>kf_temp = ${A_str} {id=a1}
                 ${beta_iter_str}
                 """).safe_substitute(**locals())
         elif rtype == 2:
@@ -2988,18 +2985,19 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                                               'write_race(rate_eval2)',
                                               'write_race(rate_eval3)',
                                               'write_race(rate_eval4)',
-                                              'write_race(a4)'])}
+                                              'write_race(a2)'])}
 
     out_specs = {}
     # and do some finalizations for the specializations
     for rtype, info in specializations.items():
         # this is handled above
         if rtype < 0:
+            out_specs[rtype] = info
             continue
 
         # turn off warning
         info.kwargs['silenced_warnings'] = ['write_race(rate_eval{})'.format(rtype),
-                                            'write_race(a4)']
+                                            'write_race(a2)']
 
         domain, _, num = rdomain(rtype)
         if domain is None or not domain.initializer.size:
