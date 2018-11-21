@@ -1857,7 +1857,7 @@ class kernel_generator(object):
         """
 
         args = set(self.in_arrays + self.out_arrays)
-        data = set([x.name for x in record.args])
+        data = set([x.name for x in record.args] + [x.name for x in record.local])
 
         unpacks = []
         offsets = {}
