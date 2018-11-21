@@ -658,14 +658,19 @@ def get_concentrations(loopy_opts, namestore, conp=True,
 
     precompute = ic.PrecomputedInstructions(loopy_opts)
     V_inv = 'V_inv'
-    V_inv_insn = precompute(V_inv, V_str, 'INV')
+    V_inv_insn = precompute(V_inv, V_str, 'INV', guard=ic.VolumeGuard(loopy_opts))
+    T_val = 'T_val'
+    T_val_insn = precompute(T_val, T_str, 'VAL', guard=ic.TemperatureGuard(
+        loopy_opts))
 
     pre_instructions = Template(
         """${V_inv_insn}
+           ${T_val_insn}
            <>n_sum = 0 {id=n_init}
-           ${cns_str} = ${P_str} / (R_u * ${T_str}) {id=cns_init}
+           ${cns_str} = ${P_str} / (R_u * ${T_val}) {id=cns_init}
         """).substitute(
             V_inv_insn=V_inv_insn,
+            T_val_insn=T_val_insn,
             P_str=P_str,
             T_str=T_str,
             cns_str=conc_ns_str)
@@ -853,19 +858,21 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     pre = ['<>dE = 0.0d {id=dE_init}']
     precompute = ic.PrecomputedInstructions(loopy_opts)
+    T_val = 'T'
+    pre.append(precompute(T_val, T_str, 'VAL', guard=ic.TemperatureGuard(
+            loopy_opts)))
 
     if conp:
         V_val = 'V_val'
-        pre.append(precompute(V_val, V_str, 'VAL'))
-
+        pre.append(precompute(V_val, V_str, 'VAL', guard=ic.VolumeGuard(loopy_opts)))
         pre_instructions = [
-            Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_str} \
+            Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_val} \
                      {id=init}').safe_substitute(
                 **locals()),
         ] + pre
     else:
         pre_instructions = [
-            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_str}\
+            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_val\
                      {id=init}').safe_substitute(
                 **locals()),
         ] + pre
@@ -884,11 +891,11 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
             pre_instructions = pre[:]
             post_instructions = [Template(
                 """
-                temp_sum[0] = ${V_val} * ${Tdot_str} / ${T_str} \
+                temp_sum[0] = ${V_val} * ${Tdot_str} / ${T_val} \
                     {id=temp_init, dep=*:precompute*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
                 temp_sum[0] = temp_sum[0] + \
-                    ${V_val} * dE * ${T_str} * R_u / ${P_str} \
+                    ${V_val} * dE * ${T_val} * R_u / ${P_str} \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
@@ -900,7 +907,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         else:
             post_instructions = [Template(
                 """
-                ${Edot_str} = ${Edot_str} + ${V_val} * dE * ${T_str} * R_u / \
+                ${Edot_str} = ${Edot_str} + ${V_val} * dE * ${T_val} * R_u / \
                     ${P_str} {id=end, dep=sum:init, nosync=init}
                 """).safe_substitute(**locals())
             ]
@@ -911,10 +918,10 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
             pre_instructions = pre[:]
             post_instructions = [Template(
                 """
-                temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_str} \
+                temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_val} \
                     {id=temp_init, dep=*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
-                temp_sum[0] = temp_sum[0] + ${T_str} * R_u * dE \
+                temp_sum[0] = temp_sum[0] + ${T_val} * R_u * dE \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
@@ -926,7 +933,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         else:
             post_instructions = [Template(
                 """
-                ${Edot_str} = ${Edot_str} + ${T_str} * R_u * dE {id=end, \
+                ${Edot_str} = ${Edot_str} + ${T_val} * R_u * dE {id=end, \
                     dep=sum:init, nosync=init}
                 """
             ).safe_substitute(**locals())]
@@ -2451,7 +2458,8 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
 
     return [k_gen.knl_info('fall_troe',
                            pre_instructions=[
-                            precompute('T', T_str, 'VAL')],
+                            precompute('T', T_str, 'VAL',
+                                       guard=ic.TemperatureGuard(loopy_opts))],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
@@ -2544,8 +2552,9 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
 
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions(loopy_opts)
-    pre_instructions = [precompute(Tval, T_str, 'VAL'),
-                        precompute(Tinv, T_str, 'INV')]
+    Tguard = ic.TemperatureGuard(loopy_opts)
+    pre_instructions = [precompute(Tval, T_str, 'VAL', guard=Tguard),
+                        precompute(Tinv, T_str, 'INV', guard=Tguard)]
 
     # get logarithm
     logg = ic.GuardedLog(loopy_opts, logtype=utils.log_10_fun[loopy_opts.lang])
@@ -3350,10 +3359,8 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     hi_eq = eqn_maps[nicename].safe_substitute(
         {'a' + str(i): a_hi for i, a_hi in enumerate(a_hi_strs)})
 
-    guard = None
-    if nicename == 'b':
-        # guard the temperature to avoid SigFPE's in equil. constant eval
-        guard = ic.TemperatureGuard(loopy_opts)
+    # guard the temperature to avoid SigFPE's in equil. constant eval
+    guard = ic.TemperatureGuard(loopy_opts)
 
     Tval = 'T'
     # create a precomputed instruction generator

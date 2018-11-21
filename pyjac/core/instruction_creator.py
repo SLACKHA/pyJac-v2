@@ -379,6 +379,18 @@ class TemperatureGuard(Guard):
         super(TemperatureGuard, self).__init__(loopy_opts, minv=T_min, maxv=T_max)
 
 
+class VolumeGuard(Guard):
+    """
+    Bound the volime to a reasonable range (for evaluation of concentrations
+    without creating FPE's), i.e.:
+
+        V = max(V_min, V)
+    """
+
+    def __init__(self, loopy_opts, V_min=1e-50):
+        super(VolumeGuard, self).__init__(loopy_opts, minv=V_min)
+
+
 class NonzeroGuard(Guard):
     """
     A (potentially) sign-aware guard against non-zero numbers, may be employed
