@@ -367,6 +367,18 @@ class Guard(PreambleMangler):
         return []
 
 
+class TemperatureGuard(Guard):
+    """
+    Bound the temperature to a reasonable range (strictly for evaluation of kf / kr
+    w/o creating SigFPE's), i.e.:
+
+        T = min(max(T_min, T), T_max)
+    """
+
+    def __init__(self, loopy_opts, T_min=100., T_max=10000.):
+        super(TemperatureGuard, self).__init__(loopy_opts, minv=T_min, maxv=T_max)
+
+
 class NonzeroGuard(Guard):
     """
     A (potentially) sign-aware guard against non-zero numbers, may be employed
@@ -594,14 +606,19 @@ class PrecomputedInstructions(PreambleMangler):
                 '<>result_name = fn(var_str)'
         """
         if guard:
-            _guard = None
-            if INSN_KEY == 'LOG':
-                _guard = Guard(self.loopy_opts, minv=utils.small)
-            elif INSN_KEY == 'LOG10':
-                _guard = Guard(self.loopy_opts, minv=utils.small)
-            if _guard:
-                var_str = _guard(var_str)
-                self._mang.extend(_guard.manglers)
+            try:
+                # see if user specified callable, or just a default
+                var_str = guard(var_str)
+                self._mang.extend(guard.manglers)
+            except TypeError:
+                _guard = None
+                if INSN_KEY == 'LOG':
+                    _guard = Guard(self.loopy_opts, minv=utils.small)
+                elif INSN_KEY == 'LOG10':
+                    _guard = Guard(self.loopy_opts, minv=utils.small)
+                if _guard:
+                    var_str = _guard(var_str)
+                    self._mang.extend(_guard.manglers)
 
         default_preinstructs = {'INV': '1 / {}'.format(var_str),
                                 'LOG': 'log({})'.format(var_str),

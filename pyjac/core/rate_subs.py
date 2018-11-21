@@ -27,7 +27,6 @@ from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type,\
 from pyjac.core import instruction_creator as ic
 from pyjac.core import array_creator as arc
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
-from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.kernel_utils import kernel_gen as k_gen
 
 
@@ -1985,7 +1984,8 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
     precompute = ic.PrecomputedInstructions(loopy_opts)
 
     preinstructs = [precompute(logP, P_str, 'LOG'),
-                    precompute(Tinv, T_str, 'INV')]
+                    precompute(Tinv, T_str, 'INV', guard=ic.TemperatureGuard(
+                        loopy_opts))]
 
     # various strings for preindexed limits, params, etc
     _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
@@ -2220,8 +2220,9 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
 
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions(loopy_opts)
-    preinsns = [precompute(Tinv, T_str, 'INV'),
-                precompute(logT, T_str, 'LOG'),
+    guardT = ic.TemperatureGuard(loopy_opts)
+    preinsns = [precompute(Tinv, T_str, 'INV', guard=guardT),
+                precompute(logT, T_str, 'LOG', guard=guardT),
                 precompute(logP, P_str, 'LOG')]
 
     # and return
@@ -2727,14 +2728,15 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     Tinv = 'Tinv'
     logT = 'logT'
     Tval = 'Tval'
+    guardT = ic.TemperatureGuard(loopy_opts)
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions(loopy_opts)
     default_preinstructs = {Tinv:
-                            precompute(Tinv, T_str, 'INV'),
+                            precompute(Tinv, T_str, 'INV', guard=guardT),
                             logT:
-                            precompute(logT, T_str, 'LOG'),
+                            precompute(logT, T_str, 'LOG', guard=guardT),
                             Tval:
-                            precompute(Tval, T_str, 'VAL')}
+                            precompute(Tval, T_str, 'VAL', guard=guardT)}
 
     # guarded exponential evaluator
     expg = ic.GuardedExp(loopy_opts)
@@ -3348,14 +3350,19 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     hi_eq = eqn_maps[nicename].safe_substitute(
         {'a' + str(i): a_hi for i, a_hi in enumerate(a_hi_strs)})
 
+    guard = None
+    if nicename == 'b':
+        # guard the temperature to avoid SigFPE's in equil. constant eval
+        guard = ic.TemperatureGuard(loopy_opts)
+
     Tval = 'T'
     # create a precomputed instruction generator
     precompute = ic.PrecomputedInstructions(loopy_opts)
-    preinstructs = [precompute(Tval, T_str, 'VAL')]
+    preinstructs = [precompute(Tval, T_str, 'VAL', guard=guard)]
     if nicename in ['db', 'b']:
-        preinstructs.append(precompute('Tinv', T_str, 'INV'))
+        preinstructs.append(precompute('Tinv', T_str, 'INV', guard=guard))
         if nicename == 'b':
-            preinstructs.append(precompute('logT', T_str, 'LOG'))
+            preinstructs.append(precompute('logT', T_str, 'LOG', guard=guard))
 
     return k_gen.knl_info(instructions=Template("""
         if ${Tval} < ${T_mid_str}
