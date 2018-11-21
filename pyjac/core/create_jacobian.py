@@ -2331,9 +2331,9 @@ def __dcidT(loopy_opts, namestore, test_size=None,
             pre_instructions.append(precompute('Tval', T_str, 'VAL'))
             # compute exponentials / logs
             exp_T1 = expg('-Tval * {troe_T1_str}'.format(troe_T1_str=troe_T1_str))
-            exp_T3 = expg('-Tval * ${troe_T3_str}'.format(troe_T3_str=troe_T3_str))
-            exp_T2 = expg('-${troe_T2_str} * Tinv'.format(troe_T2_str=troe_T2_str))
-            log_fcent = log(Fcent_str)
+            exp_T3 = expg('-Tval * {troe_T3_str}'.format(troe_T3_str=troe_T3_str))
+            exp_T2 = expg('-{troe_T2_str} * Tinv'.format(troe_T2_str=troe_T2_str))
+            log_fcent = logg(Fcent_str)
             Pr_g = guard(Pr_str)
 
             dFi_instructions = Template("""
@@ -3813,7 +3813,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
 
             exp_b = expg('-{sri_b_str} / {T_str}'.format(
                 sri_b_str=sri_b_str, T_str=T_str))
-            exp_c = expg('-${T_str} / ${sri_c_str}'.format(
+            exp_c = expg('-{T_str} / {sri_c_str}'.format(
                 sri_c_str=sri_c_str, T_str=T_str))
             inner = Template('${sri_a_str} * ${exp_b} + ${exp_c}').safe_substitute(
                 **locals())
@@ -3847,7 +3847,7 @@ def __dci_dnj(loopy_opts, namestore, do_ns=False, fall_type=falloff_form.none,
         <> dFi = ${Atroe_str} * ${Atroe_str} + ${Btroe_str} * ${Btroe_str} \
             {id=dFi_init}
         dFi = -2 * ${Atroe_str} * ${Btroe_str} * \
-        (0.14 * ${Atroe_str} + ${Btroe_str}) * log_fcent / \
+        (0.14 * ${Atroe_str} + ${Btroe_str}) * ${log_fcent} / \
         (${pr_g} * dFi * dFi * logten) {id=dFi, dep=dFi_init}
         """).substitute(**locals())
             parameters['logten'] = log(10)
