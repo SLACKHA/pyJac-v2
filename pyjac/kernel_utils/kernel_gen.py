@@ -2779,7 +2779,8 @@ class kernel_generator(object):
             """
             to_local_names = our_arg_names[:]
             if self.unique_pointers:
-                to_local_names.extend([rhs_work_name])
+                to_local_names.extend([rhs_work_name, local_work_name,
+                                       int_work_name])
 
             return kernel.copy(args=[
                 x if x.name not in to_local_names
