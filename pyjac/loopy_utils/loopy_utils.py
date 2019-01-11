@@ -259,7 +259,7 @@ class loopy_options(object):
                                 'implicit vectorization, which may yield sub-optimal'
                                 ' results).')
             if 'portable' in self.platform_name.lower() and self.unique_pointers\
-                    and self.is_simd:
+                    and (self.is_simd or self.depth):
                 logger = logging.getLogger(__name__)
                 logger.error('Portable OpenCL is currently broken for '
                              'unique_pointers.')
