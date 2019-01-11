@@ -1793,7 +1793,8 @@ class kernel_generator(object):
             # get the pointer unpackings
             size_per_wi, static, offsets = self._get_working_buffer(args)
             unpacks = []
-            for k, (dtype, size, offset) in six.iteritems(offsets):
+            for k, (dtype, size, offset, s) in six.iteritems(offsets):
+                assert s == scope
                 unpacks.append(self._get_pointer_unpack(
                     k, size, offset, dtype, scope))
             if not result:
@@ -2044,7 +2045,7 @@ class kernel_generator(object):
                     static_size += buffer_size
 
             # store offset and increment size
-            offsets[arg.name] = (arg.dtype, buffer_size, offset)
+            offsets[arg.name] = (arg.dtype, buffer_size, offset, arg.address_space)
 
         return size_per_work_item, static_size, offsets
 
@@ -2710,16 +2711,16 @@ class kernel_generator(object):
         unpacks = [(_name(x), wrapper.pointer_offsets[x.name]) for x in args
                    if isinstance(x, lp.ArrayArg)]
         for null in null_args:
-            unpacks.append((null.name, (null.dtype, 0, 0)))
+            unpacks.append((null.name, (null.dtype, 0, 0, scopes.GLOBAL)))
 
         local_unpacks = []
-        for k, (dtype, size, offset) in unpacks:
+        for k, (dtype, size, offset, scope) in unpacks:
             if self.unique_pointers:
                 # reset from inner kernel where each pointer had a single
                 # workgroup / thread under consideration
                 offset = '{} * {}'.format(offset, arc.work_size.name)
             local_unpacks.append(
-                self._get_pointer_unpack(k, size, offset, dtype, scopes.GLOBAL,
+                self._get_pointer_unpack(k, size, offset, dtype, scope,
                                          set_null=any(k == null.name for null
                                                       in null_args), for_driver=True)
                 )
@@ -2842,23 +2843,28 @@ class kernel_generator(object):
                                          null_args=[time_array])
         if self.unique_pointers:
             # add a local pointer unpack to the working buffers
-            wrk = next((x for x in work_arrays if x.name == rhs_work_name), None)
-            if wrk:
+            for wrk in [x for x in work_arrays if x.name in [
+                        rhs_work_name, local_work_name, int_work_name]]:
                 # find pointer unpack with smallest matching offset
                 smallest = None
-                for x, (dtype, size, offset) in six.iteritems(
+                for x, (dtype, size, offset, scope) in six.iteritems(
                         driver_result.pointer_offsets):
                     if not any(x == y.name for y in record.kernel_data):
+                        continue
+                    if scope != wrk.address_space:
                         continue
                     if smallest is None:
                         smallest = eval(offset)
                     elif eval(offset) < smallest:
                         smallest = eval(offset)
+                if smallest is None:
+                    assert len(wrk.shape) == 1  # should be lwk or iwk
+                    smallest = wrk.shape[0]
 
                 # and add a local unpack for the work buffer
                 unpack = self._get_pointer_unpack(
-                    rhs_work_name + '_local', smallest, '0', dtype,
-                    scopes.GLOBAL, for_driver=True)
+                    wrk.name + '_local', smallest, '0', dtype,
+                    wrk.address_space, for_driver=True)
                 result = result.copy(pointer_unpacks=result.pointer_unpacks +
                                      [unpack])
 

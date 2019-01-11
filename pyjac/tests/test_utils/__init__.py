@@ -1019,7 +1019,7 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=False,
 
     if _get_test_input('unique_pointers', False):
         # allow specification of unique pointers via the ENV
-        oploop+= [('unique_pointers', [True])]
+        oploop += [('unique_pointers', [True])]
 
     for key in sorted(kwargs.keys()):
         # enable user to pass in additional args
