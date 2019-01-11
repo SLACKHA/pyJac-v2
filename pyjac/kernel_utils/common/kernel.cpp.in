@@ -456,7 +456,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
                 size = 'sizeof({})'.format(kmem.dtype(True, arg))
                 if arg.address_space == lp.AddressSpace.LOCAL:
                     name = 'NULL'
-                    size = get_num_bytes(kmem, arg)
+                    size = 'work_size * {}'.format(get_num_bytes(kmem, arg))
 
                 cog.outl(
                     indent(set_arg.format(
