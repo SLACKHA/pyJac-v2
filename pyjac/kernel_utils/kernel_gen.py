@@ -916,7 +916,7 @@ class kernel_generator(object):
         domains = ['0 <= {} < {}'.format(gind, test_size)]
 
         if self.loopy_opts.pre_split:
-            if self.for_testing:
+            if self.for_testing or self.unique_pointers:
                 # reduced test size
                 test_size = int(test_size / self.vec_width)
             # add/fixup dummy j_inner domain
