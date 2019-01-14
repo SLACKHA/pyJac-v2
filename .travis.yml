@@ -91,6 +91,8 @@ install:
 before_script:
   # openmp
   - export OMP_NUM_THREADS=4
+  - mkdir -p $TRAVIS_BUILD_DIR/working/
+  - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # run test
 script:
   if [[ -z "$ISFLAKE" && -z "$RUN_LONG_TESTS" ]]; then
