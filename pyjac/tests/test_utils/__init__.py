@@ -1314,6 +1314,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             langs=langs, do_conp=do_conp, do_sparse=do_sparse,
             sparse_only=sparse_only, skip_test=__skip_test, yield_index=True,
             ignored_state_vals=exceptions)
+    tested_any = False
     for i, opt in oploops:
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
@@ -1341,6 +1342,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                             func.__name__))
             continue
 
+        tested_any = True
         # create a dummy kernel generator
         knl = k_gen.make_kernel_generator(
             kernel_type=KernelType.dummy,
@@ -1359,6 +1361,9 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
         assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
             'Evaluate {} rates failed'.format(func.__name__)
+
+    if not tested_any:
+        raise SkipTest('No valid platforms found to test.')
 
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
@@ -1400,9 +1405,11 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
     from pyjac.core.create_jacobian import determine_jac_inds
     sparse_answers = {}
+    tested_any = False
     for i, opts in oploops:
         with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
             conp = oploops.state['conp']
+            tested_any = True
 
             key = (conp, opts.jac_type, opts.order)
             if ktype == KernelType.jacobian and \
@@ -1595,6 +1602,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 logger = logging.getLogger(__name__)
                 logger.debug(oploops.state)
                 assert False, '{} error'.format(kgen.name)
+
+    if not tested_any:
+        raise SkipTest('No valid platforms found to test.')
 
 
 def with_check_inds(check_inds={}, custom_checks={}):
