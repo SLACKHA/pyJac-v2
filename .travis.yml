@@ -79,7 +79,11 @@ install:
   - pip install -r requirements.txt
   - pip install -r optional-requirements.txt
   # build siteconf.py
-  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include"
+  - python configure.py --cl-inc-dir="$CONDA_PREFIX/include" --cl-lib-dir="$CONDA_PREFIX/lib" \
+                        --adept-lib-dir="$CONDA_PREFIX/lib" --adept-inc-dir="$CONDA_PREFIX/include" \
+                        --cc-flags="-B$CONDA_PREFIX/compiler_compat -Wl,--sysroot=/" \
+                        --cxx-flags="-std=gnu++11 -B$CONDA_PREFIX/compiler_compat" \
+                        --ld-flags="-Wl,--no-as-needed -Wl,--sysroot=/"
   # copy in siteconf
   - cp siteconf.py pyjac/
   - pip install .
