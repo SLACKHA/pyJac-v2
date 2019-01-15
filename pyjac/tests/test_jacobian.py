@@ -824,7 +824,7 @@ class SubTest(TestClass):
 
         return fwd_removed, rev_removed
 
-    def __get_kf_and_fall(self, lang, conp=True):
+    def __get_kf_and_fall(self, conp=True):
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
