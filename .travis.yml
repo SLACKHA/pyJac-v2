@@ -29,12 +29,7 @@ matrix:
     - python: "3.6"
       env: ISFLAKE="1"
 
-# global env
-env:
-  global:
-    - PRIORITY=500
-    - LLV=5.0
-
+# additional packages
 addons:
   apt:
     sources:
