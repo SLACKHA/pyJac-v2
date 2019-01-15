@@ -67,7 +67,7 @@ before_install:
   - conda config --add channels conda-forge
   - conda config --add channels cantera
   # create env
-  - conda create -y -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl adept
+  - conda create -y -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl=1.2=ha4d7672_1 adept
   - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
