@@ -824,7 +824,7 @@ class SubTest(TestClass):
 
         return fwd_removed, rev_removed
 
-    def __get_kf_and_fall(self, conp=True):
+    def __get_kf_and_fall(self, lang, conp=True):
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
@@ -834,7 +834,7 @@ class SubTest(TestClass):
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
                 'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
                                               order=x)}
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
 
         # get kf
@@ -886,7 +886,7 @@ class SubTest(TestClass):
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'b': lambda x: np.array(
                 self.store.ref_B_rev, order=x, copy=True)}
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         allint = {'net': rate_info['net']['allint']}
 
@@ -900,7 +900,7 @@ class SubTest(TestClass):
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         # need dBk/dT
         args = {
@@ -1017,7 +1017,7 @@ class SubTest(TestClass):
             'phi': lambda x: np.array(
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         X = runner(opts, namestore, self.store.test_size)['X']
         return X
 
@@ -1135,7 +1135,7 @@ class SubTest(TestClass):
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(
             get_troe_kernel, self.store.test_size, troe_args)
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         Fcent, Atroe, Btroe = [runner(
             opts, namestore, self.store.test_size)[x] for x in
             ['Fcent', 'Atroe', 'Btroe']]
@@ -1766,7 +1766,7 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, conp, self.store.test_size)
 
         return namestore, rate_info, opts
