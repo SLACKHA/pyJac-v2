@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import os
 import logging
+import six
 
 from codepy.toolchain import GCCToolchain
 from codepy import CompileError
@@ -41,8 +42,8 @@ debug_flags = ['-O0', '-g']
 
 flags = dict(c=site.CC_FLAGS + ['-fopenmp', '-std=c++11'],
              opencl=site.CC_FLAGS + ['-xc++', '-std=c++11'])
-ldflags = dict(c=['-fopenmp'],
-               opencl=[])
+ldflags = dict(c=['-fopenmp'] + site.LDFLAGS,
+               opencl=[] + site.LDFLAGS)
 libs = dict(c=['m'],
             opencl=site.CL_LIBNAME[:]
             )
@@ -55,7 +56,7 @@ run_dirs = dict(c=[],
                 opencl=site.CL_LIB_DIR)
 
 
-def get_toolchain(lang, shared=True, executable=True):
+def get_toolchain(lang, shared=True, executable=True, **kwargs):
     """
     Return a codepy :class:`Toolchain` to build / link pyJac files.
 
@@ -68,6 +69,7 @@ def get_toolchain(lang, shared=True, executable=True):
     executable: bool [True]
         If true, build a _executable_ shared library; note: requires
         :param:`shared`=True
+    **kwargs:
     """
 
     # compilation flags
@@ -95,16 +97,31 @@ def get_toolchain(lang, shared=True, executable=True):
             linkflags += ['-Wl,-rpath,{}'.format(rdir)]
     so_ext = lib_ext(shared)
 
-    return GCCToolchain(cc=cmd_compile[lang][:],
-                        cflags=(flags[lang] + compile_flags)[:],
-                        ldflags=linkflags[:],
-                        include_dirs=includes[lang][:],
-                        library_dirs=lib_dirs[lang][:],
-                        libraries=libs[lang][:],
-                        so_ext=so_ext,
-                        o_ext='.o',
-                        defines=[],
-                        undefines=[])
+    toolchain_args = {'cc': cmd_compile[lang][:],
+                      'cflags': (flags[lang] + compile_flags)[:],
+                      'ldflags': linkflags[:],
+                      'include_dirs': includes[lang][:],
+                      'library_dirs': lib_dirs[lang][:],
+                      'libraries': libs[lang][:],
+                      'so_ext': so_ext,
+                      'o_ext': '.o',
+                      'defines': [],
+                      'undefines': []}
+
+    # merge in user kwargs
+    for k, v in six.iteritems(kwargs):
+        if k not in toolchain_args or not toolchain_args[k]:
+            # empty or user supplied only
+            toolchain_args[k] = v
+        elif isinstance(toolchain_args[k], list):
+            # may simply append to the list
+            v = utils.listify(v)
+            toolchain_args[k] += v[:]
+        else:
+            # else, replace
+            toolchain_args[k] = v
+
+    return GCCToolchain(**toolchain_args)
 
 
 def get_file_list(source_dir, lang, ktype, file_base=None):
