@@ -1333,27 +1333,29 @@ class AdeptCompiler(CPlusPlusCompiler):
 
     def __init__(self, *args, **kwargs):
         from ..siteconf import ADEPT_INC_DIR, ADEPT_LIB_DIR, ADEPT_LIBNAME
-        from ..siteconf import LDFLAGS, CXXFLAGS
-        defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
-                    'ldflags': '-O3 -shared -fopenmp -fPIC'.split()}
+        from ..siteconf import CXXFLAGS
+        defaults = kwargs.copy()
         defaults['libraries'] = ADEPT_LIBNAME
+        if 'cflags' not in defaults:
+            defaults['cflags'] = []
         if CXXFLAGS:
-            defaults['cflags'].extend([x for x in CXXFLAGS
-                                       if x not in defaults['cflags']
-                                       and x.strip()])
+            defaults['cflags'] = [x for x in CXXFLAGS
+                                  if x not in defaults['cflags']
+                                  and x.strip()]
         if ADEPT_LIB_DIR:
             defaults['library_dirs'] = ADEPT_LIB_DIR
         if ADEPT_INC_DIR:
-            defaults['cflags'].extend(['-I{}'.format(x) for x in ADEPT_INC_DIR])
-        if LDFLAGS:
-            defaults['ldflags'].extend([x for x in LDFLAGS if x not in
-                                        defaults['ldflags']])
+            defaults['cflags'] = ['-I{}'.format(x) for x in ADEPT_INC_DIR]
 
         # update to use any user specified info
         defaults.update(kwargs)
 
+        # get toolchain
+        from pyjac.libgen import get_toolchain
+        toolchain = get_toolchain('c', executable=False, **defaults)
+
         # and create
-        super(AdeptCompiler, self).__init__(*args, **defaults)
+        super(AdeptCompiler, self).__init__(toolchain=toolchain)
 
     def build(self, *args, **kwargs):
         """override from CPlusPlusCompiler to load Adept into ctypes and avoid
