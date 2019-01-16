@@ -234,7 +234,7 @@ class SubTest(TestClass):
         knl1 = knl_info('knl1', instructions1.format(
             arg0=arg0_str, arg1=arg1_str, punpack2=pun2_str),
             mapstore, kernel_data=knl1_data,
-            silenced_warnings=['write_race(insn1)'])
+            silenced_warnings=['write_race(insn1)', 'write_race(insn)'])
         gen1 = make_kernel_generator(
              opts, KernelType.dummy, [knl0, knl1],
              namestore, depends_on=[gen0],
@@ -508,7 +508,8 @@ class SubTest(TestClass):
                     dep.pointer_offsets
                 # check that the top level kernel has pointer unpacks #1 & #2, as
                 # well as 'arg', which is neither an input or output
-                assert len(top.pointer_unpacks) == 3 and all(
+                unpacks = 3 if not opts.depth else 4
+                assert len(top.pointer_unpacks) == unpacks and all(
                     [x in top.pointer_offsets for x in ['punpack1', 'punpack2',
                      'arg']])
                 # and check that the offset is the same as in dep
