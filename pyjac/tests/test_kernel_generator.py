@@ -19,7 +19,8 @@ from pyjac.loopy_utils.preambles_and_manglers import jac_indirect_lookup, \
     PreambleGen
 from pyjac.kernel_utils.memory_limits import memory_type
 from pyjac.kernel_utils.kernel_gen import kernel_generator, TargetCheckingRecord, \
-    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name
+    knl_info, make_kernel_generator, CallgenResult, local_work_name, rhs_work_name, \
+    int_work_name
 from pyjac.utils import partition, temporary_directory, clean_dir, \
     can_vectorize_lang, header_ext, file_ext
 from pyjac.tests import TestClass
@@ -147,12 +148,12 @@ class SubTest(TestClass):
         # two kernels (one for each generator)
         instructions0 = (
             """
-                {arg0} = {const}
+                {arg0} = {arg} + {punpack1} + {const} {{id=insn0}}
             """
         )
         instructions1 = (
             """
-                {arg1} = {arg0}
+                {arg1} = {arg0} + {punpack2} {{id=insn1}}
             """
         )
 
@@ -161,31 +162,50 @@ class SubTest(TestClass):
                              initializer=np.arange(10, dtype=arc.kint_type))
         mapstore = arc.MapStore(opts, domain, None)
         # create global arg
-        arg0 = arc.creator('arg1', np.float64, (arc.problem_size.name, 10),
+        arg = arc.creator('arg', np.float64, (arc.problem_size.name, 10),
+                          opts.order)
+        arg0 = arc.creator('arg0', np.float64, (arc.problem_size.name, 10),
                            opts.order)
-        arg1 = arc.creator('arg0', np.float64, (arc.problem_size.name, 10),
+        arg1 = arc.creator('arg1', np.float64, (arc.problem_size.name, 10),
                            opts.order)
+        punpack1 = arc.creator('punpack1', np.float64, (arc.problem_size.name, 10),
+                               opts.order)
+        punpack2 = arc.creator('punpack2', np.float64, (arc.problem_size.name, 10),
+                               opts.order)
         const = arc.creator('const', np.int32, (10,),
                             opts.order, initializer=np.arange(10, dtype=np.int32),
                             is_temporary=True)
+        # set args in case we need to actually generate the file
+        setattr(namestore, 'arg', arg)
+        setattr(namestore, 'arg0', arg0)
+        setattr(namestore, 'arg1', arg1)
+        setattr(namestore, 'const', const)
+        setattr(namestore, 'punpack1', punpack1)
+        setattr(namestore, 'punpack2', punpack2)
 
         # create array / array string
+        arg_lp, arg_str = mapstore.apply_maps(arg, 'j', 'i')
         arg0_lp, arg0_str = mapstore.apply_maps(arg0, 'j', 'i')
         arg1_lp, arg1_str = mapstore.apply_maps(arg1, 'j', 'i')
         const_lp, const_str = mapstore.apply_maps(const, 'i')
+        pun1_lp, pun1_str = mapstore.apply_maps(punpack1, 'j', 'i')
+        pun2_lp, pun2_str = mapstore.apply_maps(punpack2, 'j', 'i')
 
         # create kernel infos
-        knl0 = knl_info('knl0', instructions0.format(arg0=arg0_str, const=const_str),
-                        mapstore, kernel_data=[arg0_lp, const_lp, arc.work_size])
+        knl0 = knl_info('knl0', instructions0.format(
+            arg=arg_str, arg0=arg0_str, const=const_str,
+            punpack1=pun1_str), mapstore,
+            kernel_data=[arg_lp, arg0_lp, const_lp, arc.work_size, pun1_lp],
+            silenced_warnings=['write_race(insn0)'])
 
         # create generators
         gen0 = make_kernel_generator(
              opts, KernelType.dummy, [knl0],
              namestore,
-             name=knl0.name, output_arrays=['arg0'])
+             name=knl0.name, input_arrays=['arg'], output_arrays=['arg0'])
 
         # include
-        knl1_data = [arg1_lp, arg0_lp, arc.work_size]
+        knl1_data = [arg1_lp, arg0_lp, arc.work_size, pun2_lp]
         if include_jac_lookup and opts.jac_format == JacobianFormat.sparse:
             assert gen0.jacobian_lookup is not None
             look = getattr(namestore, gen0.jacobian_lookup)
@@ -212,12 +232,13 @@ class SubTest(TestClass):
             knl1_data += [local_lp]
 
         knl1 = knl_info('knl1', instructions1.format(
-            arg0=arg0_str, arg1=arg1_str), mapstore,
-            kernel_data=knl1_data)
+            arg0=arg0_str, arg1=arg1_str, punpack2=pun2_str),
+            mapstore, kernel_data=knl1_data,
+            silenced_warnings=['write_race(insn1)', 'write_race(insn)'])
         gen1 = make_kernel_generator(
              opts, KernelType.dummy, [knl0, knl1],
              namestore, depends_on=[gen0],
-             name=knl1.name, output_arrays=['arg1'])
+             name=knl1.name, input_arrays=['arg0'], output_arrays=['arg1'])
         return gen1
 
     def test_process_memory(self):
@@ -462,6 +483,50 @@ class SubTest(TestClass):
                 assert re.search(
                     r'\b' + kernel.name + r'\b', '\n'.join(result.instructions))
 
+    def test_subkernel_pointers(self):
+        # this test is designed to ensure that we get the corrected / expected
+        # signature / pointer unwrapping in subkernels
+        oploop = OptionLoopWrapper.from_get_oploop(self,
+                                                   do_conp=False,
+                                                   do_vector=True,
+                                                   do_sparse=False)
+
+        for opts in oploop:
+            # create generators
+            kgen = self._kernel_gen(opts)
+
+            with temporary_directory() as tdir:
+                kgen._make_kernels()
+                codegen_results = kgen._generate_wrapping_kernel(
+                    tdir, return_codegen_results=True)
+
+                # first, check the pointer unpacks for each kgen
+                dep, top = codegen_results
+                # check that the dependent kernel only has the 'pointer unpack #1'
+                # array
+                assert len(dep.pointer_unpacks) == 1 and 'punpack1' in \
+                    dep.pointer_offsets
+                # check that the top level kernel has pointer unpacks #1 & #2, as
+                # well as 'arg', which is neither an input or output
+                unpacks = 3 if not opts.depth else 4
+                assert len(top.pointer_unpacks) == unpacks and all(
+                    [x in top.pointer_offsets for x in ['punpack1', 'punpack2',
+                     'arg']])
+                # and check that the offset is the same as in dep
+                assert top.pointer_offsets['punpack1'] == dep.pointer_offsets[
+                    'punpack1']
+
+                # and finally, check the signature of the dependent kernel gen
+                # via the kernel
+                (owner, dep) = kgen._generate_wrapping_kernel(
+                    tdir, return_memgen_records=True)
+                dep_kd = set([x.name for x in dep.kernel_data])
+                own_kd = set([x.name for x in owner.kernel_data])
+                assert 'arg1' not in [x.name for x in dep.kernel_data]
+                # and test that any working buffers in the owner are in the subrecord
+                for wbuf in [int_work_name, local_work_name, rhs_work_name]:
+                    assert (wbuf in dep_kd) == (wbuf in own_kd)
+
     def test_deduplication(self):
         oploop = OptionLoopWrapper.from_get_oploop(self,
                                                    do_conp=False,
@@ -518,11 +583,11 @@ class SubTest(TestClass):
             # create kernel infos
             knl0 = knl_info('knl0', instructions0.format(arg=arg_str), mapstore,
                             kernel_data=[arg_lp, shared, nonshared, arc.work_size],
-                            preambles=pre)
+                            manglers=pre)
             knl1 = knl_info('knl1', instructions1.format(arg=arg_str), mapstore,
                             kernel_data=[arg_lp, shared, nonshared_top,
                                          arc.work_size],
-                            preambles=pre)
+                            manglers=pre)
             # create generators
             gen0 = make_kernel_generator(
                  opts, KernelType.dummy, [knl0],
@@ -746,8 +811,7 @@ class SubTest(TestClass):
     {
         write_data(output_files[i], outputs[i], output_sizes[i]);
     }
-
-    kernel.finalize();""".split('\n'))
+    """.split('\n'))
 
                 # check that kernel arg order matches expected
                 assert [x.name for x in callgen.kernel_args['jacobian']] == [

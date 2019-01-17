@@ -174,6 +174,8 @@ def _get_ad_jacobian(self, test_size, conp=True, pregen=None, return_kernel=Fals
         self.store.reacs, self.store.specs, RateSpecialization.fixed)
 
     # create loopy options
+    # --> have to turn off the temperature guard to avoid fmin / max issues with
+    #     Adept
     ad_opts = loopy_options(order='C', lang='c', auto_diff=True)
 
     # create namestore
@@ -524,8 +526,7 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        ad_opts = loopy_options(order='C', lang='c',
-                                auto_diff=True)
+        ad_opts = loopy_options(order='C', lang='c', auto_diff=True)
 
         # create namestore
         namestore = arc.NameStore(ad_opts, rate_info, conp, self.store.test_size)
@@ -833,7 +834,7 @@ class SubTest(TestClass):
         args = {'phi': lambda x: np.array(phi, order=x, copy=True),
                 'kf': lambda x: np.zeros_like(self.store.fwd_rate_constants,
                                               order=x)}
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
 
         # get kf
@@ -885,7 +886,7 @@ class SubTest(TestClass):
             'kf': lambda x: np.array(kf, order=x, copy=True),
             'b': lambda x: np.array(
                 self.store.ref_B_rev, order=x, copy=True)}
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         allint = {'net': rate_info['net']['allint']}
 
@@ -899,7 +900,7 @@ class SubTest(TestClass):
         reacs = self.store.reacs
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, True, self.store.test_size)
         # need dBk/dT
         args = {
@@ -1016,7 +1017,7 @@ class SubTest(TestClass):
             'phi': lambda x: np.array(
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(get_sri_kernel, self.store.test_size, sri_args)
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         X = runner(opts, namestore, self.store.test_size)['X']
         return X
 
@@ -1134,7 +1135,7 @@ class SubTest(TestClass):
             self.store.phi_cp, order=x, copy=True)}
         runner = kernel_runner(
             get_troe_kernel, self.store.test_size, troe_args)
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         Fcent, Atroe, Btroe = [runner(
             opts, namestore, self.store.test_size)[x] for x in
             ['Fcent', 'Atroe', 'Btroe']]
@@ -1765,7 +1766,7 @@ class SubTest(TestClass):
         specs = self.store.specs
         rate_info = determine_jac_inds(reacs, specs, RateSpecialization.fixed)
 
-        opts = loopy_options(order='C', lang='opencl')
+        opts = loopy_options(order='C', lang='c')
         namestore = arc.NameStore(opts, rate_info, conp, self.store.test_size)
 
         return namestore, rate_info, opts
@@ -2628,7 +2629,7 @@ class SubTest(TestClass):
                             name='index_test',
                             kernel_data=kernel_data,
                             extra_inames=extra_inames,
-                            preambles=[lookup],
+                            manglers=[lookup],
                             seq_dependencies=True,
                             silenced_warnings=['write_race(set1)',
                                                'write_race(set2)',
@@ -2672,14 +2673,14 @@ class SubTest(TestClass):
         return self._generic_jac_tester(__kernel_creator, kc, sparse_only=True)
 
     @parameterized.expand([(x,) for x in get_test_langs()])
-    @attr('verylong')
+    @attr('fullkernel')
     def test_jacobian(self, lang):
         _full_kernel_test(self, lang, get_jacobian_kernel, 'jac',
                           lambda conp: self.__get_full_jac(conp),
                           ktype=KernelType.jacobian, call_name='jacobian')
 
     @parameterized.expand([(x,) for x in get_test_langs()])
-    @attr('verylong')
+    @attr('fullkernel')
     @xfail(msg='Finite Difference Jacobian currently broken')
     def test_fd_jacobian(self, lang):
         def __looser_tol_finder(arr, order, have_split, conp):

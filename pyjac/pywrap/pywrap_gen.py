@@ -247,7 +247,7 @@ home_dir = os.path.abspath(os.path.dirname(__file__))
 
 
 def pywrap(lang, source_dir, build_dir=None, out_dir=None,
-           obj_dir=None, platform='', additional_outputs=[],
+           obj_dir=None, additional_outputs=[],
            ktype=KernelType.jacobian, **kwargs):
     """Generates a Python wrapper for the given language and source files
 
@@ -263,8 +263,6 @@ def pywrap(lang, source_dir, build_dir=None, out_dir=None,
         Directory path for the output python library
     obj_dir: Optional [str]
         Directory path to place the compiled objects
-    platform : Optional[str]
-        Optional; if specified, the platform for OpenCL execution
     additional_outputs : list of str
         If specified, these additional arguments should be considered outputs of the
         generated kernel call. Useful in testing, to allow output of the forward,

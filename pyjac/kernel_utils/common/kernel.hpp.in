@@ -88,7 +88,7 @@ class Kernel
 
 public:
     Kernel();
-    ~Kernel();
+    virtual ~Kernel();
     /*[[[cog
          cog.outl(make_doc_str(callgen, ['problem_size', 'work_size',
                                          'do_not_compile'],
@@ -96,7 +96,6 @@ public:
       ]]]
       [[[end]]]*/
     void resize(size_t problem_size, size_t work_size, bool do_not_compile=false);
-    void finalize();
 
     //! \\brief Returns the ordered list of species names in the chemical model
     static std::vector<const char*> speciesNames()
@@ -265,6 +264,7 @@ protected:
     // memory initialization / release accomplished in sub-classes
     virtual void mem_init(size_t problem_size, size_t work_size) = 0;
     virtual void finalize_memory() = 0;
+    void finalize();
 };
 
 // and subclass(es)
@@ -316,6 +316,9 @@ protected:
     cog.out("""
     {name}Kernel(size_t problem_size, size_t work_size, bool do_not_compile=false);
     """.format(name=kernel.title()), dedent=False, trimblanklines=True)
+
+    # write destructor
+    cog.outl(indent('virtual ~{kernel_name}Kernel();'.format(kernel_name=kernel.title()), stdindent))
 
     cog.out(indent(make_doc_str(
         callgen, callgen.kernel_args[kernel],

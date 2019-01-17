@@ -13,22 +13,23 @@ language: python
 matrix:
   include:
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl"
+      env: PYJAC_TEST_LANGS="opencl"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="c"
+      env: PYJAC_TEST_LANGS="c"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="opencl" PYJAC_RXN_SORTING="simd"
+      env: PYJAC_TEST_LANGS="c" PYJAC_RXN_SORTING="simd"
     - python: "3.6"
-      env: ISFLAKE="0" PYJAC_TEST_LANGS="c" PYJAC_RXN_SORTING="simd"
+      env: PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="1"
+    - python: "3.6"
+      env: PYJAC_TEST_LANGS="opencl" RUN_LONG_TESTS="1" PYJAC_UNIQUE_POINTERS="1"
+    - python: "3.6"
+      env: PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="1"
+    - python: "3.6"
+      env: PYJAC_TEST_LANGS="c" RUN_LONG_TESTS="1" PYJAC_UNIQUE_POINTERS="1"
     - python: "3.6"
       env: ISFLAKE="1"
 
-# global env
-env:
-  global:
-    - PRIORITY=500
-    - LLV=5.0
-
+# additional packages
 addons:
   apt:
     sources:
@@ -66,7 +67,7 @@ before_install:
   - conda config --add channels conda-forge
   - conda config --add channels cantera
   # create env
-  - conda create -y -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl adept
+  - conda create -y -n test-environment python=$TRAVIS_PYTHON_VERSION llvmdev clangdev cantera ocl-icd=*=h14c3975_1001 islpy pyyaml scipy pyopencl numpy Cython pytables flake8 pep8-naming pocl adept=*=he6fcbdd_3
   - source activate test-environment
   # get vendor dir
   - export OCL_ICD_VENDORS=$CONDA_PREFIX/etc/OpenCL/vendors
@@ -89,8 +90,10 @@ before_script:
   - export TMPDIR=$TRAVIS_BUILD_DIR/working/
 # run test
 script:
-  if [[ "$ISFLAKE" == "0" ]]; then
-      nosetests -a '!verylong' -s --with-timer;
+  if [[ -z "$ISFLAKE" && -z "$RUN_LONG_TESTS" ]]; then
+      nosetests -A 'not fullkernel and not verylong' -s --with-timer;
+  elif [[ -z "$ISFLAKE" && -n "$RUN_LONG_TESTS" ]]; then
+      nosetests -A 'fullkernel' -s --with-timer;
   else
       python -m flake8 pyjac/ --count;
   fi

@@ -1017,6 +1017,10 @@ def _get_oploop(owner, do_ratespec=False, do_ropsplit=False, do_conp=False,
     if do_simd:
         oploop += [('is_simd', [True, False])]
 
+    if _get_test_input('unique_pointers', False):
+        # allow specification of unique pointers via the ENV
+        oploop += [('unique_pointers', [True])]
+
     for key in sorted(kwargs.keys()):
         # enable user to pass in additional args
         oploop += [(key, utils.listify(kwargs[key]))]
@@ -1310,6 +1314,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
             langs=langs, do_conp=do_conp, do_sparse=do_sparse,
             sparse_only=sparse_only, skip_test=__skip_test, yield_index=True,
             ignored_state_vals=exceptions)
+    tested_any = False
     for i, opt in oploops:
         # find rate info
         rate_info = rate_func(reacs, specs, opt.rate_spec)
@@ -1337,6 +1342,7 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
                             func.__name__))
             continue
 
+        tested_any = True
         # create a dummy kernel generator
         knl = k_gen.make_kernel_generator(
             kernel_type=KernelType.dummy,
@@ -1355,6 +1361,9 @@ def _generic_tester(owner, func, kernel_calls, rate_func, do_ratespec=False,
 
         assert auto_run(knl.kernels, kernel_calls, device=opt.device),\
             'Evaluate {} rates failed'.format(func.__name__)
+
+    if not tested_any:
+        raise SkipTest('No valid platforms found to test.')
 
 
 def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
@@ -1396,9 +1405,11 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
     from pyjac.core.create_jacobian import determine_jac_inds
     sparse_answers = {}
+    tested_any = False
     for i, opts in oploops:
         with temporary_build_dirs() as (build_dir, obj_dir, lib_dir):
             conp = oploops.state['conp']
+            tested_any = True
 
             key = (conp, opts.jac_type, opts.order)
             if ktype == KernelType.jacobian and \
@@ -1434,8 +1445,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
 
             # generate wrapper
             pywrap(opts.lang, build_dir, build_dir=obj_dir,
-                   obj_dir=obj_dir, out_dir=lib_dir,
-                   platform=str(opts.platform), ktype=ktype)
+                   obj_dir=obj_dir, out_dir=lib_dir, ktype=ktype)
 
             # get arrays
             phi = np.array(
@@ -1554,6 +1564,7 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
             num_devices = _get_test_input(
                 'num_threads', psutil.cpu_count(logical=False))
             if platform_is_gpu(opts.platform):
+                # force to one thread
                 num_devices = 1
 
             # and save the data.bin file in case of testing
@@ -1591,6 +1602,9 @@ def _full_kernel_test(self, lang, kernel_gen, test_arr_name, test_arr,
                 logger = logging.getLogger(__name__)
                 logger.debug(oploops.state)
                 assert False, '{} error'.format(kgen.name)
+
+    if not tested_any:
+        raise SkipTest('No valid platforms found to test.')
 
 
 def with_check_inds(check_inds={}, custom_checks={}):

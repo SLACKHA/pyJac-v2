@@ -27,7 +27,6 @@ from pyjac.core.enum_types import reaction_type, falloff_form, thd_body_type,\
 from pyjac.core import instruction_creator as ic
 from pyjac.core import array_creator as arc
 from pyjac.core.array_creator import (global_ind, var_name, default_inds)
-from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
 from pyjac.kernel_utils import kernel_gen as k_gen
 
 
@@ -458,6 +457,19 @@ def assign_rates(reacs, specs, rate_spec):
     mws = np.array([spec.mw for spec in specs])
     mw_post = mws[:-1] / mws[-1]
 
+    # min / max T
+    minT = None
+    maxT = None
+    for spec in specs:
+        if minT is None:
+            minT = spec.Trange[0]
+        else:
+            minT = np.maximum(minT, spec.Trange[0])
+        if maxT is None:
+            maxT = spec.Trange[-1]
+        else:
+            maxT = np.minimum(maxT, spec.Trange[-1])
+
     return {'simple': {'A': A, 'b': b, 'Ta': Ta, 'type': simple_rate_type,
                        'num': num_simple, 'map': simple_map},
             'plog': {'map': plog_map, 'num': num_plog,
@@ -515,13 +527,14 @@ def assign_rates(reacs, specs, rate_spec):
             'thermo': {
                 'a_lo': a_lo,
                 'a_hi': a_hi,
-                'T_mid': T_mid
-    },
-        'mws': mws,
-        'mw_post': mw_post,
-        'reac_has_ns': reac_has_ns,
-        'ns_nu': ns_nu
-    }
+                'T_mid': T_mid},
+            'mws': mws,
+            'mw_post': mw_post,
+            'reac_has_ns': reac_has_ns,
+            'ns_nu': ns_nu,
+            'minT': minT,
+            'maxT': maxT
+            }
 
 
 def reset_arrays(loopy_opts, namestore, test_size=None):
@@ -643,31 +656,37 @@ def get_concentrations(loopy_opts, namestore, conp=True,
     # add arrays
     kernel_data.extend([n_arr, P_arr, V_arr, T_arr, conc_arr])
 
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    V_inv = 'V_inv'
+    V_inv_insn = precompute(V_inv, V_str, 'INV', guard=ic.VolumeGuard(loopy_opts))
+    T_val = 'T_val'
+    T_val_insn = precompute(T_val, T_str, 'VAL', guard=ic.TemperatureGuard(
+        loopy_opts))
+
     pre_instructions = Template(
-        """<>V_inv = 1.0d / ${V_str}
+        """${V_inv_insn}
+           ${T_val_insn}
            <>n_sum = 0 {id=n_init}
-           ${cns_str} = ${P_str} / (R_u * ${T_str}) {id=cns_init}
-        """).substitute(
-            P_str=P_str,
-            V_str=V_str,
-            T_str=T_str,
-            cns_str=conc_ns_str)
+           ${conc_ns_str} = ${P_str} / (R_u * ${T_val}) {id=cns_init}
+        """).substitute(**locals())
+
+    mole_guard = ic.Guard(loopy_opts, minv=utils.small)
+    n_guarded = mole_guard(n_str)
+    nsp_guarded = mole_guard('n_sum')
 
     instructions = Template(
         """
-            ${conc_str} = ${n_str} * V_inv {id=cn_init}
-            n_sum = n_sum + ${n_str} {id=n_update, dep=n_init}
-        """).substitute(
-            conc_str=conc_str,
-            n_str=n_str
-    )
+            <> n = ${n_guarded}
+            ${conc_str} = n * V_inv {id=cn_init}
+            n_sum = n_sum + n {id=n_update, dep=n_init}
+        """).substitute(**locals())
 
     barrier = ic.get_barrier(loopy_opts, id='break', dep='cns_init')
     post_instructions = Template(
         """
         ${barrier}
-        ${conc_ns_str} = ${conc_ns_str} - n_sum * V_inv {id=cns_set,\
-            dep=n_update:break, nosync=cns_init}
+        ${conc_ns_str} = ${conc_ns_str} - ${nsp_guarded} * V_inv \
+            {id=cns_set, dep=n_update:break, nosync=cns_init}
         """).substitute(**locals())
 
     can_vectorize, vec_spec = ic.get_deep_specializer(
@@ -683,6 +702,7 @@ def get_concentrations(loopy_opts, namestore, conp=True,
                           kernel_data=kernel_data,
                           can_vectorize=can_vectorize,
                           vectorization_specializer=vec_spec,
+                          manglers=mole_guard.manglers,
                           parameters={'R_u': np.float64(chem.RU)})
 
 
@@ -738,14 +758,14 @@ def get_molar_rates(loopy_opts, namestore, conp=True,
     ndot_lp, ndot_str = mapstore.apply_maps(namestore.n_dot,
                                             *default_inds)
 
-    V_lp, V_str = mapstore.apply_maps(namestore.V_arr,
-                                      *fixed_inds)
+    V_lp, V_str = mapstore.apply_maps(namestore.V_arr, *fixed_inds)
 
     V_val = 'V_val'
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
-    pre_instructions = precompute(V_val, V_str, 'VAL')
+    pre_instructions = precompute(V_val, V_str, 'VAL', guard=ic.VolumeGuard(
+        loopy_opts))
 
     kernel_data.extend([V_lp, ndot_lp, wdot_lp])
 
@@ -837,22 +857,26 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
     kernel_data.extend([wdot_lp, Edot_lp, T_lp, P_lp, Tdot_lp, mw_lp])
 
-    dE_init = '<>dE = 0.0d {id=dE_init}'
+    pre = ['<>dE = 0.0d {id=dE_init}']
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    T_val = 'T'
+    pre.append(precompute(T_val, T_str, 'VAL', guard=ic.TemperatureGuard(
+            loopy_opts)))
 
     if conp:
+        V_val = 'V_val'
+        pre.append(precompute(V_val, V_str, 'VAL', guard=ic.VolumeGuard(loopy_opts)))
         pre_instructions = [
-            Template('${Edot_str} = ${V_str} * ${Tdot_str} / ${T_str} \
-                     {id=init}').safe_substitute(
+            Template('${Edot_str} = ${V_val} * ${Tdot_str} / ${T_val} \
+                     {id=init, dep=precompute*}').safe_substitute(
                 **locals()),
-            dE_init
-        ]
+        ] + pre
     else:
         pre_instructions = [
-            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_str}\
-                     {id=init}').safe_substitute(
+            Template('${Edot_str} = ${P_str} * ${Tdot_str} / ${T_val} \
+                     {id=init, dep=precompute*}').safe_substitute(
                 **locals()),
-            dE_init
-        ]
+        ] + pre
 
     instructions = Template(
         """
@@ -865,14 +889,14 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
 
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = [dE_init]
+            pre_instructions = pre[:]
             post_instructions = [Template(
                 """
-                temp_sum[0] = ${V_str} * ${Tdot_str} / ${T_str} \
-                    {id=temp_init, dep=*, atomic}
+                temp_sum[0] = ${V_val} * ${Tdot_str} / ${T_val} \
+                    {id=temp_init, dep=*:precompute*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
                 temp_sum[0] = temp_sum[0] + \
-                    ${V_str} * dE * ${T_str} * R_u / ${P_str} \
+                    ${V_val} * dE * ${T_val} * R_u / ${P_str} \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
@@ -884,7 +908,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         else:
             post_instructions = [Template(
                 """
-                ${Edot_str} = ${Edot_str} + ${V_str} * dE * ${T_str} * R_u / \
+                ${Edot_str} = ${Edot_str} + ${V_val} * dE * ${T_val} * R_u / \
                     ${P_str} {id=end, dep=sum:init, nosync=init}
                 """).safe_substitute(**locals())
             ]
@@ -892,13 +916,13 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
     else:
         if ic.use_atomics(loopy_opts):
             # need to fix the post instructions to work atomically
-            pre_instructions = [dE_init]
+            pre_instructions = pre[:]
             post_instructions = [Template(
                 """
-                temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_str} \
-                    {id=temp_init, dep=*, atomic}
+                temp_sum[0] = ${P_str} * ${Tdot_str} / ${T_val} \
+                    {id=temp_init, dep=*:precompute*, atomic}
                 ... lbarrier {id=lb1, dep=temp_init}
-                temp_sum[0] = temp_sum[0] + ${T_str} * R_u * dE \
+                temp_sum[0] = temp_sum[0] + ${T_val} * R_u * dE \
                     {id=temp_sum, dep=lb1*:sum, nosync=temp_init, atomic}
                 ... lbarrier {id=lb2, dep=temp_sum}
                 ${Edot_str} = temp_sum[0] \
@@ -910,7 +934,7 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
         else:
             post_instructions = [Template(
                 """
-                ${Edot_str} = ${Edot_str} + ${T_str} * R_u * dE {id=end, \
+                ${Edot_str} = ${Edot_str} + ${T_val} * R_u * dE {id=end, \
                     dep=sum:init, nosync=init}
                 """
             ).safe_substitute(**locals())]
@@ -932,7 +956,8 @@ def get_extra_var_rates(loopy_opts, namestore, conp=True,
                           kernel_data=kernel_data,
                           parameters={'R_u': np.float64(chem.RU)},
                           can_vectorize=can_vectorize,
-                          vectorization_specializer=vec_spec)
+                          vectorization_specializer=vec_spec,
+                          silenced_warnings=['write_race(end)'])
 
 
 def get_temperature_rate(loopy_opts, namestore, conp=True,
@@ -1450,18 +1475,15 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                          spec_str=spec_str,
                          spec_ind=spec_ind)
 
-        power_func = utils.power_function(loopy_opts.lang,
-                                          is_integer_power=allint['net'],
-                                          is_vector=loopy_opts.is_simd)
+        power_func = ic.power_function(loopy_opts,
+                                       is_integer_power=allint['net'],
+                                       is_vector=loopy_opts.is_simd)
+        conc_power = power_func(concs_str, nu_str)
         # if all integers, it's much faster to use multiplication
         roptemp_eval = Template(
             """
-    rop_temp = rop_temp * ${power_func}(${concs_str}, ${nu_str}) {id=rop_fin, \
-        dep=rop_init}
-    """).safe_substitute(
-            nu_str=nu_str,
-            concs_str=concs_str,
-            power_func=power_func)
+    rop_temp = rop_temp * ${conc_power} {id=rop_fin, dep=rop_init}
+    """).safe_substitute(conc_power=conc_power)
 
         rop_instructions = utils.subs_at_indent(rop_instructions,
                                                 rop_temp_eval=roptemp_eval)
@@ -1477,10 +1499,7 @@ def get_rop(loopy_opts, namestore, allint={'net': False}, test_size=None):
                               kernel_data=kernel_data,
                               extra_inames=extra_inames,
                               mapstore=maps[direction],
-                              manglers=lp_pregen.power_function_manglers(
-                                loopy_opts, power_func),
-                              preambles=lp_pregen.power_function_preambles(
-                                loopy_opts, power_func))
+                              manglers=[power_func])
 
     infos = [__rop_create('fwd')]
     if namestore.rop_rev is not None:
@@ -1697,10 +1716,11 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                         B_lp, Kc_lp, nu_lp, kf_arr, kr_arr])
 
     # get the right power function
-    power_func = utils.power_function(loopy_opts.lang,
-                                      is_integer_power=allint['net'],
-                                      # both values here are scalar
-                                      is_vector=False)
+    power_func = ic.power_function(loopy_opts,
+                                   is_integer_power=allint['net'],
+                                   # both values here are scalar
+                                   is_vector=False)
+    pressure_power = power_func('P_val', 'P_sum_end')
 
     # create the pressure product loop
     pressure_prod = Template("""
@@ -1710,10 +1730,12 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
     else
         P_val = R_u / P_a {id=P_val_decl1}
     end
-    <> P_sum = ${power_func}(P_val, P_sum_end) {id=P_accum, dep=P_val_decl*}
+    <> P_sum = ${pressure_power} {id=P_accum, dep=P_val_decl*}
     """).substitute(nu_sum=nu_sum_str,
-                    power_func=power_func)
+                    pressure_power=pressure_power)
 
+    expg = ic.GuardedExp(loopy_opts)
+    b_exp = expg('B_sum')
     # and the b sum loop
     Bsum_inst = Template("""
     <>offset = ${spec_offset} {id=offset}
@@ -1726,7 +1748,7 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
             B_sum = B_sum + net_nu * ${B_val} {id=B_accum, dep=B_init}
         end
     end
-    B_sum = exp(B_sum) {id=B_final, dep=B_accum}
+    B_sum = ${b_exp} {id=B_final, dep=B_accum}
     """).substitute(spec_offset=num_spec_offsets_str,
                     spec_offset_next=num_spec_offsets_next_str,
                     spec_loop=spec_loop,
@@ -1735,7 +1757,8 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                     nu_val=nu_sum_str,
                     prod_nu_str=prod_nu_str,
                     reac_nu_str=reac_nu_str,
-                    B_val=B_str
+                    B_val=B_str,
+                    b_exp=b_exp
                     )
 
     Rate_assign = Template("""
@@ -1759,10 +1782,7 @@ def get_rev_rates(loopy_opts, namestore, allint, test_size=None):
                           parameters={
                               'P_a': np.float64(chem.PA),
                               'R_u': np.float64(chem.RU)},
-                          manglers=lp_pregen.power_function_manglers(
-                                loopy_opts, power_func),
-                          preambles=lp_pregen.power_function_preambles(
-                                loopy_opts, power_func))
+                          manglers=[power_func, expg])
 
 
 def get_thd_body_concs(loopy_opts, namestore, test_size=None):
@@ -1969,10 +1989,11 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
     logP = 'logP'
     Tinv = 'Tinv'
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
     preinstructs = [precompute(logP, P_str, 'LOG'),
-                    precompute(Tinv, T_str, 'INV')]
+                    precompute(Tinv, T_str, 'INV', guard=ic.TemperatureGuard(
+                        loopy_opts))]
 
     # various strings for preindexed limits, params, etc
     _, Pmin_str = mapstore.apply_maps(namestore.cheb_Plim, var_name, '0')
@@ -2001,7 +2022,8 @@ def get_cheb_arrhenius_rates(loopy_opts, namestore, maxP, maxT,
                                           poly_compute_ind,
                                           affine=-2)
 
-    exp10fun = utils.exp_10_fun[loopy_opts.lang].format(val='kf_temp')
+    eguard = ic.GuardedExp(loopy_opts, exptype=utils.exp_10_fun[loopy_opts.lang])
+    exp10fun = eguard('kf_temp')
 
     instructions = Template("""
 <>Pmin = ${Pmin_str}
@@ -2055,7 +2077,8 @@ ${kf_str} = ${exp10fun} {id=set, dep=kf}
                           kernel_data=kernel_data,
                           mapstore=mapstore,
                           extra_inames=extra_inames,
-                          vectorization_specializer=vec_spec)
+                          vectorization_specializer=vec_spec,
+                          manglers=[eguard])
 
 
 def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
@@ -2154,6 +2177,10 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
     logT = 'logT'
     Tinv = 'Tinv'
 
+    # exponentials
+    expg = ic.GuardedExp(loopy_opts)
+    exp_kf = expg('kf_temp')
+
     # instructions
     instructions = Template(
         """
@@ -2194,21 +2221,22 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
             kf_temp = (-logk1 + logk2) * (${logP} - low[0]) / (hi[0] - low[0]) + \
                 kf_temp {id=a_found, dep=a1:a2:a_oor}
         end
-        ${kf_str} = exp(kf_temp) {id=kf, dep=a_found}
+        ${kf_str} = ${exp_kf} {id=kf, dep=a_found}
 """).safe_substitute(**locals())
 
     vec_spec = ic.write_race_silencer(['kf'])
 
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    guardT = ic.TemperatureGuard(loopy_opts)
+    preinsns = [precompute(Tinv, T_str, 'INV', guard=guardT),
+                precompute(logT, T_str, 'LOG', guard=guardT),
+                precompute(logP, P_str, 'LOG')]
 
     # and return
     return [k_gen.knl_info(name='rateconst_plog',
                            instructions=instructions,
-                           pre_instructions=[
-                               precompute(Tinv, T_str, 'INV'),
-                               precompute(logT, T_str, 'LOG'),
-                               precompute(logP, P_str, 'LOG')],
+                           pre_instructions=preinsns,
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
@@ -2216,7 +2244,8 @@ def get_plog_arrhenius_rates(loopy_opts, namestore, maxP, test_size=None):
                            vectorization_specializer=vec_spec,
                            # silence warning about scatter load of plog parameters
                            # due to varying pressure
-                           silenced_warnings=['vectorize_failed'])]
+                           silenced_warnings=['vectorize_failed'],
+                           manglers=[expg, precompute])]
 
 
 def get_reduced_pressure_kernel(loopy_opts, namestore, test_size=None):
@@ -2302,7 +2331,7 @@ else
     k0 = ${kf_fall_str} {id=k0_f, nosync=k0_c}
 end
 # prevent reduced pressure from ever being truly zero
-${Pr_str} = fmax(1e-300d, ${thd_conc_str} * k0 / kinf) {id=set, dep=k*}
+${Pr_str} = ${thd_conc_str} * k0 / kinf {id=set, dep=k*}
 """)
 
     # sub in strings
@@ -2315,8 +2344,7 @@ ${Pr_str} = fmax(1e-300d, ${thd_conc_str} * k0 / kinf) {id=set, dep=k*}
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           vectorization_specializer=vec_spec,
-                           manglers=[lp_pregen.fmax()])]
+                           vectorization_specializer=vec_spec)]
 
 
 def get_troe_kernel(loopy_opts, namestore, test_size=None):
@@ -2388,46 +2416,57 @@ def get_troe_kernel(loopy_opts, namestore, test_size=None):
     kernel_data.extend([troe_a_lp, troe_T3_lp, troe_T1_lp, troe_T2_lp])
 
     # get generic power function
-    power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
-                                      is_positive_power=True,
-                                      is_vector=loopy_opts.is_simd)
+    power_func = ic.power_function(loopy_opts,
+                                   is_integer_power=False,
+                                   is_vector=loopy_opts.is_simd,
+                                   guard_nonzero=True)
+    pow_fcent = power_func(
+        'Fcent_temp', '(1 / (((Atroe_temp * Atroe_temp) / '
+                      '(Btroe_temp * Btroe_temp) + 1)))')
+
+    # exponentials
+    expg = ic.GuardedExp(loopy_opts)
+    T1_exp = expg('-T * {troe_T1_str}'.format(troe_T1_str=troe_T1_str))
+    T3_exp = expg('-T * {troe_T3_str}'.format(troe_T3_str=troe_T3_str))
+    T2_exp = expg('-{troe_T2_str} / T'.format(troe_T2_str=troe_T2_str))
+
+    # logs
+    logg = ic.GuardedLog(loopy_opts, logtype=utils.log_10_fun[loopy_opts.lang])
+    log_fcent = logg('Fcent_temp')
+    log_pr = logg(Pr_str)
 
     # make the instructions
     troe_instructions = Template("""
-    <>Fcent_temp = ${troe_a_str} * exp(-T * ${troe_T1_str}) \
-        + (1 - ${troe_a_str}) * exp(-T * ${troe_T3_str}) {id=Fcent_decl}
+    <>Fcent_temp = ${troe_a_str} * ${T1_exp} \
+        + (1 - ${troe_a_str}) * ${T3_exp} {id=Fcent_decl}
     if ${troe_T2_str} != 0
-        Fcent_temp = Fcent_temp + exp(-${troe_T2_str} / T) \
+        Fcent_temp = Fcent_temp + ${T2_exp} \
             {id=Fcent_decl2, dep=Fcent_decl}
     end
     ${Fcent_str} = Fcent_temp {id=Fcent_decl3, dep=Fcent_decl2}
-    <>logFcent = log10(fmax(1e-300d, Fcent_temp)) {dep=Fcent_decl3}
-    <>logPr = log10(fmax(1e-300d, ${Pr_str}))
+    <>logFcent = ${log_fcent} {dep=Fcent_decl3}
+    <>logPr = ${log_pr}
     <>Atroe_temp = -0.67 * logFcent + logPr - 0.4 {dep=Fcent_decl*}
     <>Btroe_temp = -1.1762 * logFcent - 0.14 * logPr + 0.806 {dep=Fcent_decl*}
     ${Atroe_str} = Atroe_temp
     ${Btroe_str} = Btroe_temp
-    ${Fi_str} = ${power_func}(Fcent_temp, (1 / (((Atroe_temp * Atroe_temp) / \
-        (Btroe_temp * Btroe_temp) + 1)))) {id=Fi, dep=Fcent_decl*}
+    ${Fi_str} = ${pow_fcent} {id=Fi, dep=Fcent_decl*}
     """).safe_substitute(**locals())
 
     vec_spec = ic.write_race_silencer(['Fi'])
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
 
     return [k_gen.knl_info('fall_troe',
-                           pre_instructions=[precompute(
-                               'T', T_str, 'VAL')],
+                           pre_instructions=[
+                            precompute('T', T_str, 'VAL',
+                                       guard=ic.TemperatureGuard(loopy_opts))],
                            instructions=troe_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
                            vectorization_specializer=vec_spec,
-                           manglers=[lp_pregen.fmax()] +
-                           lp_pregen.power_function_manglers(
-                                        loopy_opts, power_func),
-                           preambles=lp_pregen.power_function_preambles(
-                                loopy_opts, power_func))]
+                           manglers=[power_func, expg, logg])]
 
 
 def get_sri_kernel(loopy_opts, namestore, test_size=None):
@@ -2494,46 +2533,57 @@ def get_sri_kernel(loopy_opts, namestore, test_size=None):
     Tval = 'Tval'
 
     # get generic power function
-    pos_power_func = utils.power_function(loopy_opts.lang, is_integer_power=False,
-                                          is_positive_power=True,
-                                          is_vector=loopy_opts.is_simd)
-    gen_power_func = utils.power_function(loopy_opts.lang,
-                                          is_integer_power=isinstance(
+    noint_power = ic.power_function(loopy_opts, is_integer_power=False,
+                                    is_vector=loopy_opts.is_simd)
+    possible_int_power = ic.power_function(loopy_opts,
+                                           is_integer_power=isinstance(
                                             sri_e_lp.dtype, np.integer),
-                                          is_vector=loopy_opts.is_simd)
+                                           is_vector=loopy_opts.is_simd)
+    # guarded exponential
+    expg = ic.GuardedExp(loopy_opts)
+    sri_b_exp = expg(Template('-${sri_b_str} * ${Tinv}').safe_substitute(**locals()))
+    sri_c_exp = expg(Template('-${Tval} / ${sri_c_str}').safe_substitute(**locals()))
+
+    # perform power evaluations
+    sri_power_base = Template('(${sri_a_str} * ${sri_b_exp} + '
+                              '${sri_c_exp})').safe_substitute(**locals())
+    sri_power = noint_power(sri_power_base, 'X_temp')
+
+    sri_power_optional = possible_int_power(Tval, sri_e_str)
+
+    # create a precomputed instruction generator
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    Tguard = ic.TemperatureGuard(loopy_opts)
+    pre_instructions = [precompute(Tval, T_str, 'VAL', guard=Tguard),
+                        precompute(Tinv, T_str, 'INV', guard=Tguard)]
+
+    # get logarithm
+    logg = ic.GuardedLog(loopy_opts, logtype=utils.log_10_fun[loopy_opts.lang])
+    log_pr = logg(Pr_str)
 
     # create instruction set
     sri_instructions = Template("""
-    <>logPr = log10(fmax(1e-300d, ${Pr_str}))
+    <>logPr = ${log_pr}
     <>X_temp = 1 / (logPr * logPr + 1) {id=X_decl}
-    <>Fi_temp = ${pos_power_func}((${sri_a_str} * exp(-${sri_b_str} * ${Tinv}) + \
-        exp(-${Tval} / ${sri_c_str})), X_temp) {id=Fi_decl, dep=X_decl}
+    <>Fi_temp = ${sri_power} {id=Fi_decl, dep=X_decl}
     if ${sri_d_str} != 1.0
         Fi_temp = Fi_temp * ${sri_d_str} {id=Fi_decl1, dep=Fi_decl}
     end
     if ${sri_e_str} != 0.0
-        Fi_temp = Fi_temp * ${gen_power_func}(${Tval}, ${sri_e_str}) \
-            {id=Fi_decl2, dep=Fi_decl1}
+        Fi_temp = Fi_temp * ${sri_power_optional} {id=Fi_decl2, dep=Fi_decl1}
     end
     ${Fi_str} = Fi_temp {dep=Fi_decl*}
     ${X_sri_str} = X_temp
     """).safe_substitute(**locals())
-    # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
 
     return [k_gen.knl_info('fall_sri',
                            instructions=sri_instructions,
-                           pre_instructions=[
-                               precompute(Tval, T_str, 'VAL'),
-                               precompute(Tinv, T_str, 'INV')],
+                           pre_instructions=pre_instructions,
                            var_name=var_name,
                            kernel_data=kernel_data,
                            mapstore=mapstore,
-                           manglers=[lp_pregen.fmax()] +
-                           lp_pregen.power_function_manglers(
-                               loopy_opts, [pos_power_func, gen_power_func]),
-                           preambles=lp_pregen.power_function_preambles(
-                               loopy_opts, [pos_power_func, gen_power_func]))]
+                           manglers=[noint_power, possible_int_power, precompute,
+                                     logg, expg])]
 
 
 def get_lind_kernel(loopy_opts, namestore, test_size=None):
@@ -2685,31 +2735,38 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
     T_arr, T_str = mapstore.apply_maps(namestore.T_arr, global_ind)
     base_kernel_data.insert(0, T_arr)
 
-    # put rateconst info args in dict for unpacking convenience
-    extra_args = {'kernel_data': base_kernel_data,
-                  'var_name': var_name}
-
     Tinv = 'Tinv'
     logT = 'logT'
     Tval = 'Tval'
+    guardT = ic.TemperatureGuard(loopy_opts)
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
+    precompute = ic.PrecomputedInstructions(loopy_opts)
     default_preinstructs = {Tinv:
-                            precompute(Tinv, T_str, 'INV'),
+                            precompute(Tinv, T_str, 'INV', guard=guardT),
                             logT:
-                            precompute(logT, T_str, 'LOG'),
+                            precompute(logT, T_str, 'LOG', guard=guardT),
                             Tval:
-                            precompute(Tval, T_str, 'VAL')}
+                            precompute(Tval, T_str, 'VAL', guard=guardT)}
 
+    # guarded exponential evaluator
+    expg = ic.GuardedExp(loopy_opts)
     # generic kf assigment str
     kf_assign = Template("${kf_str} = ${rate} {id=rate_eval0, \
                          nosync=${deps}}")
-    expkf_assign = Template("${kf_str} = exp(${rate}) {id=rate_eval${id}, \
-                            nosync=${deps}}")
+    expkf_assign = Template(Template(
+        "${kf_str} = ${exp_guarded} {id=rate_eval${id}, nosync=${deps}}")
+        .safe_substitute(exp_guarded=expg('${rate}')))
+
+    # put rateconst info args in dict for unpacking convenience
+    extra_args = {'kernel_data': base_kernel_data,
+                  'var_name': var_name,
+                  'manglers': [expg, precompute]}
 
     def __get_instructions(rtype, mapper, kernel_data, beta_iter=1,
                            single_kernel_rtype=None, Tval=Tval, logT=logT,
-                           Tinv=Tinv, specializations=set()):
+                           Tinv=Tinv, specializations=set(),
+                           preambles=[],
+                           manglers=[]):
         # get domain
         domain, inds, num = rdomain(rtype)
 
@@ -2771,8 +2828,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
             else:
                 return 'rate_eval*'
 
-        preambles = []
-        manglers = []
+        manglers = [x for x in manglers]
+        preambles = [x for x in preambles]
         # the simple formulation
         if fixed or (hybrid and rtype == 2) or (full and rtype == 4):
             retv = expkf_assign.safe_substitute(rate=str(rate_eqn_pre),
@@ -2783,34 +2840,24 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         elif rtype == 0:
             retv = kf_assign.safe_substitute(rate=A_str, deps=__deps(kf_assign))
         elif rtype == 1:
-            if beta_iter > 1:
-                power_func = utils.power_function(
-                    loopy_opts.lang, is_integer_power=True, is_positive_power=True,
-                    is_vector=loopy_opts.is_simd)
-                beta_iter_str = Template("""
-                <int32> b_end = abs(${b_str})
-                kf_temp = kf_temp * ${power_func}(T_iter, b_end) \
-                    {id=a4, dep=a3:a2:a1}
-                ${kf_str} = kf_temp {id=rate_eval1, dep=a4, nosync=${deps}}
-                """).safe_substitute(b_str=b_str, power_func=power_func,
-                                     deps=__deps(''))
-                preambles.extend(lp_pregen.power_function_preambles(
-                    loopy_opts, power_func))
-                manglers.extend(lp_pregen.power_function_manglers(
-                    loopy_opts, power_func))
-            else:
-                beta_iter_str = Template(
-                    "${kf_str} = kf_temp * T_iter"
-                    " {id=rate_eval1, dep=a3:a2:a1, nosync=${deps}}"
-                        ).safe_substitute(deps=__deps(''))
+            power_func = ic.power_function(
+                loopy_opts, is_integer_power=True,
+                is_positive_power=True,
+                is_vector=loopy_opts.is_simd)
+            T_power = power_func(Tval, 'b_end')
+            beta_iter_str = Template("""
+            <int32> b_end = ${b_str}
+            kf_temp = kf_temp * ${T_power} {id=a2, dep=a1}
+            ${kf_str} = kf_temp {id=rate_eval1, dep=a2, nosync=${deps}}
+            """).safe_substitute(b_str=b_str, deps=__deps(''), T_power=T_power)
+            # this is about the one place where we must do this directly
+            manglers.extend(power_func.manglers + [
+                x.func_mangler for x in power_func.preambles])
+            preambles.extend(power_func.preambles)
 
             retv = Template(
                 """
-                <> T_iter = ${Tval} {id=a1}
-                if ${b_str} < 0
-                    T_iter = Tinv {id=a2, dep=a1}
-                end
-                <>kf_temp = ${A_str} {id=a3}
+                <>kf_temp = ${A_str} {id=a1}
                 ${beta_iter_str}
                 """).safe_substitute(**locals())
         elif rtype == 2:
@@ -2898,8 +2945,8 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         # need to enclose each branch in it's own if statement
         do_conditional = len(specializations) > 1
         instruction_list = []
-        pre = []
         man = []
+        pre = []
         for i in specializations:
             if do_conditional:
                 instruction_list.append(
@@ -2910,15 +2957,17 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                 specializations[i].kernel_data,
                 beta_iter,
                 single_kernel_rtype=i,
-                specializations=set(specializations.keys()))
+                specializations=set(specializations.keys()),
+                manglers=specializations[i].manglers,
+                preambles=specializations[i].preambles)
             instruction_list.extend([
                 '\t' + x for x in insns.split('\n') if x.strip()])
             if do_conditional:
                 instruction_list.append('end')
-            if preambles:
-                pre.extend(preambles)
             if manglers:
                 man.extend(manglers)
+            if preambles:
+                pre.extend(preambles)
         # and combine them
         kernel_data = list(specializations.values())[0].kernel_data
         specializations = {-1: k_gen.knl_info(
@@ -2929,14 +2978,14 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
                            mapstore=mapstore,
                            kernel_data=kernel_data,
                            var_name=var_name,
-                           preambles=pre,
                            manglers=man,
+                           preambles=pre,
                            silenced_warnings=['write_race(rate_eval0)',
                                               'write_race(rate_eval1)',
                                               'write_race(rate_eval2)',
                                               'write_race(rate_eval3)',
                                               'write_race(rate_eval4)',
-                                              'write_race(a4)'])}
+                                              'write_race(a2)'])}
 
     out_specs = {}
     # and do some finalizations for the specializations
@@ -2948,7 +2997,7 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
 
         # turn off warning
         info.kwargs['silenced_warnings'] = ['write_race(rate_eval{})'.format(rtype),
-                                            'write_race(a4)']
+                                            'write_race(a2)']
 
         domain, _, num = rdomain(rtype)
         if domain is None or not domain.initializer.size:
@@ -2965,7 +3014,9 @@ def get_simple_arrhenius_rates(loopy_opts, namestore, test_size=None,
         if rtype >= 0:
             info.instructions, info.preambles, info.manglers = __get_instructions(
                 rtype, mapper, info.kernel_data, beta_iter,
-                specializations=sorted(set(specializations.keys())))
+                specializations=sorted(set(specializations.keys())),
+                manglers=specializations[rtype].manglers,
+                preambles=specializations[rtype].preambles)
 
         out_specs[rtype] = info
 
@@ -3001,7 +3052,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
     mem_limits: str ['']
         Path to a .yaml file indicating desired memory limits that control the
         desired maximum amount of global / local / or constant memory that
-        the generated pyjac code may allocate.  Useful for testing, or otherwise
+        the generated pyjac code may allocate.  Useful for testing,f or otherwise
         limiting memory usage during runtime. The keys of this file are the
         members of :class:`pyjac.kernel_utils.memory_limits.mem_type`
     kwargs: dict
@@ -3145,7 +3196,7 @@ def get_specrates_kernel(reacs, specs, loopy_opts, conp=True, test_size=None,
                                    nstore, test_size=test_size, conp=conp))
     # and finally the extra variable rates
     __add_knl(get_extra_var_rates(loopy_opts, nstore, conp=conp,
-                                  test_size=None))
+                                  test_size=test_size))
 
     # get a wrapper for the dependecies
     thermo_in, thermo_out = inputs_and_outputs(conp, KernelType.chem_utils)
@@ -3307,14 +3358,17 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
     hi_eq = eqn_maps[nicename].safe_substitute(
         {'a' + str(i): a_hi for i, a_hi in enumerate(a_hi_strs)})
 
+    # guard the temperature to avoid SigFPE's in equil. constant eval
+    guard = ic.TemperatureGuard(loopy_opts)
+
     Tval = 'T'
     # create a precomputed instruction generator
-    precompute = ic.PrecomputedInstructions()
-    preinstructs = [precompute(Tval, T_str, 'VAL')]
+    precompute = ic.PrecomputedInstructions(loopy_opts)
+    preinstructs = [precompute(Tval, T_str, 'VAL', guard=guard)]
     if nicename in ['db', 'b']:
-        preinstructs.append(precompute('Tinv', T_str, 'INV'))
+        preinstructs.append(precompute('Tinv', T_str, 'INV', guard=guard))
         if nicename == 'b':
-            preinstructs.append(precompute('logT', T_str, 'LOG'))
+            preinstructs.append(precompute('logT', T_str, 'LOG', guard=guard))
 
     return k_gen.knl_info(instructions=Template("""
         if ${Tval} < ${T_mid_str}
@@ -3329,6 +3383,7 @@ def polyfit_kernel_gen(nicename, loopy_opts, namestore, test_size=None):
                           parameters={'Ru': chem.RU},
                           var_name=loop_index,
                           mapstore=mapstore,
+                          manglers=[precompute],
                           silenced_warnings=['write_race(low)',
                                              'write_race(hi)'])
 

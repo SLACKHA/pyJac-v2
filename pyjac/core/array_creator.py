@@ -128,7 +128,7 @@ class array_splitter(object):
 
         """
 
-        return len(array.shape) >= 2 or self.is_simd
+        return len(array.shape) >= 1 or self.is_simd
 
     def split_and_vec_axes(self, array):
         """
@@ -169,6 +169,19 @@ class array_splitter(object):
 
         return split_axis, vec_axis
 
+    def grow_axis(self, array):
+        """
+        Returns
+        -------
+        grow_axis: int
+            The integer index of the axis corresponding to the initial conditions,
+            see :ref:`vector_split`
+        """
+        if self._should_split(array):
+            # the grow axis is one IFF it's a F-ordered deep-split
+            return 1 if self.data_order == 'F' else 0
+        return 0
+
     def split_shape(self, array):
         """
         Returns the array shape that would result from splitting the supplied array
@@ -202,7 +215,7 @@ class array_splitter(object):
         vector_width = None
         if self._should_split(array):
             # the grow axis is one IFF it's a F-ordered deep-split
-            grow_axis = 1 if self.data_order == 'F' else 0
+            grow_axis = self.grow_axis(array)
             split_axis, vec_axis = self.split_and_vec_axes(array)
             vector_width = self.depth if self.depth else self.width
             assert vector_width
@@ -612,7 +625,7 @@ def initial_condition_dimension_vars(loopy_opts, test_size, is_driver_kernel=Fal
         The initial condition dimension size variables
     """
 
-    if isinstance(test_size, int) or loopy_opts.work_size:
+    if isinstance(test_size, int) or loopy_opts.unique_pointers:
         return []
     if is_driver_kernel:
         return [work_size, problem_size]

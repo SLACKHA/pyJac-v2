@@ -55,7 +55,6 @@ Kernel::Kernel():
 
 Kernel::~Kernel()
 {
-    this->finalize();
 }
 
 void Kernel::resize(size_t problem_size, size_t work_size, bool do_not_compile)
@@ -344,7 +343,6 @@ void Kernel::finalize()
 {
     if(this->initialized)
     {
-        this->finalize_memory();
         /*[[[cog
             if callgen.lang == 'opencl':
                 cog.outl('check_err(clReleaseProgram(this->program));')
@@ -458,7 +456,7 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
                 size = 'sizeof({})'.format(kmem.dtype(True, arg))
                 if arg.address_space == lp.AddressSpace.LOCAL:
                     name = 'NULL'
-                    size = get_num_bytes(kmem, arg)
+                    size = 'work_size * {}'.format(get_num_bytes(kmem, arg))
 
                 cog.outl(
                     indent(set_arg.format(
@@ -544,7 +542,6 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
 {{
     this->max_per_run = {max_per_run};
     this->compiled = do_not_compile;
-    this->init(problem_size, work_size);
     """.format(num_source=num_source, binary_path=callgen.binname,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
     if callgen.lang == 'opencl':
@@ -554,12 +551,21 @@ void {kernel_name}::mem_init(size_t problem_size, size_t work_size)
     """.format(num_source=num_source, binary_path=callgen.binname,
                max_per_run=callgen.max_ic_per_run), dedent=False, trimblanklines=True)
 
+    cog.outl('this->init(problem_size, work_size);')
     cog.outl('}\n')
     # write kernel docs
     cog.outl(make_doc_str(
         callgen, callgen.kernel_args[kernel],
         "Execute the {} kernel '{}'".format(callgen.lang.title(), kernel)),
         dedent=True, trimblanklines=True)
+
+    # write destructor
+    cog.out("""
+    {name}Kernel::~{name}Kernel()
+    {{
+      this->finalize_memory();
+      this->finalize();
+    }}""".format(name=kernel.title()), dedent=True, trimblanklines=True)
 
     # write kernel defn
     cog.out("""
@@ -730,7 +736,6 @@ int main(int argc, char* argv[])
             dedent=True, trimblanklines=True)
       ]]]
       [[[end]]]*/
-    kernel.finalize();
 
     // local frees
     /*[[[cog

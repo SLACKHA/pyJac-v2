@@ -140,7 +140,6 @@ class SubTest(TestClass):
                 # generate wrapper
                 pywrap(loopy_opts.lang, build,
                        obj_dir=obj, out_dir=lib,
-                       platform=loopy_opts.platform_name,
                        ktype=KernelType.dummy,
                        file_base=generator.name,
                        additional_inputs=inputs[:],

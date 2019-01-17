@@ -17,8 +17,11 @@ from loopy.types import AtomicType
 from pytools import UniqueNameGenerator
 import numpy as np
 import six
+from pytools import ImmutableRecord
 
-from pyjac.core.array_creator import var_name, jac_creator
+from pyjac.core.array_creator import var_name, jac_creator, kint_type
+from pyjac.loopy_utils import preambles_and_manglers as lp_pregen
+from pyjac import utils
 
 
 def use_atomics(loopy_opts):
@@ -295,12 +298,304 @@ class dummy_deep_specialization(within_inames_specializer):
         return super(dummy_deep_specialization, self).__call__(knl)
 
 
-class PrecomputedInstructions(object):
-    def __init__(self, basename='precompute'):
+class PreambleMangler(ImmutableRecord):
+    """
+    An abstract class that can return it's own preambles and manglers
+    """
+
+    def _manglers(self):
+        raise NotImplementedError
+
+    def _preambles(self):
+        raise NotImplementedError
+
+    @property
+    def preambles(self):
+        return self._preambles()
+
+    @property
+    def manglers(self):
+        return self._manglers()
+
+
+class Guard(PreambleMangler):
+    """
+    A helper class to pass to a :class:`PrecomputedInstructions` that specifies
+    min / max ranges for the variable in question
+
+    Attributes
+    ----------
+    loopy_opts: :class:`LoopyOptions`
+        The options to create this guard for
+    min: float
+        If specified, the minimum range of this guarded variable
+    max: float
+        If specified, the maximum range of this guarded variable
+    """
+
+    def __init__(self, loopy_opts, minv=None, maxv=None):
+        self.min = minv
+        self.max = maxv
+        self.auto_diff = loopy_opts.auto_diff
+
+    def __operation__(self, value):
+        """
+        An overridable operation, such that we may apply log's, exponentials, etc.
+        """
+        return value
+
+    def __call__(self, varname):
+        template = '${varname}'
+        if self.min is not None and not self.auto_diff:
+            template = 'fmax(${min}, ' + template + ')'
+        if self.max is not None and not self.auto_diff:
+            template = 'fmin(${max}, ' + template + ')'
+        template = self.__operation__(template)
+        return Template(template).safe_substitute(
+            varname=varname, min=self.min, max=self.max)
+
+    def _manglers(self):
+        manglers = []
+        if self.min:
+            manglers += [lp_pregen.fmax()]
+        if self.max:
+            manglers += [lp_pregen.fmin()]
+
+        return manglers
+
+    def _preambles(self):
+        return []
+
+
+class TemperatureGuard(Guard):
+    """
+    Bound the temperature to a reasonable range (strictly for evaluation of kf / kr
+    w/o creating SigFPE's), i.e.:
+
+        T = min(max(T_min, T), T_max)
+    """
+
+    def __init__(self, loopy_opts, T_min=100., T_max=10000.):
+        super(TemperatureGuard, self).__init__(loopy_opts, minv=T_min, maxv=T_max)
+
+
+class VolumeGuard(Guard):
+    """
+    Bound the volime to a reasonable range (for evaluation of concentrations
+    without creating FPE's), i.e.:
+
+        V = max(V_min, V)
+    """
+
+    def __init__(self, loopy_opts, V_min=1e-30):
+        super(VolumeGuard, self).__init__(loopy_opts, minv=V_min)
+
+
+class NonzeroGuard(Guard):
+    """
+    A (potentially) sign-aware guard against non-zero numbers, may be employed
+    on it's own, or as a component of another guard
+
+    Attributes
+    ----------
+    is_positive: bool [None]
+        If True, bound the value to be >= #small
+        If False, bound the value to be <= -#small
+        If None, use a sign aware context to determine the correct value
+    """
+
+    def __init__(self, loopy_opts, is_positive=None, limit=utils.small):
+        if is_positive:
+            super(NonzeroGuard, self).__init__(loopy_opts, minv=limit)
+        elif is_positive is False:
+            super(NonzeroGuard, self).__init__(loopy_opts, maxv=-limit)
+        else:
+            super(NonzeroGuard, self).__init__(loopy_opts)
+        self.is_positive = is_positive
+        self.limiter = lp_pregen.signaware_limiter_PreambleGen(
+            loopy_opts.lang, limit=limit, vector=loopy_opts.vector_width)
+
+    def __operation__(self, value):
+        if self.is_positive is None:
+            # need a sign-aware detection
+            return '{}({})'.format(self.limiter.name, value)
+        else:
+            return super(NonzeroGuard, self).__operation__(value)
+
+    def _manglers(self):
+        manglers = []
+        if self.is_positive is None:
+            manglers += [self.limiter.func_mangler()]
+        return manglers + super(Guard, self).manglers
+
+    def _preambles(self):
+        preambles = []
+        if self.is_positive is None:
+            preambles += [self.limiter]
+        return preambles + super(Guard, self).preambles
+
+
+class GuardedExp(Guard):
+    """
+    Take the guarded exponent of a value, i.e.:
+
+        exp(fmin(exp_max, value))
+
+    Attributes
+    ----------
+    maxv: float
+        The maximum allowed exponential value
+
+    """
+
+    def __init__(self, loopy_opts, maxv=utils.exp_max, exptype='exp({val})'):
+        self.exptype = exptype
+        super(GuardedExp, self).__init__(loopy_opts, maxv=maxv)
+
+    def __operation__(self, value):
+        return self.exptype.format(val=value)
+
+
+class GuardedLog(Guard):
+    """
+    Take the guarded logarithmn of a value, i.e.:
+
+        log(fmax(1e-300d, value))
+
+    Attributes
+    ----------
+    minv: float
+        The minimum allowed logarithmic value
+
+    """
+
+    def __init__(self, loopy_opts, minv=utils.small, logtype='log({val})'):
+        self.logtype = logtype
+        super(GuardedLog, self).__init__(loopy_opts, minv=minv)
+
+    def __operation__(self, value):
+        return self.logtype.format(val=value)
+
+
+class PowerFunction(PreambleMangler):
+    """
+    A simple wrapper that contains the name of a power function for a given language
+    as well as any options
+    """
+
+    def __init__(self, loopy_opts, name, guard_nonzero=False):
+        self.name = name
+        self.lang = loopy_opts.lang
+        self.vector_width = loopy_opts.vector_width
+        self.is_simd = loopy_opts.is_simd
+        self.guard_nonzero = guard_nonzero
+        self.loopy_opts = loopy_opts
+
+    def guard(self, value=None):
+        g = Guard(self.loopy_opts, minv=utils.small)
+        if value is not None:
+            return g(value)
+        return g
+
+    def __call__(self, base, power):
+        template = '{func}({base}, {power})'
+        if self.guard_nonzero:
+            base = self.guard(base)
+        return template.format(func=self.name, base=base, power=power)
+
+    def _manglers(self):
+        manglers = []
+        if self.guard_nonzero:
+            manglers += self.guard().manglers
+        if self.name in ['fast_powi', 'fast_powiv']:
+            # skip, handled as preamble
+            pass
+        elif self.lang == 'opencl' and 'fast' not in self.name:
+            # opencl only
+            mangler_type = next((
+                mangler for mangler in [lp_pregen.pown, lp_pregen.powf,
+                                        lp_pregen.powr]
+                if mangler().name == self.name), None)
+            if mangler_type is None:
+                raise Exception('Unknown OpenCL power function {}'.format(
+                    self.name))
+            # 1) float and short integer
+            manglers.append(mangler_type())
+            # 2) float and long integer
+            if self.name == 'pown':
+                manglers.append(mangler_type(arg_dtypes=(np.float64, np.int64)))
+            if self.is_simd:
+                from loopy.target.opencl import vec
+                vfloat = vec.types[np.dtype(np.float64),
+                                   self.vector_width]
+                vlong = vec.types[np.dtype(np.int64), self.vector_width]
+                vint = vec.types[np.dtype(np.int32), self.vector_width]
+                # 3) vector float and short integers
+                # note: return type must be non-vector form (this will converted
+                # by loopy in privatize)
+                if self.name == 'pown':
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, np.int32),
+                                                 result_dtypes=np.float64))
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, vint),
+                                                 result_dtypes=np.float64))
+                    # 4) vector float and long integers
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, np.int64),
+                                                 result_dtypes=np.float64))
+                    manglers.append(mangler_type(arg_dtypes=(vfloat, vlong),
+                                                 result_dtypes=np.float64))
+        else:
+            manglers += [lp_pregen.powf()]
+
+        return manglers
+
+    def _preambles(self):
+        preambles = []
+        if self.guard_nonzero:
+            preambles += self.guard().preambles
+        if 'fast_powi' == self.name:
+            preambles += [lp_pregen.fastpowi_PreambleGen(
+                self.lang, kint_type)]
+        elif 'fast_powiv' == self.name:
+            preambles += [lp_pregen.fastpowiv_PreambleGen(
+                self.lang, kint_type, self.vector_width)]
+
+        return preambles
+
+
+def power_function(loopy_opts, is_integer_power=False, is_positive_power=False,
+                   guard_nonzero=False, is_vector=False):
+    """
+    Returns the best power function to use for a given :param:`lang` and
+    choice of :param:`is_integer_power` / :param:`is_positive_power` and
+    the :param:`is_vector` status of the instruction in question
+    """
+
+    # 11/20/18 -> default to our unrolled power functions, when available
+    if loopy_opts.lang == 'opencl' and is_positive_power and not is_integer_power:
+        # opencl positive power function -- no need for guard
+        return PowerFunction(loopy_opts, 'powr')
+    elif is_integer_power:
+        # 10/01/18 -- don't use OpenCL's pown -> VERY SLOW on intel
+        # instead use internal integer power function
+        if is_vector:
+            return PowerFunction(loopy_opts, 'fast_powiv',
+                                 guard_nonzero=guard_nonzero)
+        else:
+            return PowerFunction(loopy_opts, 'fast_powi',
+                                 guard_nonzero=guard_nonzero)
+    else:
+        # use default
+        return PowerFunction(loopy_opts, 'pow', guard_nonzero=guard_nonzero)
+
+
+class PrecomputedInstructions(PreambleMangler):
+    def __init__(self, loopy_opts, basename='precompute'):
         self.namer = UniqueNameGenerator()
         self.basename = basename
+        self._mang = []
+        self.loopy_opts = loopy_opts
 
-    def __call__(self, result_name, var_str, INSN_KEY):
+    def __call__(self, result_name, var_str, INSN_KEY, guard=True):
         """
         Simple helper method to return a number of precomputes based off the passed
         instruction key
@@ -313,6 +608,8 @@ class PrecomputedInstructions(object):
             The stringified representation of the variable to construct
         key : ['INV', 'LOG', 'VAL']
             The transform / value to precompute
+        guard: :class:`Guard` [None]
+            If specified, use a guard to avoid SigFPE's on the computed value
 
         Returns
         -------
@@ -320,10 +617,26 @@ class PrecomputedInstructions(object):
             A loopy instruction in the form:
                 '<>result_name = fn(var_str)'
         """
+        if guard:
+            try:
+                # see if user specified callable, or just a default
+                var_str = guard(var_str)
+                self._mang.extend(guard.manglers)
+            except TypeError:
+                _guard = None
+                if INSN_KEY == 'LOG':
+                    _guard = Guard(self.loopy_opts, minv=utils.small)
+                elif INSN_KEY == 'LOG10':
+                    _guard = Guard(self.loopy_opts, minv=utils.small)
+                if _guard:
+                    var_str = _guard(var_str)
+                    self._mang.extend(_guard.manglers)
+
         default_preinstructs = {'INV': '1 / {}'.format(var_str),
                                 'LOG': 'log({})'.format(var_str),
                                 'VAL': '{}'.format(var_str),
                                 'LOG10': 'log10({})'.format(var_str)}
+
         return Template("<>${result} = ${value} {id=${id}}").safe_substitute(
             result=result_name,
             value=default_preinstructs[INSN_KEY],
@@ -335,6 +648,12 @@ class PrecomputedInstructions(object):
         object to avoid comflicts
         """
         return self.namer(self.basename)
+
+    def _manglers(self):
+        return self._mang
+
+    def _preambles(self):
+        return []
 
 
 def get_update_instruction(mapstore, mask_arr, base_update_insn):

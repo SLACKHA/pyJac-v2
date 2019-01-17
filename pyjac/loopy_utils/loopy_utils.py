@@ -124,10 +124,11 @@ class loopy_options(object):
     is_simd: bool [None]
         If supplied, override the user-specified flag :param:`explicit_simd`, used
         for testing.
-    work_size: int [None]
-        The number of initial states to evaluate in parallel inside of the driver
-        function; may be specified by user to optimize code or for coupling to
-        external code
+    unique_pointers: bool [False]
+        If specified, this indicates that the pointers passed to the generated pyJac
+        methods will be unique (i.e., distinct per OpenMP thread /
+        OpenCL work-group). This option is most useful for coupling to external
+        codes an that have already been parallelized.
     explicit_simd: bool [False]
         Attempt to utilize explict-SIMD instructions in OpenCL
     """
@@ -138,7 +139,7 @@ class loopy_options(object):
                  use_atomic_doubles=True, use_atomic_ints=True,
                  jac_type=JacobianType.exact, jac_format=JacobianFormat.full,
                  device=None, device_type=None, is_simd=None,
-                 work_size=None, explicit_simd=None):
+                 unique_pointers=False, explicit_simd=None):
         self.width = width
         self.depth = depth
         if not utils.can_vectorize_lang[lang]:
@@ -171,9 +172,7 @@ class loopy_options(object):
             logger = logging.getLogger(__name__)
             logger.warn('explicit-SIMD flag has no effect on non-OpenCL targets.')
         self.kernel_type = utils.to_enum(kernel_type, KernelType)
-        if work_size:
-            assert work_size > 0, 'Work-size must be non-negative'
-        self.work_size = work_size
+        self.unique_pointers = unique_pointers
 
         if self._is_simd or self.explicit_simd:
             assert width or depth, (
@@ -259,6 +258,11 @@ class loopy_options(object):
                                 'utilize explicit-vector data-types (and avoid '
                                 'implicit vectorization, which may yield sub-optimal'
                                 ' results).')
+            if 'portable' in self.platform_name.lower() and self.unique_pointers:
+                logger = logging.getLogger(__name__)
+                logger.error('Portable OpenCL is currently broken for '
+                             'unique_pointers.')
+                raise BrokenPlatformError(self)
 
     @property
     def is_simd(self):
@@ -325,20 +329,24 @@ class loopy_options(object):
         """
         Return the necessary IC dimension size based on this :class:`loopy_options`
         """
-        if self.width and not self.is_simd:
-            return '{}*{}'.format(arc.work_size.name, self.width)
 
-        return arc.work_size.name
+        ws = arc.work_size.name
+        if not self.pre_split and self.width:
+            return '{}*{}'.format(ws, self.width)
+
+        return ws
 
     @property
     def initial_condition_loopsize(self):
         """
-        Return the necessary loop bound for the global index of innder kernel loops
+        Return the necessary loop bound for the global index of inner kernel loops
         based on this :class:`loopy_options`
         """
-        if self.width:
-            return '{}*{}'.format(arc.work_size.name, self.width)
 
+        if self.unique_pointers:
+            return self.vector_width if self.vector_width else 1
+        if not self.pre_split and self.width:
+            return '{}*{}'.format(arc.work_size.name, self.width)
         return arc.work_size.name
 
     @property
@@ -1325,27 +1333,29 @@ class AdeptCompiler(CPlusPlusCompiler):
 
     def __init__(self, *args, **kwargs):
         from ..siteconf import ADEPT_INC_DIR, ADEPT_LIB_DIR, ADEPT_LIBNAME
-        from ..siteconf import LDFLAGS, CXXFLAGS
-        defaults = {'cflags': '-O3 -fopenmp -fPIC'.split(),
-                    'ldflags': '-O3 -shared -fopenmp -fPIC'.split()}
+        from ..siteconf import CXXFLAGS
+        defaults = kwargs.copy()
         defaults['libraries'] = ADEPT_LIBNAME
+        if 'cflags' not in defaults:
+            defaults['cflags'] = []
         if CXXFLAGS:
-            defaults['cflags'].extend([x for x in CXXFLAGS
-                                       if x not in defaults['cflags']
-                                       and x.strip()])
+            defaults['cflags'] = [x for x in CXXFLAGS
+                                  if x not in defaults['cflags']
+                                  and x.strip()]
         if ADEPT_LIB_DIR:
             defaults['library_dirs'] = ADEPT_LIB_DIR
         if ADEPT_INC_DIR:
-            defaults['cflags'].extend(['-I{}'.format(x) for x in ADEPT_INC_DIR])
-        if LDFLAGS:
-            defaults['ldflags'].extend([x for x in LDFLAGS if x not in
-                                        defaults['ldflags']])
+            defaults['cflags'] = ['-I{}'.format(x) for x in ADEPT_INC_DIR]
 
         # update to use any user specified info
         defaults.update(kwargs)
 
+        # get toolchain
+        from pyjac.libgen import get_toolchain
+        toolchain = get_toolchain('c', executable=False, **defaults)
+
         # and create
-        super(AdeptCompiler, self).__init__(*args, **defaults)
+        super(AdeptCompiler, self).__init__(toolchain=toolchain)
 
     def build(self, *args, **kwargs):
         """override from CPlusPlusCompiler to load Adept into ctypes and avoid

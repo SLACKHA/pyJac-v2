@@ -77,18 +77,20 @@ def substitute(filename, text_in=None):
 
                 # check for fmax
                 fmax_re = re.compile(r'fmax\((.+),(.+)\);')
-                match = fmax_re.search(lines[i])
-                if match:
-                    # find which is not a number
-                    for ind, group in enumerate(match.groups()):
-                        try:
-                            float(group)
-                            continue
-                        except ValueError:
-                            # found non-float
-                            group = ind + 1
-                            break
-                    lines[i] = fmax_re.sub('\\{};'.format(group), lines[i])
+                fmin_re = re.compile(r'fmin\((.+),(.+)\);')
+                for r in [fmax_re, fmin_re]:
+                    match = r.search(lines[i])
+                    if match:
+                        # find which is not a number
+                        for ind, group in enumerate(match.groups()):
+                            try:
+                                float(group)
+                                continue
+                            except ValueError:
+                                # found non-float
+                                group = ind + 1
+                                break
+                        lines[i] = r.sub('\\{};'.format(group), lines[i])
                 # lines[i] = re.sub(
                 # r'fmax\((.+),(.+)\);', r'std::max(adouble(\1), \2);', lines[i])
 

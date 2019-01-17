@@ -226,18 +226,21 @@ class SubTest(TestClass):
             plog_inds = []
             cheb_inds = []
             if result['plog']['num']:
-                plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
-                                              if isinstance(x, ct.PlogReaction)])
+                plog_inds, plog_reacs = zip(*[(i, x) for i, x in enumerate(
+                    gas.reactions()) if isinstance(x, ct.PlogReaction)])
             if result['cheb']['num']:
-                cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(gas.reactions())
-                                              if isinstance(x, ct.ChebyshevReaction)])
+                cheb_inds, cheb_reacs = zip(*[(i, x) for i, x in enumerate(
+                    gas.reactions()) if isinstance(x, ct.ChebyshevReaction)])
 
-            def rate_checker(our_params, ct_params, rate_forms, force_act_nonlog=False):
+            def rate_checker(our_params, ct_params, rate_forms,
+                             force_act_nonlog=False):
                 act_energy_ratios = []
-                for ourvals, ctvals, form in zip(*(our_params, ct_params, rate_forms)):
+                for ourvals, ctvals, form in zip(*(
+                        our_params, ct_params, rate_forms)):
                     # activation energy, check rate form
                     # if it's fixed specialization, or the form >= 2
-                    if (spec_type == RateSpecialization.fixed or form >= 2) and not force_act_nonlog:
+                    if (spec_type == RateSpecialization.fixed or form >= 2) \
+                            and not force_act_nonlog:
                         # it's in log form
                         assert np.isclose(
                             ourvals[0], np.log(ctvals.pre_exponential_factor))
@@ -265,8 +268,10 @@ class SubTest(TestClass):
                     for j, rates in enumerate(plog_reacs[i].rates):
                         assert np.isclose(reac_params[j][0], rates[0])
                     # plog uses a weird form, so use force_act_nonlog
-                    rate_checker([rp[1:] for rp in reac_params], [rate[1] for rate in plog_reacs[i].rates],
-                                 [2 for rate in plog_reacs[i].rates], force_act_nonlog=True)
+                    rate_checker([rp[1:] for rp in reac_params],
+                                 [rate[1] for rate in plog_reacs[i].rates],
+                                 [2 for rate in plog_reacs[i].rates],
+                                 force_act_nonlog=True)
 
             simple_inds = sorted(list(set(range(gas.n_reactions)).difference(
                 set(plog_inds).union(set(cheb_inds)))))
@@ -276,14 +281,16 @@ class SubTest(TestClass):
             # test the simple reaction rates
             simple_reacs = [gas.reaction(i) for i in simple_inds]
             rate_checker([(result['simple']['A'][i], result['simple']['b'][i],
-                           result['simple']['Ta'][i]) for i in range(result['simple']['num'])],
+                           result['simple']['Ta'][i]) for i in range(
+                           result['simple']['num'])],
                          [__get_rate(reac, False) for reac in simple_reacs],
                          result['simple']['type'])
 
             # test the falloff (alternate) rates
             fall_reacs = [gas.reaction(i) for i in result['fall']['map']]
             rate_checker([(result['fall']['A'][i], result['fall']['b'][i],
-                           result['fall']['Ta'][i]) for i in range(result['fall']['num'])],
+                           result['fall']['Ta'][i]) for i in range(
+                           result['fall']['num'])],
                          [__get_rate(reac, True) for reac in fall_reacs],
                          result['fall']['type'])
 
@@ -295,7 +302,8 @@ class SubTest(TestClass):
             # test rate type
             rtypes = []
             for reac in gas.reactions():
-                if not (isinstance(reac, ct.PlogReaction) or isinstance(reac, ct.ChebyshevReaction)):
+                if not (isinstance(reac, ct.PlogReaction) or isinstance(
+                        reac, ct.ChebyshevReaction)):
                     rate = __get_rate(reac, fall)
                     if rate is None:
                         continue
@@ -441,6 +449,9 @@ class SubTest(TestClass):
         assert np.array_equal(result['thd']['eff'], thd_eff)
         assert np.array_equal(result['thd']['spec_num'], thd_sp_num)
         assert np.array_equal(result['thd']['spec'], thd_sp)
+        # check thermo temps
+        assert np.array_equal(result['minT'], self.store.gas.min_temp)
+        assert np.array_equal(result['maxT'], self.store.gas.max_temp)
 
     def __generic_rate_tester(self, func, kernel_calls, do_ratespec=False,
                               do_ropsplit=False, do_conp=False, **kwargs):
@@ -998,7 +1009,7 @@ class SubTest(TestClass):
         self.__generic_rate_tester(reset_arrays, kc)
 
     @parameterized.expand([(x,) for x in get_test_langs()])
-    @attr('verylong')
+    @attr('fullkernel')
     def test_specrates(self, lang):
         _full_kernel_test(self, lang, get_specrates_kernel, 'dphi',
                           lambda conp: self.store.dphi_cp if conp

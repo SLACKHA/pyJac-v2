@@ -19,7 +19,7 @@ recursive-include pyjac/core *.py
 recursive-include pyjac/functional_tester *.py *.yaml
 recursive-include pyjac/loopy_utils *.py *.in
 recursive-include pyjac/libgen *.py
-recursive-include pyjac/kernel_utils *.py *.in *.h *.c *.oclh *.ocl
+recursive-include pyjac/kernel_utils *.py *.in *.hpp *.cpp *.oclh *.ocl
 recursive-include pyjac/performance_tester *.py
 recursive-include pyjac/pywrap *.py *.in
 recursive-include pyjac/tests *.py *.inp * .cti *.in *.yaml
